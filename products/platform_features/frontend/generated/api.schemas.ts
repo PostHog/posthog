@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface InternalFeedbackResponseApi {
+    /** True when the feedback reached Slack. */
+    success: boolean
+}
+
 /**
  * * `1` - member
  * * `8` - administrator
@@ -1230,6 +1235,26 @@ export interface PatchedPinnedSceneTabsApi {
     homepage?: PinnedSceneTabApi | null
 }
 
+export type InternalFeedbackCreateBody = {
+    /**
+     * What the person wants to tell the developers.
+     * @maxLength 4000
+     */
+    comment: string
+    /**
+     * URL of the page the feedback is about.
+     * @maxLength 2000
+     */
+    page_url: string
+    /**
+     * CSS selector of the element the person selected. Empty for feedback about the whole page.
+     * @maxLength 1000
+     */
+    element_identifier?: string
+    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+    screenshot?: Blob
+}
+
 export type ListParams = {
     /**
      * Number of results to return per page.
@@ -1334,6 +1359,7 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1437,6 +1463,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1527,6 +1554,7 @@ export const ActivityLogListScope = {
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1618,6 +1646,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',

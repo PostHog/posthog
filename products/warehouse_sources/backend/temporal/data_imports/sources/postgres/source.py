@@ -94,6 +94,10 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
+)
+
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
 # paste most often. The name only resolves inside Railway's own network, and the DNS failure that
 # follows asks them to check a spelling that is already correct, so name the public host instead.
@@ -1700,6 +1704,11 @@ class PostgresSource(
         host_value = config.host.strip()
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
+
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
 
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.

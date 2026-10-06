@@ -75,8 +75,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         query.update(overrides)
         return query
 
-    def test_enable_materialization_creates_saved_query(self):
-        """Test that enabling materialization creates a SavedQuery."""
+    @mock.patch("posthog.event_usage.posthoganalytics.capture")
+    def test_enable_materialization_creates_saved_query(self, mock_capture: mock.Mock) -> None:
         # Create an endpoint with version
         endpoint = create_endpoint_with_version(
             name="test_materialized_endpoint",
@@ -118,6 +118,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
         self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
+        view_events = [
+            call for call in mock_capture.call_args_list if call.kwargs.get("event") in {"view created", "view updated"}
+        ]
+        self.assertEqual(view_events, [])
 
     def test_enable_materialization_drops_the_cached_throttle_snapshot(self):
         endpoint = create_endpoint_with_version(

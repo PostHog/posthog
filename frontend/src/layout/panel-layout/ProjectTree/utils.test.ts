@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
 
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
@@ -205,14 +206,26 @@ describe('project tree utils', () => {
     })
 
     it.each(['trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness', 'hog', undefined, 'unknown'])(
-        'renders a saved insight with type %s using its insight icon',
+        'renders a saved insight with type %s using its insight icon and destination',
         (insightType) => {
             const [node] = convertFileSystemEntryToTreeDataItem({
-                imports: [{ id: 'report', path: 'Report', type: 'insight', meta: { insight_type: insightType } }],
+                imports: [
+                    {
+                        id: 'report',
+                        ref: 'report1',
+                        href: '/insights/report1',
+                        path: 'Report',
+                        type: 'insight',
+                        meta: { insight_type: insightType },
+                    },
+                ],
                 folderStates: {},
                 checkedItems: {},
                 root: 'project://',
             })
+            expect(node.record?.href).toEqual(
+                insightType === 'hog' ? urls.sqlEditor({ insightShortId: 'report1' }) : '/insights/report1'
+            )
             const expectedType = insightType && insightType !== 'unknown' ? `insight/${insightType}` : 'insight'
             expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
                 renderToStaticMarkup(iconForType(expectedType as FileSystemIconType))

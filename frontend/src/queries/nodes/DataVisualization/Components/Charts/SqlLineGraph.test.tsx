@@ -4,7 +4,7 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings, ChartSettingsFormatting, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { ChartSettings, ChartSettingsFormatting, VisualizationNode } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -84,7 +84,7 @@ const renderChart = async (overrides: Partial<SqlChartProps>): Promise<void> => 
 
 const lowestTick = (ticks: string[]): number => Math.min(...ticks.map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, ''))))
 
-// Full-mount helpers: drive a real SQL insight (DataVisualizationNode) through the
+// Full-mount helpers: drive a real SQL insight (VisualizationNode) through the
 // DataVisualization tree. Used for tooltip / legend / overlay behavior that depends on the live
 // render path, with the query result injected via cachedResults (no network).
 function lineFixture(columns: { name: string; type?: string; valueAt: (i: number) => unknown }[]): DataVizFixture {
@@ -104,7 +104,7 @@ const twoSeries = (): DataVizFixture =>
 const renderLine = (
     chartSettings: ChartSettings,
     fixture: DataVizFixture,
-    extra?: Partial<DataVisualizationNode>
+    extra?: Partial<VisualizationNode>
 ): ReturnType<typeof renderDataVisualization> =>
     renderDataVisualization({
         query: buildDataVisualizationQuery({

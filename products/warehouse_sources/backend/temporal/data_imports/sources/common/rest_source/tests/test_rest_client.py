@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from requests import Response
-from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
+from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout, TooManyRedirects
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -449,6 +449,30 @@ class TestRESTClient:
         assert "api_key" not in message
         assert "https://api.example.com/leads" in message
 
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_too_many_redirects_is_non_retryable(self, MockSession, mock_sleep) -> None:
+        # `requests` already exhausted its own redirect cap (30) chasing a final response and
+        # never got one — a deterministic loop baked into how the host answers this URL.
+        # Re-fetching replays the same chain, so this must fail fast rather than retrying to the
+        # tenacity cap (contrast the connection/timeout cases above, which stay retryable).
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
+        mock_session.send.side_effect = TooManyRedirects("Exceeded 30 redirects.")
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientNonRetryableError, match="Too many redirects") as ctx:
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 1
+        mock_sleep.assert_not_called()
+        # A redirect loop is always a customer/upstream condition, so it must carry the
+        # non-reportable marker the activity interceptor uses to keep it out of error tracking.
+        assert isinstance(ctx.value, NonReportableError)
+
     @pytest.mark.parametrize("content", [b"", b"   \n\t"], ids=["empty", "whitespace_only"])
     @patch("tenacity.nap.time.sleep")
     @patch(
@@ -771,6 +795,18 @@ class TestRESTClient:
         response.headers["anthropic-ratelimit-requests-reset"] = header_value
 
         assert _parse_retry_after(response) == expected
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_honors_x_rate_limit_reset(self, mock_datetime) -> None:
+        # X answers 429 with a UNIX epoch reset and no ``Retry-After``. Its windows run 15 minutes,
+        # so without this the exponential fallback burns the attempt budget inside one window.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        response = _make_response({"title": "Too Many Requests"}, status_code=429)
+        response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
+
+        assert _parse_retry_after(response) == 120
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:
