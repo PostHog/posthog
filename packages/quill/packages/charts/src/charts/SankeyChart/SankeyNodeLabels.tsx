@@ -35,7 +35,7 @@ export function SankeyNodeLabels({ color, showValues, valueFormatter }: SankeyNo
             {layout.nodes.map((node) => {
                 const text = showValues ? `${node.label} ${valueFormatter(node.value)}` : node.label
                 const last = node.column === layout.columnCount - 1 && layout.columnCount > 1
-                const shown = truncateToWidth(text, isFinite(maxWidth) ? maxWidth : Infinity, LABEL_FONT)
+                const shown = truncateToWidth(text, maxWidth, LABEL_FONT)
                 const style: React.CSSProperties = {
                     ...LABEL_STYLE_BASE,
                     color,
