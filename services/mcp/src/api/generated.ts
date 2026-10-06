@@ -83163,15 +83163,24 @@ export namespace Schemas {
          */
       main_distinct_id?: string | null;
       /**
-         * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+         * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. The response reports the person each one lands on. Cannot be combined with `main_distinct_id`.
          * @nullable
          */
       distinct_ids_to_split?: string[] | null;
     }
 
+    export interface PersonSplitResult {
+      /** A distinct_id this split moves off the original person. */
+      distinct_id: string;
+      /** UUID of the person this distinct_id lands on. Stable, so a caller can address the new person before the async split completes. */
+      new_person_uuid: string;
+    }
+
     export interface PersonSplitResponse {
       /** Always `true` when the split task was enqueued. The split itself runs asynchronously — a 201 response means the task was accepted, not that the merge state has already been updated. */
       success: boolean;
+      /** One entry per distinct_id this split moves, in request order. Lets a caller locate the new persons without polling or deriving their UUIDs. */
+      splits: PersonSplitResult[];
     }
 
     export interface PersonUpdatePropertyRequest {
