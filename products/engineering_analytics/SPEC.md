@@ -97,6 +97,23 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 - A pull request's lifetime cost on the list reads is cached for 5 minutes per pull request, because it needs a full jobs scan however few pull requests a page shows. CI status stays live. The cache key carries a hash of the cost query, so a change to the query, its prices or the resolved tables starts a fresh cache. A cached value is served only when the reader's HogQL catalog grants every table that query reads.
 
+### Stored CI rows
+
+Two ClickHouse tables hold the output of the runs builder and of the jobs builder: `engineering_analytics_ci_runs_precomputed` and `engineering_analytics_ci_jobs_precomputed`.
+A query on the raw tables parses every payload and repeats the hand-off shell filter each time, so the parsed rows are stored once and read many times.
+`logic/ci_precompute.py` defines what is stored, and the lazy computation framework of analytics_platform runs the inserts.
+
+- One job stores the rows that one repository of one source created on one UTC day. The day of creation never changes, so a row has one home.
+- A stored row depends only on raw rows created near its own day. A job row carries its cost, which reads no run column. It does not carry the attribution of its run, because a re-run moves the start of a run. A read joins jobs to runs.
+- A runs row keeps a hand-off shell and marks it with `is_handoff_shell`, where the raw read drops it (§6). A stored job row cannot tell a dropped run from a run that never synced, and a read needs that difference to leave the jobs of a shell out.
+- `stopped_reporting` is not stored. It depends on the clock, so a read derives it from `status` and `updated_at`.
+- Each row carries its `source_id` and its `repository` (`owner/name` in lower case). A repository that two GitHub sources sync is stored once for each source, with its Depot CI rows. A read takes the rows of one source, so they never count twice.
+- A load of runs, jobs or Depot job attempts starts a refresh in a Celery task, and a team runs one refresh at a time. After an insert fails, the team starts no refresh for 30 minutes, so a day that cannot be stored is not scanned again on every load. The refresh stores each day that is missing or too old: 15 minutes for today and yesterday in UTC, 6 hours for the last week, and 5 to 7 days for older days. Most runs stop changing within a day of their creation. A re-run or an expired run changes an older row, and the table shows it after the age of its band.
+- The scans that give a row its flags reach a fixed 7 days around the day. A run that fails in a re-run more than 7 days after its creation, and then passes again, can keep a shell flag it should lose. A job that is re-listed more than 7 days after its first listing is not flagged as a copy.
+- A team stores rows only while the `engineering-analytics-stored-reads` flag targets its organization or project, because a refresh runs with no user.
+- A change to a builder changes the insert query, and the framework keys its jobs on that query. So a deploy that changes a builder starts a new set of days, and no read mixes rows of two builder versions.
+- A refresh reads every source of the team with no user, so the stored rows are outside the per-table warehouse access control. The tables are therefore in no shared HogQL catalog: no insight, subscription or `execute-sql` query can name them. Only the curated read layer reads them, and it checks the reader's access itself.
+
 ### Exposed warehouse views
 
 Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.

@@ -91,9 +91,10 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
         assert not self._has_viewset()
 
     @parameterized.expand([("github_jobs", False), ("depot_attempts", True)])
+    @patch("products.engineering_analytics.backend.warehouse_view_sync.refresh_ci_precompute.delay")
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
     def test_creates_viewset_and_syncs_for_qualifying_source(
-        self, _name: str, from_depot: bool, mock_sync: MagicMock
+        self, _name: str, from_depot: bool, mock_sync: MagicMock, mock_refresh: MagicMock
     ) -> None:
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
@@ -106,6 +107,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
 
         mock_sync.assert_called_once()
         assert self._has_viewset()
+        mock_refresh.assert_called_once_with(team_id=self.team.pk)
 
     @parameterized.expand([("operational", OperationalError), ("interface", InterfaceError)])
     @patch("products.engineering_analytics.backend.warehouse_view_sync.capture_exception")

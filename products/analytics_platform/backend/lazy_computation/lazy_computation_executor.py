@@ -68,6 +68,9 @@ DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
 DEFAULT_POLL_INTERVAL_SECONDS = 1.0  # Initial poll interval (doubles each iteration)
 DEFAULT_MAX_POLL_INTERVAL_SECONDS = 30.0  # Cap for exponential backoff
 DEFAULT_RETRIES = 1  # Maximum retry attempts for failed jobs
+# The entry in `LazyComputationResult.errors` for a call that ran out of its wait budget. A caller
+# compares against it to tell a call that needs more time from a call whose insert failed.
+WAIT_TIMEOUT_ERROR = "Timeout waiting for computation jobs"
 
 # How long to wait for another executor to insert a job, before we assume it has failed.
 # With CH heartbeat liveness, this mainly covers the gap between CH start marker and
@@ -567,6 +570,8 @@ class LazyComputationTable(StrEnum):
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
+    ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED = "engineering_analytics_ci_runs_precomputed"
+    ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED = "engineering_analytics_ci_jobs_precomputed"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -578,6 +583,8 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
     LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
+    LazyComputationTable.ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED,
+    LazyComputationTable.ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED,
 }
 
 
@@ -1179,7 +1186,7 @@ class LazyComputationExecutor:
         try:
             while True:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
-                    errors.append("Timeout waiting for computation jobs")
+                    errors.append(WAIT_TIMEOUT_ERROR)
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
                     )
@@ -1255,7 +1262,7 @@ class LazyComputationExecutor:
                         # insert once the budget is spent rather than running the whole set
                         # back-to-back and blowing well past wait_timeout_seconds.
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
-                            errors.append("Timeout waiting for computation jobs")
+                            errors.append(WAIT_TIMEOUT_ERROR)
                             result = LazyComputationResult(
                                 ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
                             )

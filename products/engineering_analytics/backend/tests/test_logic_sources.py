@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -21,6 +22,7 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_github_tables,
     resolve_job_source_tables,
+    resolve_precompute_sources,
     resolve_team_membership_table,
 )
 from products.engineering_analytics.backend.logic.views.depot_ci import DepotJobAttempts
@@ -513,26 +515,34 @@ class TestMultiRepoGitHubResolution(BaseTest):
         )
         # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
-        assert set(resolve_job_source_tables(self.team)) == {
-            JobSourceTables(
-                github_workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
-                github_workflow_runs="costgithub_posthog_posthog_workflow_runs",
-                pull_requests=None,
-                source_id=str(source.id),
-            ),
-            JobSourceTables(
-                github_workflow_jobs="prsgithub_posthog_posthog_workflow_jobs",
-                github_workflow_runs="prsgithub_posthog_posthog_workflow_runs",
-                pull_requests="prsgithub_posthog_posthog_pull_requests",
-                source_id=str(with_prs.id),
-                depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
-            ),
-            JobSourceTables(
-                github_workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
-                github_workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
-                pull_requests=None,
-                source_id=str(source.id),
-            ),
+        depot_attempts = DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog")
+        without_prs = JobSourceTables(
+            github_workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
+            github_workflow_runs="costgithub_posthog_posthog_workflow_runs",
+            pull_requests=None,
+            source_id=str(source.id),
+            repository="posthog/posthog",
+        )
+        with_depot = JobSourceTables(
+            github_workflow_jobs="prsgithub_posthog_posthog_workflow_jobs",
+            github_workflow_runs="prsgithub_posthog_posthog_workflow_runs",
+            pull_requests="prsgithub_posthog_posthog_pull_requests",
+            source_id=str(with_prs.id),
+            repository="posthog/posthog",
+            depot_job_attempts=depot_attempts,
+        )
+        other_repo = JobSourceTables(
+            github_workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
+            github_workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
+            pull_requests=None,
+            source_id=str(source.id),
+            repository="posthog/posthog.com",
+        )
+        assert set(resolve_job_source_tables(self.team)) == {without_prs, with_depot, other_repo}
+        assert set(resolve_precompute_sources(self.team)) == {
+            replace(without_prs, depot_job_attempts=depot_attempts),
+            with_depot,
+            other_repo,
         }
 
     def test_picker_lists_one_entry_per_configured_repo(self) -> None:
