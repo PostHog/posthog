@@ -1245,6 +1245,8 @@ def test_scored_pool_names_the_definition_a_scores_object_was_written_under(scor
         # Rows that name no family belong to a retired one, and grading them under a null name splits the series.
         (_scores(["a"]).drop(columns=["model_name"]), []),
         (_scores(["a", "b"], model_name=[None, EMBEDDINGS_MODEL_NAME]), [EMBEDDINGS_MODEL_NAME]),
+        # Named rows of a retired family are dropped too, or its grades outlive the family.
+        (_scores(["a", "b"], model_name=["tabular_xgb", EMBEDDINGS_MODEL_NAME]), [EMBEDDINGS_MODEL_NAME]),
     ],
 )
 def test_with_model_names_drops_rows_that_name_no_family(scores, expected):

@@ -64,8 +64,9 @@ CHAMPION_ROLE = "champion"
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
 TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
-# Families this build no longer trains. Saved scores objects still hold their rows, and no re-run can
-# produce those rows again, so the rewrite guard does not require them.
+# Families this build no longer trains. Saved scores objects still hold their rows, so every reader
+# drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
+# not require rows that no re-run can produce.
 RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
@@ -325,15 +326,16 @@ def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
 
 
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
-    """`scores` without the rows that name no model family.
+    """`scores` without the rows that name no model family or a retired one.
 
     A scores object written before the `model_name` column existed holds only rows of a retired
-    family. No family this build trains can grade them, and grading them under a null name would
-    put them in a series of their own, so they are dropped. The caller compares lengths to count them.
+    family, and a later object can still hold named rows of one. No family this build trains can
+    grade them, and grading them would keep a retired series alive, or put the unnamed rows in a
+    series of their own, so they are dropped. The caller compares lengths to count them.
     """
     if "model_name" not in scores:
         return scores.iloc[0:0].assign(model_name=pd.Series(dtype=object))
-    return scores[scores["model_name"].notna()]
+    return scores[scores["model_name"].notna() & ~scores["model_name"].isin(RETIRED_MODEL_NAMES)]
 
 
 def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:
@@ -347,8 +349,7 @@ def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> li
     stamp alone cannot. A retired family's rows do not count: no re-run can produce them, so
     counting them would refuse every re-run of the days that hold them.
     """
-    held = set(with_model_names(existing)["model_name"].unique()) - RETIRED_MODEL_NAMES
-    return sorted(held - set(scores["model_name"].unique()))
+    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
 
 
 def score_pool(

@@ -1396,7 +1396,8 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
             scores = with_model_names(table.to_pandas())
             if len(scores) < table.num_rows:
                 context.log.warning(
-                    f"dropped {table.num_rows - len(scores)} {kind} score rows of {scoring_partition} with no model_name"
+                    f"dropped {table.num_rows - len(scores)} {kind} score rows of {scoring_partition} with no model_name "
+                    "or a retired one"
                 )
             pool = scored_pool(scores)
             graded_by_head: dict[str, pd.DataFrame] = {}
