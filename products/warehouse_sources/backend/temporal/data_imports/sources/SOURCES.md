@@ -634,6 +634,7 @@ the row lists both.
 | profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | prompting_company                | HTTP                        | requests                                                        | ✅                          |
 | promptwatch                      | HTTP                        | requests                                                        | ✅                          |
+| proofpoint_tap                   | HTTP                        | requests                                                        | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
@@ -1340,7 +1341,6 @@ doesn't conflict with concurrent PRs.
 - printavo
 - procore
 - productiv
-- proofpoint_tap
 - pubnub
 - quay
 - quickbooks
