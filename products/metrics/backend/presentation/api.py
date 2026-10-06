@@ -144,10 +144,12 @@ class _MetricClauseSerializer(serializers.Serializer):
 
 
 class MetricQueryInterval(models.TextChoices):
-    SECOND = "second", "second"
+    SECOND_15 = "second_15", "second_15"
+    SECOND_30 = "second_30", "second_30"
     MINUTE = "minute", "minute"
     MINUTE_5 = "minute_5", "minute_5"
     MINUTE_15 = "minute_15", "minute_15"
+    MINUTE_30 = "minute_30", "minute_30"
     HOUR = "hour", "hour"
     HOUR_6 = "hour_6", "hour_6"
     DAY = "day", "day"
