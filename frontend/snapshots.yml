@@ -11766,6 +11766,10 @@ snapshots:
         hash: v1.k794b7964.0abe2d58ee70ac24582205caacee0e0b09831b9f04687d5ee1d9ec28f7f99be8.23pCSt9pA4N6R0id0jXh6Z0GpGSmmifTz1Ur090dRnY
     scenes-app-marketing-analytics-search-performance--flag-off--light:
         hash: v1.k794b7964.9336af8fdbf0c10e0dadbdc398517b3856ad19eae7ff0f580ddd507e4202b57b.92lmvS4XqmLPpRq2h7e7R_7p8x2ZpdvIaIAKZRL4lQU
+    scenes-app-marketing-analytics-search-performance--landing-pages--dark:
+        hash: v1.k794b7964.62ba6335df58e3073ae81e43aacbbd8fa1c77f7265c489e863f5e622358af4ea.FmrnlcNqxK5iLB3-xr613EDWIG4BcMBYFKUr98gTVvo
+    scenes-app-marketing-analytics-search-performance--landing-pages--light:
+        hash: v1.k794b7964.4deaf12c332971e15f972d0dec3fbd0c3e3343325a536e50dee92934d14f82ff.nigxzpdupH3jx2rXs9f2DD35x1rF8S_8f74GpuxF9Lg
     scenes-app-marketing-analytics-search-performance--legacy-scene--dark:
         hash: v1.k794b7964.e1a1cd0478c83cc6c150eb12c9837bd7b7fd7d872705e139d2b08de1bf018a58.OhnJFpYwlPc4WV77AvPUqIkDwfDvl95fp_WVW7-YMYc
     scenes-app-marketing-analytics-search-performance--legacy-scene--light:
