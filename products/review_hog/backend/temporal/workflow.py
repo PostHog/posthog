@@ -32,6 +32,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
@@ -48,6 +49,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
@@ -74,6 +76,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -559,6 +562,7 @@ class ReviewPRWorkflow:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
         publish_result: PublishResult | None = None
+        marker: ReviewHogMarker | None = None
         try:
             await workflow.execute_activity(
                 sync_review_skills_activity,
@@ -572,6 +576,25 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
+            if workflow.patched("record-turn-marker-2026-10"):
+                try:
+                    marker = await workflow.execute_activity(
+                        record_turn_marker_activity,
+                        RecordTurnMarkerInput(
+                            team_id=inputs.team_id,
+                            report_id=report_id,
+                            head_sha=head_sha,
+                            run_index=meta.run_index,
+                            acting_user_id=acting_user_id,
+                            review_mode=inputs.review_mode,
+                            flash_reasoning_effort=acting.flash_reasoning_effort,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except ActivityError:
+                    workflow.logger.warning("Could not record the turn marker; continuing without it")
 
             stage = SandboxStageInput(
                 team_id=inputs.team_id,
@@ -748,6 +771,7 @@ class ReviewPRWorkflow:
                     turn_trigger_source=inputs.trigger_source,
                     review_mode=inputs.review_mode,
                     flash_reasoning_effort=acting.flash_reasoning_effort,
+                    marker=marker,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -770,6 +794,7 @@ class ReviewPRWorkflow:
                         resolved_from=acting.resolved_from,
                         review_mode=inputs.review_mode,
                         celebrate_clean_reviews=acting.celebrate_clean_reviews,
+                        marker=marker,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

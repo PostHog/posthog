@@ -14,6 +14,7 @@ describe('openFeatureFlagDisableDialog', () => {
     const open = (): void =>
         openFeatureFlagDisableDialog({
             source: 'feature-flags-list',
+            filters: { groups: [] },
             onDisable,
             onDisableAndArchive,
         })

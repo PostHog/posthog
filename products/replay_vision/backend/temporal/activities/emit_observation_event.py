@@ -70,6 +70,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         "emits_signals": snapshot.emits_signals,
         # Flatten scanner output so HogQL can query individual fields without a JSON extract.
         **inputs.model_output.to_event_properties(),
+        **_experiment_properties(observation, snapshot),
         **_group_properties(team, observation),
     }
     distinct_id = (
@@ -91,6 +92,21 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         event_uuid=str(observation.id),
     )
     result.raise_for_status()
+
+
+def _experiment_properties(observation: ReplayObservation, snapshot: ScannerSnapshot) -> dict:
+    """The watched experiment and this session's attributed variant, so HogQL readouts over
+    `$recording_observed` need no exposure join. Empty for scans that watch no experiment; the
+    variant is absent on rows scanned before attribution shipped."""
+    scope = snapshot.experiment_scope()
+    if not scope or scope.get("experiment_id") is None:
+        return {}
+    properties: dict = {"experiment_id": scope["experiment_id"]}
+    result = observation.scanner_result if isinstance(observation.scanner_result, dict) else {}
+    variant = result.get("experiment_variant")
+    if variant is not None:
+        properties["experiment_variant"] = variant
+    return properties
 
 
 def _group_properties(team: Team, observation: ReplayObservation) -> dict:
