@@ -254,9 +254,11 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         return False
 
     organization_id = str(team.organization_id)
-    try:
-        flag_enabled = any(
-            feature_enabled_or_false(
+    flag_enabled = False
+    # Each flag is evaluated on its own, so an error on one flag cannot hide access the other grants.
+    for flag in MANAGED_WAREHOUSE_ACCESS_FLAGS:
+        try:
+            flag_enabled = feature_enabled_or_false(
                 flag,
                 organization_id,
                 groups={"organization": organization_id},
@@ -264,12 +266,14 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
-            for flag in MANAGED_WAREHOUSE_ACCESS_FLAGS
-        )
-    except Exception as error:
-        await logger.awarning("Failed to evaluate DuckLake data imports registration feature flag", error=str(error))
-        capture_exception(error)
-        return False
+        except Exception as error:
+            await logger.awarning(
+                "Failed to evaluate DuckLake data imports registration feature flag", flag=flag, error=str(error)
+            )
+            capture_exception(error)
+            continue
+        if flag_enabled:
+            break
 
     if not flag_enabled:
         return False
