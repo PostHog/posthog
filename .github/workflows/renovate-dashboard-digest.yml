@@ -1,10 +1,12 @@
 name: Renovate dashboard digest
 
 # Renovate has no notification channel of its own, and every update here waits for approval on
-# the Dependency Dashboard issue, so nobody is told when the backlog or the CVE count grows.
-# This posts the dashboard's headline counts to #team-devex every Monday through the DevEx bot.
+# the Dependency Dashboard issue, so nobody is told when the backlog grows. The issue also stops
+# at GitHub's body size limit, which hides most of the backlog. This runs Renovate's lookup
+# against the checkout to get the full list, then posts one table to #team-devex through the
+# DevEx bot. The lookup creates no branches, pull requests or issues.
 #
-# Requires secrets.SLACK_DEVEX_BOT_TOKEN. GITHUB_TOKEN only reads the dashboard issue.
+# Requires secrets.SLACK_DEVEX_BOT_TOKEN. GITHUB_TOKEN only reads release data from github.com.
 
 on:
     schedule:
@@ -22,32 +24,34 @@ on:
 
 permissions:
     contents: read
-    issues: read
+
+env:
+    RENOVATE_REPORT_PATH: ${{ github.workspace }}/renovate-report.json
 
 jobs:
     digest:
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        timeout-minutes: 20
         # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
         if: >-
             github.repository == 'PostHog/posthog' &&
             (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: |
-                      .github/scripts/renovate-dashboard-digest.mjs
-                      .github/scripts/weekly-report-common.mjs
-                      .nvmrc
-                  sparse-checkout-cone-mode: false
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
 
-            - name: Build and post the Renovate dashboard digest
+            - name: Look up pending updates
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_COM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RENOVATE_REPORT_TYPE: file
+                  LOG_LEVEL: warn
+              run: npx --yes renovate@44.139.0 --platform=local --dry-run=lookup
+
+            - name: Post the digest
+              env:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   SLACK_CHANNEL: ${{ inputs.channel }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
