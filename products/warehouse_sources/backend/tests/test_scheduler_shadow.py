@@ -520,6 +520,75 @@ def _free_port() -> int:
 
 @pytest.mark.django_db
 class TestShadowReport:
+    @pytest.mark.parametrize(
+        "fired_offset_minutes,due_offset_minutes,expected_matched,expected_temporal_only",
+        [
+            pytest.param(-10, 5, 1, 0, id="pre_window_job_matches"),
+            pytest.param(-10, None, 0, 0, id="unmatched_pre_window_job"),
+            pytest.param(10, None, 0, 1, id="unmatched_in_window_job"),
+        ],
+    )
+    def test_report_counts_jobs_at_window_start(
+        self, team, monkeypatch, fired_offset_minutes, due_offset_minutes, expected_matched, expected_temporal_only
+    ):
+        db_url = get_test_database_url()
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_scheduler_tables(conn)
+            conn.execute(f"TRUNCATE {SCHEDULER_DECISION_TABLE}")
+        monkeypatch.setattr(
+            "products.warehouse_sources.backend.management.commands.report_warehouse_scheduler_shadow"
+            ".WAREHOUSE_SOURCES_DATABASE_URL",
+            db_url,
+        )
+
+        source = _create_source(team)
+        schema = _create_schema(team, source)
+        since = (datetime.now(UTC) - timedelta(hours=2)).replace(microsecond=0)
+        if due_offset_minutes is not None:
+            due_at = since + timedelta(minutes=due_offset_minutes)
+            with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+                conn.execute(
+                    f"""
+                    INSERT INTO {SCHEDULER_DECISION_TABLE}
+                        (team_id, kind, schedule_key, window_boundary, due_at, decision, interval_seconds, late_seconds)
+                    VALUES (%(team_id)s, %(kind)s, %(schedule_key)s, %(due_at)s, %(due_at)s, 'would_fire', 21600, 1.0)
+                    """,
+                    {"team_id": team.pk, "kind": SYNC_EXTRACT_KIND, "schedule_key": str(schema.id), "due_at": due_at},
+                )
+
+        fired_at = since + timedelta(minutes=fired_offset_minutes)
+        ExternalDataJob.objects.create(
+            team=team,
+            pipeline=source,
+            schema=schema,
+            status="Running",
+            workflow_id=f"{schema.id}-{fired_at.isoformat()}",
+        )
+
+        out = io.StringIO()
+        err = io.StringIO()
+        call_command(
+            "report_warehouse_scheduler_shadow",
+            "--since",
+            since.isoformat(),
+            "--team-id",
+            str(team.pk),
+            stdout=out,
+            stderr=err,
+        )
+
+        output = out.getvalue()
+        decision_count = int(due_offset_minutes is not None)
+        assert f"matched: {expected_matched}" in output
+        assert "shadow_only (shadow would fire, no job): 0" in output
+        assert f"temporal_only (schedule-fired job, no decision): {expected_temporal_only}" in output
+        stderr = err.getvalue().splitlines()
+        assert "fetching decisions..." in stderr
+        assert any(line.startswith(f"fetched {decision_count} decisions in ") for line in stderr)
+        assert "fetching jobs..." in stderr
+        assert any(line.startswith("fetched 1 jobs in ") for line in stderr)
+        assert any(line.startswith("matching: done in ") for line in stderr)
+
     def test_report_matches_jobs_and_counts_adhoc(self, team, monkeypatch):
         db_url = get_test_database_url()
         with psycopg.Connection.connect(db_url, autocommit=True) as conn:
