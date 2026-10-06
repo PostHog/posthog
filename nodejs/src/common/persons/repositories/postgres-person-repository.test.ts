@@ -218,6 +218,11 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
+        function recordQueryTags(): () => string[] {
+            const spy = jest.spyOn(postgres, 'query')
+            return () => spy.mock.calls.map((call) => String(call[3]))
+        }
+
         async function tombstonePerson(person: InternalPerson): Promise<void> {
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
@@ -523,6 +528,7 @@ describe('PostgresPersonRepository', () => {
         it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
             await createTestPerson(team.id, 'contested-did')
             const uuid = new UUIDT().toString()
+            const queryTags = recordQueryTags()
 
             const result = await revivalRepository.createPerson(
                 TIMESTAMP,
@@ -538,6 +544,7 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+            expect(queryTags()).not.toContain('lockStrayDistinctIds')
             // The person row and the primary mapping it did attach are tombstoned, not
             // left live: a live person unreachable by its contested distinct id would
             // block the key forever. Like every tombstone, the properties are scrubbed.
@@ -680,10 +687,12 @@ describe('PostgresPersonRepository', () => {
                 if (!ownedBySamePerson) {
                     await createTestPerson(team.id, distinctId)
                 }
+                const queryTags = recordQueryTags()
 
                 await expect(revivalRepository.addDistinctId(person, distinctId, 0)).rejects.toThrow(
                     DistinctIdConflictError
                 )
+                expect(queryTags()).not.toContain('lockStrayDistinctIds')
             }
         )
 

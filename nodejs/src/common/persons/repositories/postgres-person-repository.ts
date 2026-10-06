@@ -582,13 +582,31 @@ export class PostgresPersonRepository
         if (distinctIds.length === 0) {
             return []
         }
+        const names = distinctIds.map(({ distinctId }) => distinctId)
+        // Almost every conflict is a live person's mapping, so return those without the lock below.
+        const {
+            rows: [{ healthy }],
+        } = await this.postgres.query<{ healthy: number }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT count(*)::int AS healthy FROM posthog_persondistinctid d
+             WHERE d.team_id = $1 AND d.distinct_id = ANY($2::text[]) AND d.is_deleted = false
+               AND ($3::bigint IS NULL OR d.person_id <> $3)
+               AND EXISTS (
+                   SELECT 1 FROM posthog_person p
+                   WHERE p.team_id = d.team_id AND p.id = d.person_id AND p.is_deleted = false
+               )`,
+            [person.team_id, names, operation === 'createPerson' ? person.id : null],
+            'countHealthyDistinctIdConflicts'
+        )
+        if (healthy === names.length) {
+            return []
+        }
         if (!tx) {
             return await this.inRawTransaction('reattachStrayDistinctIds', (newTx) =>
                 this.reattachStrayDistinctIds(person, distinctIds, operation, newTx)
             )
         }
 
-        const names = distinctIds.map(({ distinctId }) => distinctId)
         // Lock first: after a lock wait, an UPDATE's person subquery still reads the pre-wait snapshot.
         await this.postgres.query(
             tx,
