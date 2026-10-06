@@ -32,7 +32,12 @@ const tables = {
 
 describe('BI connections', () => {
     it('drags nested dimensions and measures using paths from the original source', () => {
-        const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
+        const catalog = new Proxy(tables, {
+            ownKeys: () => {
+                throw new Error('Connection traversal must not enumerate the full table catalog')
+            },
+        })
+        const [person] = buildBIConnections(source, catalog, ['["person"]', '["person","company"]'], {}, true)
         const [company] = person.connections
         expect(company.connections).toEqual([])
         const dimension = company.fields.dimensions[0]
