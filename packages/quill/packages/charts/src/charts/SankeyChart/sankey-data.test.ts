@@ -72,6 +72,16 @@ describe('computeSankeyLayout', () => {
         expect(aToDone?.color).toBe('#aaaaaa')
     })
 
+    it('caps node width by the column count, not the node count', () => {
+        const targets = Array.from({ length: 200 }, (_, i): SankeyNodeInput => ({ id: `t${i}` }))
+        const dense = layoutOf({
+            nodes: [{ id: 'start' }, ...targets],
+            links: targets.map((target) => ({ source: 'start', target: target.id, value: 1 })),
+        })
+        expect(dense.columnCount).toBe(2)
+        expect(dense.nodeWidth).toBe(10)
+    })
+
     it('returns an empty layout without links and throws on a link to a missing node', () => {
         expect(layoutOf({ links: [] }).nodes).toHaveLength(0)
         expect(() => layoutOf({ links: [{ source: 'start', target: 'nope', value: 1 }] })).toThrow(

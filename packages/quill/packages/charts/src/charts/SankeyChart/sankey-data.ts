@@ -131,6 +131,42 @@ export const EMPTY_SANKEY_LAYOUT: SankeyChartLayout<never> = {
     nodeWidth: 0,
 }
 
+/** Nodes on the longest path through the graph, which is the column count the layout engine
+ *  gives it. A cycle stops the count early; the engine reports the cycle itself. */
+function longestPathLength(
+    nodes: readonly SankeyNodeInput<unknown>[],
+    links: readonly SankeyLinkInput<unknown>[]
+): number {
+    const incoming = new Map<string, number>(nodes.map((node) => [node.id, 0]))
+    const outgoing = new Map<string, string[]>()
+    for (const link of links) {
+        incoming.set(link.target, (incoming.get(link.target) ?? 0) + 1)
+        const targets = outgoing.get(link.source)
+        if (targets) {
+            targets.push(link.target)
+        } else {
+            outgoing.set(link.source, [link.target])
+        }
+    }
+    const depth = new Map<string, number>()
+    const ready = nodes.filter((node) => incoming.get(node.id) === 0).map((node) => node.id)
+    let longest = 1
+    while (ready.length > 0) {
+        const id = ready.pop()!
+        const next = (depth.get(id) ?? 1) + 1
+        for (const target of outgoing.get(id) ?? []) {
+            depth.set(target, Math.max(depth.get(target) ?? 1, next))
+            longest = Math.max(longest, next)
+            const remaining = incoming.get(target)! - 1
+            incoming.set(target, remaining)
+            if (remaining === 0) {
+                ready.push(target)
+            }
+        }
+    }
+    return longest
+}
+
 /** Lays the graph out inside `plot`. Pure: safe to call from a memo or a test. Throws when a link
  *  names a missing node or the graph has a cycle, so a consumer bug surfaces through the chart's
  *  error boundary instead of drawing nothing. Returns `EMPTY_SANKEY_LAYOUT` when the graph has no
@@ -171,7 +207,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
-    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, nodes.length - 1))
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, longestPathLength(nodes, links) - 1))
 
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
