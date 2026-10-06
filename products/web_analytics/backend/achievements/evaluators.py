@@ -318,23 +318,27 @@ def _advance_conversion_bootstrap(
 
     chunk_hours = bootstrap.chunk_hours
     chunk_end = min(next_start + timedelta(hours=chunk_hours), bootstrap.end)
-    while True:
-        try:
-            _add_conversion_counts(
-                ctx,
-                actions,
-                daily,
-                bootstrap.created_since,
-                bootstrap.created_until,
-                next_start,
-                chunk_end if chunk_end < bootstrap.end else None,
-            )
-            break
-        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
-            if chunk_hours <= 1:
-                raise
-            chunk_hours = max(1, chunk_hours // 2)
-            chunk_end = min(next_start + timedelta(hours=chunk_hours), bootstrap.end)
+    try:
+        _add_conversion_counts(
+            ctx,
+            actions,
+            daily,
+            bootstrap.created_since,
+            bootstrap.created_until,
+            next_start,
+            chunk_end if chunk_end < bootstrap.end else None,
+        )
+    except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+        if chunk_hours <= 1:
+            raise
+        return ConversionBootstrap(
+            next_start=next_start,
+            end=bootstrap.end,
+            created_until=bootstrap.created_until,
+            phase=bootstrap.phase,
+            created_since=bootstrap.created_since,
+            chunk_hours=max(1, chunk_hours // 2),
+        )
 
     if chunk_end < bootstrap.end:
         return ConversionBootstrap(
@@ -383,6 +387,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
     if since is None and bootstrap is None:
         daily = {}
 
+    started_bootstrap = False
     with achievement_query_scope(ctx.team.id):
         if bootstrap is None:
             earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK) if since is not None else window_start
@@ -397,7 +402,8 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                     end=window_start + timedelta(days=CONVERSIONS_LOOKBACK_DAYS),
                     created_until=until,
                 )
-        if bootstrap is not None:
+                started_bootstrap = True
+        if bootstrap is not None and not started_bootstrap:
             bootstrap = _advance_conversion_bootstrap(ctx, actions, daily, bootstrap, window_start, until)
 
     oldest_kept_day = window_start.date().isoformat()
