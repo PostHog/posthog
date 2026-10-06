@@ -4569,10 +4569,10 @@ Today (4): `activities`, `contacts`, `jobs`, `tasks`
 Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11PpG4x?segregateAuth=true&versionTag=latest>
 
 - [ ] `/api1/v2/invoices` — billed revenue per job - the core financial fact table (high)
-- [ ] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
-- [ ] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
-- [ ] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
-- [ ] `/api1/account/settings (workflows, statuses, lead sources, custom fields)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
+- [x] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
+- [x] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
+- [x] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
+- [x] `/api1/account/settings (workflows, statuses, lead sources, custom fields)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
 - [ ] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
 - [ ] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
 - [ ] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium)
