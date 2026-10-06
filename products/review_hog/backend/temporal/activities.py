@@ -386,7 +386,7 @@ class DedupResult:
     issue_ids: list[str]
 
 
-@dataclass
+@dataclass(frozen=False)
 class BuildBodyInput:
     team_id: int
     report_id: str
