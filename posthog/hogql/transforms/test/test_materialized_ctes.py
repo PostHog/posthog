@@ -62,6 +62,7 @@ class TestMaterializedCTEs(SimpleTestCase):
             (_QUERY.format(body=_BODY).replace("AS (", "AS NOT MATERIALIZED (", 1), None),
             (_QUERY.format(body=_BODY).replace("AS (", "AS MATERIALIZED (", 1), True),
             (f"WITH totals AS ({_BODY}) SELECT sum(n) FROM totals", False),
+            (_QUERY.format(body=_BODY) + " WHERE l.event = 'example'", False),
             (
                 f"WITH totals AS ({_BODY}) SELECT sum(n) FROM totals WHERE event = 'example' UNION ALL SELECT max(n) FROM totals",
                 False,
@@ -77,7 +78,10 @@ class TestMaterializedCTEs(SimpleTestCase):
             with self.assertRaisesRegex(ImpossibleASTError, "NOT MATERIALIZED"):
                 self._compile(query)
         else:
-            assert ("AS MATERIALIZED" in self._compile(query)) is materialized
+            sql = self._compile(query)
+            assert ("AS MATERIALIZED" in sql) is materialized
+            if not materialized:
+                assert sql == self._compile(query, enabled=False)
 
     @parameterized.expand([(False, True, None), (True, False, None), (True, True, False)])
     def test_modifier_capability_and_analyzer_are_required(
