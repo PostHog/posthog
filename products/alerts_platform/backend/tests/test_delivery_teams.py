@@ -13,6 +13,8 @@ from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
 from products.alerts_platform.backend.tests.delivery_messages import alert_message, pinned_post
 
+TEAMS_URL = "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=fake"
+
 
 class TestTeamsCard(SimpleTestCase):
     def test_a_message_is_an_adaptive_card_with_a_fact_per_detail(self) -> None:
@@ -54,16 +56,19 @@ class TestTeamsCard(SimpleTestCase):
     def test_a_query_error_cannot_push_the_card_past_what_teams_accepts(self) -> None:
         message = alert_message(
             details=(
-                MessageDetail(label="Error", value="😀*" * 50_000),
-                MessageDetail(label="Query", value="😀*" * 50_000),
+                MessageDetail(label="Error", value="\x01" * 50_000),
+                MessageDetail(label="Query", value="\x01" * 50_000),
                 MessageDetail(label="Failed checks", value="3"),
             )
         )
+        target = cast(AlertDestinationData, {"type": "teams", "webhook_url": TEAMS_URL})
 
-        card = card_for(message)
+        with pinned_post(202) as session:
+            TeamsTransport().deliver(team_id=2, target=target, message=message)
 
-        facts = card["attachments"][0]["content"]["body"][1]["facts"]
-        assert len(json.dumps(card, ensure_ascii=False).encode()) < 28_000
+        sent = session.post.call_args.kwargs["data"]
+        facts = json.loads(sent)["attachments"][0]["content"]["body"][1]["facts"]
+        assert len(sent) < 28_000
         assert facts[2] == {"title": "Failed checks", "value": "3"}
 
 
@@ -72,7 +77,7 @@ class TestTeamsTransport(SimpleTestCase):
         [
             (
                 "teams_workflow",
-                "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?sig=fake",
+                TEAMS_URL,
                 True,
             ),
             ("elsewhere", "https://example.com/hook", False),

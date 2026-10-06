@@ -5,6 +5,7 @@ that template accepts takes this one too.
 """
 
 import re
+import json
 from typing import Any, Final
 
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
@@ -15,7 +16,7 @@ from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTran
 
 PROVIDER: Final = "teams"
 
-# Teams rejects a payload over about 28 KB of UTF-8, so the card's text stays under this and leaves
+# Teams rejects a payload over about 28 KB, so the card's text stays under this as sent and leaves
 # room for the JSON envelope. Counting characters instead would let emoji or non-Latin text past.
 TEXT_BUDGET_BYTES: Final = 20_000
 
@@ -29,12 +30,23 @@ def escape_markdown(text: str) -> str:
     return _MARKDOWN_SPECIALS.sub(r"\\\1", text)
 
 
+def _wire_size(text: str) -> int:
+    # The bytes this string costs in the request body. JSON doubles every backslash the markdown
+    # escaping added, so the text's own UTF-8 length undercounts.
+    return len(json.dumps(text, ensure_ascii=False).encode())
+
+
 def _clip(text: str, budget: int) -> str:
-    encoded = text.encode()
-    if len(encoded) <= budget:
+    if _wire_size(text) <= budget:
         return text
-    # A byte slice can end inside a multibyte character, so the partial character is dropped.
-    return encoded[: max(budget - len("…".encode()), 0)].decode(errors="ignore") + "…"
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _wire_size(text[:middle] + "…") <= budget:
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low] + "…"
 
 
 def card_for(message: AlertMessage) -> dict[str, Any]:
@@ -43,7 +55,7 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
     if message.details:
         # An error message can carry a whole query, so it is a detail that overflows. Each detail
         # gets an equal share, so clipping the error cannot drop the failure count after it.
-        share = (TEXT_BUDGET_BYTES - len(headline.encode())) // len(message.details)
+        share = (TEXT_BUDGET_BYTES - _wire_size(headline)) // len(message.details)
         body.append(
             {
                 "type": "FactSet",
