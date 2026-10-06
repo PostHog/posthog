@@ -1333,6 +1333,8 @@ export const ObservationDetailFailed: StoryObj = {
     ...observationDetailStory(failedObservationDetail),
     play: async ({ canvasElement }) => {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).toBeVisible())
+        // The floating player controls hide on a timer after mount, so wait for that to happen before the snapshot.
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).not.toBeVisible())
     },
 }
 
