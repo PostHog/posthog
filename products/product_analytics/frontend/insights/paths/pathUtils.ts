@@ -104,13 +104,19 @@ const findClosestAvailableCardTop = (
     const minimumDistance = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_OVERLAP_GAP
     const maximumTop = Math.max(0, canvasHeight - PATH_NODE_CARD_HEIGHT)
     const clamp = (top: number): number => Math.min(Math.max(top, 0), maximumTop)
+    // A candidate sits within MAXIMUM_CARD_NUDGE of naturalTop, and only a card within
+    // minimumDistance of a candidate can block it, so cards further away cannot change the result.
+    // Skipping them stops a dense layer from checking every card against every candidate.
+    const nearbyTops = occupiedTops.filter(
+        (occupiedTop) => Math.abs(occupiedTop - naturalTop) <= MAXIMUM_CARD_NUDGE + minimumDistance
+    )
     const candidateTops = [
         clamp(naturalTop),
-        ...occupiedTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
+        ...nearbyTops.flatMap((occupiedTop) => [occupiedTop - minimumDistance, occupiedTop + minimumDistance]),
     ].filter((top) => top >= 0 && top <= maximumTop && Math.abs(top - naturalTop) <= MAXIMUM_CARD_NUDGE)
 
     const freeTop = candidateTops
-        .filter((top) => occupiedTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
+        .filter((top) => nearbyTops.every((occupiedTop) => Math.abs(top - occupiedTop) >= minimumDistance))
         .sort((a, b) => Math.abs(a - naturalTop) - Math.abs(b - naturalTop) || a - b)[0]
 
     return freeTop === undefined ? { top: clamp(naturalTop), foundGap: false } : { top: freeTop, foundGap: true }
