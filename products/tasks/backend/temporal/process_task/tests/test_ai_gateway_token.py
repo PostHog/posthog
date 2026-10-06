@@ -12,14 +12,18 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+import requests
+
 from posthog.constants import AvailableFeature
-from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Organization, Team, User
+from posthog.security.outbound_proxy import internal_requests
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.facade.billing import get_task_run_cost
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
 from products.tasks.backend.logic.services.gateway_model_pin import (
     DESKTOP_AGENT_MODELS,
@@ -43,7 +47,6 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     mint_refusal,
     mint_scoped_token,
     resolve_sandbox_ai_product,
-    revoke_scoped_token,
     sandbox_product_routed,
     token_cap_usd,
 )
@@ -159,6 +162,18 @@ def mint_settings(settings):
     return settings
 
 
+@pytest.fixture(
+    params=[None, AIGatewayConfig(url="https://service-gateway.example.com/v1/", api_key="phs_test_service")],
+    ids=["sandbox-settings", "service-settings"],
+)
+def gateway_config(request: pytest.FixtureRequest, mint_settings: Settings) -> AIGatewayConfig | None:
+    config: AIGatewayConfig | None = request.param
+    if config is not None:
+        mint_settings.SANDBOX_AI_GATEWAY_URL = ""
+        mint_settings.SANDBOX_AI_GATEWAY_MINT_KEY = ""
+    return config
+
+
 class TestMintScopedToken:
     def _response(self, status_code=201, body=None):
         response = MagicMock()
@@ -168,20 +183,19 @@ class TestMintScopedToken:
         return response
 
     @pytest.mark.parametrize("private", [False, True])
-    def test_mints_pinned_token(self, mint_settings, private: bool) -> None:
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+    def test_mints_pinned_token(self, mint_settings, private: bool, gateway_config: AIGatewayConfig | None) -> None:
+        with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.return_value = self._response(201, {"token": "phe_abc", "capture_mode": "none"})
-            assert (
-                mint_scoped_token(
-                    ai_product="signals_scout",
-                    team_id=123,
-                    capture_mode="none" if private else None,
-                    expires_in_seconds=600 if private else None,
-                )
-                == "phe_abc"
-            )
+            token: str | None
+            if private:
+                token = mint_private_gateway_token(team_id=123, expires_in_seconds=600, gateway_config=gateway_config)
+            else:
+                token = mint_scoped_token(ai_product="signals_scout", team_id=123, gateway_config=gateway_config)
+            assert token == "phe_abc"
         _, kwargs = post.call_args
-        assert post.call_args[0][0] == "https://ai-gateway.dev.posthog.dev/v1/tokens"
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args[0][0] == f"{expected_url}/tokens"
         assert kwargs["json"] == {
             "cap_usd": "3",
             "ttl_seconds": 600 if private else 14400,
@@ -189,38 +203,79 @@ class TestMintScopedToken:
             "obo": "123",
             **({"capture_mode": "none"} if private else {}),
         }
-        assert kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
+        assert kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
         assert kwargs["timeout"] == 3
 
     @pytest.mark.parametrize("capture_mode", [None, "default", False])
-    def test_private_mint_revokes_an_unacknowledged_token(self, mint_settings, capture_mode: object) -> None:
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+    def test_private_mint_revokes_an_unacknowledged_token(
+        self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
+    ) -> None:
+        with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.side_effect = [
                 self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
                 self._response(200, {"revoked": True}),
             ]
-            assert mint_scoped_token(ai_product="signals_scout", team_id=123, capture_mode="none") is None
+            assert (
+                mint_scoped_token(
+                    ai_product="signals_scout", team_id=123, capture_mode="none", gateway_config=gateway_config
+                )
+                is None
+            )
         assert post.call_count == 2
-        assert post.call_args.args == ("https://ai-gateway.dev.posthog.dev/v1/tokens/revoke",)
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args.args == (f"{expected_url}/tokens/revoke",)
         assert post.call_args.kwargs["json"] == {"token": "phe_ordinary"}
-        assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_test_mint"}
+        assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
 
     @pytest.mark.parametrize("status_code", [200, 403, 503])
-    def test_revocation_reports_failure_without_token_details(self, mint_settings, status_code: int) -> None:
+    def test_revocation_reports_failure_without_token_details(
+        self, mint_settings, status_code: int, gateway_config: AIGatewayConfig | None
+    ) -> None:
         with (
-            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch.object(internal_requests if gateway_config is not None else requests, "post") as post,
             patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
         ):
             post.return_value = self._response(status_code, {"revoked": status_code == 200})
             if status_code == 200:
-                revoke_scoped_token("phe_private")
+                revoke_private_gateway_token("phe_private", gateway_config=gateway_config)
             else:
                 with pytest.raises(
                     GatewayNotConfiguredError, match="^The private AI gateway credential could not be revoked$"
                 ):
-                    revoke_scoped_token("phe_private")
+                    revoke_private_gateway_token("phe_private", gateway_config=gateway_config)
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args.args == (f"{expected_url}/tokens/revoke",)
+        assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
         assert post.call_args.kwargs["json"] == {"token": "phe_private"}
         assert post.call_args.kwargs["allow_redirects"] is False
+
+    def test_service_token_requests_bypass_environment_proxy(
+        self, gateway_config: AIGatewayConfig | None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        proxy = "http://proxy.example.com:3128"
+        for variable in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+            monkeypatch.setenv(variable, proxy)
+        for variable in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(variable, raising=False)
+        minted = requests.Response()
+        minted.status_code = 201
+        minted._content = b'{"token": "phe_test_private", "capture_mode": "none"}'
+        revoked = requests.Response()
+        revoked.status_code = 200
+        revoked._content = b'{"revoked": true}'
+        with patch("requests.adapters.HTTPAdapter.send", side_effect=[minted, revoked]) as send:
+            token = mint_private_gateway_token(team_id=123, gateway_config=gateway_config)
+            revoke_private_gateway_token(token, gateway_config=gateway_config)
+
+        assert send.call_count == 2
+        for call in send.call_args_list:
+            proxies = call.kwargs["proxies"]
+            if gateway_config is not None:
+                assert not proxies
+            else:
+                assert proxies["https"] == proxy
 
     def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:

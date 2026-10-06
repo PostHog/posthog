@@ -882,7 +882,6 @@ describe('metricsViewerLogic', () => {
             formula: 'a / b',
             dateRange: { date_from: '-6h' },
             interval: 'minute_5',
-            minInterval: 'minute',
             display: { type: 'area' },
         }
 

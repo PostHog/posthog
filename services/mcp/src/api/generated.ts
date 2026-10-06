@@ -13311,11 +13311,6 @@ export namespace Schemas {
     export type AutoresearchModelModelRecipe = { [key: string]: unknown };
 
     /**
-     * Global feature importance and directionality. Used to explain top drivers on the model card.
-     */
-    export type AutoresearchModelModelExplanation = { [key: string]: unknown };
-
-    /**
      * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
      */
     export type AutoresearchModelMetrics = { [key: string]: unknown };
@@ -13334,6 +13329,57 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     */
+    export type FeatureDirectionEnum = typeof FeatureDirectionEnum[keyof typeof FeatureDirectionEnum];
+
+
+    export const FeatureDirectionEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
+
+    export interface FeatureImportance {
+      /**
+         * Feature column name, as returned by the feature SQL.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+         * @minimum 0
+         */
+      importance: number;
+      /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative */
+      direction: FeatureDirectionEnum;
+    }
+
+    /**
+     * Global feature importances for the model card.
+     */
+    export interface ModelExplanationField {
+      /**
+         * At most 30 features, strongest first.
+         * @maxItems 30
+         */
+      top_features?: FeatureImportance[];
+      /**
+         * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+         * @maxLength 500
+         */
+      method?: string;
+      /**
+         * Optional caveat shown under the chart.
+         * @maxLength 500
+         */
+      note?: string;
+    }
+
     export interface AutoresearchModel {
       /** Unique UUID of this model version. */
       readonly id: string;
@@ -13350,7 +13396,7 @@ export namespace Schemas {
       /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
       model_recipe: AutoresearchModelModelRecipe;
       /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-      model_explanation: AutoresearchModelModelExplanation;
+      model_explanation: ModelExplanationField;
       /**
          * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
          * @nullable
@@ -23637,11 +23683,6 @@ export namespace Schemas {
     }
 
     /**
-     * Global feature importance / directionality bundle for the champion model card.
-     */
-    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
-
-    /**
      * Input for finalizing a training run. The backend selects/promotes the champion.
      */
     export interface CompleteTrainingRun {
@@ -23651,7 +23692,7 @@ export namespace Schemas {
          */
       best_iteration_id?: string | null;
       /** Global feature importance / directionality bundle for the champion model card. */
-      model_explanation?: CompleteTrainingRunModelExplanation;
+      model_explanation?: ModelExplanationField;
       /**
          * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
          * @maxLength 2000
@@ -55242,11 +55283,9 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
-      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
-      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -64081,10 +64120,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day
@@ -64094,10 +64135,12 @@ export namespace Schemas {
 
 
     export const MetricQueryIntervalEnum = {
-      Second: 'second',
+      Second15: 'second_15',
+      Second30: 'second_30',
       Minute: 'minute',
       Minute5: 'minute_5',
       Minute15: 'minute_15',
+      Minute30: 'minute_30',
       Hour: 'hour',
       Hour6: 'hour_6',
       Day: 'day',
@@ -110617,10 +110660,12 @@ export namespace Schemas {
       bucketStart: string;
       /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
@@ -110710,10 +110755,12 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
       /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
