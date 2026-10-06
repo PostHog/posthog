@@ -653,9 +653,7 @@ async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_pr
 @pytest.mark.parametrize(
     "trigger_source,reviewed_head,gate_skips,fail_gate,expected_gate,expected_review",
     [
-        # The first automatic review of a PR always runs.
         ("automatic", None, True, False, [], True),
-        # Human triggers never reach the gate, even on a PR with an automatic review behind it.
         ("label", "sha0", True, False, [], True),
         ("manual", "sha0", True, False, [], True),
         ("automatic", "sha0", True, False, ["sha0"], False),
@@ -683,7 +681,6 @@ async def test_push_gate_judges_only_automatic_follow_ups(
     )
     assert recorded["gate"] == expected_gate
     assert bool(recorded["review"]) is expected_review
-    # A skipped push leaves the PR's status comment and the started count alone.
     assert bool(recorded["status_posts"]) is expected_review
     assert bool(recorded["track_started"]) is expected_review
 

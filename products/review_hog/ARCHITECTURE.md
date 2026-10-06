@@ -754,11 +754,11 @@ It waits for an active resolution stage and runs each review in a `review-pr` ch
 An explicit Full request remains pending during an active Flash turn and runs if that head still needs a Full review.
 Automatic pushes coalesce to the latest head; turning off the authored-PR setting prevents pending automatic reviews from starting without canceling a running turn.
 `automatic_reviewed_head_sha` advances only after publication succeeds or finds nothing to publish, so a failed publication can retry and an empty review does not repeat.
-An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the interdiff from that head.
-Its rules, in order: `no_new_commits` (the new head adds no commit), `merge_only` (the PR's full diff against its base is unchanged, as after a base merge or rebase), `docs_only` (the PR's own changes are only docs, lockfiles, or `linguist-generated` files), and `system_one_below_threshold` (System One rates a behavior change below `SYSTEM_ONE_SKIP_BELOW`).
-Each rule has a `SKIP_*` switch. `no_new_commits` and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data calibrates them.
+An automatic follow-up turn (one with an `automatic_reviewed_head_sha`) first runs the push gate (`reviewer/push_gate.py`) on the PR's own commits since that head.
+Its rules, in order: `no_new_commits` (the PR gained no commit), `merge_only` (the new commits are only merges, or the PR's full diff against its base is unchanged after a rebase), `docs_only` (the new own commits touch only docs, lockfiles, snapshots, images, or generated files), and `system_one_below_threshold` (System One rates the own code patches below `SYSTEM_ONE_SKIP_BELOW`).
+Each rule has a `SKIP_*` switch. `no_new_commits` and `merge_only` skip; `docs_only` and System One only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
-Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability.
+Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, and the System One probability and model.
 The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
 
 **Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the

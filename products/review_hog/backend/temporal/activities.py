@@ -214,8 +214,7 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
-    # The head the last automatic turn published at, read before this fetch. None means no automatic
-    # review has run on the PR yet, so an automatic turn is its first review and the push gate stays off.
+    # None means no automatic review has run on the PR, so the push gate stays off for this turn.
     automatic_reviewed_head_sha: str | None = None
 
 
@@ -1573,13 +1572,12 @@ def _track_push_gate_decided(input: GatePushInput, decision: PushGateDecision) -
             "head_sha": input.head_sha,
             "previous_head_sha": input.previous_head_sha,
             "skipped": decision.skip,
-            # True with `skipped` False is a shadow decision: a rule matched while switched off.
             "would_skip": decision.would_skip,
             "reason": decision.reason,
             "system_one_probability": decision.probability,
             "system_one_model": decision.model,
             "system_one_skip_below": SYSTEM_ONE_SKIP_BELOW,
-            "interdiff_files": decision.interdiff_files,
+            "own_commits": decision.own_commits,
         },
         groups=groups(team=report.team),
     )
@@ -1600,7 +1598,6 @@ def _gate_push(input: GatePushInput) -> PushGateDecision:
         )
     if decision.skip:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
-    # Analytics must never change the decision: a capture failure is logged, not raised.
     try:
         _track_push_gate_decided(input, decision)
     except Exception:

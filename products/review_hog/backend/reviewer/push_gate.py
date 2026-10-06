@@ -1,25 +1,27 @@
 """The push gate: decides whether an automatic follow-up review turn is worth its cost.
 
 Every push to an opted-in author's PR starts an automatic turn, and a follow-up turn re-reviews the
-whole PR. The gate looks at the interdiff from the last automatically reviewed head to the new head.
-It never sees a first review or a human trigger: the workflow calls it only for automatic follow-ups.
+whole PR. The gate looks at the PR's own commits since the last automatically reviewed head. It never
+sees a first review or a human trigger: the workflow calls it only for automatic follow-ups.
 
 The rules, in order. The first rule that matches gives the reason:
 
-1. `no_new_commits`: the new head adds no commit to the last reviewed head (a force-push back).
-2. `merge_only`: the PR's own diff against its base is the same at both heads, so the push only
-   brought in base-branch changes (a merge or a rebase).
-3. `docs_only`: the PR's own part of the interdiff touches only docs, lockfiles, and generated files.
-4. `system_one_below_threshold`: System One rates the chance of a behavior change below a threshold.
+1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
+2. `merge_only`: the new commits are all merge commits, or the PR's full diff against its base is the
+   same at both heads (a rebase).
+3. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
+4. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 
 Each rule has its own switch. A rule that is switched off still reports the turn it would skip
 (`would_skip`), so production data can calibrate it before it skips anything. Every failure fails
 open: the turn runs.
+
+The rules, the non-code file list, the System One question, and the state follow the offline study
+in `review-eval/production/push-gate`. The threshold is only valid for the state built the same way.
 """
 
-import base64
+import re
 import logging
-from pathlib import PurePosixPath
 from typing import Any, Literal
 
 import requests
@@ -30,47 +32,58 @@ from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneNotConfigu
 from posthog.llm.system_one_client import build_system_one_client
 
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
-from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRFilter, PRParser
+from products.review_hog.backend.reviewer.tools.github_meta import GITHUB_COMPARE_FILES_CAP, PRParser
 
 logger = logging.getLogger(__name__)
 
-# Which rules skip a turn. A rule that is off only reports what it would skip. The offline study of
-# later Flash turns lost no acted-on finding to the first two rules. It lost some to the docs rule,
-# because a turn re-reads the whole PR and finds issues outside the interdiff. System One has no
-# calibrated threshold yet.
+# A rule that is off only records the skip it would make, so production data can calibrate it first.
 SKIP_NO_NEW_COMMITS = True
 SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
 
-# The JevK5 build PostHog hosts on the ai-gateway. A threshold is only valid for the model it was set
-# against, so the gate pins a version instead of an alias.
+# The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
+# `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
 PUSH_GATE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-# System One would skip a turn below this probability of a behavior change. The value is deliberately
-# low, so the gate would skip only pushes the model is confident are inert. A separate study calibrates
-# it from the shadow decisions before `SKIP_SYSTEM_ONE` goes on.
-SYSTEM_ONE_SKIP_BELOW = 0.1
-# The ml_inference decision API caps a state at this size. A larger interdiff runs the turn instead of
-# being cut, because the cut part can hold the change that matters.
-MAX_INTERDIFF_CHARS = 65_536
-# A push waits for this answer before its review starts, so a slow gateway must not hold the review long.
+SYSTEM_ONE_SKIP_BELOW = 0.30
+# The study sent states up to 64k tokens, at about 3.5 characters per token of code.
+MAX_STATE_CHARS = 224_000
 SYSTEM_ONE_TIMEOUT_SECONDS = 15.0
+# Each new own commit costs one GitHub call to read its patch.
+MAX_OWN_COMMITS = 20
+# GitHub's compare endpoint pages its commit list at this size.
+_COMPARE_COMMITS_PER_PAGE = 100
 
-_QUESTION_ID = "behavior_change"
-# The interdiff stays in the state, so text from the pull request can never become an instruction.
-_BEHAVIOR_CHANGE_QUESTION = NoulQuestion(
+_QUESTION_ID = "alters"
+# The commits stay in the state, so text from the pull request can never become an instruction.
+_ALTERS_QUESTION = NoulQuestion(
     instructions=(
-        "state.interdiff is the code diff pushed to a pull request since its last review. "
-        "This change could alter runtime behavior or introduce a bug."
+        "Read the code change in the state. Could this change alter the behavior of the code "
+        "or introduce a bug? Answer true if it could, false if it is only cosmetic, a rename, "
+        "formatting, a comment, documentation or a test-only tweak that cannot affect behavior."
     ),
-    criteria_true="The diff changes logic, control flow, data handling, queries, configuration, or dependencies.",
-    criteria_false="The diff only renames, reformats, edits comments, or moves code without changing what it does.",
 )
 
-_DOC_SUFFIXES = frozenset({".md", ".mdx", ".rst", ".adoc"})
-# Markdown in these directories is runtime input (agent skills, LLM prompts, rendered templates), so an
-# edit there can change behavior.
-_RUNTIME_MARKDOWN_DIRS = frozenset({"skills", "prompts", "templates"})
+_NON_CODE_FILE = re.compile(
+    "|".join(
+        [
+            r"(^|/)(pnpm-lock\.yaml|uv\.lock|package-lock\.json|yarn\.lock|Cargo\.lock|poetry\.lock|flox/manifest\.lock|\.flox/env/manifest\.lock)$",
+            r"\.md$",
+            r"\.mdx$",
+            r"(^|/)docs/",
+            r"(^|/)generated/",
+            r"\.generated\.",
+            r"(^|/)__snapshots__/",
+            r"\.ambr$",
+            r"\.snap$",
+            r"\.(png|jpg|jpeg|gif|svg|webp)$",
+            r"(^|/)(openapi|schema)\.json$",
+            r"(^|/)api\.(schemas|zod)\.ts$",
+            r"(^|/)frontend/src/queries/schema\.json$",
+            r"(^|/)posthog/schema\.py$",
+        ]
+    )
+)
 
 SkipReason = Literal["no_new_commits", "merge_only", "docs_only", "system_one_below_threshold"]
 RunReason = Literal[
@@ -84,31 +97,29 @@ RunReason = Literal[
 
 @frozen
 class PushGateDecision:
-    # Whether the turn skips. Only a rule that is switched on skips.
     skip: bool
     # Whether a rule matched, switched on or not. A match with its rule off is a shadow decision.
     would_skip: bool
     reason: SkipReason | RunReason
     probability: float | None = None
     model: str | None = None
-    # Files in the PR's own part of the interdiff, when the gate got that far.
-    interdiff_files: int | None = None
+    own_commits: int | None = None
 
 
 @frozen
-class _CompareFile:
+class _ChangedFile:
     filename: str
-    status: str
     changes: int
-    # GitHub leaves the patch out for a binary or very large file.
     patch: str | None
 
 
 @frozen
-class _Comparison:
-    # Commits the head has that the base does not.
-    ahead_by: int
-    files: list[_CompareFile]
+class _PRDiff:
+    """The PR as `base...head`: its commits, the merge commits among them, and its full diff."""
+
+    commit_shas: list[str]
+    merge_shas: set[str]
+    files: list[_ChangedFile]
 
 
 def _rule_enabled(reason: SkipReason) -> bool:
@@ -122,11 +133,7 @@ def _rule_enabled(reason: SkipReason) -> bool:
 
 
 def _matched(
-    reason: SkipReason,
-    *,
-    interdiff_files: int | None = None,
-    probability: float | None = None,
-    model: str | None = None,
+    reason: SkipReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=_rule_enabled(reason),
@@ -134,16 +141,12 @@ def _matched(
         reason=reason,
         probability=probability,
         model=model,
-        interdiff_files=interdiff_files,
+        own_commits=own_commits,
     )
 
 
 def _runs(
-    reason: RunReason,
-    *,
-    interdiff_files: int | None = None,
-    probability: float | None = None,
-    model: str | None = None,
+    reason: RunReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=False,
@@ -151,16 +154,18 @@ def _runs(
         reason=reason,
         probability=probability,
         model=model,
-        interdiff_files=interdiff_files,
+        own_commits=own_commits,
     )
 
 
-def _is_doc(filename: str) -> bool:
-    path = PurePosixPath(filename)
-    return path.suffix.lower() in _DOC_SUFFIXES and not _RUNTIME_MARKDOWN_DIRS.intersection(path.parts[:-1])
+def _changed_files(payload: dict[str, Any]) -> list[_ChangedFile]:
+    return [
+        _ChangedFile(filename=file["filename"], changes=file.get("changes", 0), patch=file.get("patch"))
+        for file in payload.get("files") or []
+    ]
 
 
-def _own_lines(files: list[_CompareFile]) -> dict[str, list[tuple[str, str]]] | None:
+def _own_lines(files: list[_ChangedFile]) -> dict[str, list[tuple[str, str]]] | None:
     """The PR's added and removed lines per file, without line numbers, which shift when the base moves."""
     lines: dict[str, list[tuple[str, str]]] = {}
     for file in files:
@@ -172,36 +177,9 @@ def _own_lines(files: list[_CompareFile]) -> dict[str, list[tuple[str, str]]] | 
     return lines
 
 
-class GeneratedPaths:
-    """The paths a repository's `.gitattributes` marks as `linguist-generated`."""
-
-    def __init__(self, patterns: list[str]) -> None:
-        self.patterns = patterns
-
-    @classmethod
-    def parse(cls, text: str) -> "GeneratedPaths":
-        patterns: list[str] = []
-        for line in text.splitlines():
-            parts = line.split()
-            if not parts or parts[0].startswith("#"):
-                continue
-            if any(attribute in ("linguist-generated", "linguist-generated=true") for attribute in parts[1:]):
-                patterns.append(parts[0])
-        return cls(patterns)
-
-    def matches(self, filename: str) -> bool:
-        path = PurePosixPath(filename)
-        for pattern in self.patterns:
-            if pattern.startswith("/"):
-                matched = path.full_match(pattern.lstrip("/"))
-            elif "/" in pattern:
-                matched = path.full_match(pattern)
-            else:
-                # Git matches a pattern without a slash against the file name at any depth.
-                matched = PurePosixPath(path.name).full_match(pattern)
-            if matched:
-                return True
-        return False
+def _same_full_diff(previous: _PRDiff, current: _PRDiff) -> bool:
+    previous_lines = _own_lines(previous.files)
+    return previous_lines is not None and previous_lines == _own_lines(current.files)
 
 
 class PushGate:
@@ -211,68 +189,54 @@ class PushGate:
         self._token = token
         self._installation_id = installation_id
 
-    def _compare(self, base: str, head: str) -> _Comparison | None:
-        """`base...head` from GitHub, or None when the compare is unavailable or truncated."""
+    def _get(self, path: str, *, endpoint: str, params: dict[str, str | int] | None = None) -> dict[str, Any] | None:
         try:
-            comparison: dict[str, Any] = github_api_request(
+            return github_api_request(
                 "GET",
-                f"/repos/{self.repository}/compare/{base}...{head}",
+                f"/repos/{self.repository}{path}",
                 token=self._token,
                 installation_id=self._installation_id,
-                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-                # The file list comes with the first page in full, so one commit per page keeps the body small.
-                params={"per_page": 1},
+                endpoint=f"/repos/{{owner}}/{{repo}}{endpoint}",
+                params=params,
             ).json()
         except (GitHubAPIError, GitHubRateLimitError, requests.RequestException) as error:
-            logger.warning("Push gate could not compare %s: %s", self.repository, type(error).__name__)
+            logger.warning("Push gate could not read %s from GitHub: %s", endpoint, type(error).__name__)
             return None
-        files: list[dict[str, Any]] = comparison.get("files") or []
-        if len(files) >= GITHUB_COMPARE_FILES_CAP:
+
+    def _pr_diff(self, base_branch: str, head_sha: str) -> _PRDiff | None:
+        """The PR at `head_sha`, or None when GitHub cannot return all of it in one page."""
+        comparison = self._get(
+            f"/compare/{base_branch}...{head_sha}",
+            endpoint="/compare/{basehead}",
+            params={"per_page": _COMPARE_COMMITS_PER_PAGE},
+        )
+        if comparison is None:
             return None
-        return _Comparison(
-            ahead_by=comparison["ahead_by"],
-            files=[
-                _CompareFile(
-                    filename=file["filename"],
-                    status=file["status"],
-                    changes=file.get("changes", 0),
-                    patch=file.get("patch"),
-                )
-                for file in files
-            ],
+        commits: list[dict[str, Any]] = comparison.get("commits") or []
+        files = _changed_files(comparison)
+        if comparison.get("total_commits", 0) > len(commits) or len(files) >= GITHUB_COMPARE_FILES_CAP:
+            return None
+        return _PRDiff(
+            commit_shas=[commit["sha"] for commit in commits],
+            merge_shas={commit["sha"] for commit in commits if len(commit.get("parents") or []) > 1},
+            files=files,
         )
 
-    def _generated_paths(self, head_sha: str) -> GeneratedPaths:
-        try:
-            content = github_api_request(
-                "GET",
-                f"/repos/{self.repository}/contents/.gitattributes",
-                token=self._token,
-                installation_id=self._installation_id,
-                endpoint="/repos/{owner}/{repo}/contents/{path}",
-                params={"ref": head_sha},
-            ).json()
-            return GeneratedPaths.parse(base64.b64decode(content["content"]).decode())
-        except (GitHubAPIError, GitHubRateLimitError, requests.RequestException, KeyError, ValueError):
-            # No readable list means no file counts as generated, so the gate errs toward a review.
-            return GeneratedPaths([])
+    def _commit_files(self, shas: list[str]) -> list[_ChangedFile] | None:
+        files: list[_ChangedFile] = []
+        for sha in shas:
+            commit = self._get(f"/commits/{sha}", endpoint="/commits/{ref}")
+            if commit is None:
+                return None
+            files.extend(_changed_files(commit))
+        return files
 
-    def _code_files(self, files: list[_CompareFile], head_sha: str) -> list[_CompareFile]:
-        remaining = [
-            file for file in files if not _is_doc(file.filename) and not PRFilter.is_filtered_file(file.filename)
-        ]
-        if not remaining:
-            return []
-        generated = self._generated_paths(head_sha)
-        return [file for file in remaining if not generated.matches(file.filename)]
-
-    def _ask_system_one(self, code_files: list[_CompareFile], interdiff_files: int) -> PushGateDecision:
+    def _ask_system_one(self, code_files: list[_ChangedFile], own_commits: int) -> PushGateDecision:
         if any(file.patch is None for file in code_files):
-            # System One cannot judge a change it cannot see.
-            return _runs("interdiff_too_large", interdiff_files=interdiff_files)
-        interdiff = "\n\n".join(f"=== {file.filename} [{file.status}] ===\n{file.patch}" for file in code_files)
-        if len(interdiff) > MAX_INTERDIFF_CHARS:
-            return _runs("interdiff_too_large", interdiff_files=interdiff_files)
+            return _runs("interdiff_too_large", own_commits=own_commits)
+        state = "\n\n".join(f"--- {file.filename}\n{file.patch}" for file in code_files)
+        if len(state) > MAX_STATE_CHARS:
+            return _runs("interdiff_too_large", own_commits=own_commits)
         try:
             client = build_system_one_client(
                 model=PUSH_GATE_MODEL,
@@ -280,47 +244,45 @@ class PushGate:
                 team_id=self.team_id,
                 timeout=SYSTEM_ONE_TIMEOUT_SECONDS,
             )
-            result = client.decide(state={"interdiff": interdiff}, questions={_QUESTION_ID: _BEHAVIOR_CHANGE_QUESTION})
+            result = client.decide(state=state, questions={_QUESTION_ID: _ALTERS_QUESTION})
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("Push gate could not reach System One: %s", type(error).__name__)
-            return _runs("system_one_unavailable", interdiff_files=interdiff_files)
+            return _runs("system_one_unavailable", own_commits=own_commits)
         answer = result.answers[_QUESTION_ID]
         if not isinstance(answer, NoulAnswer):
-            return _runs("system_one_unavailable", interdiff_files=interdiff_files)
+            return _runs("system_one_unavailable", own_commits=own_commits)
         if answer.probability < SYSTEM_ONE_SKIP_BELOW:
             return _matched(
                 "system_one_below_threshold",
-                interdiff_files=interdiff_files,
+                own_commits=own_commits,
                 probability=answer.probability,
                 model=result.model,
             )
         return _runs(
-            "system_one_above_threshold",
-            interdiff_files=interdiff_files,
-            probability=answer.probability,
-            model=result.model,
+            "system_one_above_threshold", own_commits=own_commits, probability=answer.probability, model=result.model
         )
 
     def decide(self, *, previous_head_sha: str, head_sha: str, base_branch: str) -> PushGateDecision:
         """Judge the push from `previous_head_sha`, the last automatically reviewed head, to `head_sha`."""
-        interdiff = self._compare(previous_head_sha, head_sha)
-        if interdiff is None:
+        previous = self._pr_diff(base_branch, previous_head_sha)
+        current = self._pr_diff(base_branch, head_sha)
+        if previous is None or current is None:
             return _runs("compare_unavailable")
-        if interdiff.ahead_by == 0:
+        # Commits that came in with a merge from the base branch are on the base, so `base...head`
+        # leaves them out and only the merge commit itself is new.
+        previous_shas = set(previous.commit_shas)
+        new_shas = [sha for sha in current.commit_shas if sha not in previous_shas]
+        if not new_shas:
             return _matched("no_new_commits")
-        # The PR's full diff at each head, before ReviewHog drops lockfiles and tests from what it reviews.
-        previous_diff = self._compare(base_branch, previous_head_sha)
-        current_diff = self._compare(base_branch, head_sha)
-        if previous_diff is None or current_diff is None:
-            return _runs("compare_unavailable")
-        # An interdiff file outside the PR's diff at both heads matches the base branch, so its change
-        # came in with the base.
-        pr_filenames = {file.filename for file in previous_diff.files + current_diff.files}
-        own_files = [file for file in interdiff.files if file.filename in pr_filenames]
-        previous_lines = _own_lines(previous_diff.files)
-        if not own_files or (previous_lines is not None and previous_lines == _own_lines(current_diff.files)):
-            return _matched("merge_only", interdiff_files=len(own_files))
-        code_files = self._code_files(own_files, head_sha)
+        own_shas = [sha for sha in new_shas if sha not in current.merge_shas]
+        if not own_shas or _same_full_diff(previous, current):
+            return _matched("merge_only", own_commits=len(own_shas))
+        if len(own_shas) > MAX_OWN_COMMITS:
+            return _runs("interdiff_too_large", own_commits=len(own_shas))
+        own_files = self._commit_files(own_shas)
+        if own_files is None:
+            return _runs("compare_unavailable", own_commits=len(own_shas))
+        code_files = [file for file in own_files if not _NON_CODE_FILE.search(file.filename)]
         if not code_files:
-            return _matched("docs_only", interdiff_files=len(own_files))
-        return self._ask_system_one(code_files, interdiff_files=len(own_files))
+            return _matched("docs_only", own_commits=len(own_shas))
+        return self._ask_system_one(code_files, own_commits=len(own_shas))

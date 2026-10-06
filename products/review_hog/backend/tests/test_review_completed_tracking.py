@@ -269,7 +269,7 @@ class TestTrackReviewCompleted(BaseTest):
             reason="system_one_below_threshold",
             probability=0.03,
             model="jevk5",
-            interdiff_files=2,
+            own_commits=2,
         )
 
         with (

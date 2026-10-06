@@ -1,4 +1,3 @@
-import base64
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -11,42 +10,49 @@ from products.review_hog.backend.reviewer.push_gate import PUSH_GATE_MODEL, Push
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 
 _MODULE = "products.review_hog.backend.reviewer.push_gate"
-_GITATTRIBUTES = "frontend/src/generated/** linguist-generated\n*.pb.go linguist-generated\n"
 _BILLING = "@@ -10,1 +10,1 @@\n-    return amount\n+    return amount * 100"
 _BILLING_AFTER_MERGE = "@@ -40,1 +40,1 @@\n-    return amount\n+    return amount * 100"
 _BILLING_FIX = "@@ -10,1 +10,1 @@\n-    return amount * 100\n+    return round(amount * 100)"
 
 
 def _file(filename: str, patch: str | None = "@@ -1 +1 @@\n-a\n+b") -> dict[str, Any]:
-    return {"filename": filename, "status": "modified", "changes": 2, "patch": patch}
+    return {"filename": filename, "changes": 2, "patch": patch}
 
 
-def _github(compares: dict[str, dict[str, Any] | None]):
+def _commit(sha: str, *, merge: bool = False) -> dict[str, Any]:
+    return {"sha": sha, "parents": [{"sha": "p1"}, {"sha": "p2"}] if merge else [{"sha": "p1"}]}
+
+
+def _pr(commits: list[dict[str, Any]], files: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"total_commits": len(commits), "commits": commits, "files": files}
+
+
+def _push(
+    *,
+    new_commits: list[dict[str, Any]],
+    pr_files: list[dict[str, Any]],
+    own_commit_files: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any] | None]:
+    return {
+        "compare/master...old": _pr([_commit("a")], [_file("posthog/billing.py", _BILLING)]),
+        "compare/master...new": _pr(new_commits, pr_files),
+        "commits/c": {"files": own_commit_files or []},
+    }
+
+
+def _github(responses: dict[str, dict[str, Any] | None]):
     def request(method: str, path: str, **kwargs: Any) -> MagicMock:
-        if "/compare/" in path:
-            comparison = compares[path.split("/compare/")[1]]
-            if comparison is None:
-                raise GitHubAPIError("gone", status=404)
-            return MagicMock(json=MagicMock(return_value=comparison))
-        assert path.endswith("/contents/.gitattributes")
-        return MagicMock(json=MagicMock(return_value={"content": base64.b64encode(_GITATTRIBUTES.encode()).decode()}))
+        response = responses[path.removeprefix("/repos/PostHog/posthog/")]
+        if response is None:
+            raise GitHubAPIError("gone", status=404)
+        return MagicMock(json=MagicMock(return_value=response))
 
     return request
 
 
-def _push(
-    *, interdiff: list[dict[str, Any]], pr_after: list[dict[str, Any]], ahead_by: int = 1
-) -> dict[str, dict[str, Any] | None]:
-    return {
-        "old...new": {"ahead_by": ahead_by, "files": interdiff},
-        "master...old": {"ahead_by": 1, "files": [_file("posthog/billing.py", _BILLING)]},
-        "master...new": {"ahead_by": 2, "files": pr_after},
-    }
-
-
-def _decide(compares: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None) -> PushGateDecision:
+def _decide(responses: dict[str, dict[str, Any] | None], system_one: MagicMock | None = None) -> PushGateDecision:
     with (
-        patch(f"{_MODULE}.github_api_request", side_effect=_github(compares)),
+        patch(f"{_MODULE}.github_api_request", side_effect=_github(responses)),
         patch(f"{_MODULE}.build_system_one_client", MagicMock(return_value=system_one or MagicMock())),
     ):
         return PushGate(team_id=1, repository="PostHog/posthog", token="t", installation_id="9").decide(
@@ -57,27 +63,34 @@ def _decide(compares: dict[str, dict[str, Any] | None], system_one: MagicMock | 
 def _system_one(probability: float) -> MagicMock:
     client = MagicMock()
     client.decide.return_value = SystemOneResult(
-        model=PUSH_GATE_MODEL, answers={"behavior_change": NoulAnswer(probability=probability)}, input_tokens=10
+        model=PUSH_GATE_MODEL, answers={"alters": NoulAnswer(probability=probability)}, input_tokens=10
     )
     return client
 
 
 _CODE_PUSH = _push(
-    interdiff=[_file("posthog/billing.py", _BILLING_FIX), _file("products/x/skills/a/SKILL.md")],
-    pr_after=[_file("posthog/billing.py", _BILLING_FIX), _file("products/x/skills/a/SKILL.md")],
+    new_commits=[_commit("a"), _commit("c")],
+    pr_files=[_file("posthog/billing.py", _BILLING_FIX), _file("README.md")],
+    own_commit_files=[_file("posthog/billing.py", _BILLING_FIX), _file("README.md")],
 )
 
 
 @parameterized.expand(
     [
-        ("force_push_back", _push(interdiff=[], pr_after=[], ahead_by=0), "no_new_commits", True),
-        # The author merged master: base files changed, and the PR's own lines only moved down.
+        ("force_push_back", _push(new_commits=[], pr_files=[]), "no_new_commits", True),
+        # Master's commits are on the base, so only the merge commit is new, and the PR's lines only moved.
         (
             "base_merge",
             _push(
-                interdiff=[_file("posthog/other.py"), _file("posthog/billing.py", "@@ -1 +1 @@\n-x\n+y")],
-                pr_after=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)],
+                new_commits=[_commit("a"), _commit("m", merge=True)],
+                pr_files=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)],
             ),
+            "merge_only",
+            True,
+        ),
+        (
+            "rebase",
+            _push(new_commits=[_commit("a2")], pr_files=[_file("posthog/billing.py", _BILLING_AFTER_MERGE)]),
             "merge_only",
             True,
         ),
@@ -85,8 +98,9 @@ _CODE_PUSH = _push(
         (
             "lockfile_bump",
             _push(
-                interdiff=[_file("pnpm-lock.yaml")],
-                pr_after=[_file("posthog/billing.py", _BILLING), _file("pnpm-lock.yaml")],
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING), _file("pnpm-lock.yaml")],
+                own_commit_files=[_file("pnpm-lock.yaml")],
             ),
             "docs_only",
             False,
@@ -94,13 +108,9 @@ _CODE_PUSH = _push(
         (
             "docs_and_generated_files",
             _push(
-                interdiff=[_file("README.md"), _file("frontend/src/generated/core/api.ts"), _file("rust/x.pb.go")],
-                pr_after=[
-                    _file("posthog/billing.py", _BILLING),
-                    _file("README.md"),
-                    _file("frontend/src/generated/core/api.ts"),
-                    _file("rust/x.pb.go"),
-                ],
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", _BILLING), _file("README.md")],
+                own_commit_files=[_file("README.md"), _file("frontend/src/generated/core/api.ts")],
             ),
             "docs_only",
             False,
@@ -108,10 +118,10 @@ _CODE_PUSH = _push(
     ]
 )
 def test_push_gate_matches_pushes_without_own_code_changes(
-    _name: str, compares: dict[str, dict[str, Any] | None], reason: str, skip: bool
+    _name: str, responses: dict[str, dict[str, Any] | None], reason: str, skip: bool
 ) -> None:
     system_one = _system_one(0.99)
-    decision = _decide(compares, system_one)
+    decision = _decide(responses, system_one)
     assert (decision.would_skip, decision.skip, decision.reason) == (True, skip, reason)
     system_one.decide.assert_not_called()
 
@@ -119,27 +129,27 @@ def test_push_gate_matches_pushes_without_own_code_changes(
 @parameterized.expand(
     [
         ("likely_behavior_change_runs", 0.8, False, False, False, "system_one_above_threshold"),
-        ("shadow_skip_while_switched_off", 0.02, False, True, False, "system_one_below_threshold"),
-        ("skip_once_switched_on", 0.02, True, True, True, "system_one_below_threshold"),
+        ("shadow_skip_while_switched_off", 0.2, False, True, False, "system_one_below_threshold"),
+        ("skip_once_switched_on", 0.2, True, True, True, "system_one_below_threshold"),
     ]
 )
-def test_push_gate_asks_system_one_about_a_code_change(
+def test_push_gate_asks_system_one_about_own_code_commits(
     _name: str, probability: float, enabled: bool, would_skip: bool, skip: bool, reason: str
 ) -> None:
     system_one = _system_one(probability)
     with patch(f"{_MODULE}.SKIP_SYSTEM_ONE", enabled):
         decision = _decide(_CODE_PUSH, system_one)
-    assert (decision.would_skip, decision.skip, decision.reason, decision.probability) == (
+    assert (decision.would_skip, decision.skip, decision.reason, decision.probability, decision.model) == (
         would_skip,
         skip,
         reason,
         probability,
+        PUSH_GATE_MODEL,
     )
-    state = system_one.decide.call_args.kwargs["state"]
-    question = system_one.decide.call_args.kwargs["questions"]["behavior_change"]
-    # Markdown in a skills directory is runtime input, so it goes to System One like code.
-    assert _BILLING_FIX in state["interdiff"] and "SKILL.md" in state["interdiff"]
-    assert "round" not in str(question.instructions)
+    call = system_one.decide.call_args.kwargs
+    # The threshold was calibrated on exactly this state: own code patches, docs dropped.
+    assert call["state"] == f"--- posthog/billing.py\n{_BILLING_FIX}"
+    assert "round" not in str(call["questions"]["alters"].instructions)
 
 
 @parameterized.expand(
@@ -158,19 +168,23 @@ def test_push_gate_reviews_the_push_when_system_one_is_unavailable(_name: str, e
 
 @parameterized.expand(
     [
-        ("compare_gone", {**_CODE_PUSH, "old...new": None}, "compare_unavailable"),
+        ("compare_gone", {**_CODE_PUSH, "compare/master...new": None}, "compare_unavailable"),
         (
             "patch_left_out",
-            _push(interdiff=[_file("posthog/billing.py", None)], pr_after=[_file("posthog/billing.py", None)]),
+            _push(
+                new_commits=[_commit("a"), _commit("c")],
+                pr_files=[_file("posthog/billing.py", None)],
+                own_commit_files=[_file("posthog/billing.py", None)],
+            ),
             "interdiff_too_large",
         ),
     ]
 )
 def test_push_gate_reviews_a_push_it_cannot_see(
-    _name: str, compares: dict[str, dict[str, Any] | None], reason: str
+    _name: str, responses: dict[str, dict[str, Any] | None], reason: str
 ) -> None:
     system_one = _system_one(0.0)
     with patch(f"{_MODULE}.SKIP_SYSTEM_ONE", True):
-        decision = _decide(compares, system_one)
+        decision = _decide(responses, system_one)
     assert (decision.skip, decision.reason) == (False, reason)
     system_one.decide.assert_not_called()
