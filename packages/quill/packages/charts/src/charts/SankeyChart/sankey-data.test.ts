@@ -89,13 +89,13 @@ describe('computeSankeyLayout', () => {
         expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
     })
 
-    it('rejects a pin past the last column before sizing the layout from it', () => {
+    it.each([MAX_SANKEY_COLUMN + 1, -1, 1.5, NaN])('rejects a pin of %p instead of moving the node', (column) => {
         const nodes: SankeyNodeInput[] = [
             { id: 'x', column: 0 },
-            { id: 'y', column: MAX_SANKEY_COLUMN + 1 },
+            { id: 'y', column },
         ]
         const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
-        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).toThrow('pinned past the last column')
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).toThrow('needs a whole column')
     })
 
     it('resolves node colors by label and defaults link color to the source node', () => {

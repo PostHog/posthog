@@ -1,4 +1,4 @@
-import { buildPathsSankeyGraph, pathStartUsers } from './pathsChartTransforms'
+import { buildPathsSankeyGraph, pathStartCount } from './pathsChartTransforms'
 
 describe('pathsChartTransforms', () => {
     it('counts path starts from step 1 only, even when a later step has lost its incoming edge', () => {
@@ -7,7 +7,7 @@ describe('pathsChartTransforms', () => {
             { source: '1_/home', target: '2_/docs', value: 10 },
             { source: '2_/pricing', target: '3_/signup', value: 12 },
         ]
-        expect(pathStartUsers(edges)).toBe(10)
+        expect(pathStartCount(edges)).toBe(10)
     })
 
     it('pins each node to its step and labels URLs by path on a single origin', () => {

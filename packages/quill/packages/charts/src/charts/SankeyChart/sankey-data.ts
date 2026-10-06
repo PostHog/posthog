@@ -17,7 +17,7 @@ export interface SankeyNodeInput<Meta = unknown> {
      *  step in a paths result), so a flow that ends early or starts late still sits under the right
      *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. Pins must be monotonic with
      *  the graph's edges — a link whose target column is at or before its source's draws backwards.
-     *  A pin above `MAX_SANKEY_COLUMN` throws. */
+     *  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws. */
     column?: number
 }
 
@@ -198,9 +198,12 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         if (nodeIds.has(node.id)) {
             throw new Error(`duplicate Sankey node id: ${node.id}`)
         }
-        if (node.column !== undefined && node.column > MAX_SANKEY_COLUMN) {
+        if (
+            node.column !== undefined &&
+            !(Number.isInteger(node.column) && node.column >= 0 && node.column <= MAX_SANKEY_COLUMN)
+        ) {
             throw new Error(
-                `Sankey node ${node.id} is pinned past the last column (${MAX_SANKEY_COLUMN}): ${node.column}`
+                `Sankey node ${node.id} needs a whole column from 0 to ${MAX_SANKEY_COLUMN}, got ${node.column}`
             )
         }
         nodeIds.add(node.id)

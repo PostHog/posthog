@@ -42,7 +42,7 @@ function graphKey(
 ): string {
     // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
     return JSON.stringify([
-        nodes.map((node) => node.id),
+        nodes.map((node) => [node.id, node.column ?? null]),
         links.map(({ source, target, value }) => [source, target, value]),
         [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])

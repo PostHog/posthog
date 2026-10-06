@@ -1,3 +1,4 @@
+import { MAX_SANKEY_COLUMN } from '@posthog/quill-charts'
 import type { SankeyLinkInput, SankeyNodeInput } from '@posthog/quill-charts'
 
 // This module imports nothing from `~/` or `lib/`, so the MCP UI app bundle, which only resolves
@@ -66,9 +67,10 @@ export function pathUrlLabel(name: string, singleOrigin: boolean): string {
     return singleOrigin ? path || name : `${url.host}${path}`
 }
 
-/** Users who start a path: the flow out of step 1. Count it on the full result, because a
+/** Paths that begin at step 1: the flow out of that step. The query counts one path per person
+ *  and session, so this is not a count of distinct people. Count it on the full result, because a
  *  truncated one drops the edges that show a later step is not a start. */
-export function pathStartUsers(edges: PathsEdge[]): number {
+export function pathStartCount(edges: PathsEdge[]): number {
     return edges
         .filter((edge) => parsePathNodeKey(edge.source).step === 1)
         .reduce((sum, edge) => sum + (edge.value ?? 0), 0)
@@ -77,8 +79,11 @@ export function pathStartUsers(edges: PathsEdge[]): number {
 export interface PathsSankeyGraph<Edge extends PathsEdge> {
     nodes: SankeyNodeInput<string>[]
     links: SankeyLinkInput<Edge>[]
-    /** The highest step in the result, so the caller can label each column. */
+    /** The highest step in the result. */
     stepCount: number
+    /** Whether nodes sit in their step's column, so the caller can label columns by step. False
+     *  when pinning was off or the result has more steps than the chart has columns. */
+    stepsPinned: boolean
 }
 
 export interface PathsSankeyGraphOptions {
@@ -99,7 +104,9 @@ export function buildPathsSankeyGraph<Edge extends PathsEdge>(
 ): PathsSankeyGraph<Edge> {
     const keys = pathNodeKeys(edges)
     const parsed = keys.map((key) => ({ key, ...parsePathNodeKey(key) }))
-    const singleOrigin = pathOrigins(parsed.map(({ name }) => name)).size <= 1
+    const singleOrigin = labelUrls && pathOrigins(parsed.map(({ name }) => name)).size <= 1
+    const stepCount = parsed.reduce((max, { step }) => Math.max(max, step), 0)
+    const stepsPinned = pinSteps && stepCount - 1 <= MAX_SANKEY_COLUMN
 
     const nodes = parsed.map(
         ({ key, step, name }): SankeyNodeInput<string> => ({
@@ -107,7 +114,7 @@ export function buildPathsSankeyGraph<Edge extends PathsEdge>(
             label: labelUrls ? pathUrlLabel(name, singleOrigin) : undefined,
             color: nodeColor?.(key),
             meta: name,
-            column: pinSteps ? Math.max(0, step - 1) : undefined,
+            column: stepsPinned ? Math.max(0, step - 1) : undefined,
         })
     )
     const links = edges.map(
@@ -119,6 +126,5 @@ export function buildPathsSankeyGraph<Edge extends PathsEdge>(
             meta: edge,
         })
     )
-    const stepCount = parsed.reduce((max, { step }) => Math.max(max, step), 0)
-    return { nodes, links, stepCount }
+    return { nodes, links, stepCount, stepsPinned }
 }

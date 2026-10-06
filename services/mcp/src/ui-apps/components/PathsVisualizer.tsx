@@ -8,7 +8,7 @@ import type { SankeyChartConfig } from '@posthog/quill-charts'
 import {
     buildPathsSankeyGraph,
     parsePathNodeKey,
-    pathStartUsers,
+    pathStartCount,
 } from 'products/product_analytics/frontend/insights/paths/pathsChartTransforms'
 
 import { ChartHeader } from './ChartHeader'
@@ -21,6 +21,8 @@ const TITLE = 'Paths'
 // The busiest transitions carry the story; past this many the ribbons are too thin to read and
 // the layout's iterative relaxation stops being cheap inside an embedded app.
 const MAX_EDGES = 60
+
+const MAX_STEPS_IN_FRAME = 5
 
 const CHART_CONFIG: SankeyChartConfig = {
     nodePadding: 6,
@@ -43,9 +45,10 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         [allEdges]
     )
     const graph = useMemo(() => buildPathsSankeyGraph(edges, { labelUrls: true, pinSteps: true }), [edges])
+    // Step headers only line up when every node sits in its step's column.
     const columnLabels = useMemo(
-        () => Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`),
-        [graph.stepCount]
+        () => (graph.stepsPinned ? Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`) : []),
+        [graph.stepsPinned, graph.stepCount]
     )
     const config = useMemo<SankeyChartConfig>(() => ({ ...CHART_CONFIG, columnLabels }), [columnLabels])
     const labelOf = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.label])), [graph.nodes])
@@ -64,26 +67,33 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         )
     }
 
-    const totalUsers = pathStartUsers(allEdges)
+    const pathStarts = pathStartCount(allEdges)
+    // Past five steps the chart grows a fifth of the frame per step and scrolls, as the paths
+    // insight does, so long paths keep readable columns.
+    const chartWidth =
+        graph.stepCount > MAX_STEPS_IN_FRAME ? `${(graph.stepCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
     const truncated = edges.length < allEdges.length
 
     return (
         <div data-attr="paths-sankey" className="w-full">
             <ChartHeader title={TITLE} />
-            <div className="flex flex-col h-80 w-full">
-                <SankeyChart<string, PathsResultItem>
-                    nodes={graph.nodes}
-                    links={graph.links}
-                    theme={theme}
-                    config={config}
-                />
+            <div className="h-80 w-full overflow-x-auto">
+                {/* The chart sizes to its parent, so a long path needs a wider parent to scroll. */}
+                <div className="flex flex-col h-full" style={{ width: chartWidth }}>
+                    <SankeyChart<string, PathsResultItem>
+                        nodes={graph.nodes}
+                        links={graph.links}
+                        theme={theme}
+                        config={config}
+                    />
+                </div>
             </div>
             {/* The canvas has no per-ribbon semantics, so screen readers get the transitions as text. */}
             <ul className="sr-only">
                 {edges.map((edge) => (
                     <li key={`${edge.source}→${edge.target}`}>
                         {labelOf.get(edge.source)} to {labelOf.get(edge.target)} ({stepRange(edge)}):{' '}
-                        {formatNumber(edge.value ?? 0)} users
+                        {formatNumber(edge.value ?? 0)} paths
                         {edge.average_conversion_time != null
                             ? `, ${formatDuration(edge.average_conversion_time)} on average`
                             : ''}
@@ -102,12 +112,13 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
                         {edges.length === 1 ? '' : 's'}
                     </>
                 )}{' '}
-                across <strong className="text-foreground">{columnLabels.length}</strong> step
-                {columnLabels.length === 1 ? '' : 's'}
-                {totalUsers > 0 && (
+                across <strong className="text-foreground">{formatNumber(graph.stepCount)}</strong> step
+                {graph.stepCount === 1 ? '' : 's'}
+                {pathStarts > 0 && (
                     <>
                         {' '}
-                        · <strong className="text-foreground">{formatNumber(totalUsers)}</strong> users start a path
+                        · <strong className="text-foreground">{formatNumber(pathStarts)}</strong> path
+                        {pathStarts === 1 ? ' begins' : 's begin'} at step 1
                     </>
                 )}
             </div>
