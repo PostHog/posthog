@@ -102,6 +102,18 @@ describe('CI report section builders', () => {
         })
     }
 
+    it('warns and names both sides when a PR mixes lanes', () => {
+        const section = buildTrunkLaneSection({
+            impactedTargets: ['node:ingestion', 'py:core'],
+            isUniversal: false,
+            crossLane: { mixed: true, heavyFiles: ['posthog/api/x.py'], lightFiles: ['nodejs/src/y.ts'] },
+        })
+        assert.equal(section.status, 'warn')
+        assert.match(section.summary, /mixes lanes/)
+        assert.match(section.body, /<code>posthog\/api\/x\.py<\/code>/)
+        assert.match(section.body, /<code>nodejs\/src\/y\.ts<\/code>/)
+    })
+
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({
             triggerStatus: 'success',

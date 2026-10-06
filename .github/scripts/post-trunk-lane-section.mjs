@@ -18,7 +18,7 @@ function formatTarget(target) {
     return `<code>${escapedTarget}</code>`
 }
 
-export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
+export function buildTrunkLaneSection({ impactedTargets, isUniversal, crossLane = null }) {
     if (
         isUniversal ||
         !Array.isArray(impactedTargets) ||
@@ -37,16 +37,38 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal }) {
     // shared family name rather than listing them all.
     const summary = impactedTargets.length === 1 ? `${laneName} (${formatTarget(impactedTargets[0])})` : laneName
 
+    const base = `This PR is assigned to the ${summary}. It ${runsBackendPythonTests ? 'runs' : 'does not run'} backend Python tests and may merge in parallel with PRs in other lanes.`
+    if (crossLane?.mixed) {
+        return {
+            status: 'warn',
+            summary: `${summary}, mixes lanes`,
+            body: `${base}\n\n${crossLaneParagraph(crossLane)}`,
+        }
+    }
     return {
         status: runsBackendPythonTests ? 'warn' : 'ok',
         summary,
-        body: `This PR is assigned to the ${summary}. It ${runsBackendPythonTests ? 'runs' : 'does not run'} backend Python tests and may merge in parallel with PRs in other lanes.`,
+        body: base,
     }
+}
+
+function fileList(files) {
+    const shown = files.slice(0, 3).map(formatTarget).join(', ')
+    return files.length > 3 ? `${shown} and ${files.length - 3} more` : shown
+}
+
+function crossLaneParagraph({ heavyFiles, lightFiles }) {
+    return (
+        `This PR changes Python or frontend code (${fileList(heavyFiles)}) and Node or Rust code (${fileList(lightFiles)}) together. ` +
+        'In the merge queue, every Node or Rust PR behind it in the same lane then runs the Django and frontend suites too. ' +
+        'Split it into separate PRs if the two halves can land independently.'
+    )
 }
 
 export async function postTrunkLaneSection({
     impactedTargets,
     isUniversal,
+    crossLane = null,
     expectedHeadSha,
     getCurrentHeadSha,
     post = postSection,
@@ -64,7 +86,7 @@ export async function postTrunkLaneSection({
         return false
     }
 
-    const section = buildTrunkLaneSection({ impactedTargets, isUniversal })
+    const section = buildTrunkLaneSection({ impactedTargets, isUniversal, crossLane })
     await post({ id: 'trunk-lane', ...section })
     return true
 }
@@ -91,10 +113,19 @@ async function main() {
     const impactedTargets = parseJson(process.env.IMPACTED_TARGETS).impactedTargets
     const laneProperties = parseJson(process.env.LANE_PROPERTIES)
     const isUniversal = typeof laneProperties.is_all === 'boolean' ? laneProperties.is_all : true
+    const crossLane =
+        laneProperties.cross_lane === true
+            ? {
+                  mixed: true,
+                  heavyFiles: laneProperties.cross_lane_heavy_files ?? [],
+                  lightFiles: laneProperties.cross_lane_light_files ?? [],
+              }
+            : null
 
     await postTrunkLaneSection({
         impactedTargets,
         isUniversal,
+        crossLane,
         expectedHeadSha: process.env.EXPECTED_HEAD_SHA,
         getCurrentHeadSha,
     })

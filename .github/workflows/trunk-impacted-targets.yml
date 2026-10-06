@@ -194,6 +194,10 @@ jobs:
               continue-on-error: true
               env:
                   IMPACTED_TARGETS: ${{ steps.targets.outputs.targets }}
+                  # The cross-lane verdict classifies rust files and the pnpm
+                  # lockfile with the same inputs the upload used.
+                  RUST_AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
+                  LANE_MERGE_BASE: ${{ steps.changes.outputs.merge_base }}
               run: |
                   set -uo pipefail
                   touch "$RUNNER_TEMP/changed-files.txt"

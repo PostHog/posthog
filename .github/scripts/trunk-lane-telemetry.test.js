@@ -55,7 +55,7 @@ test('the ALL sentinel still reports no targets but is flagged', () => {
 // its weight, and it is not recoverable from the paths alone once the split
 // exists.
 test('tripwire domains are counted alongside the files', () => {
-    const props = buildProperties(['.oxlintrc.json', 'mypy.ini', 'hogli.yaml'], UNIVERSE, UNIVERSE)
+    const props = buildProperties(['tsconfig.json', 'mypy.ini', 'hogli.yaml'], UNIVERSE, UNIVERSE)
     assert.deepEqual(props.tripwire_domains, { javascript: 1, python: 1, universal: 1 })
 })
 
@@ -66,4 +66,17 @@ test('file paths are summarized rather than sent', () => {
     assert.deepEqual(props.changed_products, ['alpha', 'beta'])
     assert.equal(props.changed_file_count, 3)
     assert.deepEqual(props.target_domains, { py: 1, fe: 1 })
+})
+
+test('the cross-lane verdict and its files ride along, or report unknown', () => {
+    const mixed = buildProperties(['posthog/api/x.py', 'nodejs/src/y.ts'], ['node:ingestion', 'py:core'], UNIVERSE, {
+        mixed: true,
+        heavyFiles: ['posthog/api/x.py'],
+        lightFiles: ['nodejs/src/y.ts'],
+    })
+    assert.equal(mixed.cross_lane, true)
+    assert.deepEqual(mixed.cross_lane_heavy_files, ['posthog/api/x.py'])
+    assert.deepEqual(mixed.cross_lane_light_files, ['nodejs/src/y.ts'])
+
+    assert.equal(buildProperties(['nodejs/src/y.ts'], ['node:ingestion'], UNIVERSE).cross_lane, null)
 })

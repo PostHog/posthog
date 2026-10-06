@@ -22,6 +22,7 @@
 // Output: JSON object of event properties on stdout
 
 const fs = require('fs')
+const path = require('path')
 const {
     ALL,
     allKnownTargets,
@@ -30,6 +31,7 @@ const {
     tripwireDomain,
     REPO_ROOT,
 } = require('./trunk-impacted-targets')
+const { crossLaneFiles } = require('./trunk-cross-lane')
 
 // Enough to name the culprit without turning a wide PR into a huge payload.
 const MAX_LISTED = 20
@@ -44,7 +46,7 @@ function domainOf(target) {
 // universe tells them apart. Without it the dashboard would read every widening
 // as a PR that legitimately claimed every lane, which is the distinction this
 // event exists to make.
-function buildProperties(changedFiles, impactedTargets, universe) {
+function buildProperties(changedFiles, impactedTargets, universe, crossLane = null) {
     const targets = Array.isArray(impactedTargets) ? impactedTargets : []
     const isAll = impactedTargets === ALL || (Boolean(universe) && targets.length === universe.length)
     const isProse = targets.length === 1 && targets[0] === 'prose'
@@ -106,6 +108,11 @@ function buildProperties(changedFiles, impactedTargets, universe) {
         target_domains: targetDomains,
         tripwire_files: tripwireFiles.slice(0, MAX_LISTED),
         tripwire_domains: tripwireDomains,
+        // A Python or frontend lane and a Node or Rust lane in one PR, from files
+        // that each claim only one side. Null when no verdict could be given.
+        cross_lane: crossLane ? crossLane.mixed : null,
+        cross_lane_heavy_files: crossLane ? crossLane.heavyFiles.slice(0, MAX_LISTED) : [],
+        cross_lane_light_files: crossLane ? crossLane.lightFiles.slice(0, MAX_LISTED) : [],
         // Separates the three ways a PR ends up in one lane: a rule that
         // deliberately widened it, a path no rule claimed (the early warning
         // that the script needs a rule for a directory someone just added), and
@@ -135,11 +142,24 @@ if (require.main === module) {
     } catch (error) {
         console.error(`Could not read IMPACTED_TARGETS (${error.message}); reporting the file side only`)
     }
+    let context = null
     let universe = null
     try {
-        universe = allKnownTargets(buildContext(REPO_ROOT))
+        context = buildContext(REPO_ROOT)
+        universe = allKnownTargets(context)
     } catch (error) {
         console.error(`Could not enumerate the target universe (${error.message}); is_all reports the sentinel only`)
     }
-    process.stdout.write(JSON.stringify(buildProperties(changedFiles, impactedTargets, universe)))
+    let crossLane = null
+    if (context) {
+        try {
+            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles })
+        } catch (error) {
+            console.error(
+                `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`
+            )
+        }
+    }
+    process.stdout.write(JSON.stringify(buildProperties(changedFiles, impactedTargets, universe, crossLane)))
 }
