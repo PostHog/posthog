@@ -15,6 +15,7 @@ from products.notebooks.backend.sql_v2_references import resolve_sql_v2_referenc
 from products.notebooks.backend.sql_v2_state import (
     MAX_ADDRESSABLE_PROSE_BLOCKS,
     MAX_NOTEBOOK_CELLS,
+    CellVisualization,
     NotebookCellLimitExceeded,
     build_dependency_edges,
     build_notebook_cell_state,
@@ -40,6 +41,43 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 
 class TestCellExtractionAndEdges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "chart tab with axes",
+                'outputTab="visualization" vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar",'
+                '"chartSettings":{"xAxis":{"column":"month"},"yAxis":[{"column":"orgs"}],'
+                '"seriesBreakdownColumn":"region"}}}',
+                CellVisualization(display="ActionsBar", x_axis="month", y_axis=("orgs",), series_breakdown="region"),
+            ),
+            (
+                "chart tab without a stored chart",
+                'outputTab="visualization"',
+                CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
+            (
+                "every series removed",
+                'outputTab="visualization" vizQuery={{"kind":"DataVisualizationNode","chartSettings":{"yAxis":[]}}}',
+                CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=(), series_breakdown=None),
+            ),
+            (
+                "results tab keeps a stored chart hidden",
+                'outputTab="results" vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar"}}',
+                None,
+            ),
+            ("no output tab", 'code="select 1"', None),
+            (
+                "chart held in the legacy query prop",
+                'query={{"kind":"DataVisualizationNode","display":"ActionsPie",'
+                '"source":{"kind":"HogQLQuery","query":"select 1"}}}',
+                CellVisualization(display="ActionsPie", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
+        ]
+    )
+    def test_sql_cell_visualization(self, _name: str, props: str, expected: CellVisualization | None) -> None:
+        cells = extract_cells(markdown_content(f'<SQLV2 nodeId="s" returnVariable="df" {props} />'))
+        assert cells[0].visualization == expected
+
     @parameterized.expand(
         [
             (case["name"], case["markdown"], case["owners"])
@@ -458,7 +496,8 @@ class TestNotebookCellState(APIBaseTest):
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     def test_state_endpoint_returns_cells_and_kernel(self, _mock_enabled) -> None:
         notebook = self._notebook(
-            '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
+            '<SQLV2 nodeId="s" code="select 1" returnVariable="df" outputTab="visualization" '
+            'vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar","chartSettings":{"yAxis":[{"column":"n"}]}}} />\n\n'
             '<PythonV2 nodeId="p" code="x = df.head()" returnVariable="x" />'
         )
         notebook.variables = [{"name": "limit", "type": "number", "value": 10}]
@@ -478,5 +517,12 @@ class TestNotebookCellState(APIBaseTest):
         assert by_node["s"]["dependents"] == ["p"]
         assert by_node["p"]["status"] == "never_run"
         assert by_node["p"]["depends_on"] == ["s"]
+        assert by_node["s"]["visualization"] == {
+            "display": "ActionsBar",
+            "x_axis": None,
+            "y_axis": ["n"],
+            "series_breakdown": None,
+        }
+        assert by_node["p"]["visualization"] is None
         assert by_node["s"]["last_run"]["run_id"]
         assert data["markdown"][by_node["s"]["start"] : by_node["s"]["end"]].startswith('<SQLV2 nodeId="s"')
