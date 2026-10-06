@@ -1286,6 +1286,13 @@
             "examples": ["3"],
             "label": "Feature flag version"
         },
+        "$flutter_version": {
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
+            "ignored_in_assistant": true,
+            "label": "Flutter version",
+            "system": true
+        },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers).",
             "examples": ["50"],
@@ -2083,6 +2090,13 @@
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.",
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
             "label": "Raw user agent"
+        },
+        "$react_native_version": {
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "ignored_in_assistant": true,
+            "label": "React Native version",
+            "system": true
         },
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
@@ -5145,6 +5159,13 @@
             "examples": ["3"],
             "label": "Feature flag version"
         },
+        "$flutter_version": {
+            "description": "The Flutter version of the app that captured the event.",
+            "examples": ["3.44.1"],
+            "ignored_in_assistant": true,
+            "label": "Flutter version",
+            "system": true
+        },
         "$geoip_accuracy_radius": {
             "description": "Accuracy radius of the location matched to this event's IP address (in kilometers). Data from the last time this user was seen.",
             "examples": ["50"],
@@ -6268,6 +6289,13 @@
             "description": "PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string. Data from the last time this user was seen.",
             "examples": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)"],
             "label": "Latest raw user agent"
+        },
+        "$react_native_version": {
+            "description": "The React Native version of the app that captured the event.",
+            "examples": ["0.79.6"],
+            "ignored_in_assistant": true,
+            "label": "React Native version",
+            "system": true
         },
         "$recording_status": {
             "description": "The status of session recording at the time the event was captured",
