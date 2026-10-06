@@ -72,10 +72,10 @@ pub struct Effects {
 /// [`Effects`] to perform, so a caller cannot act on a state it has
 /// already left. An action does no I/O.
 pub enum BatcherStateMachine {
-    Running(Work),
+    Running(ActiveState),
     /// Shutdown started: no new groups, every open batch seals at once, and
     /// retries continue until nothing is pending or in flight.
-    Draining(Work),
+    Draining(ActiveState),
     Stopped,
     Failed,
 }
@@ -95,7 +95,7 @@ impl BatcherStateMachine {
         if stall_timeout.is_zero() {
             return Err("stall_timeout must be > 0".to_string());
         }
-        Ok(BatcherStateMachine::Running(Work {
+        Ok(BatcherStateMachine::Running(ActiveState {
             keys: KeyQueues::new(),
             packer,
             assigner,
@@ -116,9 +116,9 @@ impl BatcherStateMachine {
         runs: Vec<KeyRun>,
     ) -> (Self, Effects) {
         match self {
-            BatcherStateMachine::Running(mut work) => {
-                let result = work.on_groups(now, pool, assignment_epoch, runs);
-                Self::after(work, false, result)
+            BatcherStateMachine::Running(mut active) => {
+                let result = active.on_groups(now, pool, assignment_epoch, runs);
+                Self::after(active, false, result)
             }
             BatcherStateMachine::Draining(_) | BatcherStateMachine::Stopped => {
                 Self::failed("groups submitted after shutdown started".to_string())
@@ -139,8 +139,8 @@ impl BatcherStateMachine {
         accepted: u32,
         returned: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|work, draining| {
-            work.on_request_succeeded(now, pool, draining, request, accepted, returned)
+        self.act(|active, draining| {
+            active.on_request_succeeded(now, pool, draining, request, accepted, returned)
         })
     }
 
@@ -154,15 +154,15 @@ impl BatcherStateMachine {
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|work, draining| {
-            work.on_request_failed(now, pool, draining, request, cause, messages)
+        self.act(|active, draining| {
+            active.on_request_failed(now, pool, draining, request, cause, messages)
         })
     }
 
     pub fn on_wakeup(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
-        self.act(|work, draining| {
+        self.act(|active, draining| {
             let mut effects = Effects::default();
-            work.advance(now, pool, draining, &mut effects)?;
+            active.advance(now, pool, draining, &mut effects)?;
             Ok(effects)
         })
     }
@@ -177,63 +177,69 @@ impl BatcherStateMachine {
         now: Instant,
         partitions: &[(String, i32)],
     ) -> (Self, Effects) {
-        self.act(|work, _| work.on_partitions_revoked(now, partitions))
+        self.act(|active, _| active.on_partitions_revoked(now, partitions))
     }
 
     pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
         match self {
-            BatcherStateMachine::Running(work) => {
-                BatcherStateMachine::Draining(work).on_wakeup(now, pool)
+            BatcherStateMachine::Running(active) => {
+                BatcherStateMachine::Draining(active).on_wakeup(now, pool)
             }
             other => (other, Effects::default()),
         }
     }
 
     pub fn pending_messages(&self) -> usize {
-        self.work().map_or(0, Work::pending_messages)
+        self.active().map_or(0, ActiveState::pending_messages)
     }
 
     pub fn in_flight_messages(&self) -> usize {
-        self.work()
-            .map_or(0, |work| work.assigner.in_flight_messages())
+        self.active()
+            .map_or(0, |active| active.assigner.in_flight_messages())
     }
 
-    fn work(&self) -> Option<&Work> {
+    fn active(&self) -> Option<&ActiveState> {
         match self {
-            BatcherStateMachine::Running(work) | BatcherStateMachine::Draining(work) => Some(work),
+            BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
+                Some(active)
+            }
             BatcherStateMachine::Stopped | BatcherStateMachine::Failed => None,
         }
     }
 
     fn act(
         self,
-        action: impl FnOnce(&mut Work, bool) -> Result<Effects, String>,
+        action: impl FnOnce(&mut ActiveState, bool) -> Result<Effects, String>,
     ) -> (Self, Effects) {
         match self {
-            BatcherStateMachine::Running(mut work) => {
-                let result = action(&mut work, false);
-                Self::after(work, false, result)
+            BatcherStateMachine::Running(mut active) => {
+                let result = action(&mut active, false);
+                Self::after(active, false, result)
             }
-            BatcherStateMachine::Draining(mut work) => {
-                let result = action(&mut work, true);
-                Self::after(work, true, result)
+            BatcherStateMachine::Draining(mut active) => {
+                let result = action(&mut active, true);
+                Self::after(active, true, result)
             }
             finished => (finished, Effects::default()),
         }
     }
 
-    fn after(work: Work, draining: bool, result: Result<Effects, String>) -> (Self, Effects) {
+    fn after(
+        active: ActiveState,
+        draining: bool,
+        result: Result<Effects, String>,
+    ) -> (Self, Effects) {
         match result {
             Err(reason) => Self::failed(reason),
-            Ok(effects) if draining && work.is_drained() => (
+            Ok(effects) if draining && active.is_drained() => (
                 BatcherStateMachine::Stopped,
                 Effects {
                     next_wakeup: None,
                     ..effects
                 },
             ),
-            Ok(effects) if draining => (BatcherStateMachine::Draining(work), effects),
-            Ok(effects) => (BatcherStateMachine::Running(work), effects),
+            Ok(effects) if draining => (BatcherStateMachine::Draining(active), effects),
+            Ok(effects) => (BatcherStateMachine::Running(active), effects),
         }
     }
 
@@ -248,7 +254,7 @@ impl BatcherStateMachine {
     }
 }
 
-pub struct Work {
+pub struct ActiveState {
     keys: KeyQueues,
     packer: Packer,
     assigner: WorkerAssigner,
@@ -261,7 +267,7 @@ pub struct Work {
     last_progress: Instant,
 }
 
-impl Work {
+impl ActiveState {
     fn pending_messages(&self) -> usize {
         self.keys.queued_messages()
             + self.packer.held_messages()
