@@ -29,6 +29,7 @@ import {
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -537,6 +538,41 @@ function clearTodayStorage(
     return <Story />
 }
 
+function mockReportPage(reportId: string): ReportPageApi {
+    const report = REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
+    const signals = mockSignals(reportId, 6).map((signal) => {
+        const firstLine = signal.content.split('\n')[0]
+        return {
+            signal_id: signal.signal_id,
+            content: signal.content,
+            source_product: signal.source_product,
+            source_type: signal.source_type,
+            source_id: signal.source_id,
+            timestamp: signal.timestamp,
+            extra: { ...signal.extra },
+            headline: firstLine,
+            lead: firstLine,
+            meta: '',
+            cited: null,
+            recording: null,
+            link: null,
+            preview: null,
+        }
+    })
+    return {
+        lead: report.summary_lead ?? '',
+        proposal: '',
+        impact_sentence: '',
+        in_flight_pull_request: null,
+        solution_names_pull_request: false,
+        signals,
+        evidence: signals.slice(0, 3).map((signal) => signal.signal_id),
+        evidence_count: signals.length,
+        impact_numbers: [],
+        last_seen: null,
+    }
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Project Homepage/Today',
@@ -553,15 +589,11 @@ const meta: Meta = {
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
-                    200,
-                    // Error tracking signals fetch their issue, which these stories do not mock.
-                    {
-                        signals: mockSignals(String(req.params.id), 6).filter(
-                            (signal) => signal.source_product !== 'error_tracking'
-                        ),
-                    },
-                ],
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
+                '/api/users/@me/integrations/': { results: [] },
+                '/api/users/@me/integrations/slack/linkable_workspaces/': { results: [] },
                 '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
