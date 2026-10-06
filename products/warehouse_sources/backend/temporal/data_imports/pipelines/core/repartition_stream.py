@@ -383,6 +383,14 @@ def _string_upper_bound(value: str) -> str | None:
     return None
 
 
+@frozen
+class StatBounds:
+    """JSON-ready min and max for one column. None means the bound is left out."""
+
+    low: Any
+    high: Any
+
+
 class _ColumnStats:
     """Running min, max and null count of one column across the batches of one output file.
 
@@ -432,12 +440,13 @@ class _ColumnStats:
         self.minimum = low if self.minimum is None or low < self.minimum else self.minimum
         self.maximum = high if self.maximum is None or high > self.maximum else self.maximum
 
-    def json_values(self) -> tuple[Any, Any]:
+    def json_values(self) -> StatBounds:
         if self.kind is None or self.minimum is None:
-            return None, None
-        low = None if self.min_unbounded else _json_stat(self.minimum)
-        high = None if self.max_unbounded else _json_stat(self.maximum)
-        return low, high
+            return StatBounds(low=None, high=None)
+        return StatBounds(
+            low=None if self.min_unbounded else _json_stat(self.minimum),
+            high=None if self.max_unbounded else _json_stat(self.maximum),
+        )
 
 
 def _stats_kind(data_type: pa.DataType) -> str | None:
@@ -539,11 +548,11 @@ class _OpenFile:
         stats: dict[str, Any] = {"numRecords": self.num_records, "minValues": {}, "maxValues": {}, "nullCount": {}}
         for name, column_stats in self._stats.items():
             stats["nullCount"][name] = column_stats.null_count
-            low, high = column_stats.json_values()
-            if low is not None:
-                stats["minValues"][name] = low
-            if high is not None:
-                stats["maxValues"][name] = high
+            bounds = column_stats.json_values()
+            if bounds.low is not None:
+                stats["minValues"][name] = bounds.low
+            if bounds.high is not None:
+                stats["maxValues"][name] = bounds.high
         action = AddAction(
             self.path,
             size,
