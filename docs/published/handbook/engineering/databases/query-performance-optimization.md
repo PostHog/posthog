@@ -181,7 +181,3 @@ Need more granular access to queries than these dashboards provide? Take a look 
 ### How-to fix slow queries
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
-
-### Trends breakdown arrays
-
-The `trends-breakdown-rank-before-arrays` project feature flag enables ranking breakdowns before building their date arrays. Total-count event and action series with non-histogram, non-cohort breakdowns use scalar totals to choose the top breakdowns and combine the rest into Other. Only the retained breakdowns and Other then allocate date arrays. Saved insight settings and the result format stay the same. Cumulative displays, smoothing, other math types, and other breakdown configurations keep the existing query path. The flag is disabled by default and can be switched off independently of `trends-breakdown-fewer-array-ops`.
