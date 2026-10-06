@@ -39,6 +39,9 @@ class _FakeResumableManager:
     def save_state(self, data: JumpcloudResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _response_with_status(status_code: int, body: bytes = b"", headers: dict[str, str] | None = None):
     response = requests.Response()
@@ -197,7 +200,9 @@ class TestRestRows:
             }
         ]
 
-    @parameterized.expand([("applications", False), ("users", True)])
+    @parameterized.expand(
+        [("applications", False), ("users", True), ("application_users", False), ("system_users", True)]
+    )
     def test_secret_bearing_endpoint_disables_http_sample_capture(self, endpoint: str, expected_capture: bool) -> None:
         # HTTP sample capture writes the raw response body before row-level `redact_keys` runs, so
         # endpoints that redact secrets (applications' SAML key) must opt out of capture entirely.
@@ -207,9 +212,11 @@ class TestRestRows:
             capture_kwargs.append(kwargs.get("capture"))
             return MagicMock()
 
+        listing = JUMPCLOUD_ENDPOINTS[JUMPCLOUD_ENDPOINTS[endpoint].parent or endpoint]
+
         def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
             response = MagicMock()
-            response.json.return_value = {"results": []} if JUMPCLOUD_ENDPOINTS[endpoint].api == "v1" else []
+            response.json.return_value = {"results": []} if listing.api == "v1" else []
             return response
 
         with (
@@ -243,6 +250,107 @@ class TestRestRows:
                     resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 )
             )
+
+
+class TestFanoutRows:
+    @staticmethod
+    def _collect(
+        endpoint: str,
+        parent_pages: list[list[dict]],
+        children: dict[str, list[dict] | int],
+        manager: _FakeResumableManager,
+        monkeypatch: Any,
+    ) -> tuple[list[dict], list[str]]:
+        fetched_urls: list[str] = []
+        config = JUMPCLOUD_ENDPOINTS[endpoint]
+        parent_config = JUMPCLOUD_ENDPOINTS[config.parent or ""]
+
+        def fake_request(session: Any, method: str, url: str, logger: Any, json_body: Any = None) -> Any:
+            fetched_urls.append(url)
+            path, query = url.removeprefix("https://console.jumpcloud.com").split("?")
+            skip = int(query.split("skip=")[1].split("&")[0])
+            response = MagicMock()
+            if path == parent_config.path:
+                index = skip // REST_PAGE_SIZE
+                page = parent_pages[index] if index < len(parent_pages) else []
+                response.json.return_value = {"results": page} if parent_config.api == "v1" else page
+                return response
+            parent_id = path.split("/")[4]
+            child = children.get(parent_id, [])
+            if isinstance(child, int):
+                raise requests.HTTPError(response=_response_with_status(child))
+            response.json.return_value = child[skip : skip + REST_PAGE_SIZE]
+            return response
+
+        monkeypatch.setattr(jumpcloud, "_request", fake_request)
+        monkeypatch.setattr(jumpcloud, "make_tracked_session", lambda **kwargs: MagicMock())
+
+        rows: list[dict] = []
+        for page in get_rows(
+            api_key="key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(page)
+        return rows, fetched_urls
+
+    def test_injects_parent_id_into_each_child_row(self, monkeypatch: Any) -> None:
+        member = {"id": "u1", "type": "user", "paths": [[{"to": {"id": "u1", "type": "user"}}]]}
+        manager = _FakeResumableManager()
+        rows, urls = self._collect(
+            "user_group_members",
+            [[{"id": "g1"}, {"id": "g2"}]],
+            {"g1": [member], "g2": [{"id": "u1", "type": "user", "paths": []}]},
+            manager,
+            monkeypatch,
+        )
+        # The same user in two groups must stay two distinct rows under the composite key.
+        assert rows == [{**member, "group_id": "g1"}, {"id": "u1", "type": "user", "paths": [], "group_id": "g2"}]
+        assert JUMPCLOUD_ENDPOINTS["user_group_members"].primary_keys == ["group_id", "id"]
+        assert urls[1].startswith("https://console.jumpcloud.com/api/v2/usergroups/g1/membership?")
+        assert manager.saved == []
+
+    def test_reads_v1_parent_ids_and_pages_children(self, monkeypatch: Any) -> None:
+        many_users = [{"id": f"u{i}", "type": "user"} for i in range(REST_PAGE_SIZE + 1)]
+        manager = _FakeResumableManager()
+        rows, urls = self._collect("system_users", [[{"_id": "s1"}]], {"s1": many_users}, manager, monkeypatch)
+        assert len(rows) == REST_PAGE_SIZE + 1
+        assert {row["system_id"] for row in rows} == {"s1"}
+        assert [u.split("?")[0] for u in urls[1:]] == ["https://console.jumpcloud.com/api/v2/systems/s1/users"] * 2
+
+    def test_checkpoints_parent_offset_after_each_full_parent_page(self, monkeypatch: Any) -> None:
+        full_page = [{"_id": f"a{i}"} for i in range(REST_PAGE_SIZE)]
+        manager = _FakeResumableManager()
+        rows, _ = self._collect(
+            "application_users", [full_page, [{"_id": "last"}]], {"last": [{"id": "u1"}]}, manager, monkeypatch
+        )
+        assert rows == [{"id": "u1", "application_id": "last"}]
+        assert manager.saved == [JumpcloudResumeConfig(skip=REST_PAGE_SIZE)]
+
+    def test_resumes_from_saved_parent_offset(self, monkeypatch: Any) -> None:
+        full_page = [{"_id": f"a{i}"} for i in range(REST_PAGE_SIZE)]
+        manager = _FakeResumableManager(JumpcloudResumeConfig(skip=REST_PAGE_SIZE))
+        _, urls = self._collect("application_user_groups", [full_page, [{"_id": "last"}]], {}, manager, monkeypatch)
+        assert f"skip={REST_PAGE_SIZE}" in urls[0]
+        assert [u.split("?")[0] for u in urls[1:]] == [
+            "https://console.jumpcloud.com/api/v2/applications/last/usergroups"
+        ]
+
+    def test_parent_deleted_mid_sync_is_skipped(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        rows, _ = self._collect(
+            "system_group_members",
+            [[{"id": "gone"}, {"id": "g2"}]],
+            {"gone": 404, "g2": [{"id": "s1", "type": "system"}]},
+            manager,
+            monkeypatch,
+        )
+        assert rows == [{"id": "s1", "type": "system", "group_id": "g2"}]
+
+    def test_child_permission_error_is_raised(self, monkeypatch: Any) -> None:
+        with pytest.raises(requests.HTTPError):
+            self._collect("system_users", [[{"_id": "s1"}]], {"s1": 403}, _FakeResumableManager(), monkeypatch)
 
 
 class TestEventRows:
@@ -398,6 +506,16 @@ class TestValidateCredentials:
         assert url == "https://api.jumpcloud.com/insights/directory/v1/events"
         assert session.post.call_args.kwargs["json"]["limit"] == 1
 
+    def test_fanout_schema_probes_the_parent_listing(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response_with_status(200)
+        with patch.object(jumpcloud, "_make_session", return_value=session) as make_session:
+            ok, _error = validate_credentials("key", schema_name="application_users")
+        assert ok is True
+        assert session.get.call_args.args[0] == "https://console.jumpcloud.com/api/applications?limit=1"
+        # The parent listing carries SAML signing keys, so the probe must not be sample-captured.
+        assert make_session.call_args.kwargs["capture"] is False
+
     def test_connection_error_returns_message(self) -> None:
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
@@ -418,7 +536,7 @@ class TestJumpcloudSourceResponse:
         )
         config = JUMPCLOUD_ENDPOINTS[name]
         assert response.name == name
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == config.primary_keys
         # Directory Insights response ordering is undocumented, so the events stream defers
         # its watermark to job end (desc); everything else is plain ascending full refresh.
         assert response.sort_mode == ("desc" if config.api == "insights" else "asc")
