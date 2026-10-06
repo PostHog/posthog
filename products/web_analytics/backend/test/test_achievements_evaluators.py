@@ -11,8 +11,6 @@ from parameterized import parameterized
 from posthog.models import Element, Team, User
 
 from products.actions.backend.models.action import Action
-from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
@@ -26,6 +24,10 @@ from products.web_analytics.backend.achievements.evaluators import (
     evaluate_streak,
 )
 from products.web_analytics.backend.models import WebAnalyticsInteraction, WebAnalyticsVisit
+from products.web_analytics.backend.test.warehouse_access_test_utils import (
+    WAREHOUSE_ACCESS_CONTROL_FLAG,
+    filter_through_warehouse_join,
+)
 
 TODAY = date(2026, 6, 15)
 
@@ -78,29 +80,6 @@ class TestAchievementEvaluators(BaseTest):
 
 
 EMPTY_PRIOR = PriorProgress(value=0, last_computed_at=None, checkpoint={})
-
-WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
-
-
-def _filter_through_warehouse_join(team: Team) -> dict[str, str]:
-    credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=team)
-    DataWarehouseTable.objects.create(
-        name="denied_warehouse_table",
-        format=DataWarehouseTable.TableFormat.Parquet,
-        team=team,
-        credential=credential,
-        url_pattern="s3://bucket/denied/*",
-        columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "valid": True}},
-    )
-    DataWarehouseJoin.objects.create(
-        team=team,
-        source_table_name="persons",
-        source_table_key="properties.email",
-        joining_table_name="denied_warehouse_table",
-        joining_table_key="id",
-        field_name="denied_join",
-    )
-    return {"type": "data_warehouse_person_property", "key": "denied_join.id", "value": "internal", "operator": "exact"}
 
 
 class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
@@ -189,7 +168,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         rows: list[tuple[object, ...]],
         expected: int,
     ) -> None:
-        self.team.test_account_filters = [_filter_through_warehouse_join(self.team)]
+        self.team.test_account_filters = [filter_through_warehouse_join(self.team)]
         self.team.save()
         self._pay_action("$autocapture")
 
