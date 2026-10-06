@@ -279,6 +279,31 @@ def _get_child_rows(
         skip += len(rows)
 
 
+def _yield_with_checkpoint(
+    rows: Iterator[list[dict[str, Any]]],
+    next_state: JumpcloudResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[JumpcloudResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Hold one batch so the next-page state is staged immediately before the last yield."""
+    try:
+        pending = next(rows)
+    except StopIteration:
+        if next_state is not None:
+            resumable_source_manager.save_state(next_state)
+            resumable_source_manager.safe_point()
+        return
+
+    for batch in rows:
+        yield pending
+        pending = batch
+
+    if next_state is not None:
+        resumable_source_manager.save_state(next_state)
+    yield pending
+    if next_state is not None:
+        resumable_source_manager.safe_point()
+
+
 def _get_fanout_rows(
     session: requests.Session,
     base_url: str,
@@ -306,23 +331,25 @@ def _get_fanout_rows(
         if not parents:
             break
 
-        for parent in parents:
-            parent_id = parent.get(parent_config.primary_key)
-            if not parent_id:
-                continue
-            has_children = False
-            for rows in _get_child_rows(session, base_url, config, str(parent_id), logger):
-                has_children = True
-                yield [{**row, parent_id_column: parent_id} for row in rows]
-            if not has_children:
-                resumable_source_manager.safe_point()
+        def page_rows(parent_page: list[dict[str, Any]] = parents) -> Iterator[list[dict[str, Any]]]:
+            for parent in parent_page:
+                parent_id = parent.get(parent_config.primary_key)
+                if not parent_id:
+                    continue
+                has_children = False
+                for rows in _get_child_rows(session, base_url, config, str(parent_id), logger):
+                    has_children = True
+                    yield [{**row, parent_id_column: parent_id} for row in rows]
+                if not has_children:
+                    resumable_source_manager.safe_point()
 
-        if len(parents) < REST_PAGE_SIZE:
+        has_more = len(parents) >= REST_PAGE_SIZE
+        next_state = JumpcloudResumeConfig(skip=parent_skip + len(parents)) if has_more else None
+        yield from _yield_with_checkpoint(page_rows(), next_state, resumable_source_manager)
+
+        if not has_more:
             break
-
         parent_skip += len(parents)
-        resumable_source_manager.save_state(JumpcloudResumeConfig(skip=parent_skip))
-        resumable_source_manager.safe_point()
 
 
 def _get_event_rows(

@@ -378,6 +378,39 @@ def _fetch_related(
         yield rows
 
 
+def _yield_with_checkpoint(
+    rows: Iterator[list[dict[str, Any]]],
+    next_state: JfrogArtifactoryResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[JfrogArtifactoryResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Hold one batch so the next-page state is staged immediately before the last yield.
+
+    An `aql_related` page expands into zero or more related-row batches. Staging `next_state` as
+    soon as the parent page is read — before any of its related rows are yielded — can commit past
+    a page whose related rows are not all written yet. Staging it right after the last of those
+    batches yields, the pattern the resume-state ratchet forbids, can lose that batch on a worker
+    shutdown. Holding one batch back lets the state land immediately before the batch it allows a
+    resume to skip, exactly when every earlier row is safe to resume past.
+    """
+    try:
+        pending = next(rows)
+    except StopIteration:
+        if next_state is not None:
+            resumable_source_manager.save_state(next_state)
+            resumable_source_manager.safe_point()
+        return
+
+    for batch in rows:
+        yield pending
+        pending = batch
+
+    if next_state is not None:
+        resumable_source_manager.save_state(next_state)
+    yield pending
+    if next_state is not None:
+        resumable_source_manager.safe_point()
+
+
 def _iter_aql_pages(
     session: requests.Session,
     base_url: str,
@@ -388,7 +421,14 @@ def _iter_aql_pages(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-) -> Iterator[list[dict[str, Any]]]:
+) -> Iterator[tuple[list[dict[str, Any]], JfrogArtifactoryResumeConfig | None]]:
+    """Yield each AQL page alongside the resume state for the page after it.
+
+    The state is `None` on the last page: the generator ends right after it, and the pipeline then
+    commits whatever state the caller staged for the rows it still holds. A plain `aql` endpoint can
+    save and yield the state's page directly; an `aql_related` endpoint expands one page into
+    several related-row batches first, so it stages the state once all of them are yielded instead.
+    """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_offset:
         offset = resume.next_offset
@@ -410,16 +450,17 @@ def _iter_aql_pages(
             break
 
         has_more = len(results) >= AQL_PAGE_SIZE
-        yield [_strip_domain_prefix(item, config.aql_domain) for item in results]
+        next_state = (
+            JfrogArtifactoryResumeConfig(next_offset=offset + len(results), incremental_filter_value=filter_value)
+            if has_more
+            else None
+        )
+
+        yield [_strip_domain_prefix(item, config.aql_domain) for item in results], next_state
 
         if not has_more:
             break
         offset += len(results)
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes on the primary key.
-        resumable_source_manager.save_state(
-            JfrogArtifactoryResumeConfig(next_offset=offset, incremental_filter_value=filter_value)
-        )
         resumable_source_manager.safe_point()
 
 
@@ -471,18 +512,20 @@ def _iter_xray_violations(
             break
 
         has_more = len(violations) >= XRAY_PAGE_SIZE
+        if has_more:
+            page += 1
+            if (page - 1) * XRAY_PAGE_SIZE >= XRAY_MAX_SCROLL_ROWS:
+                restart_filter = _xray_restart_filter(violations[-1].get("created"), filter_value)
+                if restart_filter is not None:
+                    filter_value, page = restart_filter, 1
+            resumable_source_manager.save_state(
+                JfrogArtifactoryResumeConfig(next_offset=page, incremental_filter_value=filter_value)
+            )
+
         yield violations
 
         if not has_more:
             break
-        page += 1
-        if (page - 1) * XRAY_PAGE_SIZE >= XRAY_MAX_SCROLL_ROWS:
-            restart_filter = _xray_restart_filter(violations[-1].get("created"), filter_value)
-            if restart_filter is not None:
-                filter_value, page = restart_filter, 1
-        resumable_source_manager.save_state(
-            JfrogArtifactoryResumeConfig(next_offset=page, incremental_filter_value=filter_value)
-        )
         resumable_source_manager.safe_point()
 
 
@@ -535,14 +578,21 @@ def get_rows(
     )
 
     if config.kind == "aql":
-        yield from pages
+        for results, next_state in pages:
+            if next_state is not None:
+                resumable_source_manager.save_state(next_state)
+            yield results
         return
 
-    for parents in pages:
-        for start in range(0, len(parents), config.aql_related_chunk_size):
-            yield from _fetch_related(
+    for parents, next_state in pages:
+        related_batches = (
+            batch
+            for start in range(0, len(parents), config.aql_related_chunk_size)
+            for batch in _fetch_related(
                 session, base_url, access_token, config, parents[start : start + config.aql_related_chunk_size], logger
             )
+        )
+        yield from _yield_with_checkpoint(related_batches, next_state, resumable_source_manager)
 
 
 def jfrog_artifactory_source(

@@ -460,15 +460,15 @@ def _iter_endpoint_pages(
         if not results:
             break
 
+        total_count = data.get("totalCount")
+        has_more = total_count is None or (page + 1) * config.page_size < total_count
+        if has_more:
+            resumable_source_manager.save_state(resume_state(page + 1))
+
         yield [shape(row) for row in results]
 
-        total_count = data.get("totalCount")
-        if total_count is not None and (page + 1) * config.page_size >= total_count:
+        if not has_more:
             break
-
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-        # page rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(resume_state(page + 1))
         page += 1
 
 

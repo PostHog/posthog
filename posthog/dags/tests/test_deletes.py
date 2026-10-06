@@ -798,7 +798,8 @@ def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: i
                 "deletion_type": int(DeletionType.Person),
                 "key": str(UUID(int=i)),
                 "group_type_index": None,
-                "created_at": datetime(2026, 8, 26, 10, 11, 12),
+                # The microseconds make the staging tests prove the Parquet copy keeps sub-second precision.
+                "created_at": datetime(2026, 8, 26, 10, 11, 12, 345678),
                 "delete_verified_at": None,
                 "created_by_id": None,
                 "team_id": 99999,
@@ -966,6 +967,9 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
     team_id = 424242
     person_uuid = UUID(int=7)
     timestamp = datetime(2026, 8, 27, 10, 0, 0)
+    requested_at = timestamp + timedelta(milliseconds=500)
+    same_second = timestamp + timedelta(milliseconds=250)
+    same_second_uuid = UUID(int=1004)
 
     table = PendingDeletesTable(timestamp=timestamp)
     dictionary = PendingDeletesDictionary(source=table)
@@ -982,7 +986,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
                     "deletion_type": int(DeletionType.Person),
                     "key": str(person_uuid),
                     "group_type_index": None,
-                    "created_at": timestamp,
+                    "created_at": requested_at,
                     "delete_verified_at": None,
                     "created_by_id": None,
                     "team_id": team_id,
@@ -993,12 +997,15 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
     def insert_events(client: Client) -> None:
         # Straight into the storage table: writable_events does not expose inserted_at. Distinct
         # uuids keep separate ORDER BY keys, and one NULL inserted_at covers rows that predate
-        # the column, which must still count.
+        # the column, which must still count. The last row falls in the request's own second but
+        # before the request, so a created_at stored in whole seconds leaves it out of both the
+        # delete and the count.
         client.execute(
             f"INSERT INTO {EVENTS_DATA_TABLE()} (uuid, team_id, distinct_id, person_id, timestamp, inserted_at) VALUES",
             [
                 (UUID(int=1001), team_id, "d", person_uuid, timestamp - timedelta(hours=1), timestamp),
                 (UUID(int=1002), team_id, "d", person_uuid, timestamp - timedelta(hours=2), None),
+                (same_second_uuid, team_id, "d", person_uuid, same_second, same_second),
             ],
         )
 
@@ -1017,10 +1024,10 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
             ],
         )
 
-    def count_late_event_rows(client: Client) -> int:
+    def count_event_rows(uuid: UUID, client: Client) -> int:
         [[count]] = client.execute(
             "SELECT count() FROM events WHERE uuid = %(uuid)s AND _row_exists = 1",
-            {"uuid": UUID(int=1003)},
+            {"uuid": uuid},
         )
         return count
 
@@ -1038,7 +1045,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
             context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         surviving = before["events"]
-        assert surviving is not None and surviving >= 2, "the count cannot see rows the sweep has not removed yet"
+        assert surviving is not None and surviving >= 3, "the count cannot see rows the sweep has not removed yet"
 
         runner = LightweightDeleteMutationRunner(
             table=EVENTS_DATA_TABLE(),
@@ -1052,6 +1059,9 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
             context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         assert after["events"] == 0
+        assert cluster.any_host_by_role(partial(count_event_rows, same_second_uuid), NodeRole.DATA).result() == 0, (
+            "a row from the request's own second, before the request, survived the sweep"
+        )
 
         # A row ingested after its request was created is outside that request's scope, so it
         # must fail neither the delete nor the verification: counting it would let one tenant
@@ -1061,7 +1071,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
             context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         assert late["events"] == 0, "a row inserted after its request's created_at must not count as unswept"
-        assert cluster.any_host_by_role(count_late_event_rows, NodeRole.DATA).result() == 1, (
+        assert cluster.any_host_by_role(partial(count_event_rows, UUID(int=1003)), NodeRole.DATA).result() == 1, (
             "the created_at bound, not a delete, must be what hides the late row"
         )
     finally:
@@ -1215,11 +1225,10 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
     assert resolve_sweep_targets(context) == expected
 
 
-def test_events_json_is_skipped_by_default() -> None:
-    # The events cluster is not reliably reachable from the sweep, and a run that resolves it
-    # inconsistently reports an erasure it did not perform. Dropping the default would resume that
-    # sweep silently, because nothing else in a run says which targets it was supposed to reach.
-    expected = ["sharded_events", "sharded_flag_evaluations"]
+def test_events_json_is_swept_by_default() -> None:
+    # Skipping a target by default leaves its rows in place while the requests covering them are
+    # marked verified, and nothing else in a run says which targets it was supposed to reach.
+    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]
     assert resolve_sweep_targets(build_op_context()) == expected
     assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 
