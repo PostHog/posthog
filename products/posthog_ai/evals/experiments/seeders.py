@@ -56,10 +56,19 @@ ENDED_EXPERIMENT_NAME = "checkout cta v2"
 SHIP_VARIANT_FLIP_SIGNATURE = "Added automatically when the experiment was ended to keep only one variant."
 
 
-def _create_split_test_experiment(
-    context: CustomPromptSandboxContext, *, start_date: datetime, description: str
-) -> tuple[Any, Any]:
-    """Create the ``split test demo`` experiment on a 50/50 multivariate flag and return both rows."""
+def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """Seed one running experiment with a 50/50 multivariate flag.
+
+    Designed for prompts that ask the agent to change variant split on a
+    *running* experiment — the canonical scenario the
+    ``configuring-experiment-rollout`` skill exists to handle.
+
+    ⚠️ SHARED SEEDER — currently used by multiple eval cases and files.
+    Any change to the returned state invalidates every dependent case simultaneously.
+    If you need a variant of this state for one case, add a new seeder rather than
+    parameterising this one — the eval framework passes only ``context`` to seeders, so
+    case-specific config has to live in the seeder definition.
+    """
     from products.experiments.backend.models.experiment import Experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -87,60 +96,48 @@ def _create_split_test_experiment(
         team_id=team_id,
         created_by_id=user_id,
         name=ROLLOUT_EXPERIMENT_NAME,
-        description=description,
+        description="Seeded by eval — running experiment with 50/50 split.",
         feature_flag=flag,
-        start_date=start_date,
+        start_date=datetime.now(tz=UTC) - timedelta(days=7),
         end_date=None,
     )
-    logger.info(
-        "Seeded running experiment for team_id=%s: experiment_id=%s flag_key=%s",
-        team_id,
-        experiment.id,
-        flag.key,
-    )
-    return experiment, flag
 
-
-def _split_test_payload(experiment: Any, flag: Any) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "experiment_id": experiment.id,
         "experiment_name": experiment.name,
         "feature_flag_id": flag.id,
         "feature_flag_key": flag.key,
         "initial_split": {"control": 50, "test": 50},
     }
-
-
-def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    """Seed one running experiment with a 50/50 multivariate flag.
-
-    Designed for prompts that ask the agent to change variant split on a
-    *running* experiment — the canonical scenario the
-    ``configuring-experiment-rollout`` skill exists to handle.
-
-    ⚠️ SHARED SEEDER — currently used by multiple eval cases and files.
-    Any change to the returned state invalidates every dependent case simultaneously.
-    If you need a variant of this state for one case, add a new seeder rather than
-    parameterising this one — the eval framework passes only ``context`` to seeders, so
-    case-specific config has to live in the seeder definition.
-    """
-    experiment, flag = _create_split_test_experiment(
-        context,
-        start_date=datetime.now(tz=UTC) - timedelta(days=7),
-        description="Seeded by eval — running experiment with 50/50 split.",
+    logger.info(
+        "Seeded running experiment for team_id=%s: experiment_id=%s flag_key=%s",
+        team_id,
+        experiment.id,
+        flag.key,
     )
-    return _split_test_payload(experiment, flag)
+    return payload
+
+
+def _seed_split_test_experiment_started_at(
+    context: CustomPromptSandboxContext, *, start_date: datetime, description: str
+) -> dict[str, Any]:
+    """Seed the shared 50/50 experiment with the start date that a case's prompt describes."""
+    from products.experiments.backend.models.experiment import Experiment
+
+    payload = seed_running_experiment(context)
+    Experiment.objects.filter(team_id=context.team_id, id=payload["experiment_id"]).update(
+        start_date=start_date, description=description
+    )
+    return {**payload, "start_date": start_date.isoformat()}
 
 
 def seed_day_old_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Seed the 50/50 experiment launched one day ago, for prompts that describe a first-day read."""
-    start_date = datetime.now(tz=UTC) - timedelta(days=1)
-    experiment, flag = _create_split_test_experiment(
+    return _seed_split_test_experiment_started_at(
         context,
-        start_date=start_date,
+        start_date=datetime.now(tz=UTC) - timedelta(days=1),
         description="Seeded by eval — running experiment launched yesterday.",
     )
-    return {**_split_test_payload(experiment, flag), "start_date": start_date.isoformat()}
 
 
 def seed_paused_and_resumed_experiment(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -153,13 +150,12 @@ def seed_paused_and_resumed_experiment(context: CustomPromptSandboxContext) -> d
     from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail
 
     now = datetime.now(tz=UTC)
-    start_date = now - timedelta(days=14)
     paused_at = now - timedelta(days=9)
     resumed_at = now - timedelta(days=4)
 
-    experiment, flag = _create_split_test_experiment(
+    payload = _seed_split_test_experiment_started_at(
         context,
-        start_date=start_date,
+        start_date=now - timedelta(days=14),
         description="Seeded by eval — running experiment, paused for five days and resumed.",
     )
 
@@ -172,11 +168,11 @@ def seed_paused_and_resumed_experiment(context: CustomPromptSandboxContext) -> d
             user_id=context.user_id,
             was_impersonated=False,
             is_system=False,
-            item_id=str(flag.id),
+            item_id=str(payload["feature_flag_id"]),
             scope="FeatureFlag",
             activity="updated",
             detail=Detail(
-                name=flag.key,
+                name=payload["feature_flag_key"],
                 changes=[
                     Change(
                         type="FeatureFlag",
@@ -194,16 +190,15 @@ def seed_paused_and_resumed_experiment(context: CustomPromptSandboxContext) -> d
             user_id=context.user_id,
             was_impersonated=False,
             is_system=False,
-            item_id=str(experiment.id),
+            item_id=str(payload["experiment_id"]),
             scope="Experiment",
             activity=activity,
-            detail=Detail(name=experiment.name),
+            detail=Detail(name=payload["experiment_name"]),
             created_at=created_at,
         )
 
     return {
-        **_split_test_payload(experiment, flag),
-        "start_date": start_date.isoformat(),
+        **payload,
         "paused_at": paused_at.isoformat(),
         "resumed_at": resumed_at.isoformat(),
     }
