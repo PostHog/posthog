@@ -1,6 +1,19 @@
 import { dayjs } from 'lib/dayjs'
 
 import {
+    BIConfig,
+    BISort,
+    BIQueryLimit,
+    BIAggregation,
+    BIDateBucket,
+    BIDataSource,
+    BIField,
+    BIValue,
+    BIFilter,
+    BIFilterOperator,
+} from '~/queries/schema/schema-business-intelligence'
+import {
+    ChartSettings,
     DataVisualizationNode,
     DatabaseSchemaTable,
     DatabaseSerializedFieldType,
@@ -22,44 +35,12 @@ export enum BIEditorView {
 
 export type BIShelf = 'rows' | 'columns' | 'values' | 'filters'
 
-export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'minimum' | 'maximum' | 'custom'
-
-export type BIDateBucket = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
-
 export const BI_QUERY_LIMITS = [100, 1000, 10000, 50000] as const
-
-export type BIQueryLimit = (typeof BI_QUERY_LIMITS)[number]
-
-export type BISortDirection = 'asc' | 'desc'
-
-export interface BISort {
-    key: string
-    direction: BISortDirection
-}
 
 export interface BISortOption {
     key: string
     label: string
     expression: string
-}
-
-export type BIFilterOperator =
-    | 'equals'
-    | 'not_equals'
-    | 'contains'
-    | 'in'
-    | 'not_in'
-    | 'between'
-    | 'greater_than'
-    | 'less_than'
-    | 'last_7_days'
-    | 'is_set'
-    | 'is_not_set'
-    | 'custom'
-
-export interface BIDataSource {
-    table: string
-    connectionId?: string
 }
 
 export function getBIDataSourceKey(source: BIDataSource): string {
@@ -75,32 +56,6 @@ export function getBIFieldId(source: BIDataSource, expression: string): string {
     return JSON.stringify([source.connectionId ?? null, source.table, expression])
 }
 
-export interface BIField {
-    id: string
-    name: string
-    expression: string
-    type: DatabaseSerializedFieldType
-    source: BIDataSource
-    dateBucket?: BIDateBucket
-}
-
-export interface BIValue {
-    field: BIField
-    aggregation: BIAggregation
-    customExpression?: string
-    label?: string
-}
-
-export interface BIFilter {
-    field: BIField
-    operator: BIFilterOperator
-    value: string
-    customExpression?: string
-    values?: string[]
-    valueTo?: string
-    enabled?: boolean
-}
-
 export function changeBIFilterOperator(filter: BIFilter, operator: BIFilterOperator): BIFilter {
     const wasMultiple = ['in', 'not_in'].includes(filter.operator)
     const isMultiple = ['in', 'not_in'].includes(operator)
@@ -114,18 +69,6 @@ export function changeBIFilterOperator(filter: BIFilter, operator: BIFilterOpera
     }
 }
 
-export interface BIConfig {
-    source: BIDataSource | null
-    chartType: ChartDisplayType
-    rows: BIField[]
-    columns: BIField[]
-    values: BIValue[]
-    filters: BIFilter[]
-    limit: BIQueryLimit
-    /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
-    sort?: BISort | null
-}
-
 export interface BIEditorState {
     editorView: BIEditorView
     config: BIConfig
@@ -134,6 +77,35 @@ export interface BIEditorState {
 export interface BIQueryBuildResult {
     query: string
     node: DataVisualizationNode
+}
+
+export function mergeBIChartSettings(
+    current: ChartSettings | undefined,
+    generated: ChartSettings | undefined
+): ChartSettings | undefined {
+    if (!generated) {
+        if (current?.seriesBreakdownColumn) {
+            const { xAxis, xAxisLabel, yAxis, seriesBreakdownColumn, showLegend, ...settings } = current
+            return settings
+        }
+        return current
+    }
+    return {
+        ...current,
+        ...generated,
+        xAxis: generated.xAxis
+            ? {
+                  ...(current?.xAxis?.column === generated.xAxis.column ? current.xAxis : {}),
+                  ...generated.xAxis,
+              }
+            : current?.xAxis,
+        yAxis:
+            generated.yAxis?.map((axis) => ({
+                ...current?.yAxis?.find((savedAxis) => savedAxis.column === axis.column),
+                ...axis,
+            })) ?? current?.yAxis,
+        heatmap: current?.heatmap || generated.heatmap ? { ...current?.heatmap, ...generated.heatmap } : undefined,
+    }
 }
 
 export const BI_FIELD_DRAG_MIME_TYPE = 'application/x-posthog-bi-field'

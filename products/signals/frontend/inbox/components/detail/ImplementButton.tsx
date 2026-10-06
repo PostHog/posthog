@@ -1,20 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconLogomark, IconPullRequest } from '@posthog/icons'
+import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
-import {
-    buildClaudeCodeDeepLink,
-    buildClaudeCodeVSCodeDeepLink,
-    buildClaudeCodeWebLink,
-    buildClaudeDesktopDeepLink,
-    buildCodexDeepLink,
-    buildCursorDeepLink,
-    buildPostHogCodeDeepLink,
-} from 'lib/components/AgentPromptButton'
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
-import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from 'lib/components/AgentPromptButton/AgentLogo'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -25,65 +15,12 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { ImplementationSlotClaim, inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
+import { IMPLEMENTATION_AGENTS } from './implementationAgents'
 
 const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
-
-function openDeepLink(buildDeepLink: (prompt: string) => string): (prompt: string) => void {
-    return (prompt) => window.open(buildDeepLink(prompt), '_blank')
-}
-
-const IMPLEMENTATION_AGENTS: {
-    key: AgentPromptDestination
-    name: string
-    icon: JSX.Element
-    open: (prompt: string) => void
-}[] = [
-    {
-        key: 'posthog-code',
-        name: 'PostHog Desktop',
-        icon: <IconLogomark />,
-        open: openDeepLink(buildPostHogCodeDeepLink),
-    },
-    {
-        key: 'claude-code',
-        name: 'Claude Code CLI',
-        icon: <AgentLogo logo={claudeLogo} />,
-        open: openDeepLink(buildClaudeCodeDeepLink),
-    },
-    {
-        key: 'claude-desktop',
-        name: 'Claude Desktop',
-        icon: <AgentLogo logo={claudeLogo} />,
-        open: openDeepLink(buildClaudeDesktopDeepLink),
-    },
-    {
-        key: 'claude-code-vscode',
-        name: 'Claude Code in VS Code',
-        icon: <AgentLogo logo={claudeLogo} />,
-        open: openDeepLink(buildClaudeCodeVSCodeDeepLink),
-    },
-    {
-        key: 'claude-code-web',
-        name: 'Claude Code on the web',
-        icon: <AgentLogo logo={claudeLogo} />,
-        open: (prompt) => window.open(buildClaudeCodeWebLink(prompt), '_blank', 'noopener,noreferrer'),
-    },
-    {
-        key: 'cursor',
-        name: 'Cursor',
-        icon: <AgentLogo logo={cursorLogo} logoClassName="dark:invert" />,
-        open: openDeepLink(buildCursorDeepLink),
-    },
-    {
-        key: 'codex',
-        name: 'Codex',
-        icon: <AgentLogo logo={openaiLogo} />,
-        open: openDeepLink(buildCodexDeepLink),
-    },
-]
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
