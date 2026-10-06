@@ -1344,12 +1344,18 @@ class TestIncrementalHandoffCheckpoint:
 
         assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 40, "run-0")
 
-        # Once a2 queues a batch of its own, it owns the queue rows and the recorded owner follows.
+        # Once a2 queues a batch of its own, it owns the queue rows: the owner is cleared so the
+        # model defaults it to this run, even though the resume value itself has not changed yet.
         pipeline._queued_own_batch = True
-        pipeline._handoff_checkpoint._resume_value = 55
         await pipeline._stage_handoff_resume_value()
 
-        assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 55, "run-1")
+        assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 40, None)
+
+        # A later write from this attempt's own progress keeps the owner cleared.
+        cast(IncrementalHandoffCheckpoint, pipeline._handoff_checkpoint)._resume_value = 55
+        await pipeline._stage_handoff_resume_value()
+
+        assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 55, None)
 
     @pytest.mark.asyncio
     async def test_a_handoff_stages_the_buffered_rows_and_then_records_where_to_continue(self) -> None:

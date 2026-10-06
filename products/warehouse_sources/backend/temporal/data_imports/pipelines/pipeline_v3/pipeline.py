@@ -450,10 +450,11 @@ class PipelineV3(Generic[ResumableData]):
         if self._handoff_checkpoint is None:
             return
         resume_value = self._handoff_checkpoint.resume_value
-        this_run_uuid = self._s3_batch_writer.get_run_uuid()
-        owner_run_uuid = (
-            this_run_uuid if self._queued_own_batch else (self._resumed_incremental_run_uuid or this_run_uuid)
-        )
+        # None (the common case) means "whichever run stages this", resolved against `run_uuid` on
+        # the model side. Only the inheritance window - before this attempt has queued a batch of
+        # its own - needs an explicit owner, so a zero-batch continuation still finalizes the run
+        # that holds the rows instead of this one, which holds none yet.
+        owner_run_uuid = None if self._queued_own_batch else self._resumed_incremental_run_uuid
         if (
             not force
             and resume_value == self._staged_handoff_resume_value
