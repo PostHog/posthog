@@ -1,14 +1,12 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
-
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models import Organization, User
 from posthog.models.organization_invite import OrganizationInvite
 
-from products.security.backend.tests.helpers import block_rule, seed_rules
+from products.security.backend.tests.helpers import block_rule, enforcing, seed_rules
 
 
 def _count(surface: str, call_site: str, target_type: str) -> float:
@@ -33,7 +31,7 @@ class TestShadowCallSites(APIBaseTest):
         # CanCreateOrg only opens outside cloud/DEBUG when no organization exists yet;
         # setUpTestData already created one, so this test's own org must go first.
         self.organization.delete()
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             response = self.client.post(
                 "/api/signup/",
                 {
@@ -71,7 +69,7 @@ class TestShadowCallSites(APIBaseTest):
         invite = OrganizationInvite.objects.create(target_email=self.user.email, organization=new_org)
 
         before = _count("signup", "invite_signup", "email")
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced), self.captureOnCommitCallbacks(execute=True):
+        with enforcing(*enforced), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         assert response.status_code == status, response.json()
         assert _count("signup", "invite_signup", "email") == before + would_block

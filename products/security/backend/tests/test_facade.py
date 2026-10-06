@@ -1,8 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -13,12 +11,13 @@ from products.security.backend.facade.api import (
     decide,
     gateway_credentials_revoked,
     is_email_code_exempt,
+    is_enforced,
     is_signup_risk_exempt,
     shadow_check,
 )
 from products.security.backend.facade.contracts import SubjectInput
 from products.security.backend.facade.enums import Outcome, Surface
-from products.security.backend.tests.helpers import block_rule, exempt_rule, seed_rules
+from products.security.backend.tests.helpers import block_rule, enforcing, exempt_rule, seed_rules
 
 
 def _would_block(call_site: str) -> float:
@@ -136,7 +135,7 @@ class TestFacade(BaseTest):
         seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
         refused_before, would_block_before = _refusals("refuse_site"), _would_block("refuse_site")
 
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             result = access_refused(
                 SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="refuse_site"
             )
@@ -148,7 +147,7 @@ class TestFacade(BaseTest):
     def test_access_refused_refuses_nobody_when_the_decision_fails(self) -> None:
         seed_rules(block_rule(targetValue="blocked@example.com"))
         with (
-            override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=["app"]),
+            enforcing("app"),
             patch("products.security.backend.facade.api.current_snapshot", side_effect=RuntimeError("boom")),
         ):
             assert (
@@ -165,7 +164,7 @@ class TestFacade(BaseTest):
             {"surface": "ai_gateway", "call_site": "revoke_sweep", "target_type": "email"},
         )
 
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             assert gateway_credentials_revoked(SubjectInput(email="abuser@example.com")) is expected
 
         # The sweep re-reads every credential every few minutes, so a would-block from it would
@@ -177,3 +176,29 @@ class TestFacade(BaseTest):
             )
             == would_block_before
         )
+
+    @parameterized.expand(
+        [
+            ("payload turns the surface on", {"signup": True}, True),
+            ("payload arrives as JSON text", '{"signup": true}', True),
+            ("payload leaves the surface off", {"signup": False, "app": True}, False),
+            ("a truthy value that is not true", {"signup": "false"}, False),
+            ("no payload, or no definitions yet", None, False),
+            ("payload that is not an object", '["signup"]', False),
+        ]
+    )
+    def test_is_enforced_reads_only_a_literal_true_from_the_flag_payload(
+        self, _name: str, payload: object, expected: bool
+    ) -> None:
+        with patch(
+            "products.security.backend.logic.enforcement.posthoganalytics.get_feature_flag_payload",
+            return_value=payload,
+        ):
+            assert is_enforced(Surface.SIGNUP) is expected
+
+    def test_is_enforced_leaves_the_surface_logging_only_when_the_flag_cannot_be_read(self) -> None:
+        with patch(
+            "products.security.backend.logic.enforcement.posthoganalytics.get_feature_flag_payload",
+            side_effect=RuntimeError("definitions unavailable"),
+        ):
+            assert is_enforced(Surface.SIGNUP) is False

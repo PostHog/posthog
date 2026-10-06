@@ -3,7 +3,6 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -216,14 +215,14 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert not OAuthAccessToken.objects.filter(token="blocked_token").exists()
         assert OAuthAccessToken.objects.filter(token="other_token").exists()
 
-    @parameterized.expand([("gateway in shadow", [], True), ("gateway enforced", ["ai_gateway"], False)])
+    @parameterized.expand([("gateway in shadow", False, True), ("gateway enforced", True, False)])
     @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     @patch("posthog.tasks.wizard_blocklist.record_blocklist_outcome")
     @patch("posthog.tasks.wizard_blocklist.blocklist_flag_defined", return_value=False)
     def test_a_run_with_no_flag_defined_reports_itself(
         self,
         _name: str,
-        enforced: list[str],
+        enforced: bool,
         kept: bool,
         mock_defined: MagicMock,
         mock_record: MagicMock,
@@ -233,7 +232,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         # run has to reach the counter. Enforced access rules still need the sweep.
         self._token(token="untouched")
 
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with patch("posthog.tasks.wizard_blocklist.security_is_enforced", return_value=enforced):
             revoke_blocklisted_gateway_credentials()
 
         mock_record.assert_any_call("revoke_sweep", "unconfigured")
