@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 import {
@@ -24,6 +24,9 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { hogFunctionsInvocationsCreate } from 'products/cdp/frontend/generated/api'
+import type { HogFunctionApi, HogFunctionInvocationApi } from 'products/cdp/frontend/generated/api.schemas'
 
 import type { CyclotronJobInputSchemaType, HogFunctionSubTemplateType } from '../../../../types'
 
@@ -162,6 +165,33 @@ function formatKindsSuffix(selectedKinds: string[] | null | undefined): string {
 
 export function decorateAlertName(baseName: string, selectedKinds: string[] | null | undefined): string {
     return `${baseName}${formatKindsSuffix(selectedKinds)}`
+}
+
+function lastErrorLogMessage(logs: readonly unknown[]): string | null {
+    for (const entry of [...logs].reverse()) {
+        const { level, message } = (entry ?? {}) as { level?: unknown; message?: unknown }
+        if (typeof level === 'string' && level.toLowerCase() === 'error' && typeof message === 'string') {
+            return message
+        }
+    }
+    return null
+}
+
+// The test endpoint answers HTTP 200 when the destination rejects the message, and reports the
+// rejection in the logs. Returns the message to show, or null when the test went through.
+// A skipped result covers two cases: the filters excluded the event, or the inputs failed to
+// build. Only the second case writes an error log.
+export function testInvocationFailureMessage(result: Pick<HogFunctionInvocationApi, 'status' | 'logs'>): string | null {
+    if (result.status === 'success') {
+        return null
+    }
+    const reason = lastErrorLogMessage(result.logs)
+    if (reason) {
+        return `Test failed: ${reason}`
+    }
+    return result.status === 'skipped'
+        ? "Test not sent. The test event didn't match this alert's filters."
+        : 'Test failed. Check the destination settings and try again.'
 }
 
 export function buildAlertInputs(
@@ -766,20 +796,28 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const sampleGlobalsLoader = logicProps.contextId ? SAMPLE_GLOBALS_CONTEXTS[logicProps.contextId] : undefined
             if (sampleGlobalsLoader) {
                 try {
-                    globals = await sampleGlobalsLoader(globals)
+                    globals = await sampleGlobalsLoader(
+                        globals,
+                        applyKindFilter(subTemplate.filters, values.selectedKinds)
+                    )
                 } catch {
                     // Fall back to the stub test event
                 }
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
-                    configuration,
+                const result = await hogFunctionsInvocationsCreate(String(ApiConfig.getCurrentTeamId()), 'new', {
+                    configuration: configuration as HogFunctionApi,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                const failure = testInvocationFailureMessage(result)
+                if (failure) {
+                    lemonToast.error(failure)
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
                 lemonToast.error(e.detail || 'Test invocation failed')
