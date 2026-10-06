@@ -27,7 +27,6 @@ class TestFindFindingComment:
     @parameterized.expand(
         [
             ("current_layout", "### Off-by-one\n\n**Must fix** · bug"),
-            # Flash comments posted before the banner moved to the status comment still open with it.
             ("old_flash_banner", f"{FLASH_MODE_MESSAGE_PREFIX}### Off-by-one\n\n![badge](x)"),
         ]
     )

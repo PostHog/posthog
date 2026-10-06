@@ -229,7 +229,6 @@ class TestPostGithubReview:
         first, second = _review_posts(mock_request)
         assert first["comments"] == comments
         assert first["body"] == "m"
-        # Without the comments, the short body would leave a review that shows nothing.
         assert "comments" not in second
         assert second["body"] == "body\n\nm"
 
@@ -289,9 +288,7 @@ class TestPublishReviewGate:
             # A valid finding on an off-diff line resolves zero inline comments, but the review (its body
             # carries it in the "Other findings" section) must still post, not be silently dropped.
             ("all_off_diff", [240], 0, False),
-            # One finding is only in the body, so the body must post in full next to the inline one.
             ("mixed", [1, 240], 1, False),
-            # Every finding is inline, so the tally body is replaced by the hidden publish marker alone.
             ("all_inline", [1], 1, True),
         ]
     )
@@ -444,15 +441,11 @@ class TestFormatIssueComment:
         ]
     )
     def test_severity_line_tracks_priority(self, priority: IssuePriority, label: str) -> None:
-        # A swapped mapping (e.g. must_fix rendering as "Consider") ships a misleading comment, and no
-        # other test pins priority to label.
         body = _format_issue_comment(_finding(priority=priority), _verdict())
 
         assert f"{label} · bug" in body
 
     def test_layout_is_title_severity_issue_fix_without_validator_notes(self) -> None:
-        # The outcome sweep matches a comment by its first line, so the title must lead. The validator
-        # note and the AI prompt stay out, because they repeat the issue text at several times its size.
         finding = _finding()
         body = _format_issue_comment(finding, _verdict())
 
