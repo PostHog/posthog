@@ -32,6 +32,8 @@ export class PiRuntime {
     type: "prompt" | "steer" | "follow_up";
   }> = [];
   private directBashActive = false;
+  // The focus of the manual compaction in flight, for its start event to carry.
+  private compactInstructions: string | undefined;
 
   constructor(
     client: PiRpcClient,
@@ -86,6 +88,9 @@ export class PiRuntime {
         command.type === "compact";
       if (isInterrupt) {
         this.translator.markTurnInterrupted();
+      }
+      if (command.type === "compact") {
+        this.compactInstructions = command.customInstructions?.trim();
       }
       try {
         const response = await sendPiRpcCommand(this.client, command);
@@ -157,6 +162,15 @@ export class PiRuntime {
 
     const conversationEvents = this.translator.translateEvent(event);
     for (const conversationEvent of conversationEvents) {
+      if (
+        conversationEvent.type === "runtime_status" &&
+        conversationEvent.compaction?.reason === "manual" &&
+        !conversationEvent.isComplete
+      ) {
+        if (this.compactInstructions)
+          conversationEvent.compaction.instructions = this.compactInstructions;
+        this.compactInstructions = undefined;
+      }
       if (conversationEvent.type === "user_message") {
         const text = conversationEvent.content
           .filter((content) => content.type === "text")

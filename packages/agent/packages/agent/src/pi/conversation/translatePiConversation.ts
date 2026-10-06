@@ -659,6 +659,7 @@ export function createPiConversationTranslator(
           type: "runtime_status",
           timestamp: latestConversationTimestamp,
           status: "compacting",
+          compaction: { reason: event.reason },
         },
       ];
     }
@@ -693,6 +694,11 @@ export function createPiConversationTranslator(
           timestamp,
           status: "compacting",
           isComplete: true,
+          compaction: {
+            reason: event.reason,
+            tokensBefore: event.result?.tokensBefore,
+            estimatedTokensAfter: event.result?.estimatedTokensAfter,
+          },
         },
       ];
       if (event.result?.summary) {

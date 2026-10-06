@@ -128,6 +128,15 @@ interface AgentConversationEventIdentity {
   sourceId?: string;
 }
 
+export interface AgentCompaction {
+  reason: "manual" | "threshold" | "overflow";
+  // The focus given to a manual compaction.
+  instructions?: string;
+  tokensBefore?: number;
+  // The agent's estimate over the rebuilt context, not a provider's count.
+  estimatedTokensAfter?: number;
+}
+
 export type AgentConversationEvent = (
   | {
       type: "user_message";
@@ -180,6 +189,7 @@ export type AgentConversationEvent = (
       attempt?: number;
       maxAttempts?: number;
       delayMs?: number;
+      compaction?: AgentCompaction;
     }
   | {
       type: "runtime_error";
