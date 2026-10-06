@@ -15,7 +15,6 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -236,31 +235,6 @@ def _record(claim: _OrganizationClaim) -> OrganizationOutcome:
     return OrganizationOutcome.SKIPPED_OTHER_PARTNER
 
 
-def copy_organization_provisioning(*, live_run: bool) -> Counter[OrganizationOutcome]:
-    outcomes: Counter[OrganizationOutcome] = Counter()
-    records = OrganizationProvisioning.objects.values_list(
-        "organization_id",
-        "partner",
-        "application_id",
-        "organization__provisioning_source",
-        "organization__provisioning_application_id",
-    )
-    for organization_id, source, application_id, current_source, current_application_id in records.iterator():
-        claim = _OrganizationClaim(
-            organization_id=organization_id, source=Source(source), application_id=application_id
-        )
-        if live_run:
-            outcome = _record(claim)
-        elif current_source is None and current_application_id is None:
-            outcome = OrganizationOutcome.CREATE
-        elif (current_source, current_application_id) == (source, application_id):
-            outcome = OrganizationOutcome.ALREADY_RECORDED
-        else:
-            outcome = OrganizationOutcome.SKIPPED_OTHER_PARTNER
-        outcomes[outcome] += 1
-    return outcomes
-
-
 def backfill_organization_provisioning(
     rows: Iterable[Mapping[str, str | None]], *, live_run: bool
 ) -> dict[Source, Counter[OrganizationOutcome]]:
@@ -271,18 +245,10 @@ def backfill_organization_provisioning(
     organization_ids = {claim.organization_id for claim in claims}
     recorded = {
         organization_id: (source, application_id)
-        for organization_id, source, application_id in OrganizationProvisioning.objects.filter(
-            organization_id__in=organization_ids
-        ).values_list("organization_id", "partner", "application_id")
+        for organization_id, source, application_id in Organization.objects.filter(
+            id__in=organization_ids, provisioning_source__isnull=False
+        ).values_list("id", "provisioning_source", "provisioning_application_id")
     }
-    recorded.update(
-        {
-            organization_id: (source, application_id)
-            for organization_id, source, application_id in Organization.objects.filter(
-                id__in=organization_ids, provisioning_source__isnull=False
-            ).values_list("id", "provisioning_source", "provisioning_application_id")
-        }
-    )
 
     for claim in claims:
         existing = recorded.get(claim.organization_id)
@@ -305,8 +271,7 @@ class Command(BaseCommand):
         "TeamProvisioningConfig row or fills a null application, and never replaces a different one. "
         "Also records the partner that created each organization: the CSV partner when the attributed "
         "team is the organization's first team and is not attributed to a different application. Never replaces an "
-        "organization's recorded partner. Copies existing OrganizationProvisioning records to "
-        "the organization fields before inferring creators."
+        "organization's recorded partner."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -327,7 +292,6 @@ class Command(BaseCommand):
                 raise CommandError(f"CSV is missing column(s): {', '.join(sorted(missing_columns))}")
             rows = list(reader)
 
-        copied_outcomes = copy_organization_provisioning(live_run=live_run)
         outcomes = backfill_partner_attribution(rows, live_run=live_run)
         organization_outcomes = backfill_organization_provisioning(rows, live_run=live_run)
 
@@ -335,13 +299,6 @@ class Command(BaseCommand):
         for outcome in Outcome:
             label = f"would {outcome}" if not live_run and outcome in WRITE_OUTCOMES else str(outcome)
             self.stdout.write(f"{label}: {outcomes[outcome]}")
-        for copied_outcome, count in copied_outcomes.items():
-            label = (
-                f"would {copied_outcome}"
-                if not live_run and copied_outcome is OrganizationOutcome.CREATE
-                else str(copied_outcome)
-            )
-            self.stdout.write(f"Existing organization attribution, {label}: {count}")
         for source, source_outcomes in organization_outcomes.items():
             for organization_outcome in OrganizationOutcome:
                 label = (
