@@ -2242,6 +2242,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // this measures true connect completion — use it for the real onboarding funnel.
                 posthog.capture('warehouse source connect completed', {
                     sourceType: values.selectedConnector.name,
+                    returnLabel: values.returnConfig?.returnLabel,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })

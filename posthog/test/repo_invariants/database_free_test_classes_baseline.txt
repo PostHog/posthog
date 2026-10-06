@@ -131,7 +131,6 @@ posthog/kafka_client/test/test_client.py::KafkaClientRoundtripTestCase
 posthog/management/commands/test/test_analyze_migration_risk.py::TestAnalyzeMigrationRisk
 posthog/management/commands/test/test_base_hypercache_command.py::TestVerificationResultsErrorReporting
 posthog/management/commands/test/test_survey_cohort_bytecode_stl.py::TestBytecodeWalker
-posthog/models/filters/test/test_filter_mixins.py::TestFilterMixins
 posthog/models/filters/test/test_path_filter.py::TestPathFilter
 posthog/models/property/test/test_property_behavioral_validation.py::TestBehavioralPropertyBytecodeCondition
 posthog/models/property/test/test_property_behavioral_validation.py::TestBehavioralPropertyDateRangeValidation
@@ -356,7 +355,6 @@ products/tasks/backend/temporal/slack_relay/tests/test_activities.py::TestSplitT
 products/tasks/backend/tests/test_agentsh.py::TestBuildAuditQueryCommand
 products/tasks/backend/tests/test_agentsh.py::TestBuildExecPrefix
 products/tasks/backend/tests/test_agentsh.py::TestGenerateConfigYaml
-products/tasks/backend/tests/test_ai_run_defaults.py::TestRunCreateSerializerModeWithoutAdapter
 products/tasks/backend/tests/test_api.py::TestTaskRunRedisStreamKeepalive
 products/tasks/backend/tests/test_api.py::TestUsageLimitResponse
 products/tasks/backend/tests/test_facade.py::TestAppendLogAgentActivity
@@ -367,7 +365,6 @@ products/tasks/backend/tests/test_repository_readiness.py::TestClassifyRepositor
 products/tasks/backend/tests/test_repository_readiness.py::TestSelectCandidatePaths
 products/tasks/backend/tests/test_repository_readiness.py::TestShouldScanPath
 products/tasks/backend/tests/test_webhooks.py::TestAccountType
-products/user_interviews/backend/test_facade.py::TestParseIntervieweeIdentifier
 products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestGetOAuthIntegrationKinds
 products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestSensitiveFieldClassification
 products/web_analytics/backend/hogql_queries/test/test_custom_bot_definitions.py::TestPatternsCompile

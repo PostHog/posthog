@@ -1114,7 +1114,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
-    # Proposed goals live in impact_measurement_plan artefacts, so the authoring schema must not advertise them.
+    # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
     goal_value = None  # type: ignore[assignment]
     goal_direction = None  # type: ignore[assignment]
     goal_grain = None  # type: ignore[assignment]
@@ -1128,9 +1128,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
             data.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
         ):
-            raise serializers.ValidationError(
-                "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
-            )
+            raise serializers.ValidationError("Write proposed goals as follow-up checks, not report metrics.")
         return super().to_internal_value(data)
 
 
@@ -1702,6 +1700,15 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    include_unowned = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
+            "one person, and they rank above everything else, so a surface that only shows a person's own "
+            "work passes false. Defaults to true."
+        ),
+    )
 
 
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
@@ -1710,13 +1717,15 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
         help_text=(
             "The open, actionable reports that matter most to the current user, best first: reports "
             "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
-            "reports that nobody owns. The Today briefing ranks reports the same way."
+            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "reports the same way."
         ),
     )
     count = serializers.IntegerField(
         help_text=(
             "How many open reports are for the current user: the reports in `results`, plus the other "
-            "open, actionable reports that name them as a reviewer."
+            "open, actionable reports that name them as a reviewer. Counted over the same set as "
+            "`results`, so it follows `include_unowned` too."
         ),
     )
 
@@ -1879,10 +1888,15 @@ class SignalNodeSerializer(serializers.Serializer):
     )
 
 
+@extend_schema_field(SignalReportSerializer)
+class SerializedSignalReportField(serializers.JSONField):
+    pass
+
+
 class ReportSignalsResponseSerializer(serializers.Serializer):
     """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
-    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    report = SerializedSignalReportField(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
@@ -1948,6 +1962,22 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         representation = dict(super().to_representation(instance))
         config = representation.get("config")
         if isinstance(config, Mapping):
+            config = dict(config)
+            if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+                metric = next(
+                    (
+                        metric
+                        for metric in instance.report.metrics or []
+                        if isinstance(metric, Mapping)
+                        and metric.get("metric_id") == config.get("metric_id")
+                        and metric.get("query") == config.get("query")
+                    ),
+                    None,
+                )
+                if metric is not None:
+                    for field, source in (("metric_kind", "kind"), ("value_format", "value_format"), ("unit", "unit")):
+                        if config.get(field) is None:
+                            config[field] = metric.get(source)
             representation["config"] = redact_check_config(config, report_metric_access_policy(self.context))
         return representation
 

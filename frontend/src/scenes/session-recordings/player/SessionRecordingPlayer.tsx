@@ -7,8 +7,8 @@ import { useRef } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AnalysisNudge } from 'products/replay_vision/frontend/components/AnalysisNudge'
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
@@ -102,6 +102,8 @@ function SessionRecordingPlayerInternal({
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    const showDebugReplayButton = featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] || user?.is_impersonated
 
     return (
         <div
@@ -113,17 +115,12 @@ function SessionRecordingPlayerInternal({
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
                 {visionSurfaceShown(logicProps) && (
-                    <>
-                        <ObservationsDock
-                            // The player modal covers the side panel, so the conversation would open out of sight.
-                            extraActions={
-                                featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] && logicProps.playerKey !== 'modal' ? (
-                                    <DebugReplayButton />
-                                ) : null
-                            }
-                        />
-                        <AnalysisNudge />
-                    </>
+                    <ObservationsDock
+                        // The player modal covers the side panel, so the conversation would open out of sight.
+                        extraActions={
+                            showDebugReplayButton && logicProps.playerKey !== 'modal' ? <DebugReplayButton /> : null
+                        }
+                    />
                 )}
             </div>
             {withSidebar && <PlayerSidebar />}

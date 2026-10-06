@@ -16,7 +16,6 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
-import dataclasses
 from typing import Any
 
 from django.db import InterfaceError, InternalError, OperationalError, close_old_connections
@@ -29,6 +28,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
     RepartitionUnpartitionableError,
+    defer_repartition_to_full_refresh,
     repartition_table_in_place,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -70,7 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class RepartitionActivityInputs:
     team_id: int
     schema_id: str
@@ -365,6 +366,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
 
+    if swap is None and schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+        # The marker snapshot predates the job fetch and Delta-log work above. A heartbeat-timed-out
+        # predecessor can stage a swap in that window, making temp the only intact copy; deferring
+        # from the stale snapshot would purge that temp and erase its recovery marker.
+        schema.refresh_from_db(fields=["sync_type_config"])
+        swap = schema.repartition_swap
+        pending = schema.repartition_pending or pending
+
     # A pending marker carrying only bookkeeping (an attempt count written when nothing was queued)
     # has no keys to rebuild a target from, and `from_dict` would raise before the rewrite even
     # starts — every run, forever. Fall back to the schema's own settings, which is what a resume
@@ -375,6 +384,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         else _target_from_schema(schema)
     )
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
+
+    # Never while a swap is staged: live may already be deleted, and temp is then the only intact copy.
+    if swap is None and schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+        _defer_to_full_refresh(inputs, schema, table_ref, target, trigger_reason, logger)
+        return
 
     # `_handle_failure` also gives up at the cap, but only for an attempt that survives to run it.
     # A rewrite whose worker is OOM-killed never reaches it, so the count has to be read here too.
@@ -419,9 +433,11 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # the predecessor is only heartbeat-timed-out, and that one keeps running as a zombie holding
         # the claim it minted; standing down without rotating it would leave the zombie free to swap
         # the live table while the sync this run releases merges into it.
-        schema.set_repartition_claim(
+        if not schema.set_repartition_claim(
             {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-        )
+        ):
+            logger.info("repartition: killed-attempt stand-down superseded by a newer claim")
+            return
         logger.warning(
             f"repartition: the attempt this run retries wrote nothing before it stopped, standing "
             f"down until the next sync schema_id={schema.id}",
@@ -441,9 +457,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # makes every claim re-check inside the rewrite/swap raise RepartitionSupersededError in the
     # zombie, so exactly one writer ever touches the table's S3 state.
     claim_token = str(uuid.uuid4())
-    schema.set_repartition_claim(
+    if not schema.set_repartition_claim(
         {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-    )
+    ):
+        logger.info("repartition: rewrite superseded before it claimed the schema")
+        _capture_stood_down(schema, inputs, trigger_reason, "claim_superseded", logger)
+        return
 
     # Charged before the rewrite and refunded on the stand-down paths below. Charging on failure
     # instead bounds nothing: a worker killed mid-rewrite records no outcome, so the cap never moves.
@@ -633,6 +652,53 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         outcome=outcome,
         duration_seconds=duration,
     )
+
+
+def _defer_to_full_refresh(
+    inputs: RepartitionActivityInputs,
+    schema: ExternalDataSchema,
+    table_ref: DeltaTableRef,
+    target: RepartitionTarget,
+    trigger_reason: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Hand the new scheme to the full refresh that runs next, instead of rewriting the table.
+
+    The fresh claim fences out a rewrite attempt that may still run as a zombie. Without it, that
+    attempt could finish its swap after the full refresh and put its stale copy back over live.
+    """
+    try:
+        claim_token = str(uuid.uuid4())
+        if not schema.set_repartition_claim(
+            {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+        ):
+            logger.info("repartition: full-refresh deferral superseded before it claimed the schema")
+            return
+        result = async_to_sync(defer_repartition_to_full_refresh)(
+            table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token=claim_token
+        )
+    except RepartitionSupersededError:
+        logger.info("repartition: full-refresh deferral superseded by a newer claim")
+        return
+    except Exception as e:
+        # `async_to_sync` can surface cancellation as an Exception-derived wrapper. It must retain
+        # Temporal's cancellation semantics rather than being swallowed as a failed deferral.
+        if _is_cancellation(e):
+            raise
+        # Like a failed rewrite, this must not block the sync: the table keeps its layout and the
+        # next run tries again.
+        transient = _is_transient_infra_error(e)
+        if not transient:
+            capture_exception(e)
+        logger.warning("repartition: could not stage the scheme for the next full refresh", exc_info=True)
+        DELTA_REPARTITION_TOTAL.labels(
+            team_id=str(inputs.team_id), outcome="transient" if transient else "failed"
+        ).inc()
+        return
+    DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="deferred").inc()
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, **result})
+    capture_repartition_event("warehouse_repartition_skipped", props)
 
 
 def _capture_stood_down(
@@ -887,13 +953,12 @@ def _give_up(
     # Stake a fresh claim before clearing anything. This runs before the activity mints its own, so a
     # timed-out predecessor may still be running and still hold the old token; leaving it valid would
     # let it pass `ensure_claim` and go on mutating live after we declared the rewrite abandoned.
-    schema.set_repartition_claim(
-        {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
-    )
-    schema.clear_repartition_pending()
-    schema.clear_repartition_swap()
-    schema.clear_repartition_rewrite()
-    schema.stamp_last_repartition_at()
+    claim_token = str(uuid.uuid4())
+    if not schema.set_repartition_claim(
+        {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+    ) or not schema.abandon_repartition_if_claimed(claim_token):
+        logger.info("repartition: give-up superseded by a newer claim")
+        return
     error = RepartitionAttemptsExhausted(
         f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
         f"an outcome, with the rewrite stuck at {rewrite_rows} rows (trigger_reason={trigger_reason})"

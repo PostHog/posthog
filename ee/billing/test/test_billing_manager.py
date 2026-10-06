@@ -984,9 +984,8 @@ class TestBillingSession(SimpleTestCase):
 class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
-        self.organization = cast(
-            Organization, SimpleNamespace(id="org_123", name="Test Org", customer_id="cus_example")
-        )
+        self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+        self.enterContext(patch("ee.billing.billing_manager.get_billing_lock_partner", return_value=None))
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
     @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
