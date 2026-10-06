@@ -10,7 +10,14 @@ export interface SuggestedFieldChange {
 export interface SuggestedStepChange {
     stepId: string
     stepName: string | null
+    isNew: boolean
     fields: SuggestedFieldChange[]
+}
+
+export interface GroupedStepFields {
+    email: SuggestedFieldChange[]
+    main: SuggestedFieldChange[]
+    other: SuggestedFieldChange[]
 }
 
 export interface SuggestedChanges {
@@ -89,11 +96,49 @@ export function describeSuggestedChanges(content: Record<string, unknown>, live:
             const liveStep = liveSteps.get(id)
             steps.push({
                 stepId: id,
-                stepName: liveStep?.name ?? null,
+                stepName: liveStep?.name ?? (typeof patch.name === 'string' ? patch.name : null),
+                isNew: liveStep === undefined,
                 fields: leafChanges(patch, liveStep),
             })
         }
     }
 
     return { steps, workflow: leafChanges(rest, live) }
+}
+
+const EMAIL_HTML_PATH = /(^|\.)email\.value\.html$/
+// The visual editor's layout state. The rendered emails show what it changes.
+const EMAIL_DESIGN_PATH = /(^|\.)email\.value\.design(\.|$)/
+// What a reader needs to judge a new step. Its other settings are mostly defaults.
+const NEW_STEP_KEY_PATHS = new Set([
+    'name',
+    'config.inputs.email.value.subject',
+    'config.inputs.email.value.preheader',
+    'config.inputs.email.value.to.email',
+])
+
+function isEmpty(value: unknown): boolean {
+    return (
+        value === undefined ||
+        value === null ||
+        value === '' ||
+        (Array.isArray(value) && value.length === 0) ||
+        (isPlainObject(value) && Object.keys(value).length === 0)
+    )
+}
+
+export function groupStepFields(step: SuggestedStepChange): GroupedStepFields {
+    const grouped: GroupedStepFields = { email: [], main: [], other: [] }
+    for (const field of step.fields) {
+        if (EMAIL_HTML_PATH.test(field.path)) {
+            grouped.email.push(field)
+        } else if (EMAIL_DESIGN_PATH.test(field.path)) {
+            grouped.other.push(field)
+        } else if (!step.isNew) {
+            grouped.main.push(field)
+        } else if (!isEmpty(field.after)) {
+            grouped[NEW_STEP_KEY_PATHS.has(field.path) ? 'main' : 'other'].push(field)
+        }
+    }
+    return grouped
 }

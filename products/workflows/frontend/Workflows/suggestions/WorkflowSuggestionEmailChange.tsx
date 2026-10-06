@@ -3,7 +3,13 @@ import { useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import type { SuggestedFieldChange } from './suggestionChanges'
-import { condenseEmailTextDiff, diffEmailText, emailVisibleText } from './suggestionEmailText'
+import {
+    changedWordCounts,
+    condenseEmailTextDiff,
+    diffEmailText,
+    emailVisibleText,
+    isSummaryShortened,
+} from './suggestionEmailText'
 import { WorkflowSuggestionEmailCompareModal } from './WorkflowSuggestionEmailCompareModal'
 
 function asHtml(value: unknown): string | null {
@@ -17,7 +23,13 @@ export function WorkflowSuggestionEmailChange({ change }: { change: SuggestedFie
 
     const summary = useMemo(() => {
         const parts = diffEmailText(before ? emailVisibleText(before) : '', after ? emailVisibleText(after) : '')
-        return parts.every((part) => part.kind === 'same') ? null : condenseEmailTextDiff(parts)
+        if (parts.every((part) => part.kind === 'same')) {
+            return null
+        }
+        return {
+            parts: condenseEmailTextDiff(parts),
+            counts: isSummaryShortened(parts) ? changedWordCounts(parts) : null,
+        }
     }, [before, after])
 
     return (
@@ -35,7 +47,7 @@ export function WorkflowSuggestionEmailChange({ change }: { change: SuggestedFie
             </div>
             {summary ? (
                 <p className="mb-0 break-words" data-attr="workflow-suggestion-email-text-diff">
-                    {summary
+                    {summary.parts
                         .map((part, index) =>
                             part.kind === 'gap' ? (
                                 <span key={index} className="text-secondary">
@@ -58,7 +70,14 @@ export function WorkflowSuggestionEmailChange({ change }: { change: SuggestedFie
                             []
                         )}
                 </p>
-            ) : (
+            ) : null}
+            {summary?.counts && (
+                <span className="text-secondary">
+                    Removes {summary.counts.removed.toLocaleString()} words and adds{' '}
+                    {summary.counts.added.toLocaleString()}. Compare emails to read both versions in full.
+                </span>
+            )}
+            {!summary && (
                 <span className="text-secondary">
                     The text people read stays the same. Only the layout or styling changes.
                 </span>

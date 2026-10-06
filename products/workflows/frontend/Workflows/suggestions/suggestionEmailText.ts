@@ -1,5 +1,3 @@
-import type { SuggestedFieldChange } from './suggestionChanges'
-
 export type EmailTextDiffPart =
     | { kind: 'same' | 'removed' | 'added'; text: string }
     // Unchanged text left out of the summary.
@@ -9,10 +7,6 @@ const BLOCK_ELEMENTS = 'p, div, td, th, tr, li, br, h1, h2, h3, h4, h5, h6, tabl
 
 // Above this many word pairs the full diff costs more than it is worth on every render.
 const MAX_DIFF_CELLS = 4_000_000
-
-export function isEmailHtmlChange(change: SuggestedFieldChange): boolean {
-    return /(^|\.)email\.value\.html$/.test(change.path)
-}
 
 export function emailVisibleText(html: string): string {
     const doc = new DOMParser().parseFromString(html, 'text/html')
@@ -129,19 +123,69 @@ function groupChanges(parts: EmailTextDiffPart[]): EmailTextDiffPart[] {
     return grouped
 }
 
-/** Keeps every change with a few words either side, so a reader sees what moved without the whole email. */
+// A rewrite of a long email would otherwise put the whole email on the card.
+const MAX_PASSAGE_WORDS = 30
+const MAX_SHOWN_CHANGES = 6
+
+export function changedWordCounts(parts: EmailTextDiffPart[]): { removed: number; added: number } {
+    const counts = { removed: 0, added: 0 }
+    for (const part of parts) {
+        if (part.kind === 'removed' || part.kind === 'added') {
+            counts[part.kind] += part.text.split(' ').length
+        }
+    }
+    return counts
+}
+
+function startsChange(parts: EmailTextDiffPart[], index: number): boolean {
+    const part = parts[index]
+    return (
+        part.kind !== 'same' && part.kind !== 'gap' && !(part.kind === 'added' && parts[index - 1]?.kind === 'removed')
+    )
+}
+
+/** Whether the condensed summary leaves part of the change out, so the reader needs the counts and the comparison. */
+export function isSummaryShortened(parts: EmailTextDiffPart[]): boolean {
+    const changes = parts.filter((_, index) => startsChange(parts, index)).length
+    return (
+        changes > MAX_SHOWN_CHANGES ||
+        parts.some(
+            (part) => part.kind !== 'same' && part.kind !== 'gap' && part.text.split(' ').length > MAX_PASSAGE_WORDS
+        )
+    )
+}
+
+/** Keeps every change with a few words either side, so a reader sees what moved without the whole email. Long passages are cut short. */
 export function condenseEmailTextDiff(parts: EmailTextDiffPart[], context = 5): EmailTextDiffPart[] {
+    // Many scattered edits: show the first few and let the counts and the comparison carry the rest.
+    let changes = 0
+    let cut = parts.length
+    for (let index = 0; index < parts.length; index++) {
+        if (startsChange(parts, index) && ++changes > MAX_SHOWN_CHANGES) {
+            cut = index
+            break
+        }
+    }
+    const shown = parts.slice(0, cut)
+
     const condensed: EmailTextDiffPart[] = []
-    parts.forEach((part, index) => {
-        if (part.kind !== 'same') {
+    shown.forEach((part, index) => {
+        if (part.kind === 'gap') {
             condensed.push(part)
             return
         }
+        if (part.kind !== 'same') {
+            const changed = part.text.split(' ')
+            condensed.push(
+                changed.length > MAX_PASSAGE_WORDS
+                    ? { kind: part.kind, text: `${changed.slice(0, MAX_PASSAGE_WORDS).join(' ')} …` }
+                    : part
+            )
+            return
+        }
         const partWords = part.text.split(' ')
-        const isFirst = index === 0
-        const isLast = index === parts.length - 1
-        const keepFront = isFirst ? 0 : context
-        const keepBack = isLast ? 0 : context
+        const keepFront = index === 0 ? 0 : context
+        const keepBack = index === shown.length - 1 ? 0 : context
         if (partWords.length <= keepFront + keepBack) {
             condensed.push(part)
             return
@@ -154,5 +198,8 @@ export function condenseEmailTextDiff(parts: EmailTextDiffPart[], context = 5): 
             condensed.push({ kind: 'same', text: partWords.slice(-keepBack).join(' ') })
         }
     })
+    if (cut < parts.length && condensed[condensed.length - 1]?.kind !== 'gap') {
+        condensed.push({ kind: 'gap' })
+    }
     return condensed
 }

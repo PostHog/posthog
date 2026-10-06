@@ -7,7 +7,7 @@ function RenderedEmail({ label, html }: { label: string; html: string | null }):
             {html ? (
                 // sandbox="" keeps scripts and same-origin access out of model-written HTML.
                 <iframe
-                    title={`${label} email`}
+                    title={`Rendered email: ${label}`}
                     sandbox=""
                     srcDoc={html}
                     className="w-full h-[70vh] bg-white rounded border"
@@ -38,11 +38,21 @@ export function WorkflowSuggestionEmailCompareModal({
             onClose={onClose}
             width={1400}
             title="Compare emails"
-            description="The email as it sends now, next to the email with this suggestion applied."
+            description={
+                before === null
+                    ? 'This suggestion adds a new email.'
+                    : 'The email as it sends now, next to the email with this suggestion applied.'
+            }
         >
             <div className="flex flex-wrap gap-4">
-                <RenderedEmail label="Now" html={before} />
-                <RenderedEmail label="Suggested" html={after} />
+                {before === null ? (
+                    <RenderedEmail label="New email" html={after} />
+                ) : (
+                    <>
+                        <RenderedEmail label="Now" html={before} />
+                        <RenderedEmail label="Suggested" html={after} />
+                    </>
+                )}
             </div>
         </LemonModal>
     )

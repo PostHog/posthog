@@ -6,8 +6,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import type { WorkflowProposalApi } from '../../generated/api.schemas'
 import { workflowLogic } from '../workflowLogic'
-import { SuggestedFieldChange, describeSuggestedChanges } from './suggestionChanges'
-import { isEmailHtmlChange } from './suggestionEmailText'
+import { SuggestedFieldChange, describeSuggestedChanges, groupStepFields } from './suggestionChanges'
 import { WorkflowSuggestionEmailChange } from './WorkflowSuggestionEmailChange'
 
 function ChangedValue({ value }: { value: unknown }): JSX.Element {
@@ -57,19 +56,39 @@ export function WorkflowSuggestionDetails({
         <div className="flex flex-col gap-3 text-sm">
             {nothingToShow && <span className="text-secondary">This suggestion changes nothing on the workflow.</span>}
             {changes.steps.map((step) => {
-                const emailChanges = step.fields.filter(isEmailHtmlChange)
-                const otherChanges = step.fields.filter((change) => !isEmailHtmlChange(change))
+                const { email, main, other } = groupStepFields(step)
                 return (
                     <div key={step.stepId} className="flex flex-col gap-1">
                         <span className="font-semibold">
-                            {step.stepName ? `Step: ${step.stepName}` : `New step: ${step.stepId}`}
+                            {step.isNew
+                                ? `New step: ${step.stepName ?? step.stepId}`
+                                : `Step: ${step.stepName ?? step.stepId}`}
                         </span>
-                        {otherChanges.length > 0 && (
-                            <LemonTable size="small" columns={COLUMNS} dataSource={otherChanges} rowKey="path" />
+                        {main.length > 0 && (
+                            <LemonTable size="small" columns={COLUMNS} dataSource={main} rowKey="path" />
                         )}
-                        {emailChanges.map((change) => (
+                        {email.map((change) => (
                             <WorkflowSuggestionEmailChange key={change.path} change={change} />
                         ))}
+                        {other.length > 0 && (
+                            <LemonCollapse
+                                size="xsmall"
+                                panels={[
+                                    {
+                                        key: 'other',
+                                        header: `Other settings (${other.length})`,
+                                        content: (
+                                            <LemonTable
+                                                size="small"
+                                                columns={COLUMNS}
+                                                dataSource={other}
+                                                rowKey="path"
+                                            />
+                                        ),
+                                    },
+                                ]}
+                            />
+                        )}
                     </div>
                 )
             })}
