@@ -155,6 +155,7 @@ the row lists both.
 | bluetally                        | HTTP                        | requests                                                        | ✅                          |
 | boldsign                         | HTTP                        | requests                                                        | ✅                          |
 | braintree                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| braintrust                       | HTTP                        | requests                                                        | ✅                          |
 | braze                            | HTTP                        | requests                                                        | ✅                          |
 | breezometer                      | HTTP                        | requests                                                        | ✅                          |
 | brevo                            | HTTP                        | requests                                                        | ✅                          |
@@ -1010,7 +1011,6 @@ doesn't conflict with concurrent PRs.
 - bol_retailer
 - boulevard
 - box
-- braintrust
 - branch
 - breezy_hr
 - buffer
