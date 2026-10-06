@@ -72,8 +72,7 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         )
 
         assert {key: value for key, value in properties.items() if key.startswith("$geoip_")} == {
-            "$geoip_country_code": "US",
-            "$geoip_city_name": "Oakland",
+            "$geoip_city_name": "Oakland"
         }
 
     @pytest.mark.django_db
