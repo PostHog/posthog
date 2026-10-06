@@ -18,11 +18,15 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
 
-Discarding query edits preserves the worksheet's selected source and shelves.
+For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
 
 SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
-Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+Saving a worksheet as an insight preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saved insights use the normal insight view; **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save an insight to retain editable worksheet state.
+
+Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
+
+Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
