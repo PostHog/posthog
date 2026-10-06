@@ -181,8 +181,8 @@ export function getPluginServerCapabilities(
             return {
                 cdpRerunWorker: true,
             }
-        // Deliberately absent from CAPABILITIES_CDP: a replay is a bounded, operator-triggered run,
-        // not something a local or combined stack should start on its own.
+        // Deliberately absent from CAPABILITIES_CDP: it polls the replay task queue, which needs a
+        // Temporal server that a local or combined stack does not always run.
         case PluginServerMode.cdp_dlq_replay:
             return {
                 cdpDlqReplay: true,

@@ -1,12 +1,18 @@
+import { NativeConnection, Worker } from '@temporalio/worker'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { buildTemporalDataConverter, buildTemporalTLSConfig } from '~/common/temporal/connection'
 import { logger } from '~/common/utils/logger'
 
-import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginsServerConfig,
+    RawClickHouseEvent,
+} from '../../types'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
 import type { InvocationFailureSink } from '../services/dead-letter/cdp-dead-letter.service'
 import {
     DeadLetterRecord,
@@ -22,7 +28,8 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType, InvocationBuildFailure } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
-import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { createReplayActivities } from './activities'
+import { DlqPartitionReader } from './partition-reader'
 
 const counterReplayRecords = new Counter({
     name: 'cdp_dlq_replay_records_total',
@@ -35,15 +42,35 @@ const counterReplayInvocations = new Counter({
     help: 'An invocation was rebuilt and queued by the replay worker',
 })
 
-/** The group is fixed, so its committed offsets are what stop a record being replayed twice. */
-const REPLAY_GROUP_ID = 'cdp-dlq-replay'
+/**
+ * A record this version cannot replay: unreadable bytes, a team that no longer exists, or a source
+ * that still fails to build for a reason that is ours. Thrown before anything is queued, so the
+ * caller can retry the same records one at a time without delivering any of them twice.
+ */
+export class UnreplayableRecordsError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'UnreplayableRecordsError'
+    }
+}
+
+export interface ReplayScope {
+    teamId?: number
+    sourceIds?: ReadonlySet<string>
+}
+
+export interface ReplayBatchResult {
+    rebuilt: number
+    outOfScope: number
+    queued: number
+}
 
 /**
  * Catches what the pipelines would otherwise report to a dead-letter topic.
  *
  * A filter or an input that throws is handled per function: the builder returns it here and the
  * pipeline carries on, so a rebuild that fails the same way it did the first time comes back as an
- * empty invocation list and no error. Without this the worker would commit past a record whose
+ * empty invocation list and no error. Without this the worker would move past a record whose
  * delivery never happened. Collecting them lets the batch fail instead.
  *
  * `recordProcessFailure` answers false, which is what a pipeline with no sink at all would see, so
@@ -65,44 +92,54 @@ class ReplayFailureCollector implements InvocationFailureSink {
     }
 }
 
-export interface CdpDlqReplayCounts {
-    replayed: number
-    queued: number
+const position = (message: Message): string => `${message.topic}:${message.partition}:${message.offset}`
+
+/** Null keeps every target the record names. An empty set means the scope excludes the record. */
+function scopedTargets(named: Set<string> | null, scope: ReplayScope): Set<string> | null {
+    if (!scope.sourceIds) {
+        return named
+    }
+    if (named === null) {
+        return new Set(scope.sourceIds)
+    }
+    return new Set([...named].filter((id) => scope.sourceIds!.has(id)))
+}
+
+function tryReadParkedEvent(message: Message): RawClickHouseEvent | null {
+    try {
+        return readParkedEvent(message)
+    } catch {
+        return null
+    }
 }
 
 /**
- * Rebuilds invocations for events parked on a dead-letter topic.
+ * Rebuilds invocations for events parked on the dead-letter topic, and serves the Temporal
+ * activities that drive it.
  *
- * The deployment runs at zero replicas. An operator scales it to one once the bug that parked the
- * records is fixed and deployed, and back to zero to stop it. There is no enabled flag: the worker
- * always drains while it is running, so there is no state where it holds a Kafka client it is not
- * using and no health check that has to explain one.
+ * A replay is a `cdp-dlq-replay` workflow that an operator starts once the bug that parked the
+ * records is fixed and deployed. The workflow runs on the Python workers and calls the activities
+ * here on their own task queue, because the rebuild needs the same pipelines the events consumer
+ * runs. Between runs the worker only polls an idle queue.
  *
- * Three rules the rest of this class exists to keep:
+ * Two rules the rest of this class exists to keep:
  *
  * It never produces to the source topic. ClickHouse consumes `clickhouse_events_json`, so putting
  * an event back there would duplicate it in the events table. The worker rebuilds invocations and
- * queues those instead, which is also why the generic DLQ replay tooling does not fit here.
+ * queues those instead, which is also why the generic DLQ replay workflow does not fit here.
  *
  * It rebuilds only the functions a record names. An event that failed for one function out of five
  * already reached the other four, and rebuilding all five would deliver to them twice.
- *
- * It commits offsets only once every invocation in the batch is queued. Anything else leaves them
- * where they are and fails the batch, so a record that cannot be replayed blocks rather than being
- * skipped. Scaling it back to zero is how an operator unblocks it and fixes forward. Batch size is
- * the deployment's `CONSUMER_BATCH_SIZE`: nothing here depends on it, but it decides how much of a
- * batch waits behind one record that will not replay.
  */
-export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
-    protected name = 'CdpDlqReplayConsumer'
+export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
+    protected name = 'CdpDlqReplayer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    private kafkaConsumer: KafkaConsumerInterface
     private hogFunctionPipeline: HogFunctionInvocationPipeline
     private hogFlowPipeline: HogFlowInvocationPipeline
     private buildFailures = new ReplayFailureCollector()
-
-    public readonly counts: CdpDlqReplayCounts = { replayed: 0, queued: 0 }
+    private worker?: Worker
+    private workerRun?: Promise<void>
 
     constructor(
         config: PluginsServerConfig,
@@ -110,19 +147,6 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         private jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
     ) {
         super(config, deps)
-
-        // Offsets are left to the consumer, which stores them once the batch handler resolves. That
-        // is the guarantee this worker needs: the handler awaits the rebuild and the queueing, so a
-        // record is only committed after its invocations exist, and a throw anywhere leaves the
-        // offset where it was.
-        //
-        // `auto.offset.reset` is set rather than inherited, because KAFKA_CONSUMER_AUTO_OFFSET_RESET
-        // applies to every consumer in the deployment. This one runs at zero replicas, so records
-        // always land before it connects: a `latest` value would skip the backlog it was scaled up
-        // to drain and report a clean run having replayed nothing.
-        this.kafkaConsumer = createKafkaConsumer({ groupId: REPLAY_GROUP_ID, topic: config.CDP_DLQ_REPLAY_TOPIC }, {
-            'auto.offset.reset': 'earliest',
-        } as RdKafkaConsumerConfig)
 
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
@@ -152,28 +176,72 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     }
 
     /**
+     * Reads a batch the way `replayBatch` would and counts it, without rebuilding anything.
+     *
+     * A rebuild is not free of side effects: it reports billable invocations, takes rate limit
+     * tokens and writes masking state. So a dry run stops before it and answers only how many
+     * records the window holds and how many the scope selects.
+     */
+    public planBatch(
+        messages: Message[],
+        scope: ReplayScope = {}
+    ): { inScope: number; outOfScope: number; unreadable: number } {
+        const counts = { inScope: 0, outOfScope: 0, unreadable: 0 }
+        for (const message of messages) {
+            const record = readDeadLetterRecord(message)
+            const event = record ? tryReadParkedEvent(message) : null
+            if (!record || !event) {
+                counts.unreadable += 1
+            } else if (this.excludes(record, event, scope)) {
+                counts.outOfScope += 1
+            } else {
+                counts.inScope += 1
+            }
+        }
+        return counts
+    }
+
+    private excludes(record: DeadLetterRecord, event: RawClickHouseEvent, scope: ReplayScope): boolean {
+        if (scope.teamId !== undefined && event.team_id !== scope.teamId) {
+            return true
+        }
+        return scopedTargets(replayTargetIds(record), scope)?.size === 0
+    }
+
+    /**
      * Rebuilds one batch and queues the invocations.
      *
-     * Everything here either succeeds for every record in the batch or throws. A record that cannot
-     * be rebuilt — bytes that will not parse, a team that no longer exists — throws like any other
-     * failure, so the offset stays put and the worker blocks on it. An operator turns the worker
-     * off and either fixes forward or moves the group's offset past that record by hand.
+     * Everything here either succeeds for every record in the batch or throws. A record this
+     * version cannot replay throws `UnreplayableRecordsError` before anything is queued. Any other
+     * throw can come after some invocations were queued, so a caller must not retry the batch
+     * record by record on it.
      */
-    public async replayBatch(messages: Message[]): Promise<void> {
+    public async replayBatch(messages: Message[], scope: ReplayScope = {}): Promise<ReplayBatchResult> {
         this.buildFailures.clear()
-        const selected: { message: Message; record: DeadLetterRecord }[] = []
+        let outOfScope = 0
+        const selected: { message: Message; record: DeadLetterRecord; event: RawClickHouseEvent }[] = []
         for (const message of messages) {
             const record = readDeadLetterRecord(message)
             if (!record) {
-                throw new Error(
-                    `Dead-letter record at ${message.topic}:${message.partition}:${message.offset} has no ` +
-                        'dlq_step header, so there is nothing to rebuild from it'
+                throw new UnreplayableRecordsError(
+                    `Dead-letter record at ${position(message)} has no dlq_step header, so there is nothing to rebuild from it`
                 )
             }
-            selected.push({ message, record })
+            const event = tryReadParkedEvent(message)
+            if (!event) {
+                throw new UnreplayableRecordsError(`Could not read an event from ${position(message)}`)
+            }
+            if (this.excludes(record, event, scope)) {
+                outOfScope += 1
+                continue
+            }
+            selected.push({ message, record, event })
+        }
+        if (outOfScope) {
+            counterReplayRecords.labels({ outcome: 'out_of_scope' }).inc(outOfScope)
         }
         if (!selected.length) {
-            return
+            return { rebuilt: 0, outOfScope, queued: 0 }
         }
 
         // Which sources each event may rebuild, held against the globals object the rebuild runs
@@ -192,17 +260,16 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         const kindsByEvent = new Map<HogFunctionInvocationGlobals, Set<SourceKind> | null>()
         const globalsList: HogFunctionInvocationGlobals[] = []
 
-        const resolved = await Promise.all(selected.map(({ message }) => this.toGlobals(message)))
+        const resolved = await Promise.all(selected.map(({ event }) => this.toGlobals(event)))
 
         for (const [index, { message, record }] of selected.entries()) {
             const globals = resolved[index]
             if (!globals) {
-                throw new Error(
-                    `Could not rebuild an event from ${message.topic}:${message.partition}:${message.offset} — ` +
-                        'refusing to commit past a parked event that was never replayed'
+                throw new UnreplayableRecordsError(
+                    `The team of the event at ${position(message)} no longer exists, so it has nowhere to replay to`
                 )
             }
-            const targets = replayTargetIds(record)
+            const targets = scopedTargets(replayTargetIds(record), scope)
             const kinds = replayTargetKinds(record)
             // Present for every selected record: readDeadLetterRecord refuses one with no payload.
             const value = message.value!
@@ -228,7 +295,6 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
                 kindsByEvent.set(globals, kinds)
                 globalsList.push(globals)
             }
-            this.counts.replayed += 1
         }
 
         await this.groupsManager.addGroupsToGlobalsList(globalsList)
@@ -269,10 +335,10 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         }
         if (blocking.length) {
             const [first] = blocking
-            throw new Error(
+            throw new UnreplayableRecordsError(
                 `${blocking.length} source(s) in this batch still fail to build, ` +
                     `first ${first.sourceKind} ${first.sourceId} at ${first.step}: ${first.error}. ` +
-                    'Refusing to commit past records whose delivery did not happen'
+                    'Refusing to move past records whose delivery did not happen'
             )
         }
 
@@ -283,11 +349,11 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
         }
 
-        this.counts.queued += hogInvocations.length + hogflowInvocations.length
+        const queued = hogInvocations.length + hogflowInvocations.length
         // Records and invocations are different things: one record can rebuild several invocations
         // or none. Counting invocations under a record-shaped label made every outcome rate wrong.
         counterReplayRecords.labels({ outcome: 'rebuilt' }).inc(globalsList.length)
-        counterReplayInvocations.inc(hogInvocations.length + hogflowInvocations.length)
+        counterReplayInvocations.inc(queued)
 
         await Promise.all([
             this.jobQueues.hogQueue.queueInvocations(hogInvocations),
@@ -295,26 +361,20 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             this.hogFunctionMonitoringService.flush(),
             this.invocationResultsService.invocationResultsRowsService.flush(),
         ])
+
+        return { rebuilt: selected.length, outOfScope, queued }
     }
 
     /**
-     * Rebuilds the globals from the parked bytes, resolving everything around the event fresh.
+     * Rebuilds the globals from the parked event, resolving everything around it fresh.
      *
      * The event body is replayed exactly as it arrived, but everything the pipeline reads around it
      * is read again now: the team, the groups, and the person. `convertToHogFunctionInvocationGlobals`
      * would otherwise hand the destination the person snapshot frozen into the event at capture,
      * which can be months stale by the time a replay runs, while groups were already being resolved
      * fresh. A destination receiving a delivery today should see today's person.
-     *
-     * Errors are not caught. The caller turns a null into a thrown batch, and anything thrown here
-     * reaches the same place, because the worker blocks on a record it cannot replay rather than
-     * committing past it.
      */
-    private async toGlobals(message: Message): Promise<HogFunctionInvocationGlobals | null> {
-        const event = readParkedEvent(message)
-        if (!event) {
-            return null
-        }
+    private async toGlobals(event: RawClickHouseEvent): Promise<HogFunctionInvocationGlobals | null> {
         const team = await this.deps.teamManager.getTeam(event.team_id)
         if (!team) {
             return null
@@ -333,26 +393,42 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         await super.start()
         await Promise.all([this.jobQueues.hogQueue.startAsProducer(), this.jobQueues.hogflowQueue.startAsProducer()])
 
-        logger.info('☠️', 'cdp_dlq_replay_start', { topic: this.config.CDP_DLQ_REPLAY_TOPIC })
-
-        await this.kafkaConsumer.connect(async (messages) => {
-            if (!messages.length) {
-                return
-            }
-
-            await instrumentFn('cdpDlqReplay.handleEachBatch', () => this.replayBatch(messages))
-
-            logger.info('☠️', 'cdp_dlq_replay_progress', this.counts)
+        const address = `${this.config.TEMPORAL_HOST}:${this.config.TEMPORAL_PORT || '7233'}`
+        const connection = await NativeConnection.connect({ address, tls: await buildTemporalTLSConfig(this.config) })
+        this.worker = await Worker.create({
+            connection,
+            namespace: this.config.TEMPORAL_NAMESPACE || 'default',
+            taskQueue: this.config.CDP_DLQ_REPLAY_TASK_QUEUE,
+            activities: createReplayActivities({
+                replayer: this,
+                openReader: () => DlqPartitionReader.open(),
+                defaultTopic: this.config.CDP_EVENTS_DLQ_TOPIC,
+            }),
+            dataConverter: buildTemporalDataConverter(this.config),
+            // One partition at a time per pod. Two activities rebuilding at once would share the
+            // failure collector, and a replay is never in a hurry.
+            maxConcurrentActivityTaskExecutions: 1,
         })
+        this.workerRun = this.worker.run().catch((error) => {
+            logger.error('☠️', 'cdp_dlq_replay_worker_failed', { error: String(error) })
+        })
+
+        logger.info('☠️', 'cdp_dlq_replay_start', { address, taskQueue: this.config.CDP_DLQ_REPLAY_TASK_QUEUE })
     }
 
     public override async stop(): Promise<void> {
-        await this.kafkaConsumer.disconnect()
+        // Shutdown lets a running activity finish its batch and heartbeat, so a retry on another
+        // pod resumes after the last queued batch instead of in the middle of one.
+        this.worker?.shutdown()
+        await this.workerRun
         await Promise.all([this.jobQueues.hogQueue.stopProducer(), this.jobQueues.hogflowQueue.stopProducer()])
         await super.stop()
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+        const state = this.worker?.getState()
+        return state === 'RUNNING'
+            ? new HealthCheckResultOk()
+            : new HealthCheckResultError('Temporal worker is not running', { state })
     }
 }

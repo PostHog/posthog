@@ -14,18 +14,20 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, Team } from '../types'
-import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { createIncomingEvent, insertHogFunction } from './_tests/fixtures'
-import { insertHogFlow } from './_tests/fixtures-hogflows'
-import { CdpCyclotronWorker } from './consumers/cdp-cyclotron-worker.consumer'
-import { CdpDlqReplayConsumer } from './consumers/cdp-dlq-replay.consumer'
-import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
-import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
-import { JobQueue } from './services/job-queue/job-queue.interface'
-import { HogFunctionType } from './types'
+import { Hub, Team } from '../../types'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import { createIncomingEvent, insertHogFunction } from '../_tests/fixtures'
+import { insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
+import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
+import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { HogFunctionType } from '../types'
+import { ReplayPartitionInput, ReplayPartitionResult, replayPartition } from './activities'
+import { CdpDlqReplayer } from './cdp-dlq-replayer'
+import { DlqPartitionReader } from './partition-reader'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
@@ -41,7 +43,7 @@ describe('CDP dead-letter replay', () => {
     let team: Team
     let kafkaProducer: KafkaProducerWrapper
     let eventsConsumer: CdpEventsConsumer | undefined
-    let replayConsumer: CdpDlqReplayConsumer | undefined
+    let replayer: CdpDlqReplayer | undefined
     let cyclotronWorker: CdpCyclotronWorker | undefined
     let dlqTopic: string
     let eventsTopic: string
@@ -50,8 +52,6 @@ describe('CDP dead-letter replay', () => {
     beforeEach(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
 
-        // The dead-letter topic is per test. It is not deleted between runs, so a shared one would
-        // hand each run the records every earlier run parked and there would be nothing to assert.
         // Both topics are per test. Topics are not deleted between runs, so a shared one would
         // hand each run everything every earlier run produced and there would be nothing to assert.
         dlqTopic = createKafkaTestTopicName(KAFKA_CDP_EVENTS_DLQ)
@@ -63,15 +63,14 @@ describe('CDP dead-letter replay', () => {
         hub = await createHub()
         hub.CDP_DLQ_ENABLED = true
         hub.CDP_EVENTS_DLQ_TOPIC = dlqTopic
-        hub.CDP_DLQ_REPLAY_TOPIC = dlqTopic
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         team = await getFirstTeam(hub.postgres)
     })
 
     afterEach(async () => {
-        await Promise.all([eventsConsumer?.stop(), replayConsumer?.stop(), cyclotronWorker?.stop()])
+        await Promise.all([eventsConsumer?.stop(), replayer?.stop(), cyclotronWorker?.stop()])
         eventsConsumer = undefined
-        replayConsumer = undefined
+        replayer = undefined
         cyclotronWorker = undefined
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -143,6 +142,25 @@ describe('CDP dead-letter replay', () => {
         return messages
     }
 
+    const runReplay = async (
+        queues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        input: Partial<ReplayPartitionInput> = {},
+        heartbeatDetails?: ReplayPartitionResult
+    ): Promise<ReplayPartitionResult> => {
+        replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
+        return await replayPartition(
+            { replayer, openReader: () => DlqPartitionReader.open(), defaultTopic: dlqTopic },
+            {
+                topic: dlqTopic,
+                partition: 0,
+                start_timestamp_ms: 0,
+                end_timestamp_ms: Date.now() + 60_000,
+                ...input,
+            },
+            { heartbeat: () => {}, heartbeatDetails, cancellationSignal: new AbortController().signal }
+        )
+    }
+
     /** Stands in for the forward fix on the filter side. */
     const repairFilters = async (fn: HogFunctionType): Promise<void> => {
         await hub.postgres.query(
@@ -181,23 +199,13 @@ describe('CDP dead-letter replay', () => {
         await repairInputs(broken)
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: replayQueue,
-            hogflowQueue: replayQueue,
-        })
-        await replayConsumer.start()
-
-        await waitForExpect(() => {
-            expect(replayQueue.queueInvocations).toHaveBeenCalledWith([
-                expect.objectContaining({ functionId: broken.id }),
-            ])
-        }, 30000)
+        const result = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
 
         // Only the parked function was rebuilt: every invocation the replay queued is that one.
         const replayed = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(replayed.map((invocation: any) => invocation.functionId)).toEqual([broken.id])
         expect(replayed[0].queueMetadata).toMatchObject({ replayed_from_dlq: true })
-        expect(replayConsumer.counts.replayed).toBe(1)
+        expect(result).toMatchObject({ records_read: 1, records_in_scope: 1, invocations_queued: 1, blocked: null })
     })
 
     it('rebuilds each function once when one event is parked twice', async () => {
@@ -226,19 +234,11 @@ describe('CDP dead-letter replay', () => {
         await repairFilters(brokenFilter)
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: replayQueue,
-            hogflowQueue: replayQueue,
-        })
-        await replayConsumer.start()
+        const result = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
+        expect(result.invocations_queued).toBe(2)
 
-        await waitForExpect(() => {
-            expect(replayConsumer!.counts.queued).toBe(2)
-        }, 30000)
-
-        // Both parked functions come back, each exactly once, through the live consumer. This only
-        // covers the union while CONSUMER_BATCH_SIZE is large enough to hand both records to one
-        // batch, which is why the case below passes them in directly.
+        // Both parked functions come back, each exactly once, through the activity's own read of
+        // the partition. The case below covers the same union with the records passed in directly.
         const replayed = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(replayed.map((invocation: any) => invocation.functionId).sort()).toEqual(
             [brokenFilter.id, brokenInputs.id].sort()
@@ -248,7 +248,7 @@ describe('CDP dead-letter replay', () => {
     it('sends the delivery for real: parked, fixed, replayed, and the destination is called', async () => {
         // Everything else here stops once an invocation is queued. This one runs the invocation
         // through cyclotron as well, so the whole loop is covered: the event fails to build, the
-        // bytes land on a real topic, a real consumer group reads them back, the invocation is
+        // bytes land on a real topic, the replay reads them back, the invocation is
         // rebuilt, and the destination is actually called.
         const broken = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
@@ -273,11 +273,8 @@ describe('CDP dead-letter replay', () => {
         cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
         await cyclotronWorker.start()
 
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: kafkaQueue,
-            hogflowQueue: postgresQueue,
-        })
-        await replayConsumer.start()
+        await Promise.all([kafkaQueue.startAsProducer(), postgresQueue.startAsProducer()])
+        await runReplay({ hogQueue: kafkaQueue, hogflowQueue: postgresQueue })
 
         await waitForExpect(() => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -313,11 +310,11 @@ describe('CDP dead-letter replay', () => {
         await repairFilters(brokenFilter)
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+        replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
             hogQueue: replayQueue,
             hogflowQueue: replayQueue,
         })
-        await replayConsumer.replayBatch(records)
+        await replayer.replayBatch(records)
 
         const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(queued.map((invocation: any) => invocation.functionId).sort()).toEqual(
@@ -352,21 +349,21 @@ describe('CDP dead-letter replay', () => {
         expect(sourceQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: healthy.id })])
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+        replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
             hogQueue: replayQueue,
             hogflowQueue: replayQueue,
         })
-        await replayConsumer.replayBatch(records)
+        await replayer.replayBatch(records)
 
         // The record names hog_flow, so the destination that already delivered is not rebuilt.
         const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(queued.map((invocation: any) => invocation.functionId)).not.toContain(healthy.id)
     })
 
-    it('blocks instead of committing when the destination still fails to build', async () => {
+    it('stops at a destination that still fails to build, then picks up there after the fix', async () => {
         // The fix is not deployed yet. A filter or input that throws is handled per function, so
-        // the rebuild comes back as an empty invocation list and no error — the worker has to read
-        // that as a failed replay, or it commits past a delivery that never happened.
+        // the rebuild comes back as an empty invocation list and no error. The replay has to read
+        // that as a failed replay, or it moves past a delivery that never happened.
         const broken = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -377,30 +374,25 @@ describe('CDP dead-letter replay', () => {
 
         const sourceQueue = createMockJobQueue()
         await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
-        const records = await parkEvent()
+        await parkEvent()
 
-        // No repair. Replaying now must not consume the record.
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: replayQueue,
-            hogflowQueue: replayQueue,
-        })
-
-        await expect(replayConsumer.replayBatch(records)).rejects.toThrow('still fail to build')
+        const blocked = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
+        expect(blocked).toMatchObject({ next_offset: 0, blocked: { offset: 0 } })
+        expect(blocked.blocked!.error).toContain('still fail to build')
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
 
-        // With the fix applied the same records go through, so the block was about the bug and not
-        // about the records being unreadable. A second worker, because the first cached the
-        // function as it was before the repair.
+        // With the fix applied the workflow calls again from where it stopped, and the record goes
+        // through. A second worker, because the first cached the function as it was before the repair.
         await repairInputs(broken)
-        await replayConsumer.stop()
+        await replayer!.stop()
         const fixedQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: fixedQueue,
-            hogflowQueue: fixedQueue,
-        })
-        await replayConsumer.replayBatch(records)
+        const resumed = await runReplay(
+            { hogQueue: fixedQueue, hogflowQueue: fixedQueue },
+            { from_offset: blocked.next_offset, end_offset: blocked.end_offset }
+        )
         expect(fixedQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: broken.id })])
+        expect(resumed).toMatchObject({ next_offset: 1, blocked: null })
     })
 
     it('parks a workflow that cannot build, then replays it onto the workflow queue', async () => {
@@ -434,17 +426,17 @@ describe('CDP dead-letter replay', () => {
         // Separate queues, so the assertion is about which one the workflow landed on.
         const hogQueue = createMockJobQueue()
         const hogflowQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+        replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
             hogQueue,
             hogflowQueue,
         })
-        await replayConsumer.replayBatch(records)
+        await replayer.replayBatch(records)
 
         expect(hogflowQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: flow.id })])
         expect(hogQueue.queueInvocations).toHaveBeenCalledWith([])
     })
 
-    it('parks bytes it cannot read, and blocks on them until a version can', async () => {
+    it('parks bytes it cannot read, stops at them, and skips them only when told to', async () => {
         // The one step whose records are unreadable by construction: that is why they were parked.
         await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
@@ -469,20 +461,28 @@ describe('CDP dead-letter replay', () => {
         expect(headers.dlq_kinds.toString()).toBe('')
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: replayQueue,
-            hogflowQueue: replayQueue,
-        })
+        const blocked = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
+        expect(blocked.blocked).toMatchObject({ offset: 0 })
+        expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
 
-        // Still unreadable to this version, so the batch fails and the offset stays put.
-        await expect(replayConsumer.replayBatch(records)).rejects.toThrow()
+        await replayer!.stop()
+        const skipped = await runReplay(
+            { hogQueue: replayQueue, hogflowQueue: replayQueue },
+            { skip_unreplayable: true }
+        )
+        expect(skipped).toMatchObject({ next_offset: 1, records_skipped: 1, skipped: [{ offset: 0 }], blocked: null })
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
     })
 
-    it('drains records that were parked long before it ever joined the topic', async () => {
-        // The deployment sits at zero replicas, so records always land before the worker connects.
-        // Reading from the start of the topic is what makes scaling it up drain the backlog rather
-        // than sit at the tip reporting a clean run.
+    it.each([
+        ['a window that ends before the record was parked', { end_timestamp_ms: 1 }, undefined],
+        ['another team', { team_id: 999_999 }, undefined],
+        ['other sources', { source_ids: ['00000000-0000-0000-0000-000000000000'] }, undefined],
+        ['a position past the record', { from_offset: 1 }, undefined],
+        ['a retry whose last heartbeat is past the record', {}, 'past'],
+    ] as const)('replays nothing for %s', async (_case, input, heartbeat) => {
+        // Each run reads only what it was asked for. Reading wider re-delivers what an earlier run,
+        // or an earlier attempt of this one, already queued.
         const fn = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -493,20 +493,54 @@ describe('CDP dead-letter replay', () => {
 
         const sourceQueue = createMockJobQueue()
         await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
-        // Awaited, so the record is on the topic before the worker ever connects.
         await parkEvent()
         await repairInputs(fn)
 
-        // Only now does the worker start, the way scaling from zero does.
-        const drainQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: drainQueue,
-            hogflowQueue: drainQueue,
-        })
-        await replayConsumer.start()
+        const replayQueue = createMockJobQueue()
+        const result = await runReplay(
+            { hogQueue: replayQueue, hogflowQueue: replayQueue },
+            input,
+            heartbeat
+                ? {
+                      partition: 0,
+                      next_offset: 1,
+                      end_offset: 1,
+                      records_read: 1,
+                      records_in_scope: 1,
+                      records_out_of_scope: 0,
+                      records_unreadable: 0,
+                      records_skipped: 0,
+                      invocations_queued: 1,
+                      skipped: [],
+                      blocked: null,
+                  }
+                : undefined
+        )
 
-        await waitForExpect(() => {
-            expect(drainQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: fn.id })])
-        }, 30000)
+        const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(queued).toEqual([])
+        expect(result.blocked).toBeNull()
+    })
+
+    it('reports what a dry run would replay without queueing anything', async () => {
+        // A rebuild reports billing, takes rate limit tokens and writes masking state, so a dry run
+        // that rebuilt anything would change what the real run then does.
+        await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        await parkEvent()
+
+        const replayQueue = createMockJobQueue()
+        const result = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue }, { dry_run: true })
+
+        expect(result).toMatchObject({ records_read: 1, records_in_scope: 1, invocations_queued: 0, blocked: null })
+        expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
     })
 })

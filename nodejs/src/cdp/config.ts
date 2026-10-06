@@ -130,8 +130,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
-    // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
-    CDP_DLQ_REPLAY_TOPIC: string
+    // Must match CDP_DLQ_REPLAY_TASK_QUEUE in posthog/settings/temporal.py, which the workflow calls.
+    CDP_DLQ_REPLAY_TASK_QUEUE: string
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -344,7 +344,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
-        CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        CDP_DLQ_REPLAY_TASK_QUEUE: 'cdp-dlq-replay-task-queue',
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
