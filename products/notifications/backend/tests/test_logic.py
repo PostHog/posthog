@@ -54,6 +54,36 @@ class TestCreateNotification(BaseTest):
         assert event.notification_type == "comment_mention"
         assert NotificationEvent.objects.count() == 1
 
+    @parameterized.expand(
+        [
+            ("deactivated", lambda user, organization: User.objects.filter(id=user.id).update(is_active=False)),
+            (
+                "left_organization",
+                lambda user, organization: OrganizationMembership.objects.filter(
+                    user=user, organization=organization
+                ).delete(),
+            ),
+        ]
+    )
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_skips_user_without_active_membership(self, _name, revoke, mock_publish, mock_ff):
+        revoke(self.user, self.organization)
+
+        event = create_notification(
+            NotificationData(
+                team_id=self.team.id,
+                notification_type=NotificationType.COMMENT_MENTION,
+                title="Test notification",
+                body="Test body",
+                target_type=TargetType.USER,
+                target_id=str(self.user.id),
+            )
+        )
+
+        assert event is None
+        mock_publish.assert_not_called()
+
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic._publish_to_kafka")
     def test_create_notification_deduplicates_idempotency_key(self, mock_publish, mock_ff):
