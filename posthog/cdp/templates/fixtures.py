@@ -170,7 +170,7 @@ if (res.status >= 400) {
                 {"label": "Warning", "value": "warning"},
                 {"label": "Info", "value": "info"},
             ],
-            "default": "critical",
+            "default": "error",
             "secret": False,
             "required": True,
         },

@@ -1185,9 +1185,13 @@ def _resolve_notification_deliveries(dispatched: list[_DispatchedAlert]) -> list
     resolved: list[_DispatchedAlert] = []
     for d in dispatched:
         alert = d.evaluation.alert
+        edge = incident_edge(d.evaluation.state_before, d.evaluation.outcome.new_state)
+        incident_event = (
+            LOGS_ALERT_INCIDENT_OPENED_EVENT if edge == IncidentEdge.OPENED else LOGS_ALERT_INCIDENT_CLOSED_EVENT
+        )
         deliveries = (
             (d.produce_result, d.evaluation.outcome.notification.value),
-            (d.incident_produce_result, "incident_edge"),
+            (d.incident_produce_result, incident_event),
         )
         delivered = all(
             alert_internal_event_delivered(
