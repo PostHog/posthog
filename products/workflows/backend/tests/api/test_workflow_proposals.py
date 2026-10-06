@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,6 +34,38 @@ def _trigger_action() -> dict:
     }
 
 
+def _email_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-email"
+    template["name"] = "Email"
+    template["inputs_schema"] = [
+        {"key": "email", "type": "native_email", "label": "Email", "required": True, "templating": "liquid"}
+    ]
+    return template
+
+
+def _email_action() -> dict:
+    return {
+        "id": "email_1",
+        "name": "email_1",
+        "type": "function_email",
+        "config": {
+            "template_id": "template-email",
+            "inputs": {
+                "email": {
+                    "value": {
+                        "to": "{{ person.properties.email }}",
+                        "from": "noreply@example.com",
+                        "subject": "Hello",
+                        "html": "<p>Hello</p>",
+                    },
+                    "templating": "liquid",
+                }
+            },
+        },
+    }
+
+
 def _webhook_action(action_id: str = "action_1", url: str = "https://example.com") -> dict:
     return {
         "id": action_id,
@@ -47,6 +80,7 @@ class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
+        sync_template_to_db(_email_template())
         # Filing needs the scout's own scope, which no session carries.
         self.producer_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -65,7 +99,8 @@ class TestWorkflowProposals(APIBaseTest):
     def _create_active_flow(self) -> str:
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
-            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action()]},
+            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action(), _email_action()]},
+            format="json",
         )
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
@@ -538,6 +573,20 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert turned_on.status_code == 409, turned_on.json()
         assert turned_on.json()["code"] == "workflow_not_live"
+
+    def test_a_workflow_with_no_email_step_cannot_be_opted_in_but_can_be_opted_out(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        HogFlow.objects.filter(id=flow_id).update(actions=[_trigger_action(), _webhook_action()])
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization"
+
+        turned_off = self.client.post(url, {"enabled": False}, format="json")
+        assert turned_off.status_code == 200, turned_off.json()
+        assert turned_off.json()["enabled"] is False
+
+        turned_on = self.client.post(url, {"enabled": True}, format="json")
+        assert turned_on.status_code == 409, turned_on.json()
+        assert turned_on.json()["code"] == "workflow_has_no_email_step"
+        assert HogFlowOptimization.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
 
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -1032,7 +1081,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
-        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
+        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1", "email_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
     def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):
