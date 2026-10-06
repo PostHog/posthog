@@ -429,6 +429,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             ("unknown_identifier", 47, "unknown_identifier"),
             ("unsupported_method", 1, "unsupported_method"),
             ("syntax_error", 62, None),
+            ("query_was_cancelled", 394, None),
             ("temporary_server_fault", 252, "too_many_parts"),
             ("unknown_server_fault", 999_999, None),
         ]

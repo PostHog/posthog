@@ -1121,7 +1121,6 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
     "NETWORK_ERROR": _TEMPORARY_FAILURE_MESSAGE,
     "SOCKET_TIMEOUT": _TEMPORARY_FAILURE_MESSAGE,
     "ALL_CONNECTION_TRIES_FAILED": _TEMPORARY_FAILURE_MESSAGE,
-    "QUERY_WAS_CANCELLED": "The database stopped this query before it finished. Run the query again.",
     "S3_ERROR": (
         "PostHog can't read the files behind a data warehouse table. "
         "Check that the files still exist and that the source credentials are valid. Then run the query again."
