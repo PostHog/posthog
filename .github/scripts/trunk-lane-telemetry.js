@@ -13,20 +13,22 @@
 //
 // Raw paths are deliberately not sent. A PR can touch thousands of them, they
 // blow past property limits, and in aggregate the directory histogram answers
-// the same questions. The exception is tripwire_files, which names the handful
-// of paths that widened the PR, because that is the field that says which rule
-// to go tune, alongside tripwire_domains for how far each one reached.
+// the same questions. The first exception is tripwire_files, which names the
+// handful of paths that widened the PR, because that is the field that says
+// which rule to go tune, alongside tripwire_domains for how far each one reached.
+// The second is the two cross_lane file lists, capped the same way, because the
+// CI report names those files to the author.
 //
 // Input:  changed file paths, one per line, on stdin
 //         IMPACTED_TARGETS — the JSON uploaded to Trunk, {"impactedTargets": ...}
 // Output: JSON object of event properties on stdout
 
 const fs = require('fs')
-const path = require('path')
 const {
     ALL,
     allKnownTargets,
     buildContext,
+    findDeletedFiles,
     isTripwire,
     tripwireDomain,
     REPO_ROOT,
@@ -112,6 +114,8 @@ function buildProperties(changedFiles, impactedTargets, universe, crossLane = nu
         cross_lane: crossLane ? crossLane.mixed : null,
         cross_lane_heavy_files: crossLane ? crossLane.heavyFiles.slice(0, MAX_LISTED) : [],
         cross_lane_light_files: crossLane ? crossLane.lightFiles.slice(0, MAX_LISTED) : [],
+        cross_lane_heavy_file_count: crossLane ? crossLane.heavyFiles.length : 0,
+        cross_lane_light_file_count: crossLane ? crossLane.lightFiles.length : 0,
         // Separates the three ways a PR ends up in one lane: a rule that
         // deliberately widened it, a path no rule claimed (the early warning
         // that the script needs a rule for a directory someone just added), and
@@ -152,8 +156,7 @@ if (require.main === module) {
     let crossLane = null
     if (context) {
         try {
-            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
-            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles })
+            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles: findDeletedFiles(changedFiles) })
         } catch (error) {
             console.error(
                 `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`

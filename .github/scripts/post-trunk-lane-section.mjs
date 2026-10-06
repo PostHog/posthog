@@ -52,17 +52,38 @@ export function buildTrunkLaneSection({ impactedTargets, isUniversal, crossLane 
     }
 }
 
-function fileList(files) {
+// The telemetry caps each list, so the total arrives beside it.
+function fileList(files, total = files.length) {
     const shown = files.slice(0, 3).map(formatTarget).join(', ')
-    return files.length > 3 ? `${shown} and ${files.length - 3} more` : shown
+    const count = Math.max(total, files.length)
+    return count > 3 ? `${shown} and ${count - 3} more` : shown
 }
 
-function crossLaneParagraph({ heavyFiles, lightFiles }) {
+function crossLaneParagraph({ heavyFiles, lightFiles, heavyCount, lightCount }) {
     return (
-        `This PR changes Python or frontend code (${fileList(heavyFiles)}) and Node or Rust code (${fileList(lightFiles)}) together. ` +
+        `This PR changes Python or frontend code (${fileList(heavyFiles, heavyCount)}) and Node or Rust code (${fileList(lightFiles, lightCount)}) together. ` +
         'In the merge queue, every Node or Rust PR behind it in the same lane then runs the Django and frontend suites too. ' +
         'Split it into separate PRs if the two halves can land independently.'
     )
+}
+
+// The properties come from the job that runs the PR's own scripts, so a wrong
+// shape gives no warning rather than a failed section.
+export function parseCrossLane(laneProperties) {
+    const strings = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
+    const heavyFiles = strings(laneProperties.cross_lane_heavy_files)
+    const lightFiles = strings(laneProperties.cross_lane_light_files)
+    if (laneProperties.cross_lane !== true || heavyFiles.length === 0 || lightFiles.length === 0) {
+        return null
+    }
+    const count = (value, files) => (Number.isInteger(value) ? value : files.length)
+    return {
+        mixed: true,
+        heavyFiles,
+        lightFiles,
+        heavyCount: count(laneProperties.cross_lane_heavy_file_count, heavyFiles),
+        lightCount: count(laneProperties.cross_lane_light_file_count, lightFiles),
+    }
 }
 
 export async function postTrunkLaneSection({
@@ -113,14 +134,7 @@ async function main() {
     const impactedTargets = parseJson(process.env.IMPACTED_TARGETS).impactedTargets
     const laneProperties = parseJson(process.env.LANE_PROPERTIES)
     const isUniversal = typeof laneProperties.is_all === 'boolean' ? laneProperties.is_all : true
-    const crossLane =
-        laneProperties.cross_lane === true
-            ? {
-                  mixed: true,
-                  heavyFiles: laneProperties.cross_lane_heavy_files ?? [],
-                  lightFiles: laneProperties.cross_lane_light_files ?? [],
-              }
-            : null
+    const crossLane = parseCrossLane(laneProperties)
 
     await postTrunkLaneSection({
         impactedTargets,

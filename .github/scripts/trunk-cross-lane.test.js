@@ -36,6 +36,11 @@ for (const [name, files, mixed] of [
     ['Node alone', ['nodejs/src/ingestion/ingestion-consumer.ts'], false],
     // Markdown claims no lane, so a README beside Node code is not a mix.
     ['prose beside Node', ['README.md', 'nodejs/src/ingestion/ingestion-consumer.ts'], false],
+    [
+        'a Python workflow beside a Rust workflow',
+        ['.github/workflows/ci-backend.yml', '.github/workflows/ci-rust.yml'],
+        false,
+    ],
 ]) {
     test(`${name} is ${mixed ? '' : 'not '}a cross-lane change`, () => {
         assert.equal(crossLaneFiles(files, CONTEXT).mixed, mixed)
@@ -76,7 +81,12 @@ test('gives no verdict when any file cannot be enumerated', (t) => {
     assert.equal(crossLaneFiles(['posthog/api/event_tracker.py', 'rust/capture/src/router.rs'], noCrates), null)
 })
 
-test('gives no verdict when a file falls through every lane rule', (t) => {
+test('a file that falls through every lane rule gives no verdict, unless the other files already prove a mix', (t) => {
     t.mock.method(console, 'error', () => {})
     assert.equal(crossLaneFiles(['posthog/api/event_tracker.py', 'some-new-toplevel/thing.go'], CONTEXT), null)
+    const proven = crossLaneFiles(
+        ['posthog/api/event_tracker.py', 'nodejs/src/ingestion/ingestion-consumer.ts', 'some-new-toplevel/thing.go'],
+        CONTEXT
+    )
+    assert.equal(proven.mixed, true)
 })

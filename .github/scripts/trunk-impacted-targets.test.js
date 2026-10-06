@@ -43,6 +43,7 @@ const {
     PROTO_TREES,
     PYTHON,
     REPO_ROOT,
+    stripJsonComments,
     RUST,
     UNIVERSAL,
 } = require('./trunk-impacted-targets')
@@ -461,9 +462,6 @@ test('single-language root configuration claims that language', () => {
     }
 })
 
-// Root files whose reader is the stack, the image, or the ownership data every
-// suite runs on. The narrowing above stops here: these keep the full set, but
-// by decision rather than for want of a rule.
 test('the root oxc configs claim the JS lanes except node', () => {
     const javascript = computeTargets(['tsconfig.json'], CONTEXT)
     for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
@@ -477,12 +475,15 @@ test('the root oxc configs claim the JS lanes except node', () => {
 
 test('the root oxc configs keep ignoring nodejs', () => {
     for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
-        const config = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'))
-        const ignored = (config.ignorePatterns || []).map((pattern) => pattern.replace(/\/+$/, ''))
+        const config = JSON.parse(stripJsonComments(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8')))
+        const ignored = (config.ignorePatterns || []).map((pattern) => pattern.replace(/\/(\*\*)?$/, ''))
         assert.equal(ignored.includes('nodejs'), true, `${file} must ignore nodejs/`)
     }
 })
 
+// Root files whose reader is the stack, the image, or the ownership data every
+// suite runs on. The narrowing above stops here: these keep the full set, but
+// by decision rather than for want of a rule.
 test('stack and image configuration at the root stays universal', () => {
     for (const file of ['.env.development', '.env.services', '.envrc', 'otel-collector-config.dev.yaml']) {
         assert.equal(tripwireDomain(file), UNIVERSAL, file)

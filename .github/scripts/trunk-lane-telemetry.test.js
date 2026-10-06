@@ -78,5 +78,13 @@ test('the cross-lane verdict and its files ride along, or report unknown', () =>
     assert.deepEqual(mixed.cross_lane_heavy_files, ['posthog/api/x.py'])
     assert.deepEqual(mixed.cross_lane_light_files, ['nodejs/src/y.ts'])
 
+    const wide = buildProperties([], ['node:ingestion', 'py:core'], UNIVERSE, {
+        mixed: true,
+        heavyFiles: Array.from({ length: 150 }, (_, i) => `posthog/file_${i}.py`),
+        lightFiles: ['nodejs/src/y.ts'],
+    })
+    assert.equal(wide.cross_lane_heavy_files.length, 20)
+    assert.equal(wide.cross_lane_heavy_file_count, 150)
+
     assert.equal(buildProperties(['nodejs/src/y.ts'], ['node:ingestion'], UNIVERSE).cross_lane, null)
 })

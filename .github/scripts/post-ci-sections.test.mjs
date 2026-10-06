@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
 import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
-import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
+import { buildTrunkLaneSection, parseCrossLane, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
     previewMode: true,
@@ -112,6 +112,24 @@ describe('CI report section builders', () => {
         assert.match(section.summary, /mixes lanes/)
         assert.match(section.body, /<code>posthog\/api\/x\.py<\/code>/)
         assert.match(section.body, /<code>nodejs\/src\/y\.ts<\/code>/)
+    })
+
+    it('counts the files the telemetry cut from a capped list', () => {
+        const crossLane = parseCrossLane({
+            cross_lane: true,
+            cross_lane_heavy_files: ['a.py', 'b.py', 'c.py', 'd.py'],
+            cross_lane_heavy_file_count: 150,
+            cross_lane_light_files: ['nodejs/src/y.ts'],
+        })
+        const section = buildTrunkLaneSection({ impactedTargets: ['node:ingestion', 'py:core'], crossLane })
+        assert.match(section.body, /<code>c\.py<\/code> and 147 more/)
+    })
+
+    it('gives no cross-lane warning when the file lists have the wrong shape', () => {
+        assert.equal(
+            parseCrossLane({ cross_lane: true, cross_lane_heavy_files: 'a.py', cross_lane_light_files: [1] }),
+            null
+        )
     })
 
     it('renders a docs preview link after a successful trigger', () => {
