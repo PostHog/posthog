@@ -35,8 +35,10 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL
 from products.alerts_platform.backend.facade.contracts import (
     AlertBatchKey,
+    AlertDeliveryRequest,
     AlertDemand,
     DemandDiscoveryInputs,
     OrchestrateInputs,
@@ -45,6 +47,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
+    DELIVERY_EXECUTION_TIMEOUT,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
@@ -54,8 +57,12 @@ from products.alerts_platform.backend.facade.temporal import (
 )
 from products.alerts_platform.backend.logic import demand
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal import postgres
+from products.alerts_platform.backend.temporal import (
+    postgres,
+    workflows as alert_workflows,
+)
 from products.alerts_platform.backend.temporal.workflows import (
+    THREAD_BUSY,
     AlertsPlatformEvaluateWorkflow,
     AlertsPlatformInputs,
     AlertsPlatformOrchestrateWorkflow,
@@ -317,11 +324,61 @@ async def test_delivery_survives_parent_closure(
         assert await child.result() is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("frees_after", [PENDING_CLAIM_TTL, None])
+async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
+    environment: WorkflowEnvironment, frees_after: dt.timedelta | None
+) -> None:
+    attempts: list[dt.datetime] = []
+
+    @activity.defn(name="alerts_platform_deliver_preview_activity")
+    async def held_thread(request: AlertDeliveryRequest) -> None:
+        scheduled = activity.info().current_attempt_scheduled_time
+        attempts.append(scheduled)
+        if frees_after is None or scheduled - attempts[0] < frees_after:
+            raise ApplicationError("thread held", type=THREAD_BUSY, non_retryable=True)
+
+    async with Worker(
+        environment.client,
+        task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        workflows=DELIVERY_WORKFLOWS,
+        activities=[held_thread],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            "alerts-platform-deliver-preview",
+            AlertDeliveryRequest(
+                source=SourceKind.LOGS,
+                team_id=1,
+                configuration_id="cfg-1",
+                evaluation_key="eval-1",
+                destination_alert_id="legacy-1",
+                event_ids_by_kind={},
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
+        )
+        if frees_after is None:
+            with pytest.raises(WorkflowFailureError) as failure:
+                await handle.result()
+            assert isinstance(failure.value.cause, ActivityError)
+        else:
+            assert await handle.result() is None
+
+    assert attempts[-1] - attempts[0] >= PENDING_CLAIM_TTL
+
+
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
-    environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
+    environment: WorkflowEnvironment,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    timeout_type: TimeoutType,
 ) -> None:
     caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=5))
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=15))
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
@@ -352,7 +409,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
                 pass
         if timeout_type == TimeoutType.SCHEDULE_TO_CLOSE:
             # Separate the close deadlines instead of racing schedule-to-start at the same deadline.
-            await environment.sleep(25)
+            await environment.sleep(12)
         async with Worker(
             client,
             task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,

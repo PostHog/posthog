@@ -117,7 +117,14 @@ class TestHookdeckSource:
         mock_validate.return_value = probe_result
 
         assert self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name) == expected
-        mock_validate.assert_called_once_with("hd_test_key", "2025-07-01")
+        mock_validate.assert_called_once_with("hd_test_key", "2026-09-01")
+
+    @pytest.mark.parametrize("pinned", ["2025-07-01", "2026-09-01"])
+    @mock.patch(f"{SOURCE_MODULE}.validate_hookdeck_credentials", return_value=(True, 200))
+    def test_validate_credentials_probes_under_the_pinned_version(self, mock_validate, pinned) -> None:
+        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
+
+        mock_validate.assert_called_once_with("hd_test_key", pinned)
 
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hookdeck_source) -> None:
@@ -139,7 +146,15 @@ class TestHookdeckSource:
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"
         assert kwargs["incremental_field"] == "last_seen_at"
 
-    @pytest.mark.parametrize("pinned, expected", [(None, "2025-07-01"), ("2025-01-01", "2025-01-01")])
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, "2026-09-01"),
+            ("2025-07-01", "2025-07-01"),
+            ("2026-09-01", "2026-09-01"),
+            ("2025-01-01", "2025-01-01"),
+        ],
+    )
     @mock.patch(f"{SOURCE_MODULE}.hookdeck_source")
     def test_source_for_pipeline_resolves_the_api_version(self, mock_hookdeck_source, pinned, expected) -> None:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), _make_inputs(api_version=pinned))

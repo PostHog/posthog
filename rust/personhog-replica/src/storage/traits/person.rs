@@ -147,8 +147,8 @@ pub trait PersonLookup: Send + Sync {
         min_version: i64,
     ) -> StorageResult<bool>;
 
-    /// Raise each person tombstone to at least its floor in one primary transaction, inserting a tombstone
-    /// for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
+    /// Raise each person tombstone to at least its min version in one primary transaction, inserting a
+    /// tombstone for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
     async fn ensure_person_version_floors(
         &self,
         team_id: i64,
