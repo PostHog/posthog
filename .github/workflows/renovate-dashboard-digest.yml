@@ -1,0 +1,54 @@
+name: Renovate dashboard digest
+
+# Renovate has no notification channel of its own, and every update here waits for approval on
+# the Dependency Dashboard issue, so nobody is told when the backlog or the CVE count grows.
+# This posts the dashboard's headline counts to #team-devex every Monday through the DevEx bot.
+#
+# Requires secrets.SLACK_DEVEX_BOT_TOKEN. GITHUB_TOKEN only reads the dashboard issue.
+
+on:
+    schedule:
+        - cron: '50 13 * * 1' # Mondays 13:50 UTC, staggered after the other weekly reports
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the message blocks instead of posting to Slack'
+                type: boolean
+                default: true
+            channel:
+                description: 'Slack channel or user ID to post to instead of #team-devex'
+                type: string
+                default: ''
+
+permissions:
+    contents: read
+    issues: read
+
+jobs:
+    digest:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/renovate-dashboard-digest.mjs
+                      .github/scripts/weekly-report-common.mjs
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Build and post the Renovate dashboard digest
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SLACK_CHANNEL: ${{ inputs.channel }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+              run: node .github/scripts/renovate-dashboard-digest.mjs
