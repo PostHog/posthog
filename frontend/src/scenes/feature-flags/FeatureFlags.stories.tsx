@@ -12,6 +12,7 @@ import featureFlags from './__mocks__/feature_flags.json'
 import { featureFlagLogic } from './featureFlagLogic'
 
 const STALE_FLAG_ID = 1498
+const RULES_V2_FLAG_ID = 1802
 const DELETED_FLAG_ID = 1526
 
 const meta: Meta = {
@@ -181,6 +182,40 @@ export const EditEncryptedRemoteConfigFeatureFlag: Story = {
 export const StaleFeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
+    },
+}
+
+export const FeatureFlagsListWithRulesV2Flag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlags()}?search=rules-v2`,
+    },
+}
+
+export const RulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(RULES_V2_FLAG_ID),
+    },
+}
+
+// Without the editor flag, `?edit=true` must still show the read-only view, because the v1 form's full save would
+// rewrite the document.
+export const RulesV2FeatureFlagEditDeepLink: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+    },
+}
+
+export const NewRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+    },
+}
+
+export const EditRulesV2FeatureFlag: Story = {
+    parameters: {
+        pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 

@@ -38,8 +38,15 @@ from posthog.models.user import User
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
+from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
-from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
+from products.autoresearch.backend.models import (
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchSuggestion,
+    AutoresearchTrainingRun,
+)
+from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
@@ -204,6 +211,7 @@ def build_agent_description(
     pending_suggestions: list[AutoresearchSuggestion] | None = None,
     training_sample: TrainingSample | None = None,
     report_notebook: bool = False,
+    unscorable_champion: UnscorableChampion | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -227,6 +235,7 @@ def build_agent_description(
         )
 
     sample_clause = _describe_training_sample(training_sample)
+    unscorable_clause = _describe_unscorable_champion(unscorable_champion)
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -302,7 +311,7 @@ def build_agent_description(
            in `dead_ends`. In each iteration's `agent_description`, cite which prior learning you are
            building on or deliberately avoiding.
 
-        If no champion exists you are establishing the baseline — aim for AUC > 0.6.
+        If no champion exists you are establishing the baseline — aim for AUC > 0.6.{unscorable_clause}
 
         ## How labeling works (read this carefully — it shapes everything below)
 
@@ -431,6 +440,16 @@ def build_agent_description(
           the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
           events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
           slow on large teams, and return current values, which leak the label window at training.
+        - If you need a column that events do not carry, such as `created_at`, never `LEFT JOIN persons`.
+          The persons table dedupes every person of the team before any filter applies. Read
+          `raw_persons` in a subquery filtered to the anchor persons, and take each person's latest version:
+          `LEFT JOIN (SELECT id, argMax(created_at, version) AS created_at FROM raw_persons
+          WHERE id IN (SELECT person_id FROM {{anchors}}) GROUP BY id) p ON p.id = a.person_id`.
+          The materialize response returns a hint when a query reads a person table without that filter.
+        - The materialize response also returns `elapsed_s` and `rows_read`. After
+          promotion the backend runs your `features.sql` against today's inference population under
+          the scoring limits. If it fails, or takes more than half of the scoring time limit, the model
+          is not promoted and the previous champion keeps serving.
         - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
@@ -642,6 +661,10 @@ def build_agent_description(
            - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
+           Also pass `model_explanation`, which the model card charts. Use exactly this shape:
+           `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
+           List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is
+           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.
@@ -692,6 +715,29 @@ def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: in
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
+
+def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
+    if unscorable is None:
+        return ""
+    # Indented to the brief's level, because the brief is dedented after this text goes in.
+    return textwrap.indent(
+        textwrap.dedent(f"""
+
+            **The current champion cannot score.** Its scheduled scoring runs fail with
+            `{unscorable.failure_kind}` since {unscorable.onset.isoformat()}. Its `holdout_score` is not
+            the bar for this run: any candidate whose `features.sql` scores today's inference population
+            replaces it. Do not reuse its `features.sql` as it is. Find what makes it fail first.
+            `limit_exceeded` means a query hit a memory, time, rows or bytes limit. `query_failed` means
+            the query is not valid for today's data. `model_load_failed` means `predict.py` could not
+            load or run the fitted model."""),
+        " " * 8,
+    )
+
+
+def _unscorable_champion_for_brief(pipeline: AutoresearchPipeline) -> UnscorableChampion | None:
+    champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+    return find_unscorable_champion(champion)
 
 
 def _training_sample_for_brief(pipeline: AutoresearchPipeline) -> TrainingSample | None:
@@ -778,6 +824,7 @@ def run_training(
             pending_suggestions=pending_suggestions or None,
             training_sample=_training_sample_for_brief(pipeline),
             report_notebook=report_notebook,
+            unscorable_champion=_unscorable_champion_for_brief(pipeline),
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"

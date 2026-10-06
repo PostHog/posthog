@@ -769,7 +769,7 @@ class TestSummarizerScanner:
             )
         )
         assert "1-2 sentences" in short.core_steps()[0].instruction
-        assert "3-5 paragraphs" in long.core_steps()[0].instruction
+        assert "3-5 short paragraphs" in long.core_steps()[0].instruction
 
     def test_output_round_trip(self) -> None:
         out = SummarizerOutput(
@@ -793,7 +793,12 @@ class TestSummarizerScannerSteps:
         assert steps[0].required is True
 
     @pytest.mark.parametrize(
-        "length,guidance", [("short", "1-2 sentences"), ("medium", "1 paragraph"), ("long", "3-5 paragraphs")]
+        "length,guidance",
+        [
+            ("short", "1-2 sentences"),
+            ("medium", "4-6 sentences in two short paragraphs"),
+            ("long", "3-5 short paragraphs"),
+        ],
     )
     def test_core_step_carries_the_configured_length_guidance(self, length: str, guidance: str) -> None:
         scanner = scanner_from_db(

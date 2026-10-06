@@ -47,8 +47,14 @@ from ..models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from ..query import measure_queries
 from ..training import artifacts as artifact_store
-from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
+from ..training.explanation import (
+    MAX_TOP_FEATURES as _MAX_TOP_FEATURES,
+    FeatureDirection as _FeatureDirection,
+    normalize_model_explanation,
+)
+from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
     ArtifactContent,
@@ -173,7 +179,7 @@ def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
         role=row.role,
         recipe_hash=row.recipe_hash,
         model_recipe=row.model_recipe or {},
-        model_explanation=row.model_explanation or {},
+        model_explanation=normalize_model_explanation(row.model_explanation),
         holdout_score=row.holdout_score,
         realized_score=row.realized_score,
         calibration_error=row.calibration_error,
@@ -1257,12 +1263,14 @@ def materialize_features(
     sandbox_id = _resolve_run_sandbox_id(training_run)
     team = Team.objects.get(pk=team_id)
     try:
-        data = materialize_training_data(
-            team=team,
-            pipeline=training_run.pipeline,
-            feature_sql=features_sql,
-            user=user,
-            anchor_ts=training_run.anchor_ts,
+        data, cost = measure_queries(
+            lambda: materialize_training_data(
+                team=team,
+                pipeline=training_run.pipeline,
+                feature_sql=features_sql,
+                user=user,
+                anchor_ts=training_run.anchor_ts,
+            )
         )
     except (SandboxInferenceError, RecipeValidationError) as exc:
         raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
@@ -1294,6 +1302,9 @@ def materialize_features(
         n_holdout=len(data.holdout_rows),
         n_features=len(data.feature_cols),
         feature_cols=list(data.feature_cols),
+        elapsed_s=cost.elapsed_s,
+        rows_read=cost.rows_read,
+        hints=feature_sql_hints(features_sql),
     )
 
 
@@ -1632,3 +1643,5 @@ SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
+FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
+MAX_TOP_FEATURES = _MAX_TOP_FEATURES

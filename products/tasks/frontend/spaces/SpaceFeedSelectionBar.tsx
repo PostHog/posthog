@@ -78,7 +78,7 @@ export function SpaceFeedSelectionBar({ spaceId }: { spaceId: string }): JSX.Ele
             {count > 0 && (
                 // Early in the tab order, so the bulk actions are a few Tabs away; shown at the bottom of the feed.
                 <div
-                    className="sticky bottom-3 z-20 order-last mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 max-w-full self-center rounded-lg border border-border bg-popover px-2 py-1.5 text-popover-foreground shadow-md"
+                    className="sticky bottom-3 z-20 order-last mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 max-w-full self-center rounded-lg border border-border bg-popover px-2 py-1.5 text-popover-foreground shadow-[var(--shadow-md)]"
                     data-attr="today-space-feed-bulk-bar"
                 >
                     <div className="flex min-w-0 items-center gap-2">

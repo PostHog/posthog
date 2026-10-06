@@ -432,6 +432,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
             - cohort:write
         annotations:
             readOnly: false
@@ -718,6 +719,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
         annotations:
             readOnly: true
             destructive: false
@@ -733,6 +735,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
+            - session_recording:read
         annotations:
             readOnly: true
             destructive: false
@@ -1093,7 +1096,26 @@ tools:
         requires_ai_consent: true
     vision-scanners-variants-list:
         operation: vision_scanners_variants_list
-        enabled: false
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Compare an experiment scanner's variants
+        description: >
+            Read an experiment scanner's results side by side per variant: how many observations each variant has, how
+            many distinct people they cover, the median session length, the rate each variant was sampled at, and its
+            latest observations. When the scanner has a variant analysis scout, it also returns that scout's per-variant
+            digests and the differences between variants. Experiment scanners only.
+        agent_note: >
+            The observation, people and session counts are counted live and are the numbers to trust. Digest and
+            difference counts come from the variant analysis scout, so read them as shares of each variant's
+            `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher
+            `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call
+            `vision-scanners-observations-list` with `variant` set to its key.
     vision-scanners-watch-feed:
         operation: vision_scanners_watch_feed_retrieve
         enabled: true

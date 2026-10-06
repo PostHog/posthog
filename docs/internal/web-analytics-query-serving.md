@@ -66,6 +66,45 @@ request
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
+## Marketing search performance
+
+`MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
+Google Ads requires the `keyword` and `keyword_stats` tables for keywords, and `landing_page_stats` for landing pages; Bing Ads supports keywords through `keyword_performance_report`.
+Google Search Console uses `search_analytics_by_query` or `search_analytics_by_page` for aggregate views, with `search_analytics_by_query_page` as a fallback and for exact query-to-page and page-to-query details.
+The query only selects one GSC table per source, so syncing both aggregate and detailed tables does not multiply metrics.
+The integration and channel filters keep paid and organic rows separate.
+GSC does not report spend or conversions; these values remain null.
+Organic position is weighted by impressions in each period, while CTR uses summed clicks divided by summed impressions.
+Traffic shows position instead of cost for organic-only selections; mixed selections can add position with the Show position checkbox.
+Comparison colors show increases in impressions as positive and increases in cost, CPC, CPA or position as negative.
+Query and page breakdowns can omit low-volume queries and differ from property totals.
+The Search performance section sits below the campaign table in Ad performance, behind `marketing-analytics-organic-keywords` in both dashboards.
+It shares the integration, date and comparison filters with the campaign table.
+The integration filter and Add source menu list Google Search Console separately under Organic search.
+Empty filtered results offer Clear filters; unfiltered views suggest connecting missing Google Ads or Google Search Console sources.
+Connected sources show separate setup messages for disabled tables, tables awaiting a first successful sync, failed or paused syncs, and stale data.
+Search performance excludes a table when its last successful sync is older than twice its configured sync interval.
+The source list includes each table's sync frequency so this check uses the table's schedule.
+An unrecognized sync interval is returned as null, which keeps the source list available and skips the cadence check for that table.
+GSC prefers the dedicated query or page table, then falls back to a ready query-and-page table with a notice that totals can differ.
+If neither table is ready, the source is excluded instead of displaying zero traffic and misleading period comparisons.
+Query and page details use the same readiness checks.
+New Google Ads connections preselect `keyword`, `keyword_stats`, and `landing_page_stats`; Bing Ads preselects `keyword_performance_report`.
+New GSC connections preselect the web query, page, and query-and-page tables; non-web search types remain opt-in.
+These defaults do not change the saved table selection of an existing source.
+Source discovery loads every page of connected integrations before applying the filter.
+The date and comparison controls select the current and comparison periods.
+Organic query and page details retain the selected integration sources.
+Paid keyword and page details use the available GSC sources to find organic results for the same text or URL.
+Cached results are partitioned by warehouse table, view, and source permissions.
+Metrics group targeted keywords by platform, match type and account currency; spend is never added across currencies.
+Conversions retain the ad platform's attribution, while CTR, CPC and CPA use the summed metrics in each period.
+Comparison includes keywords present in either period and applies the top-100 limit after matching the periods.
+The query type tag is `marketing_analytics_search_query`.
+
+Source connection links use `returnLabel=Marketing analytics`, including search setup suggestions and details.
+The `warehouse source connect completed` event records this label after the creation API succeeds, so connections started here can be attributed to Marketing analytics.
+
 ## Per-runner dispatch
 
 ### WebOverviewQuery (`web_overview.py`)
@@ -189,6 +228,7 @@ Conversion goal property filters accept event, person, session and cohort filter
 
 Marketing Analytics query errors show a query ID when the request has one.
 Use that ID to find the failed request in the query log.
+Search performance uses the same error banner, including in query and landing-page details.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 
@@ -199,6 +239,10 @@ A fresh visit restores those preferences without saving query results or draft c
 Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.
 Changing tabs or dashboard filters preserves those column options in the URL.
 Reset to defaults clears the custom selection, sorting, and pins for later visits.
+
+### Conversion recordings
+
+See [Marketing analytics conversion recordings](../../products/marketing_analytics/conversion-recordings.md) for row selection, session attribution, and replay behavior.
 
 ## Marketing metric chart
 
