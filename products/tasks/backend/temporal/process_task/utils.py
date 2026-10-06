@@ -106,7 +106,7 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
-USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
 
 
 class RuntimeAdapter(StrEnum):
