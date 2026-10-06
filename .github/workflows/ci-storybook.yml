@@ -1016,6 +1016,7 @@ jobs:
                 build-storybook,
                 select-stories,
                 visual-regression,
+                flake-verification,
                 vr-setup,
                 vr-complete,
                 check-baseline-removals,
@@ -1053,6 +1054,11 @@ jobs:
 
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.flake-verification.result }}" != "success" && "${{ needs.flake-verification.result }}" != "skipped" ]]; then
+                    echo "Storybook flake verification did not pass (result: ${{ needs.flake-verification.result }})."
                     exit 1
                   fi
 
