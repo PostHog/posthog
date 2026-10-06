@@ -102,7 +102,7 @@ class PostHogAutoSchema(AutoSchema):
         operation = super().get_operation(path, path_regex, path_prefix, method, registry)
         # The marker is set here and not in get_extensions(), because an @extend_schema(extensions=...)
         # decorator on the action replaces the get_extensions() output.
-        dynamic_actions = getattr(self.view, "request_dependent_scope_actions", frozenset())
+        dynamic_actions: frozenset[str] = getattr(self.view, "request_dependent_scope_actions", frozenset())
         if operation is not None and getattr(self.view, "action", None) in dynamic_actions:
             operation["x-request-dependent-scopes"] = True
         return operation
