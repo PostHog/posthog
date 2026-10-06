@@ -64,11 +64,11 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 #
 # The MV ignores the Kafka table's inserted_at and stamps the time it processes
 # the row, so a producer cannot set the value that deletion sweeps compare
-# against. The Kafka table still declares the column because removing a column
-# from a Kafka engine table means recreating the table and its MV. Both
-# Distributed tables MUST carry the DEFAULT: an INSERT through a Distributed
-# table fills omitted columns from the Distributed table's own schema before
-# forwarding to the shard, so without it a direct insert via
+# against. The Kafka table keeps the column with no DEFAULT, as it was created,
+# because changing a Kafka engine table's columns means recreating the table and
+# its MV. Both Distributed tables MUST carry the DEFAULT: an INSERT through a
+# Distributed table fills omitted columns from the Distributed table's own schema
+# before forwarding to the shard, so without it a direct insert via
 # writable_flag_evaluations would store epoch instead of the sharded table's
 # DEFAULT.
 #
@@ -273,8 +273,8 @@ SETTINGS
 """
 )
 
-# Shared by the CREATE below and by migrations that ALTER ... MODIFY QUERY, so a
-# fresh install and a migrated node run the same query.
+# The CREATE below and migrations that ALTER ... MODIFY QUERY both use this
+# SELECT, so a fresh install and a migrated node run the same query.
 FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     f"""SELECT
     uuid,
@@ -285,15 +285,12 @@ FLAG_EVALUATIONS_MV_SELECT_SQL = lambda: (
     distinct_id,
     created_at,
     person_id,
-    -- inserted_at is the time this view processes the row on the ingestion node,
-    -- with millisecond precision, as in the native-JSON events MV. The
-    -- sync_feature_flag_last_called checkpoint and the deletion sweeps bound their
-    -- work by inserted_at, so a row that ClickHouse consumes after a job's cutoff
-    -- must fall after that cutoff. The Kafka message time precedes this stamp by
-    -- the consumer lag, so it would put a late row inside the job's window. The
-    -- Distributed forward to the shard and the replication between replicas
-    -- happen after this stamp, so a reader that checkpoints on inserted_at still
-    -- needs a buffer that covers those delays.
+    -- inserted_at is the time this view processes the row, as in the native-JSON
+    -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
+    -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
+    -- it. The Kafka message time is earlier by the consumer lag. The Distributed
+    -- forward and the replication happen after this stamp, so those readers still
+    -- need a buffer.
     now64() AS inserted_at,
     _timestamp,
     _offset,

@@ -2123,15 +2123,12 @@
       distinct_id,
       created_at,
       person_id,
-      -- inserted_at is the time this view processes the row on the ingestion node,
-      -- with millisecond precision, as in the native-JSON events MV. The
-      -- sync_feature_flag_last_called checkpoint and the deletion sweeps bound their
-      -- work by inserted_at, so a row that ClickHouse consumes after a job's cutoff
-      -- must fall after that cutoff. The Kafka message time precedes this stamp by
-      -- the consumer lag, so it would put a late row inside the job's window. The
-      -- Distributed forward to the shard and the replication between replicas
-      -- happen after this stamp, so a reader that checkpoints on inserted_at still
-      -- needs a buffer that covers those delays.
+      -- inserted_at is the time this view processes the row, as in the native-JSON
+      -- events MV. The sync_feature_flag_last_called checkpoint and the deletion
+      -- sweeps need a row that ClickHouse consumes after their cutoff to fall after
+      -- it. The Kafka message time is earlier by the consumer lag. The Distributed
+      -- forward and the replication happen after this stamp, so those readers still
+      -- need a buffer.
       now64() AS inserted_at,
       _timestamp,
       _offset,
