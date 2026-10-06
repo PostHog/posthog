@@ -627,6 +627,9 @@ export class EmailService {
                 // catches the cases where SES disagrees with our estimate.
                 throttled = true
                 result.finished = false
+                // Re-attach the email payload for the same reason as the pacing delays above:
+                // without it the rescheduled dequeue resumes the Hog VM and drops the send.
+                result.invocation.queueParameters = params
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {
