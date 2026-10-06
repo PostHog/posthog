@@ -58,7 +58,6 @@ from products.logs.backend.alert_destinations import (
     LOGS_DESTINATION_TYPES,
 )
 from products.logs.backend.alert_state_machine import (
-    FIRING_STATES,
     AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
@@ -76,9 +75,8 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.facade.api import (
-    close_incident,
+    close_incident_before_delete,
     close_incident_on_commit,
-    has_incident_destination,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
@@ -592,7 +590,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 close_reason = IncidentCloseReason.CONFIG_CHANGED
             # The edge check inside decides whether a close goes out, so a new branch above that forgets
             # its reason still closes the incident.
-            close_incident_on_commit(instance, state_before, close_reason or IncidentCloseReason.CONFIG_CHANGED)
+            close_incident_on_commit(
+                team_id=instance.team_id,
+                alert_id=str(instance.id),
+                state_before=state_before,
+                state_after=instance.state,
+                reason=close_reason or IncidentCloseReason.CONFIG_CHANGED,
+            )
 
             # snooze_until is a timestamp column, not a state — carry it alongside the state
             # transition so the serializer's single save persists both.
@@ -1388,10 +1392,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
-        if instance.state in FIRING_STATES and has_incident_destination(instance):
-            # Best effort. The delete below removes the functions that would deliver this close, and the
-            # CDP consumer drops events for deleted functions, so the close often goes unsent.
-            close_incident(instance, IncidentCloseReason.DELETED)
+        close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()

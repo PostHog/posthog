@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
-
 from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     configured_destination_template_ids,
@@ -14,7 +12,7 @@ from products.alerts.backend.facade.destinations import (
     produce_alert_internal_event,
 )
 from products.logs.backend.alert_destinations import LOGS_ALERT_INCIDENT_CLOSED_EVENT, LOGS_ALERT_INCIDENT_OPENED_EVENT
-from products.logs.backend.alert_state_machine import IncidentCloseReason, IncidentEdge, incident_edge
+from products.logs.backend.alert_state_machine import IncidentCloseReason
 
 if TYPE_CHECKING:
     from products.logs.backend.models import LogsAlertConfiguration
@@ -74,10 +72,3 @@ def close_incident(
         alert_id=str(alert.id),
         event_name=LOGS_ALERT_INCIDENT_CLOSED_EVENT,
     )
-
-
-def close_incident_on_commit(alert: LogsAlertConfiguration, state_before: str, reason: IncidentCloseReason) -> None:
-    """Schedule a close when a control-plane change moved the alert out of firing."""
-    if incident_edge(state_before, alert.state) == IncidentEdge.CLOSED and has_incident_destination(alert):
-        # Robust, so a failed close cannot turn a committed change into an error response.
-        transaction.on_commit(lambda: close_incident(alert, reason), robust=True)
