@@ -455,6 +455,7 @@ the row lists both.
 | kapa_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
+| kestra                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | kisi                             | HTTP                        | requests                                                        | ✅                          |
 | klaus                            | HTTP                        | requests                                                        | ✅                          |
@@ -1206,7 +1207,6 @@ doesn't conflict with concurrent PRs.
 - kameleoon
 - kaufland_marketplace
 - keka
-- kestra
 - kick
 - kickstarter
 - kinde
