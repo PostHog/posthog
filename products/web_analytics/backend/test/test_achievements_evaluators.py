@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -18,6 +19,8 @@ from products.web_analytics.backend.achievements.definitions import STREAK_ARM_D
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
     PriorProgress,
+    _action_fingerprints,
+    _add_conversion_counts,
     evaluate_conversions,
     evaluate_cumulative_pageviews,
     evaluate_data_events,
@@ -179,6 +182,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         def fail_full_window_once(*args: object, **kwargs: object):
             nonlocal attempts
             settings = kwargs["settings"]
+            assert isinstance(settings, HogQLGlobalSettings)
             self.assertEqual(settings.timeout_overflow_mode, "throw")
             self.assertEqual(settings.read_overflow_mode, "throw")
             attempts += 1
@@ -207,7 +211,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             saw_tail_checkpoint = False
             final = first
             catchup_cutoff = None
-            for sweep in range(5):
+            for sweep in range(12):
                 with patch(
                     "products.web_analytics.backend.achievements.evaluators.timezone.now",
                     return_value=first_now + timedelta(hours=2, minutes=5 * sweep),
@@ -259,6 +263,77 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(incremental.value, 5)
         self.assertTrue(incremental.complete)
+
+    def test_conversions_catchup_bounds_later_days_and_preserves_future_timestamps(self) -> None:
+        action = self._pay_action("$autocapture")
+        first_now = timezone.now()
+        later = first_now + timedelta(days=4)
+        self._pay_click(timestamp=first_now - timedelta(days=2), created_at=first_now + timedelta(days=1))
+        self._pay_click(timestamp=first_now + timedelta(days=3), created_at=first_now + timedelta(days=3))
+        self._pay_click(timestamp=first_now + timedelta(days=20), created_at=first_now + timedelta(days=3))
+        flush_persons_and_events()
+
+        created_since = first_now - timedelta(hours=2)
+        created_until = later - timedelta(hours=1)
+        catchup_end = datetime.combine(created_until.date() + timedelta(days=1), time.min, tzinfo=UTC)
+        initial_window_start = datetime.combine((first_now - timedelta(days=13)).date(), time.min, tzinfo=UTC)
+        checkpoint: dict[str, object] = {
+            "actions": _action_fingerprints([action]),
+            "daily": {},
+            "bootstrap": {
+                "next_start": initial_window_start.isoformat(),
+                "end": (initial_window_start + timedelta(days=14)).isoformat(),
+                "created_since": created_since.isoformat(),
+                "created_until": created_until.isoformat(),
+                "phase": "catchup",
+                "chunk_hours": 24,
+            },
+        }
+
+        split_final_slice = False
+
+        def fail_wide_ingestion_slice(
+            ctx: EvalContext,
+            actions: list[Action],
+            daily: dict[str, list[int]],
+            since: datetime | None,
+            until: datetime,
+            earliest_timestamp: datetime,
+            latest_timestamp: datetime | None = None,
+        ) -> None:
+            nonlocal split_final_slice
+            if latest_timestamp is None and since is not None and until - since > timedelta(days=1):
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            if (
+                latest_timestamp is not None
+                and latest_timestamp == catchup_end
+                and latest_timestamp - earliest_timestamp > timedelta(hours=1)
+            ):
+                split_final_slice = True
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            _add_conversion_counts(ctx, actions, daily, since, until, earliest_timestamp, latest_timestamp)
+
+        with (
+            patch("products.web_analytics.backend.achievements.evaluators.CONVERSIONS_LOOKBACK_DAYS", 14),
+            patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=later),
+            patch(
+                "products.web_analytics.backend.achievements.evaluators._add_conversion_counts",
+                side_effect=fail_wide_ingestion_slice,
+            ),
+        ):
+            for _ in range(80):
+                evaluation = evaluate_conversions(
+                    self._ctx(), PriorProgress(value=1, last_computed_at=None, checkpoint=checkpoint)
+                )
+                assert evaluation.checkpoint is not None
+                checkpoint = evaluation.checkpoint
+                if evaluation.complete:
+                    break
+
+        self.assertTrue(evaluation.complete)
+        self.assertTrue(split_final_slice)
+        self.assertEqual(evaluation.value, 3)
+        self.assertEqual(checkpoint["counted_through"], created_until.isoformat())
 
     def test_conversions_split_a_failed_chunk_without_duplicate_environment_counts(self) -> None:
         self._pay_action("$autocapture")

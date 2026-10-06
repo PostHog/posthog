@@ -246,9 +246,10 @@ def _conversion_bootstrap_state(checkpoint: dict[str, object]) -> ConversionBoot
         next_start is None
         or end is None
         or created_until is None
-        or next_start >= end
-        or phase not in ("initial", "catchup", "tail")
-        or (phase in ("catchup", "tail") and created_since is None)
+        or phase not in ("initial", "catchup", "catchup_future", "tail")
+        or (phase == "catchup_future" and next_start >= created_until)
+        or (phase != "catchup_future" and next_start >= end)
+        or (phase in ("catchup", "catchup_future", "tail") and created_since is None)
         or not isinstance(chunk_hours, int)
         or not 1 <= chunk_hours <= CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
     ):
@@ -325,8 +326,43 @@ def _advance_conversion_bootstrap(
             )
         return None
 
+    if bootstrap.phase == "catchup_future":
+        chunk_hours = bootstrap.chunk_hours
+        chunk_end = min(bootstrap.next_start + timedelta(hours=chunk_hours), bootstrap.created_until)
+        try:
+            _add_conversion_counts(ctx, actions, daily, bootstrap.next_start, chunk_end, bootstrap.end)
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+            if chunk_hours <= 1:
+                raise
+            return ConversionBootstrap(
+                next_start=bootstrap.next_start,
+                end=bootstrap.end,
+                created_since=bootstrap.created_since,
+                created_until=bootstrap.created_until,
+                phase="catchup_future",
+                chunk_hours=max(1, chunk_hours // 2),
+            )
+        if chunk_end >= bootstrap.created_until:
+            return None
+        return ConversionBootstrap(
+            next_start=chunk_end,
+            end=bootstrap.end,
+            created_since=bootstrap.created_since,
+            created_until=bootstrap.created_until,
+            phase="catchup_future",
+            chunk_hours=chunk_hours,
+        )
+
     next_start = max(bootstrap.next_start, window_start)
-    if next_start >= bootstrap.end:
+    end = bootstrap.end
+    if bootstrap.phase == "catchup":
+        # Events ingested after the first scan can have timestamps on later days.
+        # Freeze a finite timestamp horizon for this catch-up interval.
+        end = max(
+            end,
+            datetime.combine(bootstrap.created_until.astimezone(UTC).date() + timedelta(days=1), time.min, tzinfo=UTC),
+        )
+    if next_start >= end:
         daily.clear()
         bootstrap = ConversionBootstrap(
             next_start=window_start,
@@ -334,9 +370,10 @@ def _advance_conversion_bootstrap(
             created_until=until,
         )
         next_start = window_start
+        end = bootstrap.end
 
     chunk_hours = bootstrap.chunk_hours
-    chunk_end = min(next_start + timedelta(hours=chunk_hours), bootstrap.end)
+    chunk_end = min(next_start + timedelta(hours=chunk_hours), end)
     try:
         _add_conversion_counts(
             ctx,
@@ -345,24 +382,24 @@ def _advance_conversion_bootstrap(
             bootstrap.created_since,
             bootstrap.created_until,
             next_start,
-            chunk_end if chunk_end < bootstrap.end else None,
+            chunk_end if bootstrap.phase == "catchup" or chunk_end < end else None,
         )
     except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
         if chunk_hours <= 1:
             raise
         return ConversionBootstrap(
             next_start=next_start,
-            end=bootstrap.end,
+            end=end,
             created_until=bootstrap.created_until,
             phase=bootstrap.phase,
             created_since=bootstrap.created_since,
             chunk_hours=max(1, chunk_hours // 2),
         )
 
-    if chunk_end < bootstrap.end:
+    if chunk_end < end:
         return ConversionBootstrap(
             next_start=chunk_end,
-            end=bootstrap.end,
+            end=end,
             created_until=bootstrap.created_until,
             phase=bootstrap.phase,
             created_since=bootstrap.created_since,
@@ -370,7 +407,16 @@ def _advance_conversion_bootstrap(
         )
 
     if bootstrap.phase == "catchup":
-        return None
+        if bootstrap.created_since is None or bootstrap.created_since >= bootstrap.created_until:
+            return None
+        return ConversionBootstrap(
+            next_start=bootstrap.created_since,
+            end=end,
+            created_since=bootstrap.created_since,
+            created_until=bootstrap.created_until,
+            phase="catchup_future",
+            chunk_hours=CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24,
+        )
     if bootstrap.created_until < until:
         return ConversionBootstrap(
             next_start=window_start,
@@ -423,7 +469,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                 )
                 started_bootstrap = True
         if bootstrap is not None and not started_bootstrap:
-            if bootstrap.phase == "catchup":
+            if bootstrap.phase in ("catchup", "catchup_future"):
                 completed_through = bootstrap.created_until
             bootstrap = _advance_conversion_bootstrap(ctx, actions, daily, bootstrap, window_start, until)
 
