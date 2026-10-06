@@ -4,9 +4,11 @@ import './CIExplorerCanvas.scss'
 import {
     type Edge,
     type Node,
+    type OnMove,
     Panel,
     ReactFlow,
     ReactFlowProvider,
+    type Viewport,
     ViewportPortal,
     useReactFlow,
     useStore,
@@ -22,6 +24,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import {
     CIExplorerWorkflow,
+    OVERVIEW_MIN_ZOOM,
     RAIL_LEFT,
     RAIL_TOP,
     TILE_COLUMN_GAP,
@@ -32,7 +35,7 @@ import {
     tileRows,
 } from '../../lib/ciExplorerGraph'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
-import { CIExplorerJobPanel } from './CIExplorerJobPanel'
+import { CIExplorerDrawer } from './CIExplorerDrawer'
 import { CIExplorerLegend } from './CIExplorerLegend'
 import { CIExplorerTile } from './CIExplorerTile'
 import { CIExplorerTooltip } from './CIExplorerTooltip'
@@ -41,11 +44,13 @@ const NO_NODES: Node[] = []
 const NO_EDGES: Edge[] = []
 // A large workflow is drawn small inside its tile, so reaching one of its shards takes a deep zoom.
 const MAX_ZOOM = 400
+const MIN_ZOOM = 0.1
 const OVERVIEW_ZOOM_FLOOR = 0.5
 const BUTTON_ZOOM = 1.6
 // Past this zoom a tile's graph is readable, so the tile fades and its jobs become reachable.
 const JOBS_ZOOM = 1.8
-const CAMERA_MOVE_MS = 550
+const CAMERA_MOVE_MS = 280
+const BUTTON_ZOOM_MS = 200
 const FRAME_PADDING = 40
 const RAIL_Y = 52
 const RAIL_INSET = 24
@@ -53,10 +58,16 @@ const RAIL_BEND = 12
 // The room the dock and the back button take from the overview.
 const OVERVIEW_MARGIN_X = 48
 const OVERVIEW_MARGIN_Y = 128
-// A tall node is framed by its width down to this many pixels, so its text stays readable.
-const MIN_FRAMED_WIDTH = 680
-const JOB_PANEL_ROOM = 320
-const NARROW_STAGE = 900
+// A job label is 13px at a zoom of 1. Entering a workflow never shows it smaller than 12px.
+const JOB_MIN_ZOOM = 12 / 13
+// A job or a shard is framed this wide at most. A tall one pans, so its text keeps its size.
+const FRAMED_NODE_WIDTH = 900
+const FRAMED_NODE_TOP = 64
+const PAN_STEP = 72
+const LEAVE_ZOOM_RATIO = 0.75
+const DRAWER_ROOM = 352
+// Below this width the drawer lies over the canvas and takes no room from the camera.
+const NARROW_STAGE = 1000
 
 interface PlacedTile {
     workflow: CIExplorerWorkflow
@@ -102,18 +113,32 @@ function railPaths(count: number, rows: number): { paths: string[]; dots: [numbe
     return { paths, dots }
 }
 
+/** What the camera frames for a node: a workflow by its graph, a job or a shard by itself. */
+function framedElement(node: HTMLElement): { element: HTMLElement; graphScale: number | null } {
+    const graph = node.querySelector<HTMLElement>(':scope > [data-graph]')
+    return { element: graph ?? node, graphScale: graph ? Number(node.dataset.graphScale) : null }
+}
+
 function CIExplorerCanvasContent(): JSX.Element {
-    const { workflows, layouts, layoutsLoading, focusedNodeId, focusLevels, focusedJob, activePush } =
+    const { workflows, layouts, layoutsLoading, focusedNodeId, focusLevels, activePush, cameraRequest, drawerOpen } =
         useValues(ciExplorerLogic)
-    const { setFocus } = useActions(ciExplorerLogic)
+    const { setFocus, fitView } = useActions(ciExplorerLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { setViewport, getViewport, zoomTo } = useReactFlow()
+    const { setViewport, getViewport } = useReactFlow()
     const store = useStoreApi()
     const stageWidth = useStore((state) => state.width)
     const stageHeight = useStore((state) => state.height)
     const stage = useRef<HTMLDivElement>(null)
     const world = useRef<HTMLDivElement>(null)
-    const hasJobPanel = focusedJob !== null
+    // The zoom each level of the focus was framed at. A zoom out past the midpoint to the level above leaves the level.
+    const levelZooms = useRef(new Map<string, number>())
+    const handled = useRef<{ sequence: number; stage: string; layout: unknown }>({
+        sequence: -1,
+        stage: '',
+        layout: null,
+    })
+    // True once the person has moved the camera since the canvas last framed something.
+    const movedByPerson = useRef(false)
     const [deep, setDeep] = useState(false)
     const [pastOverview, setPastOverview] = useState(false)
 
@@ -125,23 +150,80 @@ function CIExplorerCanvasContent(): JSX.Element {
     const grid = tileGridSize(Math.ceil(workflows.length / rows), Math.min(rows, workflows.length))
     const rail = useMemo(() => railPaths(workflows.length, rows), [workflows.length, rows])
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const room = stageWidth - (drawerOpen && stageWidth > NARROW_STAGE ? DRAWER_ROOM : 0)
 
-    const overviewZoom = Math.max(
-        0.6,
-        Math.min(1.1, (stageWidth - OVERVIEW_MARGIN_X) / grid.width, (stageHeight - OVERVIEW_MARGIN_Y) / grid.height)
+    const fitZoom = Math.min(
+        1.1,
+        (stageWidth - OVERVIEW_MARGIN_X) / grid.width,
+        (stageHeight - OVERVIEW_MARGIN_Y) / grid.height
     )
-    const duration = reducedMotion ? 0 : CAMERA_MOVE_MS
-    const frameOverview = useCallback(
-        (): void =>
-            void setViewport(
-                {
-                    zoom: overviewZoom,
-                    x: Math.max(24, (stageWidth - grid.width * overviewZoom) / 2),
-                    y: Math.max(24, (stageHeight - 80 - grid.height * overviewZoom) / 2),
-                },
-                { duration }
-            ),
-        [setViewport, overviewZoom, stageWidth, stageHeight, grid.width, grid.height, duration]
+    const overviewZoom = Math.max(OVERVIEW_MIN_ZOOM, fitZoom)
+    const minZoom = Math.max(MIN_ZOOM, Math.min(overviewZoom * OVERVIEW_ZOOM_FLOOR, fitZoom))
+
+    const findNode = useCallback(
+        (nodeId: string): HTMLElement | null =>
+            world.current?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`) ?? null,
+        []
+    )
+
+    const overviewCamera = useCallback(
+        (fit: boolean): Viewport => {
+            const zoom = fit ? Math.max(MIN_ZOOM, fitZoom) : overviewZoom
+            return {
+                zoom,
+                x: Math.max(24, (stageWidth - grid.width * zoom) / 2),
+                y: Math.max(24, (stageHeight - 80 - grid.height * zoom) / 2),
+            }
+        },
+        [fitZoom, overviewZoom, stageWidth, stageHeight, grid.width, grid.height]
+    )
+
+    const nodeCamera = useCallback(
+        (node: HTMLElement, fit: boolean): Viewport | null => {
+            const stageElement = stage.current
+            const worldElement = world.current
+            if (!stageElement || !worldElement) {
+                return null
+            }
+            const { element, graphScale } = framedElement(node)
+            const measure = (): { x: number; y: number; width: number; height: number } => {
+                const outer = worldElement.getBoundingClientRect()
+                // The zoom the page is drawn at now. During a camera move it trails the zoom the store already holds.
+                const current = outer.width / worldElement.offsetWidth
+                const inner = element.getBoundingClientRect()
+                return {
+                    x: (inner.left - outer.left) / current,
+                    y: (inner.top - outer.top) / current,
+                    width: inner.width / current,
+                    height: inner.height / current,
+                }
+            }
+            const zoomFor = (box: { width: number; height: number }): number => {
+                const fitWidth = (room - 2 * FRAME_PADDING) / box.width
+                const fitHeight = (stageHeight - 2 * FRAME_PADDING) / box.height
+                if (graphScale !== null) {
+                    const fitted = Math.min(1 / graphScale, fitWidth, fitHeight)
+                    return fit ? fitted : Math.max(JOB_MIN_ZOOM / graphScale, fitted)
+                }
+                return fit
+                    ? Math.min(fitWidth, fitHeight, MAX_ZOOM)
+                    : Math.min(Math.min(room - 2 * FRAME_PADDING, FRAMED_NODE_WIDTH) / box.width, MAX_ZOOM)
+            }
+            // Titles keep their size on screen, so a node's layout depends on the zoom. The node is measured
+            // again as it will be drawn at the zoom the camera is going to.
+            const shownZoom = stageElement.style.getPropertyValue('--k')
+            stageElement.style.setProperty('--k', String(zoomFor(measure())))
+            const box = measure()
+            stageElement.style.setProperty('--k', shownZoom)
+            const zoom = zoomFor(box)
+            const top = graphScale !== null ? FRAME_PADDING : FRAMED_NODE_TOP
+            return {
+                zoom,
+                x: Math.max(FRAME_PADDING, (room - box.width * zoom) / 2) - box.x * zoom,
+                y: Math.max(top, (stageHeight - box.height * zoom) / 2) - box.y * zoom,
+            }
+        },
+        [room, stageHeight]
     )
 
     // The zoom reaches the styles as a custom property, without a render on every frame of a camera move.
@@ -160,91 +242,190 @@ function CIExplorerCanvasContent(): JSX.Element {
         })
     }, [store, overviewZoom])
 
+    // The camera moves when it is asked to, and when the stage changes size. A focus change that came from the
+    // camera itself asks for nothing, so a zoom out is never pulled back.
     useEffect(() => {
         // A focus change can resize a node, so the camera waits for the new layout before it frames anything.
         if (!stageWidth || !stageHeight || !world.current || layoutsLoading) {
             return
         }
-        const target = focusedNodeId
-            ? world.current.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(focusedNodeId)}"]`)
-            : null
-        if (!target) {
-            frameOverview()
+        const stageKey = `${stageWidth}x${stageHeight}/${room}/${rows}`
+        const first = handled.current.sequence === -1
+        // A framed node can still grow, for example when its log adds step rows. The frame follows it until
+        // the person takes the camera.
+        const focusLayout = focusLevels.length ? layouts[focusLevels[0].id] : null
+        const regrown = handled.current.layout !== focusLayout && !movedByPerson.current
+        if (handled.current.sequence === cameraRequest.sequence && handled.current.stage === stageKey && !regrown) {
             return
         }
-        // A workflow is framed by its graph. A shard is the deepest level, so the camera stays on its matrix.
-        const graph = target.querySelector<HTMLElement>(':scope > [data-graph]')
-        const framed = graph ?? target.closest<HTMLElement>('.CIExplorer__unit') ?? target
-        const current = getViewport().zoom
-        const outer = world.current.getBoundingClientRect()
-        const inner = framed.getBoundingClientRect()
-        const box = {
-            x: (inner.left - outer.left) / current,
-            y: (inner.top - outer.top) / current,
-            width: inner.width / current,
-            height: inner.height / current,
+        const duration = reducedMotion || first ? 0 : CAMERA_MOVE_MS
+        const node = focusedNodeId ? findNode(focusedNodeId) : null
+        const workflowPlaced = focusLevels.length > 0 && focusLevels[0].id in layouts
+        if (focusedNodeId && !(node && workflowPlaced)) {
+            // A node from a link is not drawn until its workflow's jobs are placed. The overview shows until then.
+            if (first && handled.current.stage !== stageKey) {
+                handled.current = { sequence: -1, stage: stageKey, layout: null }
+                void setViewport(overviewCamera(false))
+            }
+            return
         }
-        // The job details panel covers the right of a wide stage, so a focused job is framed in what is left.
-        const room = stageWidth - (hasJobPanel && stageWidth > NARROW_STAGE ? JOB_PANEL_ROOM : 0)
-        const fitWidth = (room - 2 * FRAME_PADDING) / box.width
-        const fitHeight = (stageHeight - 2 * FRAME_PADDING) / box.height
-        const zoom = graph
-            ? Math.min(1 / Number(target.dataset.graphScale), fitWidth, fitHeight)
-            : Math.min(fitWidth, Math.max(fitHeight, MIN_FRAMED_WIDTH / box.width), MAX_ZOOM)
-        void setViewport(
-            {
-                zoom,
-                x: (room - box.width * zoom) / 2 - box.x * zoom,
-                y:
-                    (graph
-                        ? (stageHeight - box.height * zoom) / 2
-                        : Math.max(64, (stageHeight - box.height * zoom) / 2)) -
-                    box.y * zoom,
-            },
-            { duration }
+        const camera = node ? nodeCamera(node, cameraRequest.fit) : overviewCamera(cameraRequest.fit)
+        if (!camera) {
+            return
+        }
+        levelZooms.current = new Map(
+            focusLevels.flatMap((level): [string, number][] => {
+                // The focused node was measured for this camera already, unless the camera is a fit.
+                if (level.id === focusedNodeId && !cameraRequest.fit) {
+                    return [[level.id, camera.zoom]]
+                }
+                const element = findNode(level.id)
+                const zoom = element ? nodeCamera(element, false)?.zoom : undefined
+                return zoom === undefined ? [] : [[level.id, zoom]]
+            })
         )
-        // `layouts` and `rows` are dependencies because both move what the camera frames.
+        handled.current = { sequence: cameraRequest.sequence, stage: stageKey, layout: focusLayout }
+        movedByPerson.current = false
+        void setViewport(camera, { duration })
     }, [
+        cameraRequest,
         focusedNodeId,
-        hasJobPanel,
+        focusLevels,
         layouts,
         layoutsLoading,
         rows,
+        room,
         stageWidth,
         stageHeight,
-        duration,
-        frameOverview,
+        reducedMotion,
+        findNode,
+        nodeCamera,
+        overviewCamera,
         setViewport,
-        getViewport,
     ])
 
-    const zoomOut = (): void => {
+    /** Leaves each level of the focus that the camera has zoomed out of, or panned away from. */
+    const followCamera = useCallback(
+        (viewport: Viewport): void => {
+            movedByPerson.current = true
+            if (!stage.current || !focusLevels.length) {
+                return
+            }
+            const bounds = stage.current.getBoundingClientRect()
+            const onStage = (nodeId: string): boolean => {
+                const node = findNode(nodeId)
+                if (!node) {
+                    return false
+                }
+                const seen = framedElement(node).element.getBoundingClientRect()
+                return (
+                    seen.right > bounds.left &&
+                    seen.left < bounds.right &&
+                    seen.bottom > bounds.top &&
+                    seen.top < bounds.bottom
+                )
+            }
+            let depth = focusLevels.length
+            while (depth > 0) {
+                const levelZoom = levelZooms.current.get(focusLevels[depth - 1].id) ?? viewport.zoom
+                const aboveZoom =
+                    depth > 1 ? (levelZooms.current.get(focusLevels[depth - 2].id) ?? overviewZoom) : overviewZoom
+                // A shard is framed at almost the zoom of its matrix, so the midpoint alone would leave it on the
+                // smallest zoom out. Leaving also takes a clear step back from the level's own zoom.
+                const zoomedOut =
+                    viewport.zoom <= Math.min(Math.sqrt(levelZoom * aboveZoom), levelZoom * LEAVE_ZOOM_RATIO)
+                // This runs on every frame of a gesture. The zoom test is arithmetic, and only a level that
+                // passes it pays for a measurement.
+                if (!zoomedOut && onStage(focusLevels[depth - 1].id)) {
+                    break
+                }
+                depth--
+            }
+            if (depth !== focusLevels.length) {
+                setFocus(depth ? focusLevels[depth - 1].id : null, false)
+            }
+        },
+        [focusLevels, findNode, overviewZoom, setFocus]
+    )
+
+    // React Flow passes the gesture's event, and passes null for a move the canvas made itself.
+    const onMove: OnMove = (event, viewport) => {
+        if (event) {
+            followCamera(viewport)
+        }
+    }
+
+    const zoomBy = (factor: number): void => {
+        const { x, y, zoom } = getViewport()
+        const next = Math.max(minZoom, Math.min(MAX_ZOOM, zoom * factor))
+        const centerX = room / 2
+        const centerY = stageHeight / 2
+        const viewport = {
+            zoom: next,
+            x: centerX - (centerX - x) * (next / zoom),
+            y: centerY - (centerY - y) * (next / zoom),
+        }
+        followCamera(viewport)
+        void setViewport(viewport, { duration: reducedMotion ? 0 : BUTTON_ZOOM_MS })
+    }
+
+    const zoomOutLevel = (): void => {
         if (focusLevels.length) {
             setFocus(focusLevels[focusLevels.length - 2]?.id ?? null)
         } else {
-            frameOverview()
+            void setViewport(overviewCamera(false), { duration: reducedMotion ? 0 : CAMERA_MOVE_MS })
         }
     }
+
     const onKeyDown = (event: KeyboardEvent): void => {
+        // The drawer and the dock keep their own keys.
+        if ((event.target as HTMLElement).closest('[data-ci-explorer-controls]') || event.metaKey || event.ctrlKey) {
+            return
+        }
         if (event.key === 'Escape' && focusLevels.length) {
-            zoomOut()
+            zoomOutLevel()
+        } else if (event.key === '+' || event.key === '=' || event.key === '-') {
+            event.preventDefault()
+            zoomBy(event.key === '-' ? 1 / BUTTON_ZOOM : BUTTON_ZOOM)
+        } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+            event.preventDefault()
+            const { x, y, zoom } = getViewport()
+            const viewport = {
+                zoom,
+                x: x + (event.key === 'ArrowLeft' ? PAN_STEP : event.key === 'ArrowRight' ? -PAN_STEP : 0),
+                y: y + (event.key === 'ArrowUp' ? PAN_STEP : event.key === 'ArrowDown' ? -PAN_STEP : 0),
+            }
+            void setViewport(viewport)
+            followCamera(viewport)
         }
     }
-    const above = focusLevels.length ? (focusLevels[focusLevels.length - 2]?.name ?? 'Overview') : 'Zoom out'
+    const above = focusLevels[focusLevels.length - 2]?.name ?? 'Workflows'
 
     return (
-        // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-        <div className="CIExplorer" ref={stage} onKeyDown={onKeyDown}>
+        // The stage takes the keyboard so the arrow keys can pan it, as a map does.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+        <div
+            className="CIExplorer"
+            ref={stage}
+            onKeyDown={onKeyDown}
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+            tabIndex={0}
+            role="group"
+            aria-label="CI workflows"
+            aria-description="Arrow keys pan. Plus and minus zoom. Escape goes back one level."
+        >
             <ReactFlow
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={NO_NODES}
                 edges={NO_EDGES}
-                // The overview is the outermost level, so a zoom out stops at half its size.
-                minZoom={overviewZoom * OVERVIEW_ZOOM_FLOOR}
+                minZoom={minZoom}
                 maxZoom={MAX_ZOOM}
                 // A scroll pans and a pinch zooms, as on a map.
                 panOnScroll
                 zoomOnDoubleClick={false}
+                // The stage handles the arrow keys itself, for a canvas that has no React Flow nodes.
+                disableKeyboardA11y
+                onMove={onMove}
                 proOptions={{ hideAttribution: true }}
             >
                 <ViewportPortal>
@@ -278,25 +459,23 @@ function CIExplorerCanvasContent(): JSX.Element {
                 </ViewportPortal>
                 <CIExplorerTooltip stage={stage} />
                 {(focusLevels.length > 0 || pastOverview) && (
-                    <Panel position="top-left">
+                    <Panel position="top-left" data-ci-explorer-controls>
                         <LemonButton
                             type="secondary"
                             size="small"
                             icon={<IconArrowLeft />}
-                            onClick={zoomOut}
-                            aria-label={focusLevels.length ? `Zoom out to ${above}` : 'Zoom out'}
+                            onClick={zoomOutLevel}
+                            aria-label={`Back to ${above}`}
                             data-attr="ci-explorer-zoom-out-level"
                         >
                             {above}
                         </LemonButton>
                     </Panel>
                 )}
-                {focusedJob && (
-                    <Panel position="top-right">
-                        <CIExplorerJobPanel job={focusedJob.job} run={focusedJob.run} />
-                    </Panel>
-                )}
-                <Panel position="bottom-left" className="flex flex-wrap items-center gap-3">
+                <Panel position="top-right" data-ci-explorer-controls>
+                    <CIExplorerDrawer maxHeight={Math.max(0, stageHeight - 32)} />
+                </Panel>
+                <Panel position="bottom-left" className="flex flex-wrap items-center gap-3" data-ci-explorer-controls>
                     <div className="flex gap-1">
                         <LemonButton
                             type="secondary"
@@ -304,7 +483,7 @@ function CIExplorerCanvasContent(): JSX.Element {
                             icon={<IconMinus />}
                             aria-label="Zoom out"
                             tooltip="Zoom out"
-                            onClick={() => void zoomTo(getViewport().zoom / BUTTON_ZOOM, { duration: 200 })}
+                            onClick={() => zoomBy(1 / BUTTON_ZOOM)}
                             data-attr="ci-explorer-zoom-out"
                         />
                         <LemonButton
@@ -313,17 +492,14 @@ function CIExplorerCanvasContent(): JSX.Element {
                             icon={<IconPlus />}
                             aria-label="Zoom in"
                             tooltip="Zoom in"
-                            onClick={() => void zoomTo(getViewport().zoom * BUTTON_ZOOM, { duration: 200 })}
+                            onClick={() => zoomBy(BUTTON_ZOOM)}
                             data-attr="ci-explorer-zoom-in"
                         />
                         <LemonButton
                             type="secondary"
                             size="small"
-                            tooltip="Fit everything in view"
-                            onClick={() => {
-                                setFocus(null)
-                                frameOverview()
-                            }}
+                            tooltip={focusLevels.length ? 'Fit the selection in view' : 'Fit every workflow in view'}
+                            onClick={fitView}
                             data-attr="ci-explorer-fit"
                         >
                             Fit

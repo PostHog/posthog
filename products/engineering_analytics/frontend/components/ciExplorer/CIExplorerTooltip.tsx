@@ -74,8 +74,24 @@ export function CIExplorerTooltip({ stage }: { stage: RefObject<HTMLElement> }):
                 timer = setTimeout(show, DELAY_MS)
             }
         }
+        // A node reached with the keyboard shows its tooltip at once, beside the node.
+        const onFocus = (event: FocusEvent): void => {
+            const focused = event.target as HTMLElement
+            const node = focused.closest<HTMLElement>('[data-node-id]')
+            const tip = node?.dataset.nodeId ? nodeTip(workflows, node.dataset.nodeId) : null
+            if (!node || !tip || !focused.matches(':focus-visible')) {
+                return
+            }
+            hide()
+            target = node
+            visible = true
+            const box = node.getBoundingClientRect()
+            setShown({ tip, x: Math.min(box.right, window.innerWidth - 2 * POINTER_GAP), y: Math.max(0, box.top) })
+        }
         element.addEventListener('mousemove', onMove)
         element.addEventListener('mouseleave', hide)
+        element.addEventListener('focusin', onFocus)
+        element.addEventListener('focusout', hide)
         for (const type of ['pointerdown', 'wheel', 'keydown']) {
             element.addEventListener(type, hide, { capture: true, passive: true })
         }
@@ -83,6 +99,8 @@ export function CIExplorerTooltip({ stage }: { stage: RefObject<HTMLElement> }):
             clearTimeout(timer)
             element.removeEventListener('mousemove', onMove)
             element.removeEventListener('mouseleave', hide)
+            element.removeEventListener('focusin', onFocus)
+            element.removeEventListener('focusout', hide)
             for (const type of ['pointerdown', 'wheel', 'keydown']) {
                 element.removeEventListener(type, hide, { capture: true })
             }

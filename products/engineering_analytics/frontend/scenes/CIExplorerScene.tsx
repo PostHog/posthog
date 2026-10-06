@@ -1,22 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconPullRequest, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
-import { CIExplorerCanvas } from '../components/ciExplorer/CIExplorerCanvas'
-import { CIExplorerShare } from '../components/ciExplorer/CIExplorerShare'
-import { CIExplorerTrail } from '../components/ciExplorer/CIExplorerTrail'
+import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
+import { CIExplorerOverview } from '../components/ciExplorer/CIExplorerOverview'
+import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSummaryCounts'
 import { EntityHeader } from '../components/EntityHeader'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
-import { withCurrentScope } from '../lib/scope'
-import { CIExplorerLogicProps, ciExplorerLogic } from './ciExplorerLogic'
+import { CIExplorerLogicProps, CIExplorerView, ciExplorerLogic } from './ciExplorerLogic'
 
 export const scene: SceneExport<CIExplorerLogicProps> = {
     component: CIExplorerScene,
@@ -29,22 +28,26 @@ export const scene: SceneExport<CIExplorerLogicProps> = {
     }),
 }
 
-// More pushes than this no longer fit a row of buttons at a narrow scene width.
-const MAX_PUSH_BUTTONS = 5
-
 export function CIExplorerScene(): JSX.Element {
-    const { lifecycle, prRuns, prRunsLoading, loadFailed, pushes, activePush, repoOwner, repoName, sourceId } =
-        useValues(ciExplorerLogic)
-    const { loadPrRuns, selectPush } = useActions(ciExplorerLogic)
+    const {
+        lifecycle,
+        prRuns,
+        prRunsLoading,
+        loadFailed,
+        view,
+        currentView,
+        activePush,
+        pullRequestUrl,
+        locationUrl,
+        syncedAt,
+        freshnessLoading,
+        refreshing,
+    } = useValues(ciExplorerLogic)
+    const { loadPrRuns, refresh } = useActions(ciExplorerLogic)
 
     const pullRequest = lifecycle?.pull_request
-    const pullRequestUrl = pullRequest
-        ? withCurrentScope(urls.engineeringAnalyticsPullRequest(repoOwner, repoName, pullRequest.number), sourceId)
-        : null
-    const pushOptions = pushes.map((push, index) => ({
-        value: push.headSha,
-        label: index === 0 ? `${push.headSha.slice(0, 7)} (latest)` : push.headSha.slice(0, 7),
-    }))
+    const viewUrl = (target: CIExplorerView): string => locationUrl({ view: target, headSha: null, nodeId: null })
+    const busy = refreshing || prRunsLoading
 
     return (
         <SceneContent className="pb-4">
@@ -52,20 +55,18 @@ export function CIExplorerScene(): JSX.Element {
                 name="CI explorer"
                 resourceType={{ type: 'health' }}
                 actions={
-                    pullRequestUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={pullRequestUrl}
-                            data-attr="ci-explorer-open-pull-request"
-                        >
-                            Open pull request
-                        </LemonButton>
-                    ) : undefined
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={pullRequestUrl}
+                        data-attr="ci-explorer-open-pull-request"
+                    >
+                        Open pull request
+                    </LemonButton>
                 }
             />
 
-            {pullRequest && pullRequestUrl && (
+            {pullRequest && (
                 <EntityHeader
                     icon={<IconPullRequest />}
                     title={pullRequest.title}
@@ -77,29 +78,49 @@ export function CIExplorerScene(): JSX.Element {
                             </Link>
                         </>
                     }
-                    right={
-                        activePush && pushOptions.length > 1 ? (
-                            pushOptions.length <= MAX_PUSH_BUTTONS ? (
-                                <LemonSegmentedButton
-                                    size="small"
-                                    value={activePush.headSha}
-                                    onChange={selectPush}
-                                    options={pushOptions}
-                                    data-attr="ci-explorer-push"
-                                />
-                            ) : (
-                                <LemonSelect
-                                    size="small"
-                                    value={activePush.headSha}
-                                    onChange={selectPush}
-                                    options={pushOptions}
-                                    data-attr="ci-explorer-push"
-                                />
-                            )
-                        ) : undefined
-                    }
+                    right={view === 'overview' && activePush ? <CIExplorerSummaryCounts /> : undefined}
                 />
             )}
+
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-primary">
+                <LemonTabs
+                    activeKey={currentView}
+                    // Each tab is a link, so the router makes the change and Back undoes it.
+                    onChange={() => {}}
+                    tabs={[
+                        { key: 'overview', label: 'Overview', link: viewUrl('overview') },
+                        { key: 'activity', label: 'Activity', link: viewUrl('activity') },
+                    ]}
+                    barClassName="mb-0 border-b-0"
+                    data-attr="ci-explorer-views"
+                />
+                <div className="flex items-center gap-2 pb-1 text-xs text-secondary">
+                    <Tooltip title="When the stored CI data was last synced from its source. Refresh reads the stored data again. It does not start a sync.">
+                        <span>
+                            {syncedAt ? (
+                                <>
+                                    Synced <TZLabel time={syncedAt} />
+                                </>
+                            ) : freshnessLoading ? (
+                                'Checking sync time'
+                            ) : (
+                                'Sync time unknown'
+                            )}
+                        </span>
+                    </Tooltip>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconRefresh />}
+                        onClick={refresh}
+                        loading={busy}
+                        disabledReason={busy ? 'Loading' : undefined}
+                        data-attr="ci-explorer-refresh"
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
+            </div>
 
             {loadFailed ? (
                 <CIAnalyticsLoadError
@@ -109,19 +130,10 @@ export function CIExplorerScene(): JSX.Element {
                 />
             ) : prRuns === null ? (
                 <LemonSkeleton className="h-96 w-full" />
-            ) : !activePush ? (
-                <div className="py-16 text-center text-sm text-secondary">
-                    No CI runs are synced for this pull request yet. Runs appear here after the next sync.
-                </div>
+            ) : view === 'activity' ? (
+                <CIExplorerActivity />
             ) : (
-                <>
-                    <CIExplorerTrail />
-                    <CIExplorerShare />
-                    {/* The canvas takes the height the header leaves, and no less than a readable minimum. */}
-                    <div className="h-[calc(100vh-22rem)] min-h-96 overflow-hidden rounded-lg border border-primary">
-                        <CIExplorerCanvas />
-                    </div>
-                </>
+                <CIExplorerOverview />
             )}
         </SceneContent>
     )

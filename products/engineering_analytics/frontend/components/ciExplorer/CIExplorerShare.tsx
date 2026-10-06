@@ -1,12 +1,10 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { shareLevels, totalComputeSeconds } from '../../lib/ciExplorerDetails'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 
 // Each deeper level is a darker bar nested inside the level around it.
@@ -17,16 +15,16 @@ const LEVEL_CLASS = [
 ]
 const LEVEL_INSET_PX = 3
 
-/** How much of the push's CI time the current zoom level accounts for. */
+/** How much of the push's job time the current zoom level accounts for. */
 export function CIExplorerShare(): JSX.Element {
-    const { workflows, focusedNodeId } = useValues(ciExplorerLogic)
-    const total = useMemo(() => totalComputeSeconds(workflows), [workflows])
-    const levels = useMemo(() => shareLevels(workflows, focusedNodeId), [workflows, focusedNodeId])
+    const { totalJobSeconds: total, shareLevels: levels } = useValues(ciExplorerLogic)
 
     return (
-        <section aria-label="Share of CI time" className="flex flex-col gap-2">
+        <section aria-label="Share of job time" className="flex flex-col gap-2">
             <div className="flex items-center gap-3">
-                <Tooltip title={`All jobs of this push add up to ${humanFriendlyDuration(total)}`}>
+                <Tooltip
+                    title={`Every job of this commit adds up to ${humanFriendlyDuration(total)} of job time. Jobs run in parallel, so this is more than the elapsed time, and it is not the billed time.`}
+                >
                     <div className="relative h-5 flex-1 overflow-hidden rounded bg-fill-secondary">
                         {levels.map((level, index) => (
                             <i
@@ -44,18 +42,18 @@ export function CIExplorerShare(): JSX.Element {
                         ))}
                     </div>
                 </Tooltip>
-                <span className="font-mono text-xs text-secondary whitespace-nowrap">
-                    {humanFriendlyDuration(total, { maxUnits: 2 })}
+                <span className="whitespace-nowrap font-mono text-xs text-secondary">
+                    {humanFriendlyDuration(total, { maxUnits: 2 })} job time
                 </span>
             </div>
             <div className="flex min-h-5 flex-wrap gap-x-5 gap-y-1 text-xs text-secondary">
                 {levels.map((level, index) => (
                     <Tooltip
                         key={level.id}
-                        title={`${humanFriendlyDuration(level.computeSeconds)} of CI time${
-                            level.wallSeconds === null
+                        title={`${humanFriendlyDuration(level.jobSeconds)} of job time${
+                            level.elapsedSeconds === null
                                 ? ''
-                                : `, ${humanFriendlyDuration(level.wallSeconds)} start to finish`
+                                : `, ${humanFriendlyDuration(level.elapsedSeconds)} elapsed`
                         }`}
                     >
                         <span className="inline-flex items-center gap-1.5">
