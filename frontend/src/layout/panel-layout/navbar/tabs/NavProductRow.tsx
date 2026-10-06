@@ -71,12 +71,12 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
         'absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-has-[:focus-visible]/product-row:opacity-100 [--lemon-button-transition:transform_200ms_ease]'
 
     return (
-        <div className="group/product-row relative flex items-center gap-px min-w-0">
-            <Tooltip
-                title={disabledReason || <NavProductTooltip item={item} />}
-                docLink={disabledReason ? undefined : sidebarProductMeta(item).docsHref}
-                placement="right"
-            >
+        <Tooltip
+            title={disabledReason || <NavProductTooltip item={item} />}
+            docLink={disabledReason ? undefined : sidebarProductMeta(item).docsHref}
+            placement="right"
+        >
+            <div className="group/product-row relative flex items-center gap-px min-w-0">
                 <Link
                     to={disabledReason ? undefined : href}
                     disabledReason={disabledReason}
@@ -101,29 +101,28 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
                     </span>
                     <span className="flex-1 truncate">{label}</span>
                 </Link>
-            </Tooltip>
-            {isHome ? (
-                <LemonButton
-                    size="xsmall"
-                    className={sideActionClassName}
-                    icon={<IconGear />}
-                    tooltip="Customize sidebar"
-                    aria-label="Customize sidebar"
-                    onClick={() => setCustomizeSidebarOpen(true)}
-                    data-attr="nav-customize-sidebar"
-                />
-            ) : pinned ? null : (
-                <LemonButton
-                    size="xsmall"
-                    className={cn(sideActionClassName, shortcut && 'opacity-100')}
-                    icon={starAction.icon}
-                    tooltip={starAction.label}
-                    aria-label={starAction.label}
-                    disabledReason={starAction.disabledReason}
-                    onClick={starAction.onClick}
-                    data-attr={starAction['data-attr']}
-                />
-            )}
-        </div>
+                {isHome ? (
+                    <LemonButton
+                        size="xsmall"
+                        className={sideActionClassName}
+                        icon={<IconGear />}
+                        tooltip="Customize sidebar"
+                        aria-label="Customize sidebar"
+                        onClick={() => setCustomizeSidebarOpen(true)}
+                        data-attr="nav-customize-sidebar"
+                    />
+                ) : pinned ? null : (
+                    <LemonButton
+                        size="xsmall"
+                        className={cn(sideActionClassName, shortcut && 'opacity-100')}
+                        icon={starAction.icon}
+                        aria-label={starAction.label}
+                        disabledReason={starAction.disabledReason}
+                        onClick={starAction.onClick}
+                        data-attr={starAction['data-attr']}
+                    />
+                )}
+            </div>
+        </Tooltip>
     )
 }
