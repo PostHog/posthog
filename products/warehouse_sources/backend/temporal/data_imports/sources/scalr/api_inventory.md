@@ -5,11 +5,11 @@ All requests use a customer token with Bearer authentication and an account ID f
 Connections use HTTPS. The host check rejects internal addresses under the shared cloud policy.
 The source rejects redirects and reads page numbers from `meta.pagination.next-page`.
 
-| Table | GET path | Required access | Key | Sync | Partition |
-| --- | --- | --- | --- | --- | --- |
-| environments | `/environments` | Read environments in the account | `id` | Full refresh | `created_at` |
-| workspaces | `/workspaces` | Read workspaces in the account | `id` | Incremental on `updated_at` | `created_at` |
-| runs | `/runs` | Read runs in the account | `id` | Full refresh | `created_at` |
+| Table        | GET path        | Required access                  | Key  | Sync                        | Partition    |
+| ------------ | --------------- | -------------------------------- | ---- | --------------------------- | ------------ |
+| environments | `/environments` | Read environments in the account | `id` | Full refresh                | `created_at` |
+| workspaces   | `/workspaces`   | Read workspaces in the account   | `id` | Incremental on `updated_at` | `created_at` |
+| runs         | `/runs`         | Read runs in the account         | `id` | Full refresh                | `created_at` |
 
 Workspace requests use `sort=updated-at` and `filter[updated-at]=gte:<timestamp>` after the first sync.
 Full refresh omits the time filter. Environment requests use `sort=created-at`.

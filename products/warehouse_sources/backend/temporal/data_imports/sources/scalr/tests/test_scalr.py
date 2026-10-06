@@ -1,7 +1,7 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -99,7 +99,7 @@ def test_pagination_auth_and_resume(
     send.side_effect = [page(endpoint, "item-1", first_page + 1), page(endpoint, "item-2", None)]
     checkpoint = manager(resume_page)
     result = ScalrSource().source_for_pipeline(config, checkpoint, inputs(endpoint))
-    iterator = iter(result.items())
+    iterator = iter(cast(Iterable[Any], result.items()))
     first_batch = next(iterator)
     rows = first_batch + [row for batch in iterator for row in batch]
     checkpoint.save_state.assert_called_once_with(ScalrResumeConfig(next_page=str(first_page + 1)))
@@ -140,7 +140,7 @@ def test_workspace_filter_on_every_page(
 ) -> None:
     send.side_effect = [page("workspaces", "ws-1", 2), page("workspaces", None, None)]
     result = ScalrSource().source_for_pipeline(config, manager(), inputs("workspaces", incremental, watermark))
-    list(result.items())
+    list(cast(Iterable[Any], result.items()))
     assert result.sort_mode == "asc"
     for call in send.call_args_list:
         params = parse_qs(urlsplit(call.args[0].url).query)
@@ -158,7 +158,7 @@ def test_auth_errors_are_non_retryable(config: ScalrSourceConfig, send: MagicMoc
     assert error == source.get_non_retryable_errors()[f"{status} Client Error"]
     assert send.call_count == 1
     with pytest.raises(HTTPError, match=f"{status} Client Error"):
-        list(source.source_for_pipeline(config, manager(), inputs("environments")).items())
+        list(cast(Iterable[Any], source.source_for_pipeline(config, manager(), inputs("environments")).items()))
     assert send.call_count == 2
 
 
@@ -174,14 +174,16 @@ def test_validation_uses_one_small_page(config: ScalrSourceConfig, send: MagicMo
 def test_malformed_response_fails(config: ScalrSourceConfig, send: MagicMock, body: dict[str, Any]) -> None:
     send.return_value = response(body)
     with pytest.raises(ValueError):
-        list(ScalrSource().source_for_pipeline(config, manager(), inputs("runs")).items())
+        list(cast(Iterable[Any], ScalrSource().source_for_pipeline(config, manager(), inputs("runs")).items()))
     send.assert_called_once()
 
 
 def test_empty_first_page_finishes(config: ScalrSourceConfig, send: MagicMock) -> None:
     send.return_value = page("runs", None, None)
     checkpoint = manager()
-    assert list(ScalrSource().source_for_pipeline(config, checkpoint, inputs("runs")).items()) == []
+    assert (
+        list(cast(Iterable[Any], ScalrSource().source_for_pipeline(config, checkpoint, inputs("runs")).items())) == []
+    )
     checkpoint.save_state.assert_not_called()
     send.assert_called_once()
 
