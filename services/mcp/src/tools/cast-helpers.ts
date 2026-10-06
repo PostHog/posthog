@@ -131,13 +131,8 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
     return merged
 }
 
-/**
- * Whether a schema reshapes its input in a way the key diff cannot explain: a root
- * `.transform()`, a root union, or a root `z.preprocess` that is not a `normalizeParamAliases(...)`
- * closure (for example `read-data-schema`, which unwraps `query`, renames kinds and drops paging
- * fields). Comparing sent keys to the parsed result of such a schema would report keys that
- * the schema consumed on purpose, so the caller skips the diff.
- */
+// A schema that transforms its input (other than alias folding) consumes keys on purpose,
+// so comparing sent keys to the parsed result would report them as ignored.
 export function reshapesInputBeyondAliases(schema: z.ZodType): boolean {
     let current: unknown = schema
     for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {

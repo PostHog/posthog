@@ -145,9 +145,9 @@ describe('Tool schema snapshots', () => {
     })
 
     describe('schema budgets', () => {
-        // Tools at or over the claude.ai registry limit, as of this ratchet. The count may only go down.
+        // Ratchet: the number of oversized tool schemas may only go down.
         const OVERSIZED_SCHEMA_COUNT = 44
-        // Share of nested properties (below the top level) that carry a description, as a whole percent.
+        // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
 
         interface DescriptionCoverage {
@@ -164,7 +164,6 @@ describe('Tool schema snapshots', () => {
             return [...branches, ...items]
         }
 
-        /** Counts properties below the top-level argument list (depth 0) and how many carry a description. */
         function countNestedProperties(schema: unknown, depth: number, into: DescriptionCoverage): void {
             if (!schema || typeof schema !== 'object') {
                 return
@@ -191,8 +190,7 @@ describe('Tool schema snapshots', () => {
 
         it('keeps the number of tool schemas over the claude.ai registry limit from growing', async () => {
             const tools = await loadSnapshotTools()
-            // Registration passes every tool through the analytics SDK, which adds a `context`
-            // property to its inputSchema. Measure that final shape, as the exec budget test does.
+            // The analytics SDK adds a `context` property at registration, so measure the registered shape.
             const posthog = new PostHogMCP('phc_test', { disabled: true })
             const registered = posthog.prepareToolList(
                 tools.map((tool) => ({
