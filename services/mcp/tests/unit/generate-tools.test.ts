@@ -2305,6 +2305,297 @@ describe('optional param with state fallback', () => {
     })
 })
 
+describe('generateCategoryFile exclude_params', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                post: {
+                    operationId: 'things_create',
+                    parameters: [
+                        { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
+                    ],
+                    requestBody: {
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } },
+                    },
+                },
+            },
+        },
+        components: {
+            schemas: {
+                Thing: {
+                    properties: {
+                        secret: { type: 'string' },
+                        steps: { type: 'array', items: { $ref: '#/components/schemas/Step' } },
+                        inputs: { type: 'object', additionalProperties: { $ref: '#/components/schemas/Input' } },
+                    },
+                },
+                Input: { properties: { bytecode: { type: 'array' } } },
+                Step: {
+                    oneOf: [
+                        { properties: { selector_regex: { type: 'string' } } },
+                        { properties: { url: { type: 'string' } } },
+                    ],
+                },
+            },
+        },
+    })
+
+    function generate(exclude_params: string[]): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: {
+                'things-create': {
+                    operation: 'things_create',
+                    enabled: true,
+                    scopes: ['thing:write'],
+                    annotations: { readOnly: false, destructive: false, idempotent: false },
+                    exclude_params,
+                } as ToolConfig,
+            },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it.each([['dry_run'], ['secret'], ['steps.*.selector_regex'], ['steps.*.url'], ['inputs.*.bytecode']])(
+        'accepts %s, which names a real field',
+        (entry) => {
+            expect(() => generate([entry])).not.toThrow()
+        }
+    )
+
+    it.each([
+        ['secrte'],
+        ['dryrun'],
+        ['steps.*.selector_regx'],
+        ['stepz.*.selector_regex'],
+        ['steps.*'],
+        ['inputs.*.bytecod'],
+        ['constructor'],
+        ['project_id'],
+    ])('rejects %s, which names no field and would leave the intended one exposed', (entry) => {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate(['secret', entry])).toThrow('exit')
+        expect(errors.join('\n')).toContain(
+            `Enabled tool "things-create": exclude_params entry "${entry}" names no query parameter or body field`
+        )
+    })
+})
+
+describe('generateCategoryFile settings that name fields', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                post: {
+                    operationId: 'things_create',
+                    parameters: [
+                        { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
+                    ],
+                    requestBody: {
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/ThingInput' } } },
+                    },
+                    responses: {
+                        '201': { content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } } },
+                    },
+                },
+            },
+            '/api/projects/{project_id}/things/{id}/': {
+                patch: {
+                    operationId: 'things_partial_update',
+                    requestBody: {
+                        content: { 'application/json': { schema: { properties: { archived: { type: 'boolean' } } } } },
+                    },
+                },
+                delete: {
+                    operationId: 'things_destroy',
+                    parameters: [
+                        { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+                    ],
+                },
+            },
+        },
+        components: {
+            schemas: {
+                ThingInput: {
+                    properties: {
+                        name: { type: 'string' },
+                        secret: { type: 'string' },
+                        created_via: { type: 'string' },
+                    },
+                },
+                Thing: {
+                    properties: {
+                        id: { type: 'string' },
+                        owner: { properties: { email: { type: 'string' } } },
+                        metadata: { type: 'object' },
+                    },
+                },
+            },
+        },
+    })
+    const querySchema = {
+        definitions: {
+            ThingQuery: {
+                type: 'object' as const,
+                properties: { kind: { type: 'string' as const }, limit: { type: 'integer' as const } },
+            },
+        },
+    }
+
+    function generate(settings: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: {
+                'things-create': {
+                    operation: 'things_create',
+                    enabled: true,
+                    scopes: ['thing:write'],
+                    annotations: { readOnly: false, destructive: false, idempotent: false },
+                    ...settings,
+                } as ToolConfig,
+            },
+        }
+        return generateCategoryFile(
+            category,
+            'products/things/mcp/tools.yaml',
+            'things',
+            spec,
+            new Set(),
+            () => querySchema
+        )
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it.each<[string, Partial<ToolConfig>, Partial<ToolConfig>, string]>([
+        ['include_params', { include_params: ['name', 'dry_run'] }, { include_params: ['name', 'nmae'] }, 'nmae'],
+        [
+            'inject_body',
+            { inject_body: { created_via: 'mcp' } },
+            { inject_body: { created_vai: 'mcp' } },
+            'created_vai',
+        ],
+        ['rename_params', { rename_params: { name: 'thing_name' } }, { rename_params: { nme: 'thing_name' } }, 'nme'],
+        [
+            'param_overrides',
+            { param_overrides: { name: { description: 'The name.' } } },
+            { param_overrides: { nmae: { description: 'The name.' } } },
+            'nmae',
+        ],
+        [
+            'param_overrides.query.exclude_properties',
+            { param_overrides: { query: { schema_ref: 'ThingQuery', exclude_properties: ['limit'] } } },
+            { param_overrides: { query: { schema_ref: 'ThingQuery', exclude_properties: ['limt'] } } },
+            'limt',
+        ],
+        [
+            'required_when_set',
+            { required_when_set: { name: ['secret'] } },
+            { required_when_set: { name: ['secrt'] } },
+            'secrt',
+        ],
+        [
+            'response.include',
+            { response: { include: ['id', 'owner.email'] } },
+            { response: { include: ['id', 'owner.emial'] } },
+            'owner.emial',
+        ],
+        [
+            'response.exclude',
+            { response: { exclude: ['metadata.any_key'] } },
+            { response: { exclude: ['metdata'] } },
+            'metdata',
+        ],
+        [
+            'response.text_include',
+            { response: { text_include: ['_posthogUrl', 'id'] } },
+            { response: { text_include: ['_posthogUrl', 'idd'] } },
+            'idd',
+        ],
+        ['enrich_url', { enrich_url: '{id}' }, { enrich_url: '{uuid}' }, '{uuid}'],
+        [
+            'confirmed_action.message',
+            { confirmed_action: { message: 'Create {name}?' } },
+            { confirmed_action: { message: 'Create {nmae}?' } },
+            '{nmae}',
+        ],
+        [
+            'soft_delete',
+            { operation: 'things_destroy', soft_delete: 'archived' },
+            { operation: 'things_destroy', soft_delete: 'archvied' },
+            'archvied',
+        ],
+    ])('%s accepts a real name and rejects a name that matches nothing', (setting, valid, invalid, entry) => {
+        expect(() => generate(valid)).not.toThrow()
+
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate(invalid)).toThrow('exit')
+        expect(errors.join('\n')).toContain(`Enabled tool "things-create": ${setting} entry "${entry}" names no`)
+    })
+
+    it.each<[string, Partial<EnabledQueryWrapperToolConfig>]>([
+        ['exclude_properties', { exclude_properties: ['limt'] }],
+        ['property_defaults', { property_defaults: { limt: 10 } }],
+    ])('query wrapper %s rejects a name that matches no property', (setting, invalid) => {
+        const wrapper = (
+            settings: Partial<EnabledQueryWrapperToolConfig>
+        ): ReturnType<typeof generateQueryWrapperFile> =>
+            generateQueryWrapperFile(
+                {
+                    category: 'Things',
+                    feature: 'things',
+                    wrappers: {
+                        'query-things': {
+                            schema_ref: 'ThingQuery',
+                            enabled: true,
+                            scopes: ['query:read'],
+                            annotations: { readOnly: true, destructive: false, idempotent: true },
+                            ...settings,
+                        },
+                    },
+                },
+                'things.yaml',
+                querySchema
+            )
+        expect(() => wrapper({ exclude_properties: ['limit'], property_defaults: { limit: 10 } })).not.toThrow()
+
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => wrapper(invalid)).toThrow('exit')
+        expect(errors.join('\n')).toContain(`Enabled query wrapper "query-things": ${setting} entry "limt" names no`)
+    })
+})
+
 describe('composeToolSchema param aliases', () => {
     const resolvedWithIdAndQuery = makeResolved({
         path: '/api/projects/{project_id}/things/{id}/',

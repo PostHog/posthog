@@ -114,22 +114,9 @@
         "inputs": {
             "additionalProperties": {
                 "properties": {
-                    "bytecode": {
-                        "items": {},
-                        "type": "array"
-                    },
                     "bytecode_contract": {
                         "type": "string"
                     },
-                    "order": {
-                        "type": "number"
-                    },
-                    "templating": {
-                        "description": "* `hog` - hog\n* `liquid` - liquid",
-                        "enum": ["hog", "liquid"],
-                        "type": "string"
-                    },
-                    "transpiled": {},
                     "value": {}
                 },
                 "type": "object"
@@ -295,22 +282,9 @@
                             "inputs": {
                                 "additionalProperties": {
                                     "properties": {
-                                        "bytecode": {
-                                            "items": {},
-                                            "type": "array"
-                                        },
                                         "bytecode_contract": {
                                             "type": "string"
                                         },
-                                        "order": {
-                                            "type": "number"
-                                        },
-                                        "templating": {
-                                            "description": "* `hog` - hog\n* `liquid` - liquid",
-                                            "enum": ["hog", "liquid"],
-                                            "type": "string"
-                                        },
-                                        "transpiled": {},
                                         "value": {}
                                     },
                                     "type": "object"

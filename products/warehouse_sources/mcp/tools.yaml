@@ -64,9 +64,6 @@ tools:
             schemas (Stripe, Zendesk) but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many
             tables) it syncs them all, which can be costly and noisy. When the user wants only specific tables, or
             non-default sync types per table, use 'external-data-sources-create' instead.
-        exclude_params:
-            - client_secret
-            - account_id
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -378,9 +375,6 @@ tools:
             warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases
             (Postgres, MySQL, BigQuery).
         exclude_params:
-            - client_secret
-            - account_id
-            - job_inputs
             - created_via
         inject_body:
             created_via: mcp

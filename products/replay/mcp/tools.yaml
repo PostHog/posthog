@@ -190,7 +190,4 @@ wrappers:
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
         system_prompt_hint: Session replay metadata and activity
-        exclude_properties:
-            - response
-            - modifiers
         url_prefix: /replay
