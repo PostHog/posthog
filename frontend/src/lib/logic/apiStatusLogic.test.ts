@@ -143,6 +143,26 @@ describe('apiStatusLogic', () => {
             await write
         }
 
+        // LemonFormDialog submits from its own keydown handler, with no click or submit event. On a link,
+        // a real browser writes from the click that follows the keydown, which jsdom does not fire.
+        const keyThatWrites = async (
+            key: string,
+            tag: 'input' | 'a' = 'input',
+            init: KeyboardEventInit = {}
+        ): Promise<void> => {
+            const element = document.createElement(tag)
+            if (tag === 'a') {
+                element.setAttribute('href', '?tab=other')
+            }
+            document.body.appendChild(element)
+            let write: Promise<unknown> = Promise.resolve()
+            element.addEventListener('keydown', () => {
+                write = blockedWrite()
+            })
+            element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }))
+            await write
+        }
+
         it.each([
             ['a button click', () => clickThatWrites('button')],
             [
@@ -166,6 +186,7 @@ describe('apiStatusLogic', () => {
                     await write
                 },
             ],
+            ['Enter in a dialog input', () => keyThatWrites('Enter')],
         ])('toasts when %s starts the blocked write', async (_name, run) => {
             await run()
             await expectLogic(logic).toFinishAllListeners()
@@ -176,6 +197,12 @@ describe('apiStatusLogic', () => {
         it.each([
             ['no click started it', blockedWrite],
             ['a kea loader sent it', loaderThatWrites],
+            ['typing in an input started it', () => keyThatWrites('a')],
+            ['Enter on a link started it', () => keyThatWrites('Enter', 'a')],
+            [
+                'an Enter that confirmed an IME composition started it',
+                () => keyThatWrites('Enter', 'input', { isComposing: true }),
+            ],
             ['a link click started it', () => clickThatWrites('a')],
             ['the click navigated first', () => clickThatWrites('button', () => router.actions.push('/elsewhere'))],
             [

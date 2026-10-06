@@ -202,7 +202,7 @@ export function initKea({
                 // self-handled write actions above. Other writes keep the generic toast, since
                 // most write flows have no failure handling of their own. Read-only impersonation
                 // uses the distinct `impersonation_read_only` code, which apiStatusLogic toasts only
-                // when a click or form submit started the request.
+                // when a click, an Enter key press, or a form submit started the request.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
                 if (

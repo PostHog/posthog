@@ -47,10 +47,10 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
-// True from the start of a click or form submit until the browser finishes that task, so it
-// covers the handlers, the kea listeners they dispatch, and their microtasks. A request that
-// starts in this span counts as one the user asked for. A request that starts after an `await`,
-// such as a debounced save, does not.
+// True from the start of a click, an Enter key press, or a form submit until the browser finishes
+// that task, so it covers the handlers, the kea listeners they dispatch, and their microtasks.
+// A request that starts in this span counts as one the user asked for. A request that starts
+// after an `await`, such as a debounced save, does not.
 let userActionInProgress = false
 let userActionPathname: string | null = null
 
@@ -261,11 +261,19 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.disposables.add(() => {
-            // `click` also fires for keyboard activation of buttons, but not for typing.
+            // `click` also fires for keyboard activation of buttons. Enter counts on its own because
+            // some forms, such as LemonFormDialog, submit from a keydown handler. Other keys do not
+            // submit, and neither does an Enter that confirms an IME composition.
             const onUserAction = (event: Event): void => {
-                // A link click is navigation, not a write. A button inside a link is still a button.
+                if (event.type === 'keydown') {
+                    const { key, isComposing } = event as KeyboardEvent
+                    if (key !== 'Enter' || isComposing) {
+                        return
+                    }
+                }
+                // Activating a link is navigation, not a write. A button inside a link is still a button.
                 const control = (event.target as Element | null)?.closest?.('button, a[href]')
-                if (event.type === 'click' && control?.matches('a[href]')) {
+                if (control?.matches('a[href]')) {
                     return
                 }
                 // Re-adding the key runs the previous cleanup, so set the flag after it.
@@ -287,9 +295,11 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             }
             window.addEventListener('click', onUserAction, { capture: true })
             window.addEventListener('submit', onUserAction, { capture: true })
+            window.addEventListener('keydown', onUserAction, { capture: true })
             return () => {
                 window.removeEventListener('click', onUserAction, { capture: true })
                 window.removeEventListener('submit', onUserAction, { capture: true })
+                window.removeEventListener('keydown', onUserAction, { capture: true })
             }
         })
     }),
