@@ -125,7 +125,7 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
                     event="$pageview",
                     team=self.team,
                     distinct_id="some_id",
-                    timestamp=f"2023-02-01T{index % 2:02d}:00:00Z",
+                    timestamp=f"2023-02-{1 + index % 2:02d}T{index % 2:02d}:00:00Z",
                     properties={"bucket": bucket},
                 )
         series: EventsNode | ActionsNode = EventsNode(event=event, math=math)
@@ -161,6 +161,9 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
                 assert len(optimized.results) == 3
                 assert optimized.results[0][2] == (["a"] if multiple else "a")
                 assert optimized.results[1][2] == (["b"] if multiple else "b")
+                if interval == "day":
+                    assert len(optimized.results[1][1]) == 2
+                    assert optimized.results[1][1][0] > optimized.results[1][1][1] > 0
         else:
             assert optimized.clickhouse == original.clickhouse
 
