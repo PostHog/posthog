@@ -1,3 +1,4 @@
+import re
 import ast
 import json
 from pathlib import Path
@@ -20,10 +21,8 @@ from pathlib import Path
 # the concrete `PostgresSource`/`MySQLSource`/... symbols, which it CAN see; the direct-SQL
 # adapters import those explicitly alongside SourceRegistry.
 #
-# The generated source configs are watched one module at a time. Watching the whole package
-# would re-run the Django suite for every source, including the ones only this product's tests
-# exercise. A config is part of the contract when a watched file refers to it, by an import or
-# by a lazy re-export string. The second test holds the watched configs to exactly that set.
+# Generated configs are watched per module, because watching the package re-runs the Django
+# suite for every source. The second test holds that list to what the watched files refer to.
 #
 # Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
 # does not descend products/warehouse_sources/backend/temporal/data_imports/ (an implicit namespace package — no
@@ -40,7 +39,7 @@ _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
 
 _INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
 _GENERATED_CONFIGS_DIR = f"{_INPUTS_PREFIX}generated_configs/"
-_GENERATED_CONFIGS_PACKAGE = "sources.generated_configs"
+_GENERATED_CONFIG_REFERENCE = re.compile(r"(?:[\w.]+\.)?sources\.generated_configs(?:\.(\w+))?(?:\.[\w.]+)?")
 
 
 def _repo_root() -> Path:
@@ -139,8 +138,7 @@ def _core_consumed_facade_symbols(tree: ast.AST) -> set[str]:
 
 
 def _contract_check_inputs(root: Path) -> list[str] | None:
-    """The narrowed contract-check inputs, or None when the product has no narrowing override —
-    turbo then falls back to watching all of backend/, so there is nothing to enumerate."""
+    """The narrowed contract-check inputs, or None when turbo watches all of backend/."""
     turbo_path = root / "products" / "warehouse_sources" / "turbo.json"
     if not turbo_path.exists():
         return None
@@ -149,8 +147,7 @@ def _contract_check_inputs(root: Path) -> list[str] | None:
 
 
 def _contract_covered_sources(root: Path) -> set[str] | None:
-    """Vendor dirs the narrowed contract-check inputs watch, or None when every vendor is
-    covered."""
+    """Vendor dirs the contract-check inputs watch, or None when every vendor is covered."""
     inputs = _contract_check_inputs(root)
     if inputs is None:
         return None
@@ -198,74 +195,46 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
     )
 
 
-def _input_matches(glob: str, rel: str) -> bool:
-    return rel.startswith(glob.removesuffix("**")) if glob.endswith("/**") else rel == glob
+def _is_watched(rel: Path, inputs: list[str]) -> bool:
+    included = any(rel.full_match(glob) for glob in inputs if not glob.startswith("!"))
+    excluded = any(rel.full_match(glob.removeprefix("!")) for glob in inputs if glob.startswith("!"))
+    return included and not excluded
 
 
-def _watched_files(product_dir: Path, inputs: list[str]) -> list[Path]:
-    """The Python files the contract-check inputs watch, outside the generated configs."""
-    positive = [glob for glob in inputs if not glob.startswith("!")]
-    negative = [glob.removeprefix("!") for glob in inputs if glob.startswith("!")]
-    # _input_matches reads two shapes only: an exact file and `dir/**`.
-    unsupported = [glob for glob in positive + negative if "*" in glob.removesuffix("/**")]
-    assert not unsupported, f"contract-check inputs use a glob shape this guard cannot read: {unsupported}"
-    watched = []
-    for file in (product_dir / "backend").rglob("*.py"):
-        rel = file.relative_to(product_dir).as_posix()
-        if rel.startswith(_GENERATED_CONFIGS_DIR):
-            continue
-        if any(_input_matches(g, rel) for g in positive) and not any(_input_matches(g, rel) for g in negative):
-            watched.append(file)
-    return watched
-
-
-def _generated_configs_referenced(tree: ast.AST, config_modules: set[str]) -> set[str]:
-    """The generated config modules a file refers to: by `from`-import, by plain import, or by a
-    dotted-path string such as a lazy re-export target. A reference to the package itself is the
-    hand-written resolver, `__init__`."""
-    dotted: list[str] = []
+def _referenced_generated_configs(tree: ast.AST, config_modules: set[str]) -> set[str]:
+    dotted: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            dotted.append(node.module)
-            if node.module.endswith(_GENERATED_CONFIGS_PACKAGE):
-                dotted.extend(f"{node.module}.{alias.name}" for alias in node.names)
-        elif isinstance(node, ast.Import):
-            dotted.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and " " not in node.value:
-            dotted.append(node.value)
-
-    referenced: set[str] = set()
-    for path in dotted:
-        _, found, rest = path.partition(_GENERATED_CONFIGS_PACKAGE)
-        if not found or (rest and not rest.startswith(".")):
-            continue
-        module = rest.removeprefix(".").split(".")[0]
-        referenced.add(module if module in config_modules else "__init__")
-    return referenced
-
-
-def test_watched_generated_configs_are_exactly_the_ones_the_contract_refers_to():
-    product_dir = _repo_root() / "products" / "warehouse_sources"
-    inputs = _contract_check_inputs(product_dir.parent.parent)
-    if inputs is None:
-        return
-    watched_configs = {
-        glob.removeprefix(_GENERATED_CONFIGS_DIR) for glob in inputs if glob.startswith(_GENERATED_CONFIGS_DIR)
+        match node:
+            case ast.ImportFrom(module=str(module), names=names):
+                dotted |= {module, *(f"{module}.{alias.name}" for alias in names)}
+            case ast.Import(names=names):
+                dotted |= {alias.name for alias in names}
+            case ast.Constant(value=str(value)):
+                dotted.add(value)
+    # A name under the package that is not a config module comes from the hand-written __init__.
+    return {
+        match[1] if match[1] in config_modules else "__init__"
+        for path in dotted
+        if (match := _GENERATED_CONFIG_REFERENCE.fullmatch(path))
     }
-    if "**" in watched_configs:
+
+
+def test_contract_check_watches_exactly_the_generated_configs_it_refers_to() -> None:
+    root = _repo_root()
+    product_dir = root / "products" / "warehouse_sources"
+    configs_dir = product_dir / _GENERATED_CONFIGS_DIR
+    inputs = _contract_check_inputs(root)
+    if inputs is None or f"{_GENERATED_CONFIGS_DIR}**" in inputs:
         return
 
-    config_modules = {file.stem for file in (product_dir / _GENERATED_CONFIGS_DIR).glob("*.py")}
-    referred: set[str] = set()
-    for file in _watched_files(product_dir, inputs):
-        referred |= _generated_configs_referenced(ast.parse(file.read_text(), filename=str(file)), config_modules)
-    assert referred, "found no generated config reference in the watched warehouse_sources files"
+    config_modules = {file.stem for file in configs_dir.glob("*.py")}
+    referenced: set[str] = set()
+    for file in (product_dir / "backend").rglob("*.py"):
+        if _is_watched(file.relative_to(product_dir), inputs) and not file.is_relative_to(configs_dir):
+            referenced |= _referenced_generated_configs(ast.parse(file.read_text(), filename=str(file)), config_modules)
 
-    expected = {f"{module}.py" for module in referred}
-    missing = sorted(_GENERATED_CONFIGS_DIR + name for name in expected - watched_configs)
-    stale = sorted(_GENERATED_CONFIGS_DIR + name for name in watched_configs - expected)
-    assert not missing and not stale, (
-        "products/warehouse_sources/turbo.json backend:contract-check inputs do not match the generated "
-        "configs the watched files refer to. A missing config skips the Django suite when it changes. "
-        f"A stale one re-runs the suite for nothing. Add: {missing}. Remove: {stale}."
+    watched = {Path(glob).stem for glob in inputs if glob.startswith(_GENERATED_CONFIGS_DIR)}
+    assert watched == referenced, (
+        "products/warehouse_sources/turbo.json backend:contract-check inputs must list exactly the "
+        "generated configs the watched files refer to"
     )
