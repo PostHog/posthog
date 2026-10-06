@@ -262,9 +262,9 @@ from posthog.schema_enums import (
     RetentionType as RetentionType,
     RoktAdsDefaultSources as RoktAdsDefaultSources,
     Scale as Scale,
-    ScanEstimateTimeRange as ScanEstimateTimeRange,
-    ScanEstimateSource as ScanEstimateSource,
     ScanEstimatePrecision as ScanEstimatePrecision,
+    ScanEstimateSource as ScanEstimateSource,
+    ScanEstimateTimeRange as ScanEstimateTimeRange,
     SeriesColorMode as SeriesColorMode,
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
@@ -20795,8 +20795,6 @@ class TableScanEstimate(BaseModel):
     time_range: ScanEstimateTimeRange | None = Field(default=None, description="Events only.")
 
 
-
-
 class ScanEstimate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20811,8 +20809,6 @@ class ScanEstimate(BaseModel):
             " False when every table is measured."
         ),
     )
-
-
 
 
 class QueryResponseAlternative9(BaseModel):

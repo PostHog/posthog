@@ -1006,6 +1006,8 @@ export interface HogQLMetadataColumn {
 
 export interface HogQLMetadataResponse {
     query?: string
+    /** Present when the query reads at least one table, directly or through subqueries, CTEs, UNIONs and joins. Absent when the FROM tree cannot be walked. */
+    scan_estimate?: ScanEstimate
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
