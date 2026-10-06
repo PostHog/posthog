@@ -38,6 +38,24 @@ export function getBIMeasureSettings(value: BIValue): ChartAxis['settings'] {
         : undefined
 }
 
+export function mergeBIMeasureSettings(
+    current: ChartAxis['settings'],
+    generated: ChartAxis['settings']
+): ChartAxis['settings'] {
+    if (!generated) {
+        return current
+    }
+    return {
+        ...current,
+        ...generated,
+        formatting:
+            current?.formatting || generated.formatting
+                ? { ...current?.formatting, ...generated.formatting }
+                : undefined,
+        display: current?.display || generated.display ? { ...current?.display, ...generated.display } : undefined,
+    }
+}
+
 export function mergeBITableSettings(
     current: TableSettings | undefined,
     generated: TableSettings | undefined
@@ -50,7 +68,7 @@ export function mergeBITableSettings(
         ...generated,
         columns: generated.columns?.map((column) => {
             const saved = current?.columns?.find((previous) => previous.column === column.column)
-            return { ...saved, ...column, settings: { ...saved?.settings, ...column.settings } }
+            return { ...saved, ...column, settings: mergeBIMeasureSettings(saved?.settings, column.settings) }
         }),
     }
 }

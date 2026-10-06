@@ -36,7 +36,7 @@ import {
     isBITableCalculation,
 } from './biAnalysis'
 import { getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
-import { getBIMeasureSettings, isBIMeasureSettings } from './biMeasureSettings'
+import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
 export enum BIEditorView {
@@ -116,14 +116,7 @@ export function mergeBIChartSettings(
                 return {
                     ...saved,
                     ...axis,
-                    settings: {
-                        ...saved?.settings,
-                        ...axis.settings,
-                        display:
-                            saved?.settings?.display || axis.settings?.display
-                                ? { ...saved?.settings?.display, ...axis.settings?.display }
-                                : undefined,
-                    },
+                    settings: mergeBIMeasureSettings(saved?.settings, axis.settings),
                 }
             }) ?? current?.yAxis,
         heatmap: current?.heatmap || generated.heatmap ? { ...current?.heatmap, ...generated.heatmap } : undefined,

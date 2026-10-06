@@ -68,22 +68,37 @@ describe('BI measure display', () => {
             const merged = mergeBITableSettings(
                 {
                     pinnedColumns: ['date'],
-                    columns: [{ column: 'sum_amount', settings: { formatting: { prefix: 'old' } } }],
+                    columns: [
+                        {
+                            column: 'sum_amount',
+                            settings: {
+                                formatting: { prefix: 'old', suffix: ' USD' },
+                                display: { label: 'Old label', color: '#123456' },
+                            },
+                        },
+                    ],
                 },
                 node.tableSettings
             )
             expect(merged?.pinnedColumns).toEqual(['date'])
-            expect(
-                merged?.columns?.find((column) => column.column === 'sum_amount')?.settings?.formatting?.prefix
-            ).toBe('$')
+            expect(merged?.columns?.find((column) => column.column === 'sum_amount')?.settings).toEqual({
+                formatting: { ...config.values[0].formatting, suffix: ' USD' },
+                display: { ...config.values[0].display, color: '#123456' },
+            })
             const labeled = mergeBIChartSettings(node.chartSettings, {
-                yAxis: [{ column: 'average_amount_2', settings: { display: { label: 'Updated label' } } }],
+                yAxis: [
+                    {
+                        column: 'average_amount_2',
+                        settings: { display: { label: 'Updated label' }, formatting: { suffix: ' USD' } },
+                    },
+                ],
             })
             expect(labeled?.yAxis?.[0].settings?.display).toEqual({
                 label: 'Updated label',
                 displayType: 'line',
                 yAxisPosition: 'right',
             })
+            expect(labeled?.yAxis?.[0].settings?.formatting).toEqual({ style: 'short', suffix: ' USD' })
         }
     )
 
