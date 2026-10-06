@@ -25,7 +25,7 @@ import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import { getAccountsBackUrl } from './accountsViewSessionLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
-import { accountsViewIdStorageKey, deserializeAccountsView } from './accountsViewState'
+import { accountsViewIdStorageKey, deserializeAccountsView, readAccountsViewId } from './accountsViewState'
 import { ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX, AccountsEvents, DEFAULT_TILES } from './constants'
 
 jest.mock('products/product_analytics/frontend/generated/api', () => ({
@@ -193,6 +193,13 @@ describe('accountsViewsLogic', () => {
             expect(router.values.location.pathname.endsWith(path)).toBe(true)
             expect(router.values.hashParams.view).toBeUndefined()
             expect(logic.values.isDirty).toBe(false)
+            expect(readAccountsViewId(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)).toBe(missing ? 'view-1' : 'view-2')
+            if (missing) {
+                reload()
+                await settle()
+                expect(logic.values.currentViewId).toBe('view-1')
+                expect(accountsLogic.values.searchQuery).toBe('example')
+            }
         }
     )
 

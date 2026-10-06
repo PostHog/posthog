@@ -119,8 +119,8 @@ export interface accountsViewsLogicActions {
     applyView: (view: ColumnConfigurationApi) => {
         view: ColumnConfigurationApi
     }
-    clearView: () => {
-        value: true
+    clearView: (remember?: boolean) => {
+        remember: boolean
     }
     deleteView: ({ id }: { id: string }) => {
         id: string
@@ -325,7 +325,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         setViewToEdit: (id: string | null) => ({ id }),
         restoreSavedView: true,
         prepareAccountReturn: true,
-        clearView: true,
+        clearView: (remember: boolean = true) => ({ remember }),
         resetLoadedViews: true,
     })),
     loaders(({ values, cache }) => ({
@@ -607,7 +607,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         loadViewsSuccess: () => {
             actions.restoreSavedView()
         },
-        clearView: () => {
+        clearView: ({ remember }) => {
             const session = getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null)
             actions.applyViewState(deserializeAccountsView({ filters: { assignmentStatus: 'all' } }), {
                 source: 'defaults',
@@ -615,7 +615,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             })
             session.state = values.liveViewState
             session.initialized = true
-            actions.setCurrentViewId(null)
+            actions.setCurrentViewId(null, remember)
             actions.setAwaitingSavedView(false)
             actions.syncViewStateToUrl()
         },
@@ -668,7 +668,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             if (view) {
                 actions.applyView(view)
             } else {
-                actions.clearView()
+                actions.clearView(!explicitId || explicitId === rememberedId)
             }
         },
     })),
