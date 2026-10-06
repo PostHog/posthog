@@ -202,25 +202,38 @@ export function MaxFileSizeField(): JSX.Element {
 }
 
 // Included in every destination's event table preview except HTTP, which posts capture-format
-// payloads and does not export the column.
-export const PERSON_PROPERTIES_EVENT_FIELD: Record<string, DatabaseSchemaField> = {
-    person_properties: {
-        name: 'person_properties',
-        hogql_value: "nullIf(person_properties, '')",
-        type: 'string',
-        schema_valid: true,
-    },
-}
-
-// Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
-export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
+// payloads and does not export these columns.
+export const PERSON_EVENT_FIELDS: Record<string, DatabaseSchemaField> = {
     person_id: {
         name: 'person_id',
         hogql_value: 'toString(person_id)',
         type: 'string',
         schema_valid: true,
     },
-    ...PERSON_PROPERTIES_EVENT_FIELD,
+    person_properties: {
+        name: 'person_properties',
+        hogql_value: "nullIf(person_properties, '')",
+        type: 'json',
+        schema_valid: true,
+    },
+}
+
+// The export reads these columns from the event as ingested and does not apply later person merges.
+export const EVENT_FIELD_DESCRIPTIONS: Record<string, string> = {
+    person_id: 'The person ID at the time of the event. It does not change if the person is merged later.',
+    person_properties:
+        'The person properties at the time of the event. Later changes to the person do not update them.',
+}
+
+// Event table preview columns shared by every S3-family destination (S3, AwsS3, S3Compatible).
+export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaField> = {
+    ...PERSON_EVENT_FIELDS,
+    elements_chain: {
+        name: 'elements_chain',
+        hogql_value: 'elements_chain',
+        type: 'string',
+        schema_valid: true,
+    },
     created_at: {
         name: 'created_at',
         hogql_value: 'created_at',
@@ -364,9 +377,8 @@ export function S3FamilyFields({
     )
 }
 
-// Generic person-related event columns shared by Postgres, Redshift, Snowflake, BigQuery, HTTP.
-// S3 and Databricks override these (S3 uses person_id/person_properties/created_at; Databricks
-// emits a different team_id+ingestion-timestamp pair).
+// Legacy event columns shared by Postgres, Redshift, Snowflake and BigQuery.
+// S3, Databricks, AzureBlob and HTTP export a reduced set and opt out of these.
 export function genericPersonEventFields(opts: {
     teamIdHogql: string
     setName: string
@@ -382,13 +394,13 @@ export function genericPersonEventFields(opts: {
         set: {
             name: opts.setName,
             hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
-            type: 'string',
+            type: 'json',
             schema_valid: true,
         },
         set_once: {
             name: opts.setOnceName,
             hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
-            type: 'string',
+            type: 'json',
             schema_valid: true,
         },
         site_url: {
