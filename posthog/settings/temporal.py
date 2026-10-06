@@ -325,8 +325,6 @@ LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
     os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
 )
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
-# Not collapsed in dev either: the activities run on the Node.js CDP worker, which polls this queue by name.
-CDP_DLQ_REPLAY_TASK_QUEUE = os.getenv("CDP_DLQ_REPLAY_TASK_QUEUE", "cdp-dlq-replay-task-queue")
 
 # Error tracking
 # Global on/off switch for auto-merging close fingerprints into their nearest issue.

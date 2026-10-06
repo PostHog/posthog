@@ -8,7 +8,6 @@ from django.core.management.base import BaseCommand
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.ai import AI_WORKFLOWS
-from posthog.temporal.cdp_dlq_replay import WORKFLOWS as CDP_DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
@@ -142,7 +141,6 @@ class Command(BaseCommand):
             BATCH_EXPORT_WORKFLOWS
             + DATA_IMPORT_WORKFLOWS
             + DLQ_REPLAY_WORKFLOWS
-            + CDP_DLQ_REPLAY_WORKFLOWS
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS

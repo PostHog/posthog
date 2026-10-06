@@ -42,7 +42,6 @@ from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
     BackfillMaterializedPropertiesBatchWorkflow,
 )
-from posthog.temporal.cdp_dlq_replay import WORKFLOWS as CDP_DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -364,7 +363,6 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
-        + CDP_DLQ_REPLAY_WORKFLOWS
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS

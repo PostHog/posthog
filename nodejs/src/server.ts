@@ -30,13 +30,13 @@ import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-em
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
+import { CdpDlqReplayConsumer } from './cdp/consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
-import { CdpDlqReplayer } from './cdp/dlq-replay/cdp-dlq-replayer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
@@ -323,7 +323,7 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpDlqReplay) {
             serviceLoaders.push(async () => {
-                const worker = new CdpDlqReplayer(this.config, cdpDeps!, {
+                const worker = new CdpDlqReplayConsumer(this.config, cdpDeps!, {
                     hogQueue: kafkaQueue,
                     hogflowQueue: postgresV2Queue,
                 })

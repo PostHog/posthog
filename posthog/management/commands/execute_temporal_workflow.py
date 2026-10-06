@@ -11,7 +11,6 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
-from posthog.temporal.cdp_dlq_replay import WORKFLOWS as CDP_DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
@@ -142,7 +141,6 @@ class Command(BaseCommand):
             BATCH_EXPORT_WORKFLOWS
             + DATA_IMPORT_WORKFLOWS
             + DLQ_REPLAY_WORKFLOWS
-            + CDP_DLQ_REPLAY_WORKFLOWS
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS
