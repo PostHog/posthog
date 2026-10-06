@@ -16,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint, PaginatorConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    PaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
