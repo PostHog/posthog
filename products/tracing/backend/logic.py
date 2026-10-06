@@ -153,7 +153,7 @@ def _normalise_status_code_values(values: list) -> list[str]:
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
-    The filter UI stores human-readable forms — hex ids, seconds for duration, label
+    The filter UI stores human-readable forms — hex ids, milliseconds for duration, label
     strings for `kind`/`status_code` — but the ClickHouse columns are base64 bytes,
     nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
     a WHERE clause must apply this translation before calling `property_to_expr`,
