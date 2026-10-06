@@ -306,6 +306,7 @@ export namespace Schemas {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -426,6 +427,7 @@ export namespace Schemas {
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
+      CrossProjectDashboard: 'cross_project_dashboard',
       CustomerAnalytics: 'customer_analytics',
       CustomerTask: 'customer_task',
       CustomerJourney: 'customer_journey',
@@ -546,6 +548,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -770,6 +773,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -1176,6 +1180,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -10593,6 +10598,156 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type BIDateBucket = typeof BIDateBucket[keyof typeof BIDateBucket];
+
+
+    export const BIDateBucket = {
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    export interface BIDataSource {
+      connectionId?: string | null;
+      table: string;
+    }
+
+    export type DatabaseSerializedFieldType = typeof DatabaseSerializedFieldType[keyof typeof DatabaseSerializedFieldType];
+
+
+    export const DatabaseSerializedFieldType = {
+      Integer: 'integer',
+      Float: 'float',
+      Decimal: 'decimal',
+      String: 'string',
+      Datetime: 'datetime',
+      Date: 'date',
+      Boolean: 'boolean',
+      Array: 'array',
+      Json: 'json',
+      LazyTable: 'lazy_table',
+      VirtualTable: 'virtual_table',
+      FieldTraverser: 'field_traverser',
+      Expression: 'expression',
+      View: 'view',
+      MaterializedView: 'materialized_view',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface BIField {
+      dateBucket?: BIDateBucket | null;
+      expression: string;
+      id: string;
+      name: string;
+      source: BIDataSource;
+      type: DatabaseSerializedFieldType;
+    }
+
+    export type BIFilterOperator = typeof BIFilterOperator[keyof typeof BIFilterOperator];
+
+
+    export const BIFilterOperator = {
+      Equals: 'equals',
+      NotEquals: 'not_equals',
+      Contains: 'contains',
+      In: 'in',
+      NotIn: 'not_in',
+      Between: 'between',
+      GreaterThan: 'greater_than',
+      LessThan: 'less_than',
+      Last7Days: 'last_7_days',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+      Custom: 'custom',
+    } as const;
+
+    export interface BIFilter {
+      customExpression?: string | null;
+      enabled?: boolean | null;
+      field: BIField;
+      operator: BIFilterOperator;
+      value: string;
+      valueTo?: string | null;
+      values?: string[] | null;
+    }
+
+    export type BIQueryLimit = typeof BIQueryLimit[keyof typeof BIQueryLimit];
+
+
+    export const BIQueryLimit = {
+      Number100: 100,
+      Number1000: 1000,
+      Number10000: 10000,
+      Number50000: 50000,
+    } as const;
+
+    export type BISortDirection = typeof BISortDirection[keyof typeof BISortDirection];
+
+
+    export const BISortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
+
+    export interface BISort {
+      direction: BISortDirection;
+      key: string;
+    }
+
+    export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
+
+
+    export const BIAggregation = {
+      Count: 'count',
+      CountDistinct: 'count_distinct',
+      Sum: 'sum',
+      Average: 'average',
+      Minimum: 'minimum',
+      Maximum: 'maximum',
+      Custom: 'custom',
+    } as const;
+
+    export interface BIValue {
+      aggregation: BIAggregation;
+      customExpression?: string | null;
+      field: BIField;
+      label?: string | null;
+    }
+
+    export interface BIConfig {
+      chartType: ChartDisplayType;
+      columns: BIField[];
+      filters: BIFilter[];
+      limit: BIQueryLimit;
+      rows: BIField[];
+      /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+      sort?: BISort | null;
+      source?: BIDataSource | null;
+      values: BIValue[];
+    }
+
+    export type BIVisualizationNodeKind = typeof BIVisualizationNodeKind[keyof typeof BIVisualizationNodeKind];
+
+
+    export const BIVisualizationNodeKind = {
+      BIVisualizationNode: 'BIVisualizationNode',
+    } as const;
+
+    export interface BIVisualizationNode {
+      chartSettings?: ChartSettings | null;
+      config: BIConfig;
+      display?: ChartDisplayType | null;
+      kind: BIVisualizationNodeKind;
+      source: HogQLQuery;
+      tableSettings?: TableSettings | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type HogQueryKind = typeof HogQueryKind[keyof typeof HogQueryKind];
 
 
@@ -10622,10 +10777,11 @@ export namespace Schemas {
      * The query definition for this insight. The `kind` field determines the query type:
      * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
      * - `DataVisualizationNode` — SQL insights using HogQL
+     * - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
      * - `DataTableNode` — raw data tables
      * - `HogQuery` — Hog language queries
      */
-    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | HogQuery;
+    export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | BIVisualizationNode | HogQuery;
 
     export interface DashboardTileBasic {
       readonly id: number;
@@ -25612,6 +25768,95 @@ export namespace Schemas {
       api_version?: string | null;
     }
 
+    export interface CrossProjectDashboardTile {
+      /** Id of the tile. */
+      readonly id: string;
+      /** Id of the project the tile's insight belongs to. */
+      project_id: number;
+      /** Id of the insight the tile renders. */
+      insight_id: number;
+      /** Grid position and size of the tile, keyed by layout size. */
+      layouts?: unknown;
+      /**
+         * Optional color applied to the tile.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /** Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected. */
+      filters_overrides?: unknown;
+    }
+
+    export interface CrossProjectDashboardCreator {
+      /** Id of the user who created the dashboard. */
+      readonly id: number;
+      /** First name of the user who created the dashboard. */
+      readonly first_name: string;
+      /** Email of the user who created the dashboard. */
+      readonly email: string;
+    }
+
+    /**
+     * Carries tile references only.
+     *
+     * The response holds no insight names, queries or results. Each reader fetches each tile from
+     * that tile's own project endpoint, so their access, quota and cache key stay correct there.
+     */
+    export interface CrossProjectDashboard {
+      /** Id of the dashboard. */
+      readonly id: string;
+      /**
+         * Name shown in the dashboard list and page header.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Optional longer description.
+         * @maxLength 4000
+         */
+      description?: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      filters?: unknown;
+      /** Tiles from the projects the reader can open. */
+      readonly tiles: readonly CrossProjectDashboardTile[];
+      /** The user who created the dashboard. */
+      readonly created_by: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
+      readonly created_at: string;
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    /**
+     * A dashboard in the list. It counts its tiles instead of carrying them; read one dashboard for its tiles.
+     */
+    export interface CrossProjectDashboardListItem {
+      /** Id of the dashboard. */
+      readonly id: string;
+      /** Name shown in the dashboard list and page header. */
+      readonly name: string;
+      /** Optional longer description. */
+      readonly description: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      readonly filters: unknown;
+      /** Tiles from the projects the reader can open. */
+      readonly tile_count: number;
+      /** Distinct projects among the tiles the reader can open. */
+      readonly project_count: number;
+      /** The user who created the dashboard. */
+      readonly created_by: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
+      readonly created_at: string;
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface CurrentBranchHealth {
       /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
       default_branch: string;
@@ -28967,28 +29212,6 @@ export namespace Schemas {
       source_table_key?: string | null;
       source_table_name?: string | null;
     }
-
-    export type DatabaseSerializedFieldType = typeof DatabaseSerializedFieldType[keyof typeof DatabaseSerializedFieldType];
-
-
-    export const DatabaseSerializedFieldType = {
-      Integer: 'integer',
-      Float: 'float',
-      Decimal: 'decimal',
-      String: 'string',
-      Datetime: 'datetime',
-      Date: 'date',
-      Boolean: 'boolean',
-      Array: 'array',
-      Json: 'json',
-      LazyTable: 'lazy_table',
-      VirtualTable: 'virtual_table',
-      FieldTraverser: 'field_traverser',
-      Expression: 'expression',
-      View: 'view',
-      MaterializedView: 'materialized_view',
-      Unknown: 'unknown',
-    } as const;
 
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
@@ -38652,7 +38875,7 @@ export namespace Schemas {
     }
 
     /**
-     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.
      */
     export type ErrorTrackingExternalReferenceCreateConfig = {[key: string]: string};
 
@@ -38681,7 +38904,7 @@ export namespace Schemas {
       readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
-      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
       config: ErrorTrackingExternalReferenceCreateConfig;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
@@ -52778,6 +53001,7 @@ export namespace Schemas {
     export interface HogFlowRevision {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
+      /** When this version was published. */
       readonly created_at: string;
       readonly created_by: UserBasic | null;
       /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
@@ -52787,6 +53011,7 @@ export namespace Schemas {
     export interface HogFlowRevisionBasic {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
+      /** When this version was published. */
       readonly created_at: string;
       readonly created_by: UserBasic | null;
     }
@@ -57414,6 +57639,20 @@ export namespace Schemas {
     export interface IntegrationAccountsResponse {
       /** All accounts the connected integration can access. */
       accounts: IntegrationAccount[];
+    }
+
+    export interface IntegrationAssignee {
+      /** Provider user identifier to pass as error tracking config.assignee: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
+      id: string;
+      /** User display name. */
+      name: string;
+    }
+
+    export interface IntegrationAssigneesResponse {
+      /** Users who can be assigned an issue, up to 100. */
+      users: IntegrationAssignee[];
+      /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. */
+      reconnect_required: boolean;
     }
 
     /**
@@ -63168,6 +63407,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -66947,6 +67187,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CoreEvent[];
+    }
+
+    export interface PaginatedCrossProjectDashboardListItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CrossProjectDashboardListItem[];
+    }
+
+    export interface PaginatedCrossProjectDashboardTileList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CrossProjectDashboardTile[];
     }
 
     export interface PaginatedCustomPropertyDefinitionList {
@@ -73006,7 +73264,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
@@ -74943,6 +75201,56 @@ export namespace Schemas {
       filter?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * Carries tile references only.
+     *
+     * The response holds no insight names, queries or results. Each reader fetches each tile from
+     * that tile's own project endpoint, so their access, quota and cache key stay correct there.
+     */
+    export interface PatchedCrossProjectDashboard {
+      /** Id of the dashboard. */
+      readonly id?: string;
+      /**
+         * Name shown in the dashboard list and page header.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Optional longer description.
+         * @maxLength 4000
+         */
+      description?: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      filters?: unknown;
+      /** Tiles from the projects the reader can open. */
+      readonly tiles?: readonly CrossProjectDashboardTile[];
+      /** The user who created the dashboard. */
+      readonly created_by?: CrossProjectDashboardCreator | null;
+      /** When the dashboard was created. */
+      readonly created_at?: string;
+      /**
+         * When the dashboard last changed.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
+    }
+
+    /**
+     * A tile's project and insight never change, so an update carries only its placement and styling.
+     */
+    export interface PatchedCrossProjectDashboardTileUpdate {
+      /** Grid position and size of the tile, keyed by layout size. */
+      layouts?: unknown;
+      /**
+         * Optional color applied to the tile.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /** Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected. */
+      filters_overrides?: unknown;
     }
 
     /**
@@ -82533,7 +82841,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
@@ -86544,7 +86852,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -89289,11 +89597,11 @@ export namespace Schemas {
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -90895,6 +91203,38 @@ export namespace Schemas {
          * @maximum 365
          */
       horizon_days?: number;
+    }
+
+    /**
+     * * `dismissed` - Dismissed
+     * * `accepted` - Accepted
+     */
+    export type TurnSuggestionResolutionEnum = typeof TurnSuggestionResolutionEnum[keyof typeof TurnSuggestionResolutionEnum];
+
+
+    export const TurnSuggestionResolutionEnum = {
+      Dismissed: 'dismissed',
+      Accepted: 'accepted',
+    } as const;
+
+    export interface ResolveTurnSuggestion {
+      /** ID of the PostHog AI conversation (task) the suggestion card belongs to. */
+      task_id: string;
+      /**
+         * Zero-based index of the conversation turn the suggestion card was shown under.
+         * @minimum 0
+         */
+      turn_index: number;
+      /** What the user did with the card: `dismissed` mutes suggestions for the rest of the conversation, `accepted` means the offered scout, notebook, alert or subscription was created.
+       *
+       * * `dismissed` - Dismissed
+       * * `accepted` - Accepted */
+      resolution: TurnSuggestionResolutionEnum;
+    }
+
+    export interface ResolveTurnSuggestionResponse {
+      /** Whether a suggestion card existed for that turn and this call recorded its outcome. A card keeps the first outcome recorded for it. */
+      recorded: boolean;
     }
 
     /**
@@ -95684,9 +96024,9 @@ export namespace Schemas {
     }
 
     export interface SignalReportsForYouResponse {
-      /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+      /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
       results: SignalReportList[];
-      /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+      /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
       count: number;
     }
 
@@ -105822,6 +106162,16 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface TurnSuggestionState {
+      /** Whether the user dismissed a suggestion card in this conversation, which stops further cards. */
+      muted: boolean;
+      /**
+         * Zero-based indexes of the turns whose suggestion card the user already dismissed or accepted.
+         * @items.minimum 0
+         */
+      resolved_turns: number[];
+    }
+
     export interface TwoFactorStatus {
       /** Whether the user has any 2FA method enabled. */
       is_enabled: boolean;
@@ -111877,6 +112227,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CrossProjectDashboardsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CrossProjectDashboardsTilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -112565,6 +112937,7 @@ export namespace Schemas {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -112669,6 +113042,7 @@ export namespace Schemas {
 
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
+      CrossProjectDashboard: 'CrossProjectDashboard',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -112759,6 +113133,7 @@ export namespace Schemas {
 
     /**
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -112851,6 +113226,7 @@ export namespace Schemas {
 
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
+      CrossProjectDashboard: 'CrossProjectDashboard',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -119659,6 +120035,18 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsGithubAssigneesRetrieveParams = {
+    /**
+     * Repository name, or owner/name, whose assignable users to list.
+     * @minLength 1
+     */
+    repository: string;
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -119720,6 +120108,37 @@ export namespace Schemas {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsGitlabMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsJiraAssignableUsersRetrieveParams = {
+    /**
+     * Jira project key whose assignable users to list.
+     * @minLength 1
+     */
+    project_key: string;
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    /**
+     * Linear team ID whose members to list.
+     * @minLength 1
+     */
+    team_id: string;
     };
 
     export type IntegrationsUsersRetrieveParams = {
@@ -122363,6 +122782,10 @@ export namespace Schemas {
 
     export type SignalsReportsForYouRetrieveParams = {
     /**
+     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
+     */
+    include_unowned?: boolean;
+    /**
      * How many of the top reports to return, 1 to 20. Defaults to 5.
      * @minimum 1
      * @maximum 20
@@ -123724,6 +124147,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type TurnSuggestionsStateRetrieveParams = {
+    /**
+     * ID of the PostHog AI conversation (task) to read suggestion outcomes for.
+     */
+    task_id: string;
     };
 
     export type UploadedMediaListParams = {

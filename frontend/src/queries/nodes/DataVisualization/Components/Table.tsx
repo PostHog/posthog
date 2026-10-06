@@ -12,7 +12,7 @@ import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { LoadNext } from '../../DataNode/LoadNext'
@@ -23,9 +23,9 @@ import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dat
 import { ColumnScalar } from '../types'
 
 interface TableProps {
-    query: DataVisualizationNode
+    query: VisualizationNode
     uniqueKey: string | number | undefined
-    context: QueryContext<DataVisualizationNode> | undefined
+    context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
 }
@@ -53,8 +53,8 @@ function formatColumnTitle(title: string): React.ReactNode {
 function getDisplayedColumnTitle(
     columnName: string,
     label: string | JSX.Element | undefined,
-    query: DataVisualizationNode,
-    context: QueryContext<DataVisualizationNode> | undefined
+    query: VisualizationNode,
+    context: QueryContext<VisualizationNode> | undefined
 ): React.ReactNode {
     const { title } = renderColumnMeta(columnName, query, context)
     return label || title || columnName
