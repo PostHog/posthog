@@ -75,12 +75,14 @@ def _backfill_track(ctx: EvalContext, track: TrackDefinition) -> bool:
         if not evaluation.complete:
             state = dict(current.state or {})
             state["checkpoint"] = evaluation.checkpoint
+            state["backfill_pending"] = True
             persist_progress(current, current.progress_value, current.current_stage, state, bump_last_computed_at=False)
             return True
         value = max(evaluation.value, current.progress_value)
         stage = track.stage_for_value(value, None)
         seeded_at = timezone.now().isoformat()
         state = dict(current.state or {})
+        state.pop("backfill_pending", None)
         unlocked_stages = dict(state.get("unlocked_stages", {}))
         for unlocked_stage in range(1, stage + 1):
             unlocked_stages.setdefault(str(unlocked_stage), seeded_at)

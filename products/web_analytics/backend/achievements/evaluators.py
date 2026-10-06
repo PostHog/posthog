@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
@@ -287,7 +288,12 @@ def _add_conversion_counts(
             query.select[0],
             *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
         ]
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="web_achievements_conversions",
+            settings=HogQLGlobalSettings(timeout_overflow_mode="throw", read_overflow_mode="throw"),
+        )
         for row in response.results or []:
             day_counts = chunk_daily.setdefault(row[0].isoformat(), [0] * len(actions))
             for index, value in enumerate(row[1:]):
@@ -363,6 +369,8 @@ def _advance_conversion_bootstrap(
             chunk_hours=chunk_hours,
         )
 
+    if bootstrap.phase == "catchup":
+        return None
     if bootstrap.created_until < until:
         return ConversionBootstrap(
             next_start=window_start,
@@ -398,6 +406,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
         daily = {}
 
     started_bootstrap = False
+    completed_through = until
     with achievement_query_scope(ctx.team.id):
         if bootstrap is None:
             earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK) if since is not None else window_start
@@ -414,6 +423,8 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                 )
                 started_bootstrap = True
         if bootstrap is not None and not started_bootstrap:
+            if bootstrap.phase == "catchup":
+                completed_through = bootstrap.created_until
             bootstrap = _advance_conversion_bootstrap(ctx, actions, daily, bootstrap, window_start, until)
 
     oldest_kept_day = window_start.date().isoformat()
@@ -430,7 +441,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
             "chunk_hours": bootstrap.chunk_hours,
         }
     else:
-        checkpoint["counted_through"] = until.isoformat()
+        checkpoint["counted_through"] = completed_through.isoformat()
     return TrackEvaluation(
         value=max(len(actions), max(per_action_totals, default=0)),
         checkpoint=checkpoint,

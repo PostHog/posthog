@@ -67,6 +67,52 @@ class TestBackfill(BaseTest):
         self.assertEqual(progress.current_stage, 0)
         self.assertEqual(progress.state["checkpoint"], checkpoint)
 
+    def test_partial_backfill_finishes_without_celebrations_then_allows_new_unlocks(self) -> None:
+        track = TRACKS[TrackKey.CONVERSIONS]
+        ctx = EvalContext(team=self.team, user=None, today=date.today(), arm=None)
+        partial_checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-09T00:00:00+00:00"}}
+        next_checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-10T00:00:00+00:00"}}
+        completed_checkpoint: dict[str, object] = {"counted_through": "2026-01-10T00:00:00+00:00"}
+        with patch.object(
+            backfill,
+            "evaluate_track",
+            return_value=TrackEvaluation(value=3, checkpoint=partial_checkpoint, complete=False),
+        ):
+            self.assertTrue(backfill._backfill_track(ctx, track))
+
+        with (
+            patch.object(
+                tasks,
+                "evaluate_track",
+                side_effect=[
+                    TrackEvaluation(value=3, checkpoint=next_checkpoint, complete=False),
+                    TrackEvaluation(value=3, checkpoint=completed_checkpoint),
+                ],
+            ),
+            patch.object(tasks, "_send_unlock_notifications") as notify,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                tasks._recompute_track(ctx, track)
+            notify.assert_not_called()
+            progress = tasks.get_or_create_progress(ctx, track)
+            self.assertTrue(progress.state["backfill_pending"])
+
+            with self.captureOnCommitCallbacks(execute=True):
+                tasks._recompute_track(ctx, track)
+            notify.assert_not_called()
+
+            progress = tasks.get_or_create_progress(ctx, track)
+            self.assertEqual(progress.current_stage, 2)
+            self.assertEqual(sorted(progress.state["unlocked_stages"]), ["1", "2"])
+            self.assertEqual(progress.state["pending_celebrations"], [])
+            self.assertNotIn("backfill_pending", progress.state)
+
+            with self.captureOnCommitCallbacks(execute=True):
+                tasks._apply_progress(ctx, track, progress, TrackEvaluation(value=5, checkpoint=completed_checkpoint))
+            notify.assert_called_once()
+        progress.refresh_from_db()
+        self.assertEqual(progress.state["pending_celebrations"], [3])
+
     @parameterized.expand([("incomplete", False), ("complete", True)])
     def test_backfill_does_not_overwrite_a_newer_conversion_checkpoint(self, _name: str, complete: bool) -> None:
         track = TRACKS[TrackKey.CONVERSIONS]

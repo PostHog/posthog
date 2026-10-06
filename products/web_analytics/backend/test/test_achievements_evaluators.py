@@ -178,6 +178,9 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
         def fail_full_window_once(*args: object, **kwargs: object):
             nonlocal attempts
+            settings = kwargs["settings"]
+            self.assertEqual(settings.timeout_overflow_mode, "throw")
+            self.assertEqual(settings.read_overflow_mode, "throw")
             attempts += 1
             if attempts == 1 or (catchup_fails and attempts == 4):
                 raise failure
@@ -202,12 +205,13 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             flush_persons_and_events()
             saw_catchup_checkpoint = False
             saw_tail_checkpoint = False
-            with patch(
-                "products.web_analytics.backend.achievements.evaluators.timezone.now",
-                return_value=first_now + timedelta(hours=2),
-            ):
-                final = first
-                for _ in range(5):
+            final = first
+            catchup_cutoff = None
+            for sweep in range(5):
+                with patch(
+                    "products.web_analytics.backend.achievements.evaluators.timezone.now",
+                    return_value=first_now + timedelta(hours=2, minutes=5 * sweep),
+                ):
                     assert final.checkpoint is not None
                     final = evaluate_conversions(
                         self._ctx(),
@@ -226,6 +230,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
                         bootstrap = final.checkpoint["bootstrap"]
                         assert isinstance(bootstrap, dict)
                         self.assertEqual(bootstrap["phase"], "catchup")
+                        catchup_cutoff = bootstrap["created_until"]
                         saw_catchup_checkpoint = True
                     if final.complete:
                         break
@@ -237,6 +242,8 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         assert final.checkpoint is not None
         self.assertIn("counted_through", final.checkpoint)
         self.assertNotIn("bootstrap", final.checkpoint)
+        if catchup_fails:
+            self.assertEqual(final.checkpoint["counted_through"], catchup_cutoff)
 
         self._pay_click(
             timestamp=first_now + timedelta(hours=2),
