@@ -100,6 +100,9 @@ export interface mcpHintLogicActions {
             | 'surveys.create'
             | 'workflows.create'
     }
+    keepHintOpen: (toastId: string) => {
+        toastId: string
+    }
     loadTopEvents: () => any
     loadTopEventsFailure: (
         error: string,
@@ -229,6 +232,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             agentKey,
         }),
         reportUseCaseCardShown: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
+        keepHintOpen: (toastId: string) => ({ toastId }),
     }),
     reducers({
         lastShownAt: [
@@ -298,8 +302,9 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             }
 
             try {
-                toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} />, {
-                    toastId: `mcp-hint-${surfaceKey}-${now}`,
+                const toastId = `mcp-hint-${surfaceKey}-${now}`
+                toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} toastId={toastId} />, {
+                    toastId,
                     autoClose: AUTO_DISMISS_MS,
                     closeOnClick: false,
                     draggable: false,
@@ -341,6 +346,10 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         // pinned: analytics event names and properties
         reportAgentOpened: ({ surfaceKey, placement, agentKey }) => {
             posthog.capture('mcp hint agent opened', { surface_key: surfaceKey, placement, agent: agentKey })
+        },
+        keepHintOpen: ({ toastId }) => {
+            // The agent menu renders outside the toast, so hovering it does not pause the auto-dismiss timer.
+            toast.update(toastId, { autoClose: false })
         },
         reportUseCaseCardShown: ({ surfaceKey }) => {
             posthog.capture('mcp use case card shown', { surface_key: surfaceKey })

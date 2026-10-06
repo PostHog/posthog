@@ -74,6 +74,7 @@ export interface AgentPromptButtonProps {
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
     menuClassName?: string
+    onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
@@ -276,6 +277,7 @@ export function AgentPromptButton({
     agentSelectionMode = 'select',
     labelMode = 'action',
     menuClassName,
+    onOpenChange,
     size = 'default',
     variant = 'default',
     defaultOpen = false,
@@ -347,7 +349,13 @@ export function AgentPromptButton({
     }
 
     return (
-        <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenu
+            open={open}
+            onOpenChange={(nextOpen) => {
+                setOpen(nextOpen)
+                onOpenChange?.(nextOpen)
+            }}
+        >
             <QuillButtonGroup>
                 <QuillButton
                     variant={variant}

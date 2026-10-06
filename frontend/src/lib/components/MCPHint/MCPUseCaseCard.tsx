@@ -7,7 +7,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
-import { MCPAgentButton } from './MCPAgentButton'
+import { MCPHintActions } from './MCPHintActions'
 import { mcpHintLogic } from './mcpHintLogic'
 import { getSurfacePrompts, type SurfaceKey } from './prompts'
 
@@ -96,7 +96,7 @@ export function MCPUseCaseCard({
                 </ul>
             )}
             <div className="pt-1">
-                <MCPAgentButton surfaceKey={surfaceKey} example={examples[0]} placement="card" />
+                <MCPHintActions surfaceKey={surfaceKey} example={examples[0]} placement="card" />
             </div>
         </div>
     )
