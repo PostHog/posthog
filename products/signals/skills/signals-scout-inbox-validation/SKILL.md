@@ -179,7 +179,17 @@ Fix confirmations are deliberately memory-only: a "it worked" finding per merged
 
 ### Secondary: dismissed-but-escalating (strictly gated)
 
-Dismissal rationale is readable: `inbox-reports-retrieve` returns `dismissal_reason` and `dismissal_note`, so you can tell "dismissed as already fixed" from "dismissed as not worth it". Read it, then respect the human's call either way and never relitigate a dismissal. The dismissal _time_ is still not readable: a suppressed report's `updated_at` bumps whenever new matching signals arrive, so a fresh `updated_at` means fresh activity on a dismissed topic, not a recent dismissal. The one exception to leaving these alone: `inbox-reports-list {"status": "suppressed", "ordering": "-updated_at", "limit": 10}` — a suppressed report with fresh activity whose underlying entity is now **escalated materially above its report-era baseline** (≥ 2× the rate the report originally described, at meaningful absolute volume, measured the same way as a validation probe). That's new information the dismisser didn't have, whenever they dismissed. Author at most one report per run, P3, explicitly noting the report was dismissed and what changed since (cite the dismissed report's id in an `inbox` evidence entry). Anything below that bar: leave dismissed reports alone.
+Dismissal rationale is readable: `inbox-reports-retrieve` returns `dismissal_reason` and `dismissal_note`, so you can tell "dismissed as already fixed" from "dismissed as not worth it". Read it, then respect the human's call either way and never relitigate a dismissal. The dismissal _time_ is readable too: it is the `created_at` of the newest `dismissal` artefact in `inbox-report-artefacts-list`. `updated_at` does not tell you the dismissal time.
+
+A fresh `updated_at` is not evidence of fresh activity. A new matching signal bumps it, but so does a title or summary edit, a status change, an approval, and other write paths that add only artefacts. Use `updated_at` only to pick which suppressed reports to inspect. Never treat it as a sign that the issue recurs.
+
+The one exception to leaving these alone: `inbox-reports-list {"status": "suppressed", "ordering": "-updated_at", "limit": 10}` — a suppressed report whose underlying entity is now **escalated materially above its report-era baseline** (≥ 2× the rate the report originally described, at meaningful absolute volume, measured the same way as a validation probe). That's new information the dismisser didn't have, whenever they dismissed. Before you measure the escalation, confirm that the source moved after the dismissal:
+
+1. Read the report's log with `inbox-report-artefacts-list`. Take the dismissal time from the `created_at` of the newest `dismissal` artefact. If the log has no `dismissal` artefact, skip the report, because you cannot tell which activity came after the dismissal. `title_change`, `summary_change`, `note`, `dismissal`, `pull_request`, `task_run`, `check_*` and judgment artefacts are content, workflow, or PR updates. None of them is source evidence.
+2. Require one of these: a new contributing signal with a `signal_ts` after the dismissal time (the signals SQL above, filtered on the report id), or a direct re-probe of the source entity that shows the rate rose after the dismissal time. A rate that was already above 2× before the dismissal and stayed flat since is a rate the human saw and dismissed. It does not pass.
+3. If neither exists, skip the report. Do not measure an escalation on a report whose source stream did not change after the dismissal. If one exists, the 2× report-era bar above still applies. Both must pass.
+
+Worked example: a suppressed report shows `updated_at` from this morning. Its artefact log shows a `summary_change` from this morning and a `dismissal` from two weeks ago. Its newest contributing signal is from three weeks ago, before the dismissal. A re-probe of the error issue shows the same daily rate as the report described. Skip it: an edit moved the timestamp, and the source stayed flat. Author at most one report per run, P3, explicitly noting the report was dismissed and what changed since (cite the dismissed report's id in an `inbox` evidence entry). Anything below that bar: leave dismissed reports alone.
 
 ### Close out
 
@@ -210,7 +220,7 @@ Direct calls (read-only):
 
 Reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
-- `inbox-report-artefacts-list` — the original report's artefact log: its routed `suggested_reviewers` (reviewer precedent for the failed-validation report) and its `related_to` links (the recurrence the pipeline filed against it).
+- `inbox-report-artefacts-list` — the original report's artefact log: its routed `suggested_reviewers` (reviewer precedent for the failed-validation report) and its `related_to` links (the recurrence the pipeline filed against it), and, for a suppressed report, the dismissal time and which recent updates were edits rather than source activity.
 - `scout-members-list` — the in-run roster for routing `suggested_reviewers` to the fix's author / the original report's reviewer.
 
 Writes:
