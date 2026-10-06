@@ -66,7 +66,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Linode",
     "Maxio",
     "Metriport",
-    "Mono",
     "OpenRouter",
     "Roark",
     "ScaleAI",

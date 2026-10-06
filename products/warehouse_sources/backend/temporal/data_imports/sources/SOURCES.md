@@ -536,6 +536,7 @@ the row lists both.
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
+| mono                             | HTTP                        | requests                                                        | ✅                          |
 | monte_carlo                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | motherduck                       | DB protocol                 | duckdb (MotherDuck `md:` connection)                            | ➖                          |
 | motion                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1269,7 +1270,6 @@ doesn't conflict with concurrent PRs.
 - moesif
 - monaco
 - moneybird
-- mono
 - moodle
 - msg91
 - mycase
