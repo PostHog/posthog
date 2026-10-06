@@ -11078,6 +11078,11 @@ class BIConfig(BaseModel):
     )
     chartType: ChartDisplayType
     columns: list[BIField]
+    dateField: BIField | None = Field(
+        default=None,
+        description="Column that receives the worksheet and dashboard date range.",
+    )
+    dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
     rows: list[BIField]

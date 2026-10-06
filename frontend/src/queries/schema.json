@@ -6155,6 +6155,20 @@
                     },
                     "type": "array"
                 },
+                "dateField": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BIField"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Column that receives the worksheet and dashboard date range."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
                 "filters": {
                     "items": {
                         "$ref": "#/definitions/BIFilter"
