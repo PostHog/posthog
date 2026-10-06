@@ -16,7 +16,7 @@ use super::shard::shards;
 
 /// The intake rejects a personal API token, so the import takes the project write key. That key is
 /// already public-facing, which keeps a long unattended run off the user's personal credential.
-const PROJECT_KEY_VAR: &str = "POSTHOG_PROJECT_API_KEY";
+pub const PROJECT_KEY_VAR: &str = "POSTHOG_PROJECT_API_KEY";
 
 const MAX_ATTEMPTS: u32 = 8;
 

@@ -45,6 +45,7 @@ use super::config::LokiImportConfig;
 use super::loki::{LokiAuth, LokiClient};
 use super::mapping::Mapper;
 use super::plan::{render, RunPlan};
+use super::project::{check_login_matches_target, login_project_token};
 use super::retention::{assess, project_retention_days, Expiry};
 
 /// How many records a dry run pulls to prove the mapping. Large enough that a rule matching a
@@ -72,6 +73,14 @@ impl ImportSource {
                     anyhow::anyhow!("cannot read {}: {error}", config.display())
                 })?;
                 let parsed = LokiImportConfig::parse(&text)?;
+
+                let target_key = std::env::var(super::run::PROJECT_KEY_VAR)
+                    .ok()
+                    .filter(|key| !key.is_empty());
+                check_login_matches_target(
+                    login_project_token().as_deref(),
+                    target_key.as_deref(),
+                )?;
 
                 let retention_days = project_retention_days();
                 let expiry = assess(

@@ -27,6 +27,10 @@ no extra setting.
 personal token, and the project key is already public-facing, so a long unattended run never holds
 the operator's own credential.
 
+Log in to the same project that `POSTHOG_PROJECT_API_KEY` belongs to. The retention and historical
+import checks below read the logged-in project, so the import stops before sending anything when
+the two projects differ.
+
 Always run `--dry-run` first. It sizes the job and reports how many sampled records each extraction
 rule actually matched. A rule that matches nothing reports `NOT FOUND`, which is the only warning
 you get before a run that would otherwise take hours and produce unusable data.

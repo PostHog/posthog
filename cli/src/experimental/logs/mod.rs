@@ -6,6 +6,7 @@ pub mod emit;
 pub mod loki;
 pub mod mapping;
 pub mod plan;
+pub mod project;
 pub mod retention;
 pub mod run;
 pub mod send;
