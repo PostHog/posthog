@@ -255,11 +255,10 @@ describe('EmailService with local SES', () => {
             ],
             ['M7: unsupported provider fails', 'unsupported', 'Email delivery mode not supported'],
         ])('%s', async (_name, provider, error) => {
-            await setProvider(provider!)
+            await setProvider(provider)
 
             const result = await service.executeSendEmail(invocation)
 
-            const success = error === undefined
             expect(result.finished).toBe(true)
             expect(result.error).toBe(error)
             expect(result.logs).toEqual(
@@ -267,13 +266,11 @@ describe('EmailService with local SES', () => {
             )
             expect(result.invocation.queueParameters).toBeUndefined()
             expect(result.invocation.queueScheduledAt).toBeUndefined()
-            expect(result.invocation.state.vmState?.stack).toEqual([{ success }])
-            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(
-                success ? ['email_sent', 'email_untracked'] : ['email_failed']
-            )
-            expect(result.messageAssets).toHaveLength(success ? 1 : 0)
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+            expect(result.messageAssets).toHaveLength(0)
             expect(result.capturedPostHogEvents).toEqual([
-                expect.objectContaining({ event: success ? '$workflows_email_sent' : '$workflows_email_failed' }),
+                expect.objectContaining({ event: '$workflows_email_failed' }),
             ])
             expect(ses.requests).toEqual([])
             expect(await ses.getEmails()).toEqual([])
