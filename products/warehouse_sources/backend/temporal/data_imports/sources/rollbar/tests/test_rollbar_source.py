@@ -36,6 +36,15 @@ class TestRollbarSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
 
+    def test_retryable_errors_match_exhausted_connection_retry(self):
+        observed_error = (
+            "HTTPSConnectionPool(host='api.rollbar.com', port=443): Max retries exceeded with "
+            'url: /api/1/instances?limit=1000 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+            "(host='api.rollbar.com', port=443): Read timed out. (read timeout=60)\"))"
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 

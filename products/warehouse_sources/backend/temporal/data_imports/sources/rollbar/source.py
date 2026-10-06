@@ -57,6 +57,14 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
             "403 Client Error: Forbidden for url: https://api.rollbar.com": "Rollbar denied access. Please check that your project access token has the read scope.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_session` uses `make_tracked_session`, whose `DEFAULT_RETRY` already retries a
+        # dropped connection or read timeout before `fetch`'s own tenacity retry re-raises once
+        # that budget is exhausted too. urllib3 wraps that as "... Max retries exceeded with
+        # url: ...". Temporal then retries the whole activity, so the failure is transient and
+        # self-recovering, not a bug to report.
+        return {"Max retries exceeded with url"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
