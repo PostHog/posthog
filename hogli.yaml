@@ -1294,3 +1294,8 @@ environment:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
         hidden: true
+
+clickhouse_schema:
+    clickhouse:schema:
+        bin_script: clickhouse-schema
+        description: Plan or apply the declarative ClickHouse schema explicitly
