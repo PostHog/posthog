@@ -107,9 +107,20 @@ CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
 # window, not oldest first across the queue.
 CLAIM_WINDOW_TEAMS = 100
 
-# Candidates one claim reads per window team, oldest first, before the run gates.
+# Candidates one claim reads per window team and scan round, oldest first.
 # The effective depth is never below the claim's LIMIT, so one team can fill a claim.
 CLAIM_WINDOW_TEAM_DEPTH = 50
+
+# Scan rounds per window team. A round that finds candidates held by a run gate
+# makes the next round read past those runs, so gated batches cannot fill the depth
+# and hide the open ones behind them. The cap bounds the cost: a team with gated
+# candidates deeper than rounds x depth waits until a gate clears.
+CLAIM_WINDOW_GATE_ROUNDS = 5
+
+# Full windows one claim call may read when they give no batch, before it returns
+# empty. Without this, each window of teams with nothing open costs the consumer one
+# poll interval. The call also stops after one turn over all teams.
+CLAIM_MAX_EMPTY_WINDOWS = 20
 
 _MAX_TEAM_ID = 2**63 - 1
 
@@ -421,8 +432,8 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
 def _claim_window_sql(sync_type_scope: str = "") -> str:
     """CTEs that end in ``narrow``: the gated, fairness-ranked ``(id, created_at)`` claim window.
 
-    The gates are evaluated once per group and once per run, never once per
-    candidate batch. A per-batch correlated probe is only cheap while the
+    The gates are evaluated once per group and once per scanned run, never once
+    per candidate batch. A per-batch correlated probe is only cheap while the
     planner answers it from the partial indexes. On a hot daily partition
     those indexes churn and bloat, and after an analyze the planner can pick
     ``sb_run_uuid_idx``, ``sb_run_uuid_bi_idx`` or ``sb_team_schema_idx``
@@ -433,16 +444,18 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
     Each gate keeps the semantics of the per-batch form:
 
     - ``closed_groups``: a group with an 'executing' batch is not claimable,
-      and neither is a group with a live lease of another owner. The first
-      half is one scan of the executing set, which only ``sb_schema_busy_idx``
-      answers cheaply.
-    - ``open_runs``: one ``sb_run_gate_idx`` probe per candidate run. A run
-      with a 'failed' batch is not claimable. ``first_blocked_index`` is the
-      lowest batch_index that is 'executing' or 'waiting_retry' inside its
-      backoff. "No such batch earlier than mine" is the same as "my
-      batch_index <= that minimum". The probe is an aggregate in a LATERAL,
-      so the planner cannot flatten it into an anti-join whose hash side is
-      every failed batch in the pruning window.
+      and neither is a group with a live lease of another owner. Only the
+      groups of the window's teams are read, so the set stays small however
+      many groups the fleet holds, and the per-team filter is an array
+      comparison that does not depend on a hashed sub-plan fitting in
+      ``work_mem``.
+    - ``gates``: one ``sb_run_gate_idx`` probe per scanned run. A run with a
+      'failed' batch is not claimable. ``first_blocked_index`` is the lowest
+      batch_index that is 'executing' or 'waiting_retry' inside its backoff.
+      "No such batch earlier than mine" is the same as "my batch_index <=
+      that minimum". The probe is an aggregate in a LATERAL, so the planner
+      cannot flatten it into an anti-join whose hash side is every failed
+      batch in the pruning window.
 
     The fairness ranking then runs over the gated rows only, which is the set
     the per-batch form ranked. Per team, oldest first; round-robin across
@@ -457,12 +470,19 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
       after ``%(team_cursor)s``, wraps at the highest team, and stops after
       ``CLAIM_WINDOW_TEAMS`` teams or one full turn. The row with
       ``is_team = false`` only marks the wrap.
-    - ``claimable``: per window team, the oldest candidates up to
-      ``CLAIM_WINDOW_TEAM_DEPTH`` (or the LIMIT, if larger). The closed-group
-      filter is inside this scan, so a deep backlog behind an executing batch
-      cannot fill the depth and hide the other groups of the team. It is
-      ``NOT IN`` on purpose: the planner hashes ``closed_groups`` once, where
-      a correlated ``NOT EXISTS`` scans it for every row.
+    - ``team_scan``: per window team, rounds of ``scanned`` then ``gates``.
+      ``scanned`` reads the oldest candidates up to ``CLAIM_WINDOW_TEAM_DEPTH``
+      (or the LIMIT, if larger). The closed-group filter is inside the scan,
+      so a deep backlog behind an executing batch cannot fill the depth and
+      hide the other groups of the team. The run gates cannot be a filter of
+      the scan without a probe per batch, so they work in rounds: a round
+      that finds held batches records their runs in ``gated_runs`` and
+      ``gated_after`` (-1 for a failed run, else the blocked index), and the
+      next round reads past exactly those batches. A team is done when a
+      round finds nothing new to skip or has enough open batches for the
+      LIMIT, or after ``CLAIM_WINDOW_GATE_ROUNDS`` rounds. Only the open
+      batches of the last round leave the scan, so the skip list never
+      decides what is claimable; the gates of that round do.
 
     When the queue holds no more than ``CLAIM_WINDOW_TEAMS`` teams and no team
     exceeds the depth, the window is the whole claimable set and the result is
@@ -470,11 +490,11 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
 
     - A claim ranks the teams of its window only. A team outside the window
       waits for the rotation, even if its batch is older.
-    - A team's candidates past the depth stay unseen until earlier ones leave
-      the queue. The run gates apply after the depth, so a team whose first
-      candidates all sit in runs that a gate holds gives nothing until the
-      gate clears (the backoff ends, or the reconcile sweep drains the failed
-      run).
+    - A team's open candidates past the depth stay unseen until earlier ones
+      leave the queue.
+    - A team whose held candidates run deeper than rounds x depth gives
+      nothing until a gate clears (the backoff ends, or the reconcile sweep
+      drains the failed run).
 
     Two costs stay outside the bound. The sync-type scope is a heap filter on
     the walk, so a fleet whose scope matches few of the claimable rows reads
@@ -484,17 +504,6 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
     """
     candidate = _claim_candidate_predicate_sql(sync_type_scope)
     return f"""
-        closed_groups AS MATERIALIZED (
-            SELECT b_busy.team_id, b_busy.schema_id
-            FROM {BATCH_TABLE} b_busy
-            WHERE b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b_busy.latest_state = 'executing'
-            UNION
-            SELECT l_live.team_id, l_live.schema_id
-            FROM {LEASE_TABLE} l_live
-            WHERE l_live.expires_at > now()
-                AND l_live.owner_token != %(owner)s
-        ),
         window_teams AS MATERIALIZED (
             WITH RECURSIVE walk (team_id, n, wrapped, is_team) AS (
                 SELECT %(team_cursor)s::bigint, 0, false, false
@@ -520,51 +529,118 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
                 WHERE w.n < {CLAIM_WINDOW_TEAMS}
                     AND (seek.team_id IS NOT NULL OR NOT w.wrapped)
             )
-            SELECT walk.team_id, walk.n FROM walk WHERE walk.is_team
+            SELECT walk.team_id, walk.n, walk.wrapped FROM walk WHERE walk.is_team
         ),
-        claimable AS MATERIALIZED (
-            SELECT c.id, c.created_at, c.batch_index, c.team_id, c.schema_id, c.run_uuid
-            FROM window_teams t
-            CROSS JOIN LATERAL (
-                SELECT b.id, b.created_at, b.batch_index, b.team_id, b.schema_id, b.run_uuid
-                FROM {BATCH_TABLE} b
-                WHERE {candidate}
-                    AND b.team_id = t.team_id
-                    AND (b.team_id, b.schema_id) NOT IN (SELECT g.team_id, g.schema_id FROM closed_groups g)
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                LIMIT GREATEST(%(limit)s, {CLAIM_WINDOW_TEAM_DEPTH})
-            ) c
+        closed_groups AS MATERIALIZED (
+            SELECT b_busy.team_id, b_busy.schema_id
+            FROM {BATCH_TABLE} b_busy
+            WHERE b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b_busy.latest_state = 'executing'
+                AND b_busy.team_id = ANY (ARRAY(SELECT t.team_id FROM window_teams t))
+            UNION
+            SELECT l_live.team_id, l_live.schema_id
+            FROM {LEASE_TABLE} l_live
+            WHERE l_live.expires_at > now()
+                AND l_live.owner_token != %(owner)s
+                AND l_live.team_id = ANY (ARRAY(SELECT t.team_id FROM window_teams t))
         ),
-        open_runs AS MATERIALIZED (
-            SELECT r.run_uuid, gate.first_blocked_index
-            FROM (SELECT DISTINCT c.run_uuid FROM claimable c) r
-            CROSS JOIN LATERAL (
+        team_scan AS MATERIALIZED (
+            WITH RECURSIVE scan (
+                team_id, round, gated_runs, gated_after, done, ids, created_ats, batch_indexes
+            ) AS (
                 SELECT
-                    bool_or(b_gate.latest_state = 'failed') AS has_failed,
-                    min(b_gate.batch_index) FILTER (
-                        WHERE b_gate.latest_state = 'executing'
-                            OR (
-                                b_gate.latest_state = 'waiting_retry'
-                                AND b_gate.state_changed_at > now() - make_interval(
-                                    secs => %(backoff)s * GREATEST(b_gate.latest_attempt, 1)
-                                )
+                    t.team_id, 0, '{{}}'::varchar[], '{{}}'::int[], false,
+                    '{{}}'::uuid[], '{{}}'::timestamptz[], '{{}}'::int[]
+                FROM window_teams t
+                UNION ALL
+                SELECT
+                    s.team_id,
+                    s.round + 1,
+                    s.gated_runs || r.new_runs,
+                    s.gated_after || r.new_after,
+                    cardinality(r.new_runs) = 0 OR cardinality(r.ids) >= %(limit)s,
+                    r.ids,
+                    r.created_ats,
+                    r.batch_indexes
+                FROM scan s
+                CROSS JOIN LATERAL (
+                    WITH scanned AS MATERIALIZED (
+                        SELECT b.id, b.created_at, b.batch_index, b.run_uuid
+                        FROM {BATCH_TABLE} b
+                        WHERE {candidate}
+                            AND b.team_id = s.team_id
+                            AND b.schema_id <> ALL (ARRAY(
+                                SELECT g.schema_id FROM closed_groups g WHERE g.team_id = s.team_id
+                            ))
+                            AND (
+                                b.run_uuid <> ALL (s.gated_runs)
+                                OR b.batch_index <= (s.gated_after)[array_position(s.gated_runs, b.run_uuid)]
                             )
-                    ) AS first_blocked_index
-                FROM {BATCH_TABLE} b_gate
-                WHERE b_gate.run_uuid = r.run_uuid
-                    AND b_gate.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND b_gate.latest_state IN ('executing', 'waiting_retry', 'failed')
-            ) gate
-            WHERE gate.has_failed IS NOT TRUE
+                        ORDER BY b.created_at ASC, b.batch_index ASC
+                        LIMIT GREATEST(%(limit)s, {CLAIM_WINDOW_TEAM_DEPTH})
+                    ),
+                    gates AS MATERIALIZED (
+                        SELECT sr.run_uuid, gate.has_failed, gate.first_blocked_index
+                        FROM (SELECT DISTINCT sc.run_uuid FROM scanned sc) sr
+                        CROSS JOIN LATERAL (
+                            SELECT
+                                bool_or(b_gate.latest_state = 'failed') AS has_failed,
+                                min(b_gate.batch_index) FILTER (
+                                    WHERE b_gate.latest_state = 'executing'
+                                        OR (
+                                            b_gate.latest_state = 'waiting_retry'
+                                            AND b_gate.state_changed_at > now() - make_interval(
+                                                secs => %(backoff)s * GREATEST(b_gate.latest_attempt, 1)
+                                            )
+                                        )
+                                ) AS first_blocked_index
+                            FROM {BATCH_TABLE} b_gate
+                            WHERE b_gate.run_uuid = sr.run_uuid
+                                AND b_gate.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND b_gate.latest_state IN ('executing', 'waiting_retry', 'failed')
+                        ) gate
+                    )
+                    SELECT open.ids, open.created_ats, open.batch_indexes, held.new_runs, held.new_after
+                    FROM (
+                        SELECT
+                            COALESCE(array_agg(sc.id), '{{}}'::uuid[]) AS ids,
+                            COALESCE(array_agg(sc.created_at), '{{}}'::timestamptz[]) AS created_ats,
+                            COALESCE(array_agg(sc.batch_index), '{{}}'::int[]) AS batch_indexes
+                        FROM scanned sc
+                        JOIN gates g ON g.run_uuid = sc.run_uuid
+                        WHERE g.has_failed IS NOT TRUE
+                            AND (g.first_blocked_index IS NULL OR sc.batch_index <= g.first_blocked_index)
+                    ) open
+                    CROSS JOIN (
+                        SELECT
+                            COALESCE(array_agg(g.run_uuid), '{{}}'::varchar[]) AS new_runs,
+                            COALESCE(
+                                array_agg(CASE WHEN g.has_failed THEN -1 ELSE g.first_blocked_index END),
+                                '{{}}'::int[]
+                            ) AS new_after
+                        FROM gates g
+                        WHERE g.run_uuid <> ALL (s.gated_runs)
+                            AND EXISTS (
+                                SELECT 1
+                                FROM scanned sc
+                                WHERE sc.run_uuid = g.run_uuid
+                                    AND (g.has_failed OR sc.batch_index > g.first_blocked_index)
+                            )
+                    ) held
+                ) r
+                WHERE NOT s.done AND s.round < {CLAIM_WINDOW_GATE_ROUNDS}
+            )
+            SELECT scan.team_id, scan.ids, scan.created_ats, scan.batch_indexes
+            FROM scan
+            WHERE scan.done OR scan.round = {CLAIM_WINDOW_GATE_ROUNDS}
         ),
         narrow AS MATERIALIZED (
             SELECT c.id, c.created_at
-            FROM claimable c
-            JOIN open_runs r ON r.run_uuid = c.run_uuid
-            WHERE r.first_blocked_index IS NULL OR c.batch_index <= r.first_blocked_index
+            FROM team_scan ts
+            CROSS JOIN LATERAL unnest(ts.ids, ts.created_ats, ts.batch_indexes) AS c (id, created_at, batch_index)
             ORDER BY
                 row_number() OVER (
-                    PARTITION BY c.team_id ORDER BY c.created_at ASC, c.batch_index ASC
+                    PARTITION BY ts.team_id ORDER BY c.created_at ASC, c.batch_index ASC
                 ) ASC,
                 c.created_at ASC,
                 c.batch_index ASC
@@ -867,11 +943,23 @@ class ClaimCursor:
 
     Pods that read the same windows compete for the same groups, so the
     position is spread at random where that costs no fairness: ``None`` makes
-    the first claim start at a random team, and a claim whose window held the
-    whole queue leaves the cursor on a random team of it.
+    the next claim start at a random team, and a claim whose window held the
+    whole queue leaves the cursor on a random team of it. A claim that finds
+    no team with work, or that fails, leaves ``None``.
     """
 
     team_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ClaimedWindow:
+    batches: list[PendingBatch]
+    # None when no team holds a claim candidate.
+    next_team_cursor: int | None
+    # The window held CLAIM_WINDOW_TEAMS teams, so more teams can wait past it.
+    full: bool
+    # The walk passed the highest team and continued from the lowest.
+    wrapped: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -1330,7 +1418,9 @@ class BatchQueue:
 
         ``cursor`` carries the window position between the claims of one
         consumer. Without it every claim starts at the lowest team, which reads
-        the whole queue only while it fits in one window.
+        the whole queue only while it fits in one window. With it, a full
+        window that gives no batch is not the answer: the call reads the next
+        windows, up to ``CLAIM_MAX_EMPTY_WINDOWS`` or one turn over all teams.
 
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
@@ -1379,17 +1469,42 @@ class BatchQueue:
         sync_type_scope, scope_params = sync_type_scope_sql(
             sync_types=sync_types, exclude_sync_types=exclude_sync_types
         )
-        window_sql = _claim_window_sql(sync_type_scope)
+        params = {
+            "limit": limit,
+            "backoff": retry_backoff_base_seconds,
+            "owner": owner_token,
+            "ttl": lease_ttl_seconds,
+            **scope_params,
+        }
         if cursor is None:
-            team_cursor = 0
-        elif cursor.team_id is None:
-            team_cursor = await BatchQueue._random_team_cursor(conn)
-        else:
-            team_cursor = cursor.team_id
+            return (await BatchQueue._claim_window(conn, sync_type_scope, {**params, "team_cursor": 0})).batches
+
+        start = cursor.team_id if cursor.team_id is not None else await BatchQueue._random_team_cursor(conn)
+        # A claim that fails or times out must not come back to the same window forever.
+        cursor.team_id = None
+        position = start
+        wraps = 0
+        for _ in range(CLAIM_MAX_EMPTY_WINDOWS):
+            window = await BatchQueue._claim_window(conn, sync_type_scope, {**params, "team_cursor": position})
+            if window.next_team_cursor is None:
+                # No team holds work. The cursor stays unset, so the next claim picks a new random start.
+                return []
+            position = window.next_team_cursor
+            wraps += window.wrapped
+            full_turn = wraps > 1 or (wraps == 1 and position >= start)
+            if window.batches or not window.full or full_turn:
+                break
+        cursor.team_id = position
+        return window.batches
+
+    @staticmethod
+    async def _claim_window(
+        conn: psycopg.AsyncConnection[Any], sync_type_scope: str, params: dict[str, Any]
+    ) -> _ClaimedWindow:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH {window_sql},
+                WITH {_claim_window_sql(sync_type_scope)},
                 candidates AS MATERIALIZED (
                     SELECT
                         b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
@@ -1421,41 +1536,42 @@ class BatchQueue:
                         WHERE {LEASE_TABLE}.expires_at < now()
                            OR {LEASE_TABLE}.owner_token = excluded.owner_token
                     RETURNING team_id, schema_id
+                ),
+                window_info AS (
+                    SELECT
+                        count(*) >= {CLAIM_WINDOW_TEAMS} AS window_full,
+                        COALESCE(bool_or(t.wrapped), false) AS window_wrapped,
+                        (array_agg(t.team_id ORDER BY t.n DESC))[1] AS last_team_id,
+                        (array_agg(t.team_id ORDER BY random()))[1] AS random_team_id
+                    FROM window_teams t
                 )
-                SELECT w.next_team_cursor, c.*
-                FROM (
-                    SELECT (
-                        SELECT t.team_id
-                        FROM window_teams t
-                        ORDER BY
-                            CASE
-                                WHEN (SELECT count(*) FROM window_teams) < {CLAIM_WINDOW_TEAMS} THEN random()
-                                ELSE -t.n
-                            END
-                        LIMIT 1
-                    ) AS next_team_cursor
-                ) w
+                SELECT
+                    CASE WHEN w.window_full THEN w.last_team_id ELSE w.random_team_id END AS next_team_cursor,
+                    w.window_full,
+                    w.window_wrapped,
+                    c.*
+                FROM window_info w
                 LEFT JOIN (
                     candidates c
                     JOIN claimed ON claimed.team_id = c.team_id AND claimed.schema_id = c.schema_id
                 ) ON true
                 ORDER BY c.created_at ASC, c.batch_index ASC
                 """,
-                {
-                    "limit": limit,
-                    "team_cursor": team_cursor,
-                    "backoff": retry_backoff_base_seconds,
-                    "owner": owner_token,
-                    "ttl": lease_ttl_seconds,
-                    **scope_params,
-                },
+                params,
             )
             rows = await cur.fetchall()
         # The window row is always present; the batch columns are NULL when nothing was claimed.
-        window_ends = [row.pop("next_team_cursor") for row in rows]
-        if cursor is not None:
-            cursor.team_id = window_ends[0] if window_ends[0] is not None else team_cursor
-        return [PendingBatch(**row) for row in rows if row["id"] is not None]
+        next_team_cursor, full, wrapped = None, False, False
+        for row in rows:
+            next_team_cursor = row.pop("next_team_cursor")
+            full = row.pop("window_full")
+            wrapped = row.pop("window_wrapped")
+        return _ClaimedWindow(
+            batches=[PendingBatch(**row) for row in rows if row["id"] is not None],
+            next_team_cursor=next_team_cursor,
+            full=full,
+            wrapped=wrapped,
+        )
 
     @staticmethod
     async def _random_team_cursor(conn: psycopg.AsyncConnection[Any]) -> int:

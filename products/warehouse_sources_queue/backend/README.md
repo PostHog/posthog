@@ -41,8 +41,11 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
   (The old README's `MATERIALIZED` rationale, preventing `pg_try_advisory_lock` from acquiring phantom locks in a `WHERE` clause, no longer applies: there are no advisory locks.)
 - **A bounded claim window**: one claim does not read the whole claimable set.
   It reads the next `CLAIM_WINDOW_TEAMS` teams that hold claimable work, in `team_id` order from the consumer's cursor (`ClaimCursor`), and at most `CLAIM_WINDOW_TEAM_DEPTH` candidates per team (or the claim's limit, if larger).
+  Batches of a closed group (executing, or leased by another pod) do not count toward the depth.
+  Batches held by a run gate do not count either: the scan runs in rounds, and each round reads past the runs that the round before found held, up to `CLAIM_WINDOW_GATE_ROUNDS` rounds.
   Each claim moves the cursor to the end of its window, and the walk wraps, so consecutive claims rotate through every team.
-  A consumer starts at a random team, so pods started together read different windows.
+  A full window that gives no batch does not end the claim call: it reads the next windows, up to `CLAIM_MAX_EMPTY_WINDOWS` or one turn over all teams.
+  A consumer starts at a random team, so pods started together read different windows. A claim that finds no team with work, or that fails, unsets the cursor, and the next claim starts at a new random team.
   While the queue fits in one window, a claim sees all of it and the order is the same as an unbounded scan: round-robin across teams, oldest first.
   During a larger backlog the order is oldest first among the teams of the window, not across the queue, and a team outside the window waits for the rotation.
 - **Async consumer**: single asyncio process that polls every ~2s, groups batches by `(team_id, schema_id)`, processes groups concurrently, batches within a group sequentially.
@@ -85,11 +88,11 @@ Three changes in August 2026 restructured the hot queries after a production loa
 
 A fourth change followed an October 2026 claim stall, after an analyze of the current daily partition:
 
-- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`closed_groups`) and once per run (`open_runs`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`closed_groups`) and once per scanned run (`gates`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
 
 A fifth change followed a backlog that stayed claimable but drained slowly:
 
-- The claim query materialized every claimable batch on every poll, so one claim cost as much as the backlog was deep, and the loaders spent their time in claims while group slots stayed empty. The query now reads a bounded window: a loose index scan over `sb_claimable_idx` finds the next teams with work (one index descent per team and partition), and a per-team scan reads the oldest candidates of those teams only. See "A bounded claim window" above for the ordering rule that comes with it.
+- The claim query materialized every claimable batch on every poll, so one claim cost as much as the backlog was deep, and the loaders spent their time in claims while group slots stayed empty. The query now reads a bounded window: a loose index scan over `sb_claimable_idx` finds the next teams with work (one index descent per team and partition), and a per-team scan reads the oldest candidates of those teams only. See "A bounded claim window" above for the ordering rule that comes with it. The planner can price this statement above `jit_above_cost` although it runs in milliseconds, and JIT compilation then costs more than the statement, so the consumer connections set `jit = off`.
 
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
 The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `_claim_window_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
