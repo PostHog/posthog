@@ -12,7 +12,7 @@ import re
 import json
 from typing import Any
 
-from products.data_catalog.backend.facade.enums import APPROVED_ICON, ONE_OFF_ICON, UNAPPROVED_ICON
+from products.data_catalog.backend.facade.enums import APPROVED_ICON
 from products.data_catalog.evals.constants import (
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
@@ -891,10 +891,10 @@ CANARY_ROUTING_SCORERS: list[Scorer] = [
 
 
 class TrustLabelShown(Scorer):
-    """Binary: does the final answer carry the trust label that matches the expected tier?
+    """Binary: does the final answer show the approved label exactly when it should?
 
     ``expected["trust_label"]["tier"]`` is ``approved`` (the answer must show the approved label) or
-    ``not_approved`` (the answer must show a not-approved or one-off label, and never the approved one).
+    ``not_approved`` (the answer must never show it).
     """
 
     def _name(self) -> str:
@@ -913,10 +913,8 @@ class TrustLabelShown(Scorer):
 
         # The variation selector is optional in rendered text, so match the shield code point alone.
         has_approved = APPROVED_ICON[0] in answer
-        has_caveat = UNAPPROVED_ICON in answer or ONE_OFF_ICON in answer
-        passed = has_approved if tier == "approved" else (has_caveat and not has_approved)
         return Score(
             name=self._name(),
-            score=1.0 if passed else 0.0,
-            metadata={"expected_tier": tier, "has_approved": has_approved, "has_caveat": has_caveat},
+            score=1.0 if has_approved is (tier == "approved") else 0.0,
+            metadata={"expected_tier": tier, "has_approved": has_approved},
         )

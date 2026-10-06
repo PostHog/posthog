@@ -1147,16 +1147,6 @@ describe('exec tool', () => {
             expect(result.indexOf('RUN LABEL')).toBeLessThan(result.indexOf('results'))
         })
 
-        it.each([
-            ['a string result', '| c |\n| 1 |'],
-            ['a formatted table', { results: [[1]], [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: '| c |\n| 1 |' }],
-        ])('labels %s from execute-sql as a one-off', async (_label, sqlResult) => {
-            const exec = createExec([makeMockTool({ name: 'execute-sql', handler: async () => sqlResult })])
-            const result = await exec.handler(mockContext, { command: 'call execute-sql {"query":"select 1"}' })
-            expect(result.startsWith('trust_label: 🔎 **One-off calculation**')).toBe(true)
-            expect(result).toContain('| c |')
-        })
-
         it('leaves other tools alone', async () => {
             const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })

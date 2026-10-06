@@ -80,13 +80,7 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
 
-const EXECUTE_SQL_TOOL_NAME = 'execute-sql'
-const ONE_OFF_TRUST_LABEL = '🔎 **One-off calculation**: derived for this question, not a saved definition'
-
 export function markTrustLevel(toolName: string, result: unknown): unknown {
-    if (toolName === EXECUTE_SQL_TOOL_NAME) {
-        return labelOneOffResult(result)
-    }
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
         return result
     }
@@ -103,24 +97,6 @@ export function markTrustLevel(toolName: string, result: unknown): unknown {
         ...lead,
         ...envelope,
     }
-}
-
-function labelOneOffResult(result: unknown): unknown {
-    const line = `trust_label: ${ONE_OFF_TRUST_LABEL}`
-    if (typeof result === 'string') {
-        return `${line}\n${result}`
-    }
-    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
-        return result
-    }
-    // Text mode returns only the formatted table, so the label has to sit inside it.
-    const record = result as Record<string, unknown>
-    const override = record[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-    if (typeof override === 'string') {
-        record[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY] = `${line}\n${override}`
-    }
-    record.trust_label = ONE_OFF_TRUST_LABEL
-    return record
 }
 
 function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {

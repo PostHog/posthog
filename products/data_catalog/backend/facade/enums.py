@@ -39,7 +39,6 @@ class MetricTrustTier(LabeledStrEnum):
 
 APPROVED_ICON = "\U0001f6e1\ufe0f"
 UNAPPROVED_ICON = "\U0001f4dd"
-ONE_OFF_ICON = "\U0001f50e"
 
 
 class CreatedSource(StrEnum):
