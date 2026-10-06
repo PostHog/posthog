@@ -236,6 +236,14 @@ describe('FeatureFlagSchedule', () => {
             scheduledRollout: 25,
             expectWarning: false,
         },
+        {
+            name: 'covered by a condition on its own aggregation target',
+            currentRollout: 100,
+            currentGroupTypeIndex: 0,
+            scheduledGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: true,
+        },
         { name: 'on a disabled flag', active: false, currentRollout: 100, scheduledRollout: 25, expectWarning: false },
     ]
 

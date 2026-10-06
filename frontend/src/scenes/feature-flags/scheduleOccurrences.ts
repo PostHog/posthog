@@ -30,9 +30,9 @@ export interface ScheduleOccurrence {
     /** Max rollout of the condition this occurrence adds; null for other operations. */
     addedRolloutPercentage: number | null
     /**
-     * True when this occurrence adds a condition on the flag-level target at or below the rollout the
-     * flag already serves to everyone. Such a condition reaches nobody new, so the projected rollout
-     * holds its level. False for every other operation.
+     * True when this occurrence adds a condition on the flag-level target at or below the projected
+     * rollout on that target. The flag does not have to be active. Such a condition reaches nobody new,
+     * so the projected rollout holds its level. False for every other operation.
      */
     rolloutUnchanged: boolean
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
@@ -117,9 +117,10 @@ export function maxUntargetedRolloutPercentage(
 /**
  * What the flag reaches on its own aggregation target.
  *
- * The step line starts at this level. Every projected occurrence also sits on it, so both ends have
- * to come from here. If one end reads across every condition set instead, a targeted set lifts that
- * end alone. The chart then draws a gain or a loss of reach that the flag never makes.
+ * FeatureFlagSchedule passes this value to ScheduleTimeline as the step line's starting level.
+ * expandScheduleOccurrences starts its projected steps from the same value. Both must call this
+ * function. If one of them counted every condition set, a property-filtered set would lift only that
+ * side. The chart would then draw a gain or a loss of reach that the flag never makes.
  */
 export function projectedRolloutPercentage(
     filters: Pick<FeatureFlagFilters, 'groups' | 'aggregation_group_type_index'>

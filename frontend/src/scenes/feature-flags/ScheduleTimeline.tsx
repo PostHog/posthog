@@ -18,8 +18,9 @@ const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
 /**
- * Half the widest step label at the 9px size, which measures about 120 viewBox units, plus headroom
- * for a wider fallback font. Inside this distance from an edge, a centered label leaves the plot.
+ * Half the widest step label from stepLabel, "still 100% (needs approval)", plus headroom for a wider
+ * fallback font. That label measures about 120 viewBox units at the 9px size. Inside this distance
+ * from an edge, a centered label leaves the plot.
  */
 const STEP_LABEL_EDGE_PAD = 65
 
@@ -286,7 +287,7 @@ export function ScheduleTimeline({
                         const blocked = occurrence.needsApproval
                         const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
                         const rollout = occurrence.projected.rolloutPercentage
-                        // One <title> per mark: a second one is never read out.
+                        // A browser shows only the first <title> child as the hover tooltip.
                         const title = markTitle(occurrence)
                         return (
                             <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
