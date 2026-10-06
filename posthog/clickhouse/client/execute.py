@@ -406,7 +406,9 @@ def _query_router_slot(
     if team_id is not None and tags.client_query_id and tags.celery_task_id:
         cancellation_token = build_direct_query_cancellation_token(tags.client_query_id, str(tags.celery_task_id))
         cancellation_key = direct_query_cancellation_key(team_id, cancellation_token)
-    with router.admit(pool=target.pool, query_class=target.query_class, cancellation_key=cancellation_key) as admission:
+    with router.admit(
+        pool=target.pool, query_class=target.query_class, team_id=team_id, cancellation_key=cancellation_key
+    ) as admission:
         yield admission
 
 

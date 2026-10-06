@@ -52,6 +52,13 @@ SLOT_ERRORS_COUNTER = Counter(
     labelnames=["operation"],
 )
 
+# Only refusals carry a team label, so the series count stays bounded by the teams that were refused.
+DROPS_COUNTER = Counter(
+    "posthog_query_router_drops_total",
+    "Queries the query router refused, by team.",
+    labelnames=["pool", "query_class", "team_id"],
+)
+
 WAIT_SECONDS_HISTOGRAM = Histogram(
     "posthog_query_router_wait_seconds",
     "Time an enforced query spent in the query router queue before it was admitted or dropped.",
@@ -406,7 +413,13 @@ class QueryRouter:
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
     def _enter(
-        self, slot: _Slot, *, mode: RouterMode, limits: Mapping[Pool, int], cancellation_key: str | None
+        self,
+        slot: _Slot,
+        *,
+        mode: RouterMode,
+        limits: Mapping[Pool, int],
+        team_id: int | None,
+        cancellation_key: str | None,
     ) -> Admission:
         started_at = self.get_time()
         if mode == RouterMode.ERROR:
@@ -446,11 +459,31 @@ class QueryRouter:
                 waited_ms / 1000
             )
         if decision.outcome in _DROPPED_OUTCOMES:
-            raise ClickHouseAtCapacity(wait=random.randint(*_RETRY_AFTER_SECONDS))
+            retry_after = random.randint(*_RETRY_AFTER_SECONDS)
+            DROPS_COUNTER.labels(
+                pool=slot.pool.value, query_class=_class_label(slot.query_class), team_id=str(team_id or "")
+            ).inc()
+            logger.info(
+                "query_router_dropped",
+                pool=slot.pool.value,
+                query_class=_class_label(slot.query_class),
+                team_id=team_id,
+                outcome=decision.outcome.value,
+                waited_ms=waited_ms,
+                retry_after=retry_after,
+            )
+            raise ClickHouseAtCapacity(wait=retry_after)
         return Admission(outcome=decision.outcome, waited_ms=waited_ms)
 
     @contextmanager
-    def admit(self, *, pool: Pool, query_class: QueryClass, cancellation_key: str | None = None) -> Iterator[Admission]:
+    def admit(
+        self,
+        *,
+        pool: Pool,
+        query_class: QueryClass,
+        team_id: int | None = None,
+        cancellation_key: str | None = None,
+    ) -> Iterator[Admission]:
         """Hold a slot in the pool while the block runs.
 
         Raises ClickHouseAtCapacity when the query is dropped and propagates cancellation.
@@ -463,7 +496,9 @@ class QueryRouter:
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(slot, mode=mode, limits=settings.limits, cancellation_key=cancellation_key)
+        admission = self._enter(
+            slot, mode=mode, limits=settings.limits, team_id=team_id, cancellation_key=cancellation_key
+        )
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
         if holds_slot:

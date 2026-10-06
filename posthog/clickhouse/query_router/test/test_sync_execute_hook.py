@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from redis import Redis
 
 from posthog.schema import QueryStatus
@@ -109,14 +110,17 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         assert _running_slots(self.redis, Pool.OFFLINE) == 0
         assert self.ch_client.log_comment()["query_router_class"] == "background"
 
-    def test_dropped_query_never_takes_a_clickhouse_connection(self) -> None:
+    def test_dropped_query_is_counted_for_its_team_and_takes_no_clickhouse_connection(self) -> None:
         self._enforce_with_a_full_pool()
+        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background", "team_id": "1"})
+        drops_before = REGISTRY.get_sample_value(*drops) or 0.0
 
         with tags_context(kind="celery", id="posthog.tasks.example"):
             with self.assertRaises(ClickHouseAtCapacity):
                 sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
 
         self.client_from_pool.assert_not_called()
+        assert REGISTRY.get_sample_value(*drops) == drops_before + 1
 
     def test_query_admitted_after_a_wait_logs_the_wait(self) -> None:
         # A finished query of half a second shows the pool freeing its slot soon enough for the next query to

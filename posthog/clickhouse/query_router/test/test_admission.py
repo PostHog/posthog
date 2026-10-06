@@ -181,17 +181,20 @@ class TestQueryRouterAdmission(SimpleTestCase):
         for waiter in waiters:
             waiter.finish()
 
-    def test_waiter_is_dropped_after_its_max_wait_and_leaves_the_queue(self) -> None:
+    def test_waiter_is_dropped_after_its_max_wait_and_counted_for_its_team(self) -> None:
+        drops = ("posthog_query_router_drops_total", {"pool": "offline", "query_class": "background", "team_id": "42"})
+        drops_before = _sample_value(*drops)
         self._finish()
         started_at = self.clock.now
         with ExitStack() as held:
             self._hold(held, 1)
             with self.assertRaises(ClickHouseAtCapacity) as dropped:
-                with self._admit(QueryClass.BACKGROUND):
+                with self.router.admit(pool=Pool.OFFLINE, query_class=QueryClass.BACKGROUND, team_id=42):
                     pass
 
         self.assertAlmostEqual(self.clock.now - started_at, MAX_WAIT_SECONDS, places=3)
         assert 3 <= dropped.exception.wait <= 8
+        assert _sample_value(*drops) == drops_before + 1
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
