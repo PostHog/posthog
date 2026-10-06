@@ -222,7 +222,9 @@ acts on it.
   Flag-gated components use the `featureFlags` story parameter
   ([setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md)).
   A story must render the same picture on every run: pin the clock, wait for readiness, and fix
-  the width of self-measuring content ([references/deterministic-stories.md](references/deterministic-stories.md)).
+  the width of self-measuring content. Read
+  [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories)
+  before you write a story that loads data, measures itself, or uses timers, and when a story flakes.
 
 ## Anti-patterns
 

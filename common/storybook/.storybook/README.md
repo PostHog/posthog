@@ -12,7 +12,7 @@ Storybook. Classes already present in the codebase hot-reload fine.
 In CI, Playwright loads each story and takes a light and a dark snapshot.
 Visual review compares them with the baselines in `frontend/snapshots.yml`. A changed picture is approved in the visual review run, and finalizing the run commits the new baselines to the PR.
 
-`test-runner.ts` holds the capture logic and the `testOptions` story parameters. To keep a story from flaking, see [deterministic stories](../../../.agents/skills/writing-ui-components/references/deterministic-stories.md).
+`test-runner.ts` holds the capture logic and the `testOptions` story parameters. To keep a story from flaking, see [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) in the frontend coding conventions.
 
 Uses `"@storybook/test-runner"` see: https://storybook.js.org/docs/writing-tests/test-runner
 
