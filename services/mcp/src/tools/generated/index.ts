@@ -18,6 +18,7 @@ import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as context_layer } from './context_layer'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
+import { GENERATED_TOOLS as cross_project_dashboards } from './cross_project_dashboards'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_catalog } from './data_catalog'
@@ -86,6 +87,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...context_layer,
     ...conversations,
     ...core,
+    ...cross_project_dashboards,
     ...customer_analytics,
     ...dashboards,
     ...data_catalog,

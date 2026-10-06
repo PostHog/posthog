@@ -27359,6 +27359,13 @@
                     },
                     "type": "array"
                 },
+                "searchTabs": {
+                    "description": "Tabs of this item that search lists as their own results",
+                    "items": {
+                        "$ref": "#/definitions/FileSystemSearchTab"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
@@ -27385,6 +27392,28 @@
                 }
             },
             "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemSearchTab": {
+            "additionalProperties": false,
+            "properties": {
+                "flag": {
+                    "type": "string"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "searchKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "href"],
             "type": "object"
         },
         "FileSystemViewLogEntry": {
