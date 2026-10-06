@@ -119,8 +119,8 @@ Masking runs at the same two points as dropping, so new frame records hold
 masked values, and records stored earlier are masked when they are replayed.
 It does not change records that are already in Postgres.
 
-Set `ERROR_TRACKING_MASK_CODE_VARIABLES=false` to turn masking off. When the SDK
-changes its default rules, change `src/core/code_variables.rs` to match.
+Masking has no setting and is always on. When the SDK changes its default
+rules, change `src/core/code_variables.rs` to match.
 
 ## Remote resolution behavior
 

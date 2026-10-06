@@ -890,16 +890,26 @@ async fn stores_masked_code_variables(db: PgPool) {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn masks_code_variables_replayed_from_stored_frames(db: PgPool) {
-    let harness = TestHarness::new(db);
+    let harness = TestHarness::new(db.clone());
 
-    // Masking off stands in for frame records stored before masking existed.
-    let (status, body): (_, SuccessResponse) = harness
-        .post_event_with_config(&python_event_with_database_url(), |config| {
-            config.mask_code_variables = false;
-        })
+    let (status, _): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_database_url(), |_| {})
         .await;
     assert!(status.is_success());
-    assert!(exception_list_contains(&body, FAKE_DB_PASSWORD));
+    // Stands in for frame records stored before masking existed.
+    let unmasked =
+        json!({"url": format!("postgresql://app:{FAKE_DB_PASSWORD}@db.example.com/app")});
+    let rewritten = sqlx::query(
+        "UPDATE posthog_errortrackingstackframe
+         SET contents = jsonb_set(contents, '{code_variables}', $1)
+         WHERE team_id = 1 AND contents ? 'code_variables'",
+    )
+    .bind(unmasked)
+    .execute(&db)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert!(rewritten > 0);
 
     // The second event carries no code variables, so any that come back are replayed records.
     let mut event = load_static_event("python");

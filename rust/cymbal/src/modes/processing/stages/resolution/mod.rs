@@ -28,7 +28,6 @@ pub struct ResolutionStage {
     pub posthog_pool: PgPool,
     pub release_cache: ReleaseCache,
     pub drop_code_variables_team_ids: Arc<HashSet<i32>>,
-    pub mask_code_variables: bool,
 }
 
 #[derive(Clone)]
@@ -48,7 +47,6 @@ impl From<&Arc<AppContext>> for ResolutionStage {
             posthog_pool: app_context.posthog_pool.clone(),
             release_cache: app_context.release_cache.clone(),
             drop_code_variables_team_ids: app_context.drop_code_variables_team_ids.clone(),
-            mask_code_variables: app_context.config.mask_code_variables,
         }
     }
 }
@@ -78,13 +76,12 @@ impl Stage for ResolutionStage {
         // frames' symbol sets for legacy events.
         let resolved = resolve_batch(batch, self.remote.clone()).await?;
         let drop_team_ids = self.drop_code_variables_team_ids.clone();
-        let mask = self.mask_code_variables;
         let resolved = resolved.map(
             |item, ()| {
                 item.map(|mut event| {
                     if drop_team_ids.contains(&event.team_id()) {
                         event.drop_code_variables();
-                    } else if mask {
+                    } else {
                         event.mask_code_variables();
                     }
                     event

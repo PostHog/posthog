@@ -204,11 +204,6 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
 
-    // Masks frame code variables with the posthog-python SDK's default rules, for teams not
-    // listed above. Older SDK versions send values that the current rules redact.
-    #[envconfig(from = "ERROR_TRACKING_MASK_CODE_VARIABLES", default = "true")]
-    pub mask_code_variables: bool,
-
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------

@@ -435,7 +435,6 @@ pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
             .expect("lazy pool construction does not connect"),
         release_cache: ReleaseCache::new(0, Duration::from_secs(0)),
         drop_code_variables_team_ids: Default::default(),
-        mask_code_variables: true,
     }
 }
 
