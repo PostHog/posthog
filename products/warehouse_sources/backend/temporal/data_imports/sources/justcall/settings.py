@@ -4,7 +4,7 @@ from typing import Any, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class JustCallEndpointConfig:
     name: str
     path: str
@@ -43,9 +43,9 @@ def _incremental_fields(cursor: str) -> list[IncrementalField]:
 
 # Endpoints are the JustCall v2.1 list resources a warehouse user is most likely to want:
 # telephony (calls), messaging (texts), the sales-dialer contact-center calls, plus the
-# supporting dimensions (contacts, users, user groups, phone numbers, campaigns, text threads), and
-# the per-call JustCall AI analysis. Analytics/aggregate endpoints are intentionally excluded — they
-# return computed rollups, not raw records.
+# supporting dimensions (contacts, users, user groups, phone numbers, campaigns), and the per-call
+# JustCall AI analysis. Analytics/aggregate endpoints are intentionally excluded — they return
+# computed rollups, not raw records.
 JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
     "calls": JustCallEndpointConfig(
         name="calls",
@@ -87,11 +87,6 @@ JUSTCALL_ENDPOINTS: dict[str, JustCallEndpointConfig] = {
         name="sales_dialer_campaigns",
         path="/sales_dialer/campaigns",
         page_size=50,
-    ),
-    # Threads carry no top-level date field to use as a cursor, so full refresh.
-    "text_threads": JustCallEndpointConfig(
-        name="text_threads",
-        path="/texts/threads",
     ),
     # Rows carry no date field to use as a cursor, so full refresh. Only JustCall-platform calls are
     # requested: `id` is the call id, which is not unique across the JustCall and Sales Dialer platforms.

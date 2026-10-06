@@ -4630,13 +4630,13 @@ Note: Two separate specs: v1 at https://docs.jumpcloud.com/api/1.0/index.yaml (2
 
 ## JustCall — gaps
 
-Today (10): `calls`, `calls_ai`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `sales_dialer_campaigns`, `text_threads`, `texts`, `user_groups`, `users`
+Today (9): `calls`, `calls_ai`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `sales_dialer_campaigns`, `texts`, `user_groups`, `users`
 
 Diffed against: <https://developer.justcall.io/llms.txt>
 
 - [x] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
 - [x] `/v2.1/calls/ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
-- [x] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high)
+- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high)
 - [x] `/v2.1/users/groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
 - [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
 - [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
