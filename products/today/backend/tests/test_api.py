@@ -170,6 +170,39 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert (while_writing["status"], while_writing["headline"]) == ("writing", "Morning text")
         assert (done["id"], done["status"], done["headline"]) == (str(new_id), "ready", "Fresh text")
 
+    def test_focus_is_saved_per_person_and_a_repeated_topic_keeps_its_last_direction(
+        self, _sync_connect: MagicMock
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/today/focus/"
+        topics = [
+            {"topic": "error_tracking", "direction": "more"},
+            {"topic": "surveys", "direction": "less"},
+            {"topic": "error_tracking", "direction": "less"},
+        ]
+        with self._flag(True):
+            empty = self.client.get(url).json()
+            saved = self.client.put(url, {"topics": topics}, format="json")
+            read_back = self.client.get(url).json()
+            self.client.force_login(self._create_user("other@example.com"))
+            other = self.client.get(url).json()
+
+        expected = [{"topic": "error_tracking", "direction": "less"}, {"topic": "surveys", "direction": "less"}]
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
+        assert (empty["topics"], saved.json()["topics"], read_back["topics"]) == ([], expected, expected)
+        assert other["topics"] == []
+
+    @parameterized.expand(
+        [
+            ("unknown direction", [{"topic": "logs", "direction": "always"}]),
+            ("too many topics", [{"topic": f"product_{n}", "direction": "more"} for n in range(31)]),
+        ]
+    )
+    def test_focus_rejects_invalid_topics(self, _sync_connect: MagicMock, _name: str, topics: list) -> None:
+        with self._flag(True):
+            response = self.client.put(f"/api/projects/{self.team.id}/today/focus/", {"topics": topics}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_briefings_of_other_people_stay_private(self, _sync_connect: MagicMock) -> None:
         other = self._create_user("other@example.com")
         with self._flag(True):

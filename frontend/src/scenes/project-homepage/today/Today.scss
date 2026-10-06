@@ -323,21 +323,14 @@
 }
 
 .TodayHome__focus {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
     margin-top: -4px;
     margin-bottom: 10px;
     font-size: 13px;
     color: var(--today-faint);
-
-    button {
-        color: var(--today-ink);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in sRGB, var(--today-ink) 20%, transparent);
-        text-underline-offset: 4px;
-
-        &:hover {
-            color: #ff5c1c;
-        }
-    }
 }
 
 .TodayHome__progress {

@@ -383,6 +383,35 @@ export interface ExcerptChoiceApi {
 }
 
 /**
+ * * `more` - more
+ * * `less` - less
+ */
+export type FocusTopicDirectionEnumApi = (typeof FocusTopicDirectionEnumApi)[keyof typeof FocusTopicDirectionEnumApi]
+
+export const FocusTopicDirectionEnumApi = {
+    More: 'more',
+    Less: 'less',
+} as const
+
+export interface FocusTopicApi {
+    /**
+     * The source product the focus is about, for example error_tracking.
+     * @maxLength 64
+     */
+    topic: string
+    /** `more` to show more reports from the product, `less` to show fewer.
+     *
+     * * `more` - more
+     * * `less` - less */
+    direction: FocusTopicDirectionEnumApi
+}
+
+export interface BriefingFocusApi {
+    /** The topics the person set, in the order they set them, at most 30. Empty when they set none. */
+    topics: FocusTopicApi[]
+}
+
+/**
  * * `lead` - Lead
  * * `impact` - Impact
  */

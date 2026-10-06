@@ -7,6 +7,7 @@ from products.signals.backend.facade import api as signals
 
 from ..facade.contracts import (
     Briefing,
+    BriefingFocus,
     BriefingItem,
     BriefingItemChart,
     BriefingItemMetric,
@@ -18,6 +19,7 @@ from ..facade.contracts import (
     CodeFile,
     FigureMark,
     FigureQuote,
+    FocusTopic,
     ImpactNumber,
     ImpactWorking,
     KeyClause,
@@ -30,7 +32,10 @@ from ..facade.contracts import (
     SignalPreview,
     SignalView,
 )
-from ..facade.enums import CitedSource, FigureSourceKind, FigureText, ImpactNumberKey, KeyClauseRole
+from ..facade.enums import CitedSource, FigureSourceKind, FigureText, FocusDirection, ImpactNumberKey, KeyClauseRole
+
+# Far above the products a person can name, so a client cannot store an unbounded list.
+MAX_FOCUS_TOPICS = 30
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -40,6 +45,34 @@ class TodayQuerySerializer(serializers.Serializer):
         max_length=64,
         help_text="IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.",
     )
+
+
+class FocusTopicSerializer(DataclassSerializer):
+    topic = serializers.CharField(
+        max_length=64, help_text="The source product the focus is about, for example error_tracking."
+    )
+    direction = serializers.ChoiceField(
+        choices=[direction.value for direction in FocusDirection],
+        help_text="`more` to show more reports from the product, `less` to show fewer.",
+    )
+
+    class Meta:
+        dataclass = FocusTopic
+
+
+class BriefingFocusSerializer(DataclassSerializer):
+    topics = FocusTopicSerializer(
+        many=True,
+        help_text=f"The topics the person set, in the order they set them, at most {MAX_FOCUS_TOPICS}. Empty when they set none.",
+    )
+
+    class Meta:
+        dataclass = BriefingFocus
+
+    def validate_topics(self, topics: list[FocusTopic]) -> list[FocusTopic]:
+        if len(topics) > MAX_FOCUS_TOPICS:
+            raise serializers.ValidationError(f"Set at most {MAX_FOCUS_TOPICS} topics.")
+        return topics
 
 
 class BriefingSegmentSerializer(DataclassSerializer):

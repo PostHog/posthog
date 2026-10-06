@@ -13,6 +13,7 @@ from ..logic import (
     briefings,
     code_excerpts,
     figure_sources,
+    focus,
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
@@ -46,8 +47,19 @@ def refresh_briefing(
 
 
 def delete_briefings_for_teams(team_ids: list[int]) -> None:
-    """Remove every briefing of the given teams. Called from team deletion, which no foreign key covers."""
+    """Remove every briefing and focus of the given teams. Called from team deletion, which no foreign key covers."""
     briefings.delete_for_teams(team_ids)
+    focus.delete_for_teams(team_ids)
+
+
+def get_focus(*, team: Team, user: User) -> contracts.BriefingFocus:
+    """What the person asked their briefing to show more or less of. Empty when they set nothing."""
+    return focus.get_focus(team=team, user=user)
+
+
+def set_focus(*, team: Team, user: User, topics: list[contracts.FocusTopic]) -> contracts.BriefingFocus:
+    """Replace what the person asked their briefing to show more or less of."""
+    return focus.set_focus(team=team, user=user, topics=topics)
 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:

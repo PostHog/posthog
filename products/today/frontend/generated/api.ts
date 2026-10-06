@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BriefingApi,
+    BriefingFocusApi,
     CandidateListApi,
     ExcerptChoiceApi,
     ExcerptChoiceRequestApi,
@@ -133,6 +134,42 @@ export const todayExcerptChoiceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(excerptChoiceRequestApi),
+    })
+}
+
+export const getTodayFocusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/focus/`
+}
+
+/**
+ * What the person asked their briefing to show more or less of, by source product. Empty when they set nothing. 404 when the person gets no briefing.
+ * @summary Get the briefing focus
+ */
+export const todayFocusRetrieve = async (projectId: string, options?: RequestInit): Promise<BriefingFocusApi> => {
+    return apiMutator<BriefingFocusApi>(getTodayFocusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayFocusUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/focus/`
+}
+
+/**
+ * Replace what the person asked their briefing to show more or less of. Send an empty list to clear it. 404 when the person gets no briefing.
+ * @summary Set the briefing focus
+ */
+export const todayFocusUpdate = async (
+    projectId: string,
+    briefingFocusApi: BriefingFocusApi,
+    options?: RequestInit
+): Promise<BriefingFocusApi> => {
+    return apiMutator<BriefingFocusApi>(getTodayFocusUpdateUrl(projectId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(briefingFocusApi),
     })
 }
 

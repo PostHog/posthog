@@ -1,21 +1,32 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { MAX_FOCUS_TOPICS, activeFocus, focusSummary, focusTopics } from './todayBriefingFocus'
+import type { FocusTopicApi } from 'products/today/frontend/generated/api.schemas'
+
 import { todayBriefingFocusLogic } from './todayBriefingFocusLogic'
 
 describe('todayBriefingFocusLogic', () => {
     let logic: ReturnType<typeof todayBriefingFocusLogic.build>
+    let saved: FocusTopicApi[]
+    let putStatus: number
 
     beforeEach(() => {
+        saved = [{ topic: 'logs', direction: 'more' }]
+        putStatus = 200
         useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
-                '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
+            get: { '/api/projects/:team_id/today/focus/': () => [200, { topics: saved }] },
+            put: {
+                '/api/projects/:team_id/today/focus/': async ({ request }) => {
+                    if (putStatus !== 200) {
+                        return [putStatus, { detail: 'Not found.' }]
+                    }
+                    saved = ((await request.json()) as { topics: FocusTopicApi[] }).topics
+                    return [200, { topics: saved }]
+                },
             },
         })
-        // The saved focus persists in local storage, so each test starts without one.
-        window.localStorage.clear()
         initKeaTests()
         logic = todayBriefingFocusLogic()
         logic.mount()
@@ -25,68 +36,29 @@ describe('todayBriefingFocusLogic', () => {
         logic.unmount()
     })
 
-    it('saves the draft with an expiry a week out', () => {
-        logic.actions.openFocusDialog()
-        logic.actions.setDraftTopic('error_tracking', 'more')
-        logic.actions.setDraftTopic('surveys', 'less')
-        logic.actions.saveFocus()
+    it('saves a steer, replaces the other direction, and takes the topic out on a second press', async () => {
+        await expectLogic(logic).toFinishAllListeners()
 
-        const { focus } = logic.values
-        expect(focus.topics).toEqual({ error_tracking: 'more', surveys: 'less' })
-        expect(Date.parse(focus.until!) - Date.now()).toBeGreaterThan(6 * 24 * 60 * 60 * 1000)
-        expect(logic.values.focusDialogOpen).toBe(false)
-        expect(logic.values.currentFocusSummary).toEqual('Focused on Error tracking, less surveys')
-    })
-
-    it('drops a canceled edit, so the next opening starts from what is saved', () => {
-        logic.actions.openFocusDialog()
-        logic.actions.setDraftTopic('logs', 'more')
-        logic.actions.saveFocus()
-        logic.actions.openFocusDialog()
-        logic.actions.setDraftTopic('logs', null)
-        logic.actions.closeFocusDialog()
-        logic.actions.openFocusDialog()
-
-        expect(logic.values.draft.topics).toEqual({ logs: 'more' })
-    })
-
-    it('steers one topic from a report and keeps the others', () => {
-        logic.actions.openFocusDialog()
-        logic.actions.setDraftTopic('logs', 'more')
-        logic.actions.setDraftTopic('surveys', 'more')
-        logic.actions.setDraftDuration('always')
-        logic.actions.saveFocus()
+        logic.actions.steerTopic('surveys', 'more')
         logic.actions.steerTopic('surveys', 'less')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(saved).toEqual([
+            { topic: 'logs', direction: 'more' },
+            { topic: 'surveys', direction: 'less' },
+        ])
 
-        expect(logic.values.focus).toEqual({
-            topics: { logs: 'more', surveys: 'less' },
-            duration: 'always',
-            until: null,
-        })
+        logic.actions.steerTopic('surveys', 'less')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(saved).toEqual([{ topic: 'logs', direction: 'more' }])
     })
 
-    it('stops applying a focus after it expires', () => {
-        const focus = { topics: { logs: 'more' as const }, duration: 'week' as const, until: '2026-09-28T08:00:00Z' }
+    it('puts the saved focus back on screen when a save fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        putStatus = 404
 
-        expect(activeFocus(focus, Date.parse('2026-09-28T07:59:00Z'))).toBe(focus)
-        expect(activeFocus(focus, Date.parse('2026-09-28T08:00:00Z')).topics).toEqual({})
-    })
-
-    it("offers saved topics first, then the products of the person's reports, without repeats", () => {
-        const topics = focusTopics(
-            { topics: { surveys: 'less' }, duration: 'week', until: null },
-            [{ source_product: 'llm_analytics' }, { source_product: null }],
-            [{ source_products: ['error_tracking', 'llm_analytics', 'product_analytics'] }]
-        )
-
-        expect(topics.slice(0, 3).map((topic) => topic.key)).toEqual(['surveys', 'llm_analytics', 'error_tracking'])
-        expect(new Set(topics.map((topic) => topic.label)).size).toEqual(topics.length)
-        expect(topics.length).toBeLessThanOrEqual(MAX_FOCUS_TOPICS)
-    })
-
-    it('summarizes a focus that only asks for less', () => {
-        expect(focusSummary({ topics: { surveys: 'less', logs: 'less' }, duration: 'week', until: null })).toEqual(
-            'Less surveys and logs'
-        )
+        await expectLogic(logic, () => logic.actions.removeTopic('logs'))
+            .toMatchValues({ topics: [] })
+            .toDispatchActions(['saveTopicsFailure', 'loadFocusSuccess'])
+            .toMatchValues({ topics: [{ topic: 'logs', direction: 'more' }] })
     })
 })

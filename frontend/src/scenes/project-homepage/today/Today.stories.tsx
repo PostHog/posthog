@@ -724,14 +724,18 @@ export const HomeWithPersonalBriefing: Story = {
 // The person asked for more error tracking and fewer surveys. The focus line and the hover card buttons show only on the flag.
 export const HomeWithBriefingFocus: Story = {
     decorators: [
-        (Story: () => JSX.Element): JSX.Element => {
-            window.localStorage.setItem(
-                'scenes.project-homepage.today.todayBriefingFocusLogic.focus',
-                JSON.stringify({ topics: { error_tracking: 'more', surveys: 'less' }, duration: 'always', until: null })
-            )
-            return <Story />
-        },
-        mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } }),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING,
+                '/api/projects/:team_id/today/focus/': {
+                    topics: [
+                        { topic: 'error_tracking', direction: 'more' },
+                        { topic: 'surveys', direction: 'less' },
+                    ],
+                },
+            },
+            put: { '/api/projects/:team_id/today/focus/': async ({ request }) => [200, await request.json()] },
+        }),
     ],
     parameters: {
         featureFlags: [

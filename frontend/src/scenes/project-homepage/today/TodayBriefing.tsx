@@ -13,7 +13,7 @@ import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { TodayAskBox } from './TodayAskBox'
 import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
-import { TodayBriefingFocusButton, TodayBriefingFocusDialog, TodayBriefingFocusLine } from './TodayBriefingFocus'
+import { TodayBriefingFocusLine } from './TodayBriefingFocusLine'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
@@ -143,7 +143,6 @@ export function TodayBriefing(): JSX.Element {
             <section className="TodayHome__intro" aria-label="Daily brief">
                 <div className="TodayHome__greeting">
                     <span>{greeting}</span>
-                    {showFocus && !briefingWaiting && <TodayBriefingFocusButton />}
                     {briefingWaiting ? (
                         <span className="TodayHome__badge" data-attr="today-briefing-writing">
                             <Spinner textColored />
@@ -195,7 +194,6 @@ export function TodayBriefing(): JSX.Element {
                 )}
             </section>
             <TodayAskBox />
-            {showFocus && <TodayBriefingFocusDialog />}
         </div>
     )
 }

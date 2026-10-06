@@ -13,7 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
-from posthog.api.mixins import validated_request
+from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
@@ -24,6 +24,7 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import api, contracts
 from .serializers import (
+    BriefingFocusSerializer,
     BriefingSerializer,
     CandidateListSerializer,
     ExcerptChoiceRequestSerializer,
@@ -72,8 +73,8 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates", "excerpt_choice"]
-    scope_object_write_actions = ["refresh"]
+    scope_object_read_actions = ["briefing", "candidates", "excerpt_choice", "focus"]
+    scope_object_write_actions = ["refresh", "set_focus"]
 
     def _user(self) -> User:
         user = cast(User, self.request.user)
@@ -108,6 +109,26 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             metric_access=signals.ReportMetricAccessPolicy(request=request, team=self.team),
         )
         return Response(BriefingSerializer(briefing).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=BriefingFocusSerializer)},
+        summary="Get the briefing focus",
+        description="What the person asked their briefing to show more or less of, by source product. Empty when they set nothing. 404 when the person gets no briefing.",
+    )
+    @action(detail=False, methods=["get"], url_path="focus")
+    def focus(self, request: Request, **kwargs) -> Response:
+        return Response(BriefingFocusSerializer(api.get_focus(team=self.team, user=self._user())).data)
+
+    @validated_request(
+        request_serializer=BriefingFocusSerializer,
+        responses={200: OpenApiResponse(response=BriefingFocusSerializer)},
+        summary="Set the briefing focus",
+        description="Replace what the person asked their briefing to show more or less of. Send an empty list to clear it. 404 when the person gets no briefing.",
+    )
+    @focus.mapping.put
+    def set_focus(self, request: TypedRequest[contracts.BriefingFocus], **kwargs) -> Response:
+        focus = api.set_focus(team=self.team, user=self._user(), topics=request.validated_data.topics)
+        return Response(BriefingFocusSerializer(focus).data)
 
     @validated_request(
         query_serializer=TodayQuerySerializer,
