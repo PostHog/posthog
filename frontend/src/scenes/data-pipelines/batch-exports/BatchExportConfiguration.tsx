@@ -39,6 +39,7 @@ import {
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { BatchExportHogQLQueryEditor } from './BatchExportHogQLQueryEditor'
+import { BatchExportTimestampTimezoneSelect } from './BatchExportTimestampTimezoneSelect'
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -260,9 +261,12 @@ export function BatchExportConfiguration(): JSX.Element {
                         </div>
 
                         {isHogQLModel ? (
-                            <p className="text-xs text-secondary mb-0">
-                                Each run exports the results of the query below.
-                            </p>
+                            <>
+                                <p className="text-xs text-secondary mb-0">
+                                    Each run exports the results of the query below.
+                                </p>
+                                <BatchExportTimestampTimezoneSelect />
+                            </>
                         ) : (
                             <div className="flex gap-2">
                                 <LemonCollapse
