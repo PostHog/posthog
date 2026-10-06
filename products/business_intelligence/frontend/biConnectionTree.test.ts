@@ -31,8 +31,25 @@ const tables = {
 }
 
 describe('BI connections', () => {
+    it('resolves aliases from a table named __proto__', () => {
+        const protoTable = table('__proto__', [
+            field('person', 'lazy_table', { table: 'persons' }),
+            field('alias', 'field_traverser', { chain: ['person'] }),
+        ])
+        const catalog = new Proxy(tables, {
+            get: (target, name, receiver) => (name === '__proto__' ? protoTable : Reflect.get(target, name, receiver)),
+        })
+        const connections = buildBIConnections({ ...source, table: '__proto__' }, catalog, [], {}, true)
+        expect(connections.map((connection) => connection.name)).toEqual(['alias', 'person'])
+    })
+
     it('drags nested dimensions and measures using paths from the original source', () => {
-        const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
+        const catalog = new Proxy(tables, {
+            ownKeys: () => {
+                throw new Error('Connection traversal must not enumerate the full table catalog')
+            },
+        })
+        const [person] = buildBIConnections(source, catalog, ['["person"]', '["person","company"]'], {}, true)
         const [company] = person.connections
         expect(company.connections).toEqual([])
         const dimension = company.fields.dimensions[0]
