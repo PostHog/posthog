@@ -50,28 +50,26 @@ class TestDeletePersonsActivity:
         assert [(d.id, d.version) for d in tombstone.distinct_ids] == [("d1", 1)]
         assert fake.tombstone_queue == {}
 
-    async def test_by_ids_pages_distinct_ids_and_bounds_each_tombstone_rpc(self, activity_environment):
-        tombstoned_persons: list[Person] = []
+    async def test_by_ids_reads_distinct_ids_in_one_batch_and_pages_only_heavy_persons(self, activity_environment):
+        counted: dict[int, int] = {}
 
         def record_batch(team_id: int, persons: list[Person]) -> int:
-            tombstoned_persons.extend(persons)
+            counted.update({person.pk: len(person.distinct_ids) for person in persons})
             return real_tombstone(team_id, persons)
 
         real_tombstone = bulk_delete.tombstone_and_publish_persons
         with (
             fake_personhog_client() as fake,
             _no_publish(),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT", 3),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 3),
             patch.object(bulk_delete, "tombstone_and_publish_persons", side_effect=record_batch),
         ):
-            for pid in (10, 11):
-                fake.add_person(
-                    team_id=1,
-                    person_id=pid,
-                    uuid=str(uuid_lib.uuid4()),
-                    distinct_ids=[f"{pid}-a", f"{pid}-b", f"{pid}-c"],
-                )
+            fake.add_person(team_id=1, person_id=10, uuid=str(uuid_lib.uuid4()), distinct_ids=["10-a", "10-b"])
+            fake.add_person(
+                team_id=1, person_id=11, uuid=str(uuid_lib.uuid4()), distinct_ids=["11-a", "11-b", "11-c", "11-d"]
+            )
 
             deleted, _ = await activity_environment.run(
                 delete_persons_activity,
@@ -79,13 +77,12 @@ class TestDeletePersonsActivity:
             )
 
         assert deleted == 2
-        assert {call.method for call in fake.calls} & {"get_distinct_ids_for_persons"} == set()
-        page_limits = [call.request.limit for call in fake.calls if call.method == "get_distinct_ids_for_person"]
-        assert page_limits == [2, 2, 2, 2]
-        tombstone_batches = [len(call.request.person_uuids) for call in fake.calls if call.method == "delete_persons"]
-        assert tombstone_batches == [1, 1]
-        assert len(tombstoned_persons) == 2
-        assert all(person._distinct_ids is None for person in tombstoned_persons)
+        batched = [call.request for call in fake.calls if call.method == "get_distinct_ids_for_persons"]
+        assert [(sorted(request.person_ids), request.limit_per_person) for request in batched] == [([10, 11], 3)]
+        paged = [call.request.person_id for call in fake.calls if call.method == "get_distinct_ids_for_person"]
+        assert set(paged) == {11}
+        assert counted == {10: 2, 11: 4}
+        assert all(len(call.request.person_uuids) == 1 for call in fake.calls if call.method == "delete_persons")
 
     async def test_by_ids_raises_and_leaves_persons_live_when_the_postgres_tombstone_fails(self, activity_environment):
         person_uuid = str(uuid_lib.uuid4())
