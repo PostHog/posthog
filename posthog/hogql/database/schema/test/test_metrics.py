@@ -44,7 +44,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(["attributes", "resource_attributes"])
     def test_select_series_label_map_joins_metric_series(self, label_map: str):
         sql = self._print_clickhouse(f"SELECT series.{label_map} FROM {METRICS_TABLE} LIMIT 10")
-        assert "metric_series" in sql, f"expected a join against metric_series, got:\n{sql}"
+        assert "metrics4_series" in sql, f"expected a join against metrics4_series, got:\n{sql}"
         assert label_map in sql
         assert sql.replace(" ", "").count("series_fingerprint") >= 2
 
@@ -56,7 +56,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             query_type="HogQLQuery",
         )
         sql, _context = executor.generate_clickhouse_sql()
-        assert "metric_series" in sql
+        assert "metrics4_series" in sql
         assert "attributes" in sql
 
     def test_end_to_end_group_by_label_returns_seeded_label(self):
@@ -68,7 +68,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             metric_name="http_requests_total",
             metric_type="sum",
             service_name="web",
-            points=[(dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC), 1.0)],
+            points=[(dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC), 1.0)],
             labels={"route": "/checkout"},
         )
         response = execute_hogql_query(
@@ -93,10 +93,10 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         # last_seen >= timestamp - buffer (the Viewer's `_active_since_expr` shape).
         sql = self._print_clickhouse(
             f"SELECT series.attributes FROM {METRICS_TABLE} "
-            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-06-01 00:00:00' LIMIT 10"
+            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-09-16 00:00:00' LIMIT 10"
         )
         subquery = sql.split("LEFT JOIN (", 1)[1].split("GROUP BY", 1)[0]
-        assert "greaterOrEquals(" in subquery and "last_seen" in subquery and "toIntervalHour(1)" in subquery, (
+        assert "greaterOrEquals(" in subquery and "timestamp" in subquery and "toIntervalHour(1)" in subquery, (
             f"expected last_seen >= <bound - 1h> inside the subquery, got:\n{sql}"
         )
 
@@ -119,12 +119,12 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             metric_name="cpu_seconds_total",
             metric_type="sum",
             service_name="web",
-            points=[(dt.datetime(2026, 6, 1, 1, 0, 0, tzinfo=dt.UTC), 1.0)],
+            points=[(dt.datetime(2026, 9, 16, 1, 0, 0, tzinfo=dt.UTC), 1.0)],
             labels={"route": "/checkout"},
         )
         response = execute_hogql_query(
             f"SELECT series.attributes['route'] AS route, count() AS c FROM {METRICS_TABLE} "
-            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-06-01 00:00:00' GROUP BY route",
+            f"WHERE metric_name = 'cpu_seconds_total' AND timestamp > '2026-09-16 00:00:00' GROUP BY route",
             self.team,
         )
         assert response.results == [("/checkout", 1)], f"unexpected results: {response.results}"
@@ -148,7 +148,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
         # them. `any()` could return the stale duplicate, so they must be taken from the newest version.
         sql = self._print_clickhouse(f"SELECT series.{field} FROM {METRICS_TABLE} LIMIT 10")
         assert "argMax(" in sql, f"expected argMax() for mutable {field}, got:\n{sql}"
-        assert "last_seen" in sql, f"argMax must order by last_seen, got:\n{sql}"
+        assert "timestamp" in sql, f"argMax must order by the sample timestamp, got:\n{sql}"
 
     def test_end_to_end_last_seen_reflects_latest_series_version(self):
         # Two samples of one series create two metric_series rows (version column `last_seen`). The join
@@ -160,8 +160,8 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             metric_type="sum",
             service_name="web",
             points=[
-                (dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC), 1.0),
-                (dt.datetime(2026, 6, 1, 0, 0, 0, tzinfo=dt.UTC), 2.0),
+                (dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC), 1.0),
+                (dt.datetime(2026, 9, 16, 0, 0, 0, tzinfo=dt.UTC), 2.0),
             ],
             labels={"route": "/checkout"},
         )
@@ -170,7 +170,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         latest = response.results[0][0]
-        assert latest.replace(tzinfo=dt.UTC) >= dt.datetime(2026, 6, 1, tzinfo=dt.UTC), (
+        assert latest.replace(tzinfo=dt.UTC) >= dt.datetime(2026, 9, 16, tzinfo=dt.UTC), (
             f"expected the latest duplicate's last_seen, got {latest}"
         )
 
@@ -184,7 +184,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             metric_type="gauge",
             service_name="web",
             unit="By",
-            points=[(dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC), 1.0)],
+            points=[(dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC), 1.0)],
             labels={"host": "a"},
         )
         seed_metric(
@@ -193,7 +193,7 @@ class TestMetricsSeriesJoin(ClickhouseTestMixin, APIBaseTest):
             metric_type="gauge",
             service_name="web",
             unit="KiBy",
-            points=[(dt.datetime(2026, 6, 1, 0, 0, 0, tzinfo=dt.UTC), 2.0)],
+            points=[(dt.datetime(2026, 9, 16, 0, 0, 0, tzinfo=dt.UTC), 2.0)],
             labels={"host": "a"},
         )
         response = execute_hogql_query(
