@@ -31,6 +31,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
+    PolymorphicProxySerializer,
     extend_schema,
     extend_schema_field,
     extend_schema_view,
@@ -200,7 +201,11 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
-from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
+from products.workflows.backend.presentation.views.graph_operations import (
+    _deep_merge,
+    apply_graph_operations,
+    summarize_graph_change,
+)
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
@@ -3224,10 +3229,37 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
         help_text=(
             "Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops "
             "are applied in order, the result is fully validated, and it's saved only if valid — otherwise the "
-            "workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full "
-            "updated workflow is returned."
+            "workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. MCP "
+            "callers get a compact summary of the change; other callers get the full updated workflow."
         ),
     )
+
+
+class HogFlowGraphPatchResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Workflow id.")
+    name = serializers.CharField(allow_null=True, help_text="Workflow name.")
+    status = serializers.ChoiceField(choices=HogFlow.State.choices, help_text="Workflow status.")
+    version = serializers.IntegerField(help_text="Live workflow version. A draft edit does not change it.")
+    updated_at = serializers.DateTimeField(help_text="When the live workflow last changed.")
+    draft_updated_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the staged draft last changed. Null when there is no draft."
+    )
+    routed_to_draft = serializers.BooleanField(
+        help_text="True when the patch staged a draft on an active workflow. Publish it with workflows-publish."
+    )
+    base_updated_at = serializers.DateTimeField(
+        help_text="Send this as base_updated_at on the next patch, so a concurrent edit gets a 409."
+    )
+    changed_action_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of the actions this patch added or edited."
+    )
+    removed_action_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of the actions this patch removed."
+    )
+    added_edges = serializers.ListField(child=HogFlowEdgeSerializer(), help_text="Edges this patch added.")
+    removed_edges = serializers.ListField(child=HogFlowEdgeSerializer(), help_text="Edges this patch removed.")
+    action_count = serializers.IntegerField(help_text="Number of actions in the graph after the patch.")
+    edge_count = serializers.IntegerField(help_text="Number of edges in the graph after the patch.")
 
 
 class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
@@ -5288,7 +5320,16 @@ class HogFlowViewSet(
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
         unstage_workflow_proposals(instance)
 
-    @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
+    @extend_schema(
+        request=HogFlowGraphUpdateSerializer,
+        responses={
+            200: PolymorphicProxySerializer(
+                component_name="HogFlowGraphPatchResponse",
+                serializers=[HogFlowSerializer, HogFlowGraphPatchResultSerializer],
+                resource_type_field_name=None,
+            )
+        },
+    )
     @action(detail=True, methods=["PATCH"])
     def graph(self, request: Request, *args, **kwargs):
         # Surgical graph editing: apply a small, id-addressed op list to the stored graph instead of
@@ -5362,6 +5403,30 @@ class HogFlowViewSet(
             {"operations_count": len(operations), "routed_to_draft": route_to_draft},
         )
 
+        if self._is_mcp_request(request):
+            # The full workflow carries live and draft graphs with every action config, so an agent
+            # patch would get back far more than it changed. workflows-get still returns everything.
+            change = summarize_graph_change(base_actions, base_edges, new_actions, new_edges)
+            return Response(
+                HogFlowGraphPatchResultSerializer(
+                    {
+                        "id": locked.id,
+                        "name": locked.name,
+                        "status": locked.status,
+                        "version": locked.version,
+                        "updated_at": locked.updated_at,
+                        "draft_updated_at": locked.draft_updated_at,
+                        "routed_to_draft": route_to_draft,
+                        "base_updated_at": locked.draft_updated_at if route_to_draft else locked.updated_at,
+                        "changed_action_ids": change.changed_action_ids,
+                        "removed_action_ids": change.removed_action_ids,
+                        "added_edges": change.added_edges,
+                        "removed_edges": change.removed_edges,
+                        "action_count": len(new_actions),
+                        "edge_count": len(new_edges),
+                    }
+                ).data
+            )
         return Response(self.get_serializer(locked).data)
 
     @extend_schema(

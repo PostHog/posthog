@@ -113,8 +113,23 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.draft_updated_at is not None
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://changed.example.com"]
-        # The response surfaces the draft so callers can see what they staged
-        assert response.json()["draft"] is not None
+
+        body = response.json()
+        assert "actions" not in body
+        assert "draft" not in body
+        assert body["routed_to_draft"] is True
+        assert body["changed_action_ids"] == ["action_1"]
+        assert body["removed_action_ids"] == []
+
+        follow_up = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}],
+                "base_updated_at": body["base_updated_at"],
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert follow_up.status_code == 200, follow_up.json()
 
     def test_web_content_edit_on_active_flow_still_applies_live(self):
         flow_id = self._create_active_flow()

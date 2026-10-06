@@ -52619,6 +52619,49 @@ export namespace Schemas {
       edges?: HogFlowEdge[];
     }
 
+    export interface HogFlowGraphPatchResult {
+      /** Workflow id. */
+      id: string;
+      /**
+         * Workflow name.
+         * @nullable
+         */
+      name: string | null;
+      /** Workflow status.
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status: HogFlowStateEnum;
+      /** Live workflow version. A draft edit does not change it. */
+      version: number;
+      /** When the live workflow last changed. */
+      updated_at: string;
+      /**
+         * When the staged draft last changed. Null when there is no draft.
+         * @nullable
+         */
+      draft_updated_at: string | null;
+      /** True when the patch staged a draft on an active workflow. Publish it with workflows-publish. */
+      routed_to_draft: boolean;
+      /** Send this as base_updated_at on the next patch, so a concurrent edit gets a 409. */
+      base_updated_at: string;
+      /** Ids of the actions this patch added or edited. */
+      changed_action_ids: string[];
+      /** Ids of the actions this patch removed. */
+      removed_action_ids: string[];
+      /** Edges this patch added. */
+      added_edges: HogFlowEdge[];
+      /** Edges this patch removed. */
+      removed_edges: HogFlowEdge[];
+      /** Number of actions in the graph after the patch. */
+      action_count: number;
+      /** Number of edges in the graph after the patch. */
+      edge_count: number;
+    }
+
+    export type HogFlowGraphPatchResponse = HogFlow | HogFlowGraphPatchResult;
+
     /**
      * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
@@ -77335,7 +77378,7 @@ export namespace Schemas {
     export interface PatchedHogFlowGraphUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
-      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
+      /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. MCP callers get a compact summary of the change; other callers get the full updated workflow. */
       operations?: HogFlowGraphOperation[];
     }
 
