@@ -15,6 +15,6 @@ def test_lookback_applies_only_to_execution_syncs(names: list[str] | None) -> No
     settings = {schema.name: build_default_sync_settings(schema) for schema in schemas}
     if names != ["flows"]:
         assert settings["executions"]["incremental_field_lookback_seconds"] == 604800
-    for name, config in settings.items():
+    for name, sync_config in settings.items():
         if name != "executions":
-            assert "incremental_field_lookback_seconds" not in config
+            assert "incremental_field_lookback_seconds" not in sync_config

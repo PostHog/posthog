@@ -106,6 +106,7 @@ HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
     "Gerrit",
     "Grafana",
     "Hatchet",
+    "Kestra",
     "LangSmith",
     "Langfuse",
     "Metabase",

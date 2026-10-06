@@ -1,8 +1,8 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -112,7 +112,7 @@ def test_execution_requests_and_terminal_page(
         ],
     ) as send:
         source = kestra_source(config, inputs, manager)
-        pages = list(source.items())
+        pages = list(cast(Iterable[list[dict[str, Any]]], source.items()))
     assert [row["id"] for page in pages for row in page] == ["run-1", "run-2"]
     assert pages[0][0]["start_date"] == datetime(2026, 1, 1, 1, 0, 0, 123456, tzinfo=UTC)
     assert source.sort_mode == "asc"
@@ -120,9 +120,9 @@ def test_execution_requests_and_terminal_page(
     end_dates = []
     for index, call in enumerate(send.call_args_list, start=1):
         request: PreparedRequest = call.args[0]
-        assert urlsplit(request.url).path == "/api/v1/main/executions/search"
+        assert urlsplit(request.url or "").path == "/api/v1/main/executions/search"
         assert request.headers["Authorization"] == ("Bearer test-token" if auth == "token" else "Basic dXNlcjpwYXNz")
-        params = parse_qs(urlsplit(request.url).query)
+        params = parse_qs(urlsplit(request.url or "").query)
         assert params["page"] == [str(index)]
         assert params["size"] == ["100"]
         assert params["sort"] == ["state.startDate:asc"]
@@ -173,13 +173,13 @@ def test_catalog_rows_keep_unique_keys(
         ],
     ) as send:
         source = kestra_source(config, inputs, manager)
-        result = [row for page in source.items() for row in page]
+        result = [row for page in cast(Iterable[list[dict[str, Any]]], source.items()) for row in page]
     assert source.primary_keys == keys
     assert len({tuple(row[key] for key in keys) for row in result}) == 2
     for call in send.call_args_list:
         request = call.args[0]
-        assert urlsplit(request.url).path == f"/api/v1/main/{schema}/search"
-        assert not any(key.startswith("filters[") for key in parse_qs(urlsplit(request.url).query))
+        assert urlsplit(request.url or "").path == f"/api/v1/main/{schema}/search"
+        assert not any(key.startswith("filters[") for key in parse_qs(urlsplit(request.url or "").query))
 
 
 def test_resume_preserves_query_window(config: KestraSourceConfig, inputs: SourceInputs, manager: MagicMock) -> None:
@@ -191,7 +191,7 @@ def test_resume_preserves_query_window(config: KestraSourceConfig, inputs: Sourc
     )
     inputs.db_incremental_field_last_value = datetime(2026, 1, 2, tzinfo=UTC)
     with patch("requests.sessions.Session.send", return_value=response({"results": [], "total": 0})) as send:
-        assert list(kestra_source(config, inputs, manager).items()) == []
+        assert list(cast(Iterable[Any], kestra_source(config, inputs, manager).items())) == []
     params = parse_qs(urlsplit(send.call_args.args[0].url).query)
     assert params["page"] == ["4"]
     assert params["filters[startDate][GREATER_THAN_OR_EQUAL_TO]"] == ["2026-01-01T00:00:00+00:00"]
@@ -224,8 +224,8 @@ def test_credential_probe(
     send.assert_called_once()
     request = send.call_args.args[0]
     assert request.headers["Authorization"] == "Bearer test-token"
-    assert parse_qs(urlsplit(request.url).query) == {"page": ["1"], "size": ["1"]}
-    assert urlsplit(request.url).path == f"/api/v1/main/{schema or 'flows'}/search"
+    assert parse_qs(urlsplit(request.url or "").query) == {"page": ["1"], "size": ["1"]}
+    assert urlsplit(request.url or "").path == f"/api/v1/main/{schema or 'flows'}/search"
 
 
 @pytest.mark.parametrize("status", [400, 404])
@@ -245,7 +245,7 @@ def test_sync_errors_match_non_retryable_messages(
 ) -> None:
     with patch("requests.sessions.Session.send", return_value=response({}, status)) as send:
         with pytest.raises(HTTPError) as error:
-            list(kestra_source(config, inputs, manager).items())
+            list(cast(Iterable[Any], kestra_source(config, inputs, manager).items()))
     assert any(pattern in str(error.value) for pattern in KestraSource().get_non_retryable_errors())
     send.assert_called_once()
 
@@ -259,7 +259,7 @@ def test_malformed_response_does_not_erase_table(
 ) -> None:
     with patch("requests.sessions.Session.send", return_value=response(body)):
         with pytest.raises(ValueError):
-            list(kestra_source(config, inputs, manager).items())
+            list(cast(Iterable[Any], kestra_source(config, inputs, manager).items()))
     manager.clear_state.assert_not_called()
 
 
@@ -366,7 +366,7 @@ def test_empty_trigger_page_does_not_end_sync(
             response({"results": [row], "total": 101}),
         ],
     ) as send:
-        result = list(kestra_source(config, inputs, manager).items())
+        result = list(cast(Iterable[list[dict[str, Any]]], kestra_source(config, inputs, manager).items()))
     assert result[0][0]["trigger_id"] == "daily"
     assert send.call_count == 2
     assert manager.save_state.call_args.args[0].page == 2
