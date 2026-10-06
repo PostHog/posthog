@@ -151,7 +151,9 @@ class TestTrackReviewCompleted(BaseTest):
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
             _track_review_completed(
                 self._tracking_input(
-                    report_id, published=published, marker=ReviewHogMarker(version="9.9.9", fingerprint="abc1234")
+                    report_id,
+                    published=published,
+                    marker=ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234"),
                 )
             )
 
@@ -187,7 +189,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
         assert 90 <= props["duration_seconds"] < 600
-        assert props["reviewhog_version"] == "9.9.9"
+        assert props["reviewhog_version"] == "reviewhog-full-9-9"
         assert props["reviewhog_fingerprint"] == "abc1234"
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:

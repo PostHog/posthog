@@ -84,7 +84,7 @@ class StubResolvePRWorkflow:
         StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
 
 
-_TURN_MARKER = ReviewHogMarker(version="9.9.9", fingerprint="abc1234")
+_TURN_MARKER = ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234")
 
 
 def _stage_kwargs() -> dict:

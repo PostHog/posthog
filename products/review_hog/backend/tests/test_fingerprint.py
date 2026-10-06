@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, REVIEWHOG_VERSION
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, reviewhog_version_for_mode
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
@@ -65,7 +65,7 @@ class TestRecordTurnMarker(BaseTest):
         self._publish_validation_body(canonical_body, base_version=2)
         reverted = self._record(run_index=3)
 
-        assert original.version == REVIEWHOG_VERSION
+        assert original.version == reviewhog_version_for_mode(REVIEW_MODE_FULL)
         assert edited.fingerprint != original.fingerprint
         # The hash covers skill content, not version numbers, so equal skills slice together.
         assert reverted.fingerprint == original.fingerprint

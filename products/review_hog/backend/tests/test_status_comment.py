@@ -186,10 +186,13 @@ class TestRenderFinalBody:
             review_url=None,
             resolved_from=resolved_from,
             report_url="https://ph.test/project/1/code-review?review=rid",
-            marker=ReviewHogMarker(version="9.9.9", fingerprint="abc1234"),
+            marker=ReviewHogMarker(version="reviewhog-flash-9-9", fingerprint="abc1234"),
         )
         assert f"2 findings stayed below {expected}" in body, body
-        assert "<sub>ReviewHog 9.9.9 · abc1234</sub>" in body
+        # The version rides in a hidden HTML comment, so it adds no visible text to the PR.
+        hidden = "<!-- reviewhog-version: reviewhog-flash-9-9 abc1234 -->"
+        assert hidden in body
+        assert "reviewhog-flash" not in body.replace(hidden, "")
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
         assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 

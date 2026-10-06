@@ -1,10 +1,11 @@
 """The version marker of one review turn: the ReviewHog release plus a fingerprint of the turn's inputs.
 
-`REVIEWHOG_VERSION` names a release and changes only with a manual bump. The fingerprint is a short
-hash of everything else that decides how one turn reviews: the review mode, the model pins of every
-stage, the prompt texts, and the content of the skills the acting user runs (a team's own edited
-skill rows included). A prompt edit or a skill edit changes the fingerprint without a version bump,
-so production data can be split by "ReviewHog at version X with inputs Y".
+`REVIEWHOG_VERSIONS` names one release per review mode (Full and Flash evolve separately) and
+changes only with a manual bump. The fingerprint is a short hash of everything else that decides how
+one turn reviews: the review mode, the model pins of every stage, the prompt texts, and the content
+of the skills the acting user runs (a team's own edited skill rows included). A prompt edit or a
+skill edit changes the fingerprint without a version bump, so production data can be split by
+"reviewhog-flash-1-0 with inputs Y".
 """
 
 from __future__ import annotations
@@ -26,10 +27,10 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
-    REVIEWHOG_VERSION,
     ReviewArm,
     resolve_review_arm,
     review_arm_for_mode,
+    reviewhog_version_for_mode,
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.lazy_seed import compute_skill_row_hash
@@ -70,13 +71,14 @@ FINGERPRINT_LENGTH = 7
 
 @frozen
 class ReviewHogMarker:
-    """The release version and input fingerprint one turn ran with."""
+    """The version id (`reviewhog-flash-1-0`) and input fingerprint one turn ran with."""
 
     version: str
     fingerprint: str
 
-    def label(self) -> str:
-        return f"ReviewHog {self.version} · {self.fingerprint}"
+    def hidden_comment(self) -> str:
+        # An HTML comment, so the status comment carries the marker without adding visible text.
+        return f"<!-- reviewhog-version: {self.version} {self.fingerprint} -->"
 
 
 def _text_hash(text: str) -> str:
@@ -182,7 +184,7 @@ def record_turn_marker(
         review_mode=review_mode,
         flash_reasoning_effort=flash_reasoning_effort,
     )
-    marker = ReviewHogMarker(version=REVIEWHOG_VERSION, fingerprint=fingerprint.digest())
+    marker = ReviewHogMarker(version=reviewhog_version_for_mode(review_mode), fingerprint=fingerprint.digest())
     ReviewReportArtefact.add_turn_marker(
         team_id=team_id,
         report_id=report_id,

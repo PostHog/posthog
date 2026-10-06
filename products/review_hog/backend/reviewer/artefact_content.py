@@ -291,7 +291,7 @@ class TurnMarkerArtefact(BaseModel):
     head_sha: str = Field(description="PR head commit this turn reviews (the turn key).")
     run_index: int = Field(description="The review turn (1-based) this marker belongs to.")
     review_mode: str = Field(description="What the turn ran on (full or flash).")
-    reviewhog_version: str = Field(description="The ReviewHog release version (semver) that ran the turn.")
+    reviewhog_version: str = Field(description="The version id of the turn's review mode, e.g. reviewhog-flash-1-0.")
     reviewhog_fingerprint: str = Field(description="Short hash of the turn's mode, model pins, prompts, and skills.")
     fingerprint_inputs: dict[str, Any] = Field(
         default_factory=dict, description="The payload the fingerprint hashes (prompt and skill texts as hashes)."

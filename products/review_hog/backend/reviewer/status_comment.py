@@ -242,9 +242,9 @@ def render_final_body(
             if report_url:
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
-    if marker is not None:
-        lines.extend(["", f"<sub>{marker.label()}</sub>"])
     lines.extend(["", status_marker(report_id)])
+    if marker is not None:
+        lines.append(marker.hidden_comment())
     return message_prefix_for_mode(review_mode) + "\n".join(lines)
 
 
