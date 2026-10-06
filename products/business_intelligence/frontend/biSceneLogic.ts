@@ -50,6 +50,7 @@ import {
     parseBIEditorState,
 } from './biEditorTypes'
 import type { BIQueryBuildResult } from './biEditorTypes'
+import { applyBIDateRange, mergeBIQuerySource } from './biQueryFilters'
 
 export interface BISceneLogicProps {
     tabId: string
@@ -345,7 +346,9 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
                 kind: NodeKind.BIVisualizationNode,
                 config,
                 display: config.chartType,
-                source: { ...visualization.source, ...(generatedQuery?.node.source ?? { query: '' }) },
+                source: generatedQuery
+                    ? mergeBIQuerySource(visualization.source, generatedQuery.node.source)
+                    : { ...visualization.source, query: '' },
                 chartSettings: mergeBIChartSettings(visualization.chartSettings, generatedQuery?.node.chartSettings),
             }),
         ],
@@ -404,7 +407,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
             if (connectionChanged) {
                 databaseTableListLogic.actions.setConnection(connectionId)
             }
-            actions.restoreState({ editorView: BIEditorView.BI, config: worksheet.config })
+            actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: applyBIDateRange(worksheet.config, worksheet.source.filters?.dateRange),
+            })
             if (connectionChanged || !databaseTableListLogic.values.database) {
                 databaseTableListLogic.actions.loadDatabase({ shallow: true })
             }
@@ -483,6 +489,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
         setVisualization: ({ visualization }) => {
+            const config = applyBIDateRange(values.config, visualization.source.filters?.dateRange)
+            if (config !== values.config) {
+                actions.restoreState({ editorView: BIEditorView.BI, config })
+            }
             if (visualization.display && visualization.display !== values.config.chartType) {
                 actions.setChartType(visualization.display)
             }
