@@ -56,6 +56,11 @@ export function InfrastructureAdmin({ region }: { region: string }): JSX.Element
                     timestamps.
                 </p>
             )}
+            {fresh(data.release, now) && data.release?.data?.runs_error && (
+                <p className="alert">
+                    The version pin is available, but build history is incomplete. Inspect Data sources for details.
+                </p>
+            )}
             <div className="summary-grid">
                 <Card className="summary">
                     <span className="muted">npm latest</span>

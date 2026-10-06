@@ -1,6 +1,6 @@
 # Capture outputs refactor — implementation plan
 
-Working contract for implementation agents. Steps 1–8 have shipped. Each remaining step is one commit in its own PR.
+Working contract for implementation agents. Steps 1–10 have shipped. Each remaining step is one commit in its own PR.
 
 This doc is deleted when it schedules nothing. Step 18 closes objective 1; objectives 2 and 3 are then scheduled in order. Before deletion, the parts still needed — the vocabulary rules, the ordering-vs-person-processing contract, the repartitioning note — move into module docs or `v1/sinks/DESIGN.md`, and unscheduled work becomes issues.
 
@@ -55,8 +55,8 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
 ### Vocabulary rules
 
 - **Address** = a lane of a pipeline, or an admin redirect (`Dlq`, `Custom(topic)`) outside the lane model. v0 builds it through `resolve`, v1 by mapping its `Destination`. Never reintroduce a flat enum that mixes pipeline and lane.
-- **Prepared event** = the transport-independent result of processing one event. v1's `PreparedEvent` is the shape; v0's `PreparedPayload` differs only in carrying a topic instead of an address.
-- **Output** = targets + selection policy. **OutputRegistry** = the address → output map. The Step-3 **TopicTable** is absorbed into the targets.
+- **Prepared event** = the transport-independent result of processing one event. v1's `PreparedEvent` is the shape; v0's `PreparedPayload` differs only in carrying v0's `Destination` instead of an address.
+- **Output** = targets + selection policy. **OutputRegistry** = the address → output map. The Step-3 **TopicTable** became the Step-10 **OutputTable**: one target per `Destination`.
 - **Destination** = v0's `sinks::registry::Destination` and v1's `v1::sinks::types::Destination` name the same routed slots. Both map onto `Address`. Never call both a policy tree and a routed topic an `Output`.
 - **Sink** = one transport. Anything that picks between sinks is an output policy.
 - **Producer** config never carries topic names, and output config never carries connection config. An output moves clusters by naming a different producer.
@@ -72,7 +72,7 @@ producers         → named connections (brokers, TLS, tuning), instantiated onc
 
 ## Starting point
 
-Steps 1–8 shipped the structure:
+Steps 1–10 shipped the structure:
 
 - **1** — `assert_routing` goldens pin topic, partition key, headers, and reroute counters for every pipeline and lane.
 - **2, 5** — routing is the pure `pipeline::resolve(&metadata, ai_events_overflow_armed) -> AddressDecision { address, ordering }`. The Kafka sink still calls it during prep.
@@ -81,32 +81,19 @@ Steps 1–8 shipped the structure:
 - **6** — the `Sink` trait takes `PreparedPayload`s and returns per-event `SinkResult`s. Kafka's `prepare_batch` is an inherent method.
 - **7** — `outputs.rs`: `Output` is a leaf or a `failover` over two outputs. `FallbackSink` is deleted. Accepted metric change: `capture_event_batch_size` now records on the S3 fallback path and on print/noop single sends.
 - **8** — every v0 call site publishes through `OutputRegistry::publish`. `State.outputs` is a concrete `Arc<OutputRegistry>`. The v0 `Event` trait is deleted. `kafka_send` stays on the one-event path: removing it adds a task spawn per event and drops the `ack_wait_one` span, so Step 20 takes it.
+- **9** — named producers (`producers.rs`): each slot reads `KAFKA_<SLOT>_PRODUCER_<RDKAFKA_KEY>` and is instantiated once. `INGESTION` is the one slot. ([#105335](https://github.com/PostHog/posthog/pull/105335))
+- **10** — each v0 `Destination` is an output with a topic and a producer, read from `CAPTURE_OUTPUT_<OUTPUT>_TOPIC` and `CAPTURE_OUTPUT_<OUTPUT>_PRODUCER` as in Node.js ingestion. `OutputTable` replaces `TopicTable`. `PreparedPayload` carries the `Destination`. Setup maps each target's producer name to its handle once and hands the Kafka sink the resolved table; at enqueue the sink publishes through the target's own producer. Custom redirects publish through `CAPTURE_OUTPUT_CUSTOM_PRODUCER`. The table sits inside the sink only because v0 resolves the lane during Kafka prep; it serves the v0 event route and is deleted in Step 20.
 
 Today the registry holds one deployment-wide `Output`: a Kafka leaf, or Kafka→S3 failover. v1 (`CAPTURE_V1_SINKS`) serializes its own `PreparedEvent`s and publishes them through its own `Router` to one default sink, the first name in `CAPTURE_V1_SINKS`.
 
 ## Objective 1 — manual fallback for all capture traffic
 
-Steps 9–10 move configuration onto named producers and outputs. Steps 11–12 bring v1 onto the outputs layer. Steps 13–14 make the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 17 is the fallback. Step 18 deletes the S3 fallback it replaces.
-
-### Step 9 · Named producers, instantiated once
-
-- **Goal.** Producer slots are declared in code, and each holds only connection config (brokers, TLS, client tuning) and is instantiated once at startup. The v0 Kafka output publishes through the `INGESTION` slot, which replaces the connection half of `KafkaConfig`. Behavior is byte-identical.
-- **Why.** Two outputs on one cluster must share one connection, and moving one output to another cluster must not move the others. Sharing by name makes both structural.
-- **Same model as Node.js ingestion.** A slot is a role, not a cluster; charts wire it to a cluster per deployment. Its settings are `KAFKA_<SLOT>_PRODUCER_<RDKAFKA_KEY>`, for example `KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST`. Slot names are single words, so no slot's prefix is a prefix of another's.
-- **Migration.** Explicit: capture stops reading `KAFKA_HOSTS`, `KAFKA_TLS`, and the `KAFKA_PRODUCER_*` tuning; charts set the new variables first. The broker list defaults to `kafka:9092`, the local dev and hobby broker, so those setups need no change. capture-logs keeps its own `KafkaConfig`.
-- **Parity proof.** Goldens and integration suites unmodified. A test pins the rdkafka settings of the default slot config to capture's current ones.
-- **Size.** M.
-
-### Step 10 · An output owns its topics and names its producer
-
-- **Goal.** Each leaf output is built from its own config block: its topic names and a producer name. It no longer reads `KafkaConfig`. Two outputs can name different producers (different clusters) or the same one (one connection).
-- **Why.** The policy tree composes any two outputs; the only pair today is Kafka→S3 because `setup` builds it that way. After this step, a second cluster is one more producer and one more output block: a `setup` change and a values file.
-- **Topic defaults stay** until Step 15.
-- **Size.** M.
+Steps 11–12 bring v1 onto the outputs layer. Steps 13–14 make the set of reachable outputs a type. Steps 15–16 are the checks that type allows. Step 17 is the fallback. Step 18 deletes the S3 fallback it replaces.
 
 ### Step 11 · Outputs accept prepared events
 
 - **Goal.** A second route into the outputs layer: `publish_prepared(Vec<PreparedEvent>) -> Vec<SinkResult>`, one result per event. Each target maps the event's address to its own topic, and its sink does the transport encoding: the Kafka sink builds the record, and the S3 sink writes the JSON body as a line. Every policy works on this route. v0's event route is unchanged.
+- **Targets live in the outputs layer.** A target is a topic plus a sink. There is one Kafka sink per named producer, built once in setup; it takes a topic and a prepared event and makes no routing decision. This route never reads the Step-10 in-sink `OutputTable`.
 - **Why.** v1 already produces prepared events with per-event results. Joining at this level leaves v1's lane decision, JSON body, and response model untouched, so there is no second pass through `resolve` and no parity mapping of v1 decisions onto v0 metadata.
 - **Parity proof.** New tests drive prepared events through each leaf and each policy. Goldens unmodified.
 - **Size.** M.
@@ -156,7 +143,7 @@ Example of what this catches: until [charts#14941](https://github.com/PostHog/ch
 
 ### Step 17 · capture-analytics emergency fallback
 
-- **Shape.** The capture-analytics output tree holds two Kafka outputs, primary and fallback. Each names its own producer (own brokers, own TLS) and its own topic names. The fallback cluster does not have to copy the primary's topic names. v0 and v1 traffic both publish through this tree.
+- **Shape.** Each capture-analytics output gets a secondary target beside its primary, as in Node.js ingestion's dual-write outputs: `CAPTURE_OUTPUT_<OUTPUT>_SECONDARY_TOPIC` and `CAPTURE_OUTPUT_<OUTPUT>_SECONDARY_PRODUCER`. The secondary producer has its own brokers and TLS, and its topics do not have to copy the primary's names. v0 and v1 traffic both publish through these outputs.
 - **Arming.** One environment variable, matched exactly against a sentinel value. `"1"`, `"true"`, or `"yes"` does not arm it; any value other than the sentinel refuses to boot. Unset is normal operation.
 - **Static at boot.** A new `select` policy holds both targets and publishes to one, picked by the arming variable. It does not react to health: switching means setting the variable and rolling the pods, because a person decides to move off a degraded MSK. Automatic switching is objective 3. The health-gated `failover` policy is not used here; it serves only S3.
 - **A retryable error stays on the live target.** It returns to the caller like any other publish error and never sends the batch to the other target.
@@ -191,7 +178,7 @@ v0 and v1 producer tuning is reconciled into one set per cluster, and capture-an
 
 ### Step 20 · v0 builds prepared events
 
-v0 resolves the lane, builds the JSON body and header values, and hands prepared events to `publish_prepared`, as v1 does. The lz4 envelope moves into the Kafka sink as target config. `PublishEvents`, `kafka_send`, and v0's event route into the outputs layer are deleted. v0 call sites fold per-event results into the whole-request `CaptureError`.
+v0 resolves the lane, builds the JSON body and header values, and hands prepared events to `publish_prepared`, as v1 does. The lz4 envelope moves into the Kafka sink as target config. `PublishEvents`, `kafka_send`, and v0's event route into the outputs layer are deleted, and with them the in-sink `OutputTable`, its `resolve`, and `map_producers`. v0 call sites fold per-event results into the whole-request `CaptureError`.
 
 - **Tests.** Capturing mocks see prepared events, not `ProcessedEvent`s, so about 60 metadata assertions become wire-level (topic, key, headers, payload). The `ExpectedEvent` checkers rebuild the expected record, so test bodies stay the same. This also pins that replay events redirected to dlq/custom partition on the event key, not the session id.
 - **Accepted differences.** print/noop run the real prep path, so they can now fail prep (e.g. `MissingSessionId`). Prep histograms keep their `capture_kafka_*` names.
@@ -293,8 +280,8 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 7 · Outputs layer with policies; composites retired | done | `feat(capture): outputs layer owns the failover policy` |
 | 8a · Call sites on the table | done | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | done | `refactor(capture): retire v0 Event trait` |
-| 9 · Named producers, instantiated once | pending | `refactor(capture): named producers own their connection config` |
-| 10 · An output owns its topics and names its producer | pending | `refactor(capture): outputs carry their own topics and name their producer` |
+| 9 · Named producers, instantiated once | done | `refactor(capture): named producers own their connection config` |
+| 10 · An output owns its topics and names its producer | done | `feat(capture): each output reads its own topic and producer` |
 | 11 · Outputs accept prepared events | pending | `feat(capture): outputs publish prepared events with per-event results` |
 | 12 · v1 publishes through the outputs layer | pending | `refactor(capture): v1 publishes through outputs; v1 sink stack deleted` |
 | 13 · Typed per-pipeline lanes | pending | `refactor(capture): typed per-pipeline lanes` |
@@ -315,7 +302,7 @@ One step = one commit, subject from the tracker. No `--no-verify`.
 | 28 · Sinks realize namespaces | superseded | — (targets map addresses to topics from Step 11) |
 | 29 · Handlers bound by publish capabilities | deferred | `feat(capture): handlers bound by publish capabilities over per-mode state` |
 | 30 · AI ingress family | deferred | `feat(capture): ai ingress is its own router family with its own capability` |
-| 31 · Topic tables injected into sinks | superseded | — (each target owns its topics from Step 10) |
+| 31 · Topic tables injected into sinks | superseded | — (targets move to the outputs layer in Step 11; the in-sink table goes in Step 20) |
 | 32 · Per-pipeline output overrides; boot topic verification | superseded | — (boot verification became Step 16; retargeting is configuration after Steps 10 and 14) |
 | 33 · Naming and import hygiene | deferred | `refactor(capture): replace remaining nested paths with imports` + `refactor(capture): name the session replay pipeline consistently` |
 | 34 · Outputs as an open trait | deferred | `refactor(capture): Outputs becomes an open trait` |

@@ -48,8 +48,7 @@ RUN_FOR_REAL = {"ops": {"clear_removed_cohort_data": {"config": {"dry_run": Fals
 
 
 def without_age_floor(run_config: dict | None) -> dict:
-    # Tests write their rows moments before the run, so the tombstone age floor would hide them all.
-    # A test that sets the floor keeps its own value.
+    # Tests write their rows moments before the run, so the default minimum tombstone age would skip them all.
     run_config = deepcopy(run_config or {})
     op_config = run_config.setdefault("ops", {}).setdefault("clear_removed_cohort_data", {}).setdefault("config", {})
     op_config.setdefault("min_tombstone_age_seconds", 0)
@@ -292,7 +291,7 @@ def test_removes_every_version_of_a_distinct_id_repointed_to_a_deleted_person(
 def insert_distinct_id(
     cluster: ClickhouseCluster, distinct_id: str, person_id: str, version: int, produced_at: datetime, is_deleted=False
 ) -> None:
-    # create_person_distinct_id stamps _timestamp with now(), so the age floor needs a direct insert.
+    # create_person_distinct_id stamps _timestamp with now(), so an older _timestamp needs a direct insert.
     row = (TEAM_ID, distinct_id, UUID(person_id), int(is_deleted), version, produced_at, 0, 0)
     cluster.any_host(
         lambda client: client.execute(
@@ -305,8 +304,8 @@ def insert_distinct_id(
 
 @pytest.mark.django_db
 def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: ClickhouseCluster, persons_database):
-    # The floor reads the newest version's production time. Reading the oldest version or the first
-    # tombstone instead sweeps a key whose newest tombstone is still young.
+    # The minimum age applies to the newest version's production time. Reading the oldest version or
+    # the first tombstone instead deletes a key whose newest tombstone is still recent.
     old = datetime.now(UTC) - timedelta(days=2)
     young = datetime.now(UTC) - timedelta(hours=1)
     swept = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=old)
@@ -321,13 +320,12 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
     for distinct_id, owner, tombstoned_at in [
         ("young_tombstone", live, young),
         ("old_tombstone", live, old),
-        # Its own tombstone is still young, so it waits, and its owner waits with it. Sweeping the owner
-        # would let the drain hard-delete this key's Postgres row along with the person.
+        # Its own tombstone is recent, so it waits and holds back its owner.
         ("young_tombstone_of_held_person", held, young),
     ]:
         insert_distinct_id(cluster, distinct_id, owner, version=0, produced_at=old)
         insert_distinct_id(cluster, distinct_id, owner, version=1, produced_at=tombstoned_at, is_deleted=True)
-    # A live mapping of a swept person goes with it: the person already passed the floor.
+    # A live mapping of a person old enough to delete goes with that person.
     insert_distinct_id(cluster, "live_of_swept_person", swept, version=0, produced_at=young)
 
     floor = clickhouse_cleanup.DEFAULT_MIN_TOMBSTONE_AGE_SECONDS
@@ -351,7 +349,7 @@ def test_the_age_floor_defers_tombstones_produced_too_recently(cluster: Clickhou
 
 
 def test_the_age_floor_rejects_a_negative_age():
-    # A negative floor puts the cutoff in the future, which sweeps every tombstone however young.
+    # A negative minimum age puts the cutoff in the future, which deletes every tombstone however recent.
     with pytest.raises(ValueError, match="greater than or equal to 0"):
         clickhouse_cleanup.CleanupConfig(min_tombstone_age_seconds=-1)
 
@@ -385,9 +383,8 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
 def test_a_failed_person_delete_queues_nothing_for_postgres(
     cluster: ClickhouseCluster, persons_database, failing_op: str
 ):
-    # The drain removes every queued person from Postgres, so the queue write has to follow the
-    # ClickHouse delete. A person queued ahead of a delete that then fails is gone from Postgres
-    # while ClickHouse still holds it.
+    # A person queued before a ClickHouse delete that then fails is drained from Postgres while
+    # ClickHouse still holds it.
     doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     real_runner = clickhouse_cleanup.LightweightDeleteMutationRunner
 
@@ -1282,8 +1279,7 @@ def test_the_sweep_sensor_skips_while_a_sweep_is_already_active(status: dagster.
 def test_the_sweep_waits_for_an_executing_drain_before_it_touches_anything(
     cluster: ClickhouseCluster, persons_database
 ):
-    # The drain stops only at its next page, so a sweep that starts beside it races a drain request
-    # still in flight.
+    # The drain stops only before its next request, so a sweep that does not wait races a request in flight.
     doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     instance = dagster.DagsterInstance.ephemeral()
     drain_run = instance.create_run_for_job(
@@ -1310,7 +1306,7 @@ def test_the_sweep_waits_for_an_executing_drain_before_it_touches_anything(
 
 
 def test_the_sweep_fails_when_the_drain_does_not_stop():
-    # An unbounded wait would hold the weekly sweep until its 12 h max_runtime kills it.
+    # An unbounded wait would hold the weekly sweep until its max_runtime kills it.
     instance = dagster.DagsterInstance.ephemeral()
     instance.create_run_for_job(job_def=person_pg_cleanup_drain_job, status=dagster.DagsterRunStatus.STARTED)
     context = dagster.build_op_context(instance=instance)

@@ -49,7 +49,8 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Sync HogFunction templates** - start the CDP service and load destination
    templates into the restored database before the preview becomes available.
-6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+6. **Sync feature flags** - run `sync_feature_flags` so each flag in the PR's `constants.tsx` that the golden lacks exists and is on.
+7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
@@ -107,8 +108,9 @@ build.
 
 ## Reporting & lifecycle
 
-- **PR comment** — a sticky comment (`<!-- hogbox-preview-comment -->`) staged
-  building → ready → failed, with the URL, login, and what's running.
+- **PR comment** — a `Hogbox preview` section in the shared `🤖 CI report` comment
+  (`.github/scripts/post-hogbox-preview-section.mjs`), staged
+  building → ready → failed → torn down, with the URL, login, and what's running.
 - **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
   /failure + URL), so the preview shows in the PR's Deployments UI.
 - **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in

@@ -1090,6 +1090,21 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
         }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -2103,6 +2118,21 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.supersedes_implementation !== undefined) {
             body['supersedes_implementation'] = params.supersedes_implementation
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',

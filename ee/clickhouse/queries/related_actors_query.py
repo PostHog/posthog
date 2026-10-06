@@ -1,13 +1,14 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.utils.timezone import now
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, ProductKey
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -43,7 +44,9 @@ class RelatedActorsQuery:
         # Treat a missing group key as the empty string (not NULL), matching the legacy raw query
         # which read the non-nullable materialized `$group_N` column directly. This keeps the
         # `(index, key)` tuples in the IN-subquery non-nullable.
-        self._modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        self._modifiers = create_default_modifiers_for_team(
+            team, HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING)
+        )
 
     @property
     def is_aggregating_by_groups(self) -> bool:
@@ -54,13 +57,7 @@ class RelatedActorsQuery:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
 
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
-        group_type_indexes = [
-            m["group_type_index"]
-            for m in get_group_types_for_project(self.team.project_id)
-            if m["group_type_index"] != self.group_type_index
-        ]
+        group_type_indexes = [index for index in self._group_types if index != self.group_type_index]
 
         results.extend(self._query_related_groups(group_type_indexes=group_type_indexes))
         return results
@@ -73,16 +70,23 @@ class RelatedActorsQuery:
         with personhog_caller_tag("persons/related-actors"):
             return get_serialized_people(self.team, person_ids)
 
+    @cached_property
+    def _group_types(self) -> dict[int, dict[str, Any]]:
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return {m["group_type_index"]: m for m in get_group_types_for_project(self.team.project_id)}
+
     def _group_key_field(self, group_index: int) -> ast.Expr:
-        # Read the group key from the raw event JSON rather than the `$group_N` field: the latter is
-        # zeroed for events older than the GroupTypeMapping.created_at, but the legacy raw query
-        # matched all events regardless, so we go to the JSON to preserve that behavior.
-        # JSONExtractString returns a non-nullable String (empty when missing), matching the
-        # materialized column's type so tuple/IN comparisons stay non-nullable.
-        return ast.Call(
-            name="JSONExtractString",
-            args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=f"$group_{group_index}")],
-        )
+        # Read the group key column, not the JSON in `properties`. On the native-JSON events table a
+        # JSON read rebuilds the whole property sub-object per row, and for heavy actors that goes
+        # over the ClickHouse memory limit.
+        # When the GroupTypeMapping has a created_at, HogQL zeroes `$group_N` for older events and
+        # keeps the raw column as `_$group_N_raw`. The legacy raw query matched all events, so we
+        # read the raw column to keep that behavior.
+        mapping = self._group_types.get(group_index)
+        if mapping and mapping["created_at"]:
+            return ast.Field(chain=["events", f"_$group_{group_index}_raw"])
+        return ast.Field(chain=["events", f"$group_{group_index}"])
 
     def _query_related_people_ids(self) -> list:
         # Resolve distinct_ids seen on events for this group, then map them to persons via
@@ -162,6 +166,40 @@ class RelatedActorsQuery:
                 "actor_filter": actor_filter,
             },
         )
+        if (
+            isinstance(query, ast.SelectQuery)
+            and not self.is_aggregating_by_groups
+            and self._modifiers.personsOnEventsMode
+            in (
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            )
+        ):
+            # Detached IDs can own history without a current Personhog mapping. Include stored
+            # ownership and all override candidates; the resolved person filter rejects stale versions.
+            # Keep IN local so candidates and person resolution use the same shard's snapshot.
+            # GLOBAL IN can miss overrides on shards whose replicas are ahead of the initiator.
+            query.prewhere = parse_expr(
+                """
+                events.team_id = {team_id}
+                AND timestamp > {after}
+                AND timestamp < {before}
+                AND (
+                    events.event_person_id = {person_id}
+                    OR events.distinct_id IN (
+                        SELECT distinct_id
+                        FROM raw_person_distinct_id_overrides
+                        WHERE person_id = {person_id}
+                    )
+                )
+                """,
+                placeholders={
+                    "team_id": ast.Constant(value=self.team.pk),
+                    "after": ast.Constant(value=self._after),
+                    "before": ast.Constant(value=self._before),
+                    "person_id": ast.Constant(value=self.id),
+                },
+            )
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
         results = response.results
         if not results:

@@ -112,10 +112,12 @@ class TestPreamble:
         assert "<output_privacy>" in rendered
         assert "email address" in rendered
         assert "verbatim" in rendered
-        # Whose data it is decides the rule, not what kind it is. A value the subject typed into a filter is
-        # a third party's, so a rewrite that only bans PII by category would let the customer's customer through.
+        # A value the subject typed into a filter is a third party's, so the subject exception must never cover it.
         assert "belongs to someone else" in rendered
         assert "filtered by a customer's email address" in rendered
+        # The subject is covered too: without an explicit ask, naming them in a title is still a leak.
+        assert "Never write personal data into any output field" in rendered
+        assert "the subject too" in rendered
 
     @parameterized.expand(
         [
@@ -181,6 +183,10 @@ class TestPreamble:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
         assert "<recording_limits>" in rendered
         assert "Never infer that the user typed or submitted" in rendered
+        # Canvas, iframe, and video content is often absent rather than masked, so a blank area there is no bug.
+        assert "Unrecorded content" in rendered
+        # Desktop sessions get no <gestures> block, so the repeated-click guidance has to render without it.
+        assert "<normal_use>" in rendered
 
     @parameterized.expand([("touch", True), ("desktop", False)])
     def test_preamble_explains_gestures_only_for_touch_sessions(self, _name: str, touch: bool) -> None:
@@ -268,7 +274,7 @@ class TestPreamble:
         assert "- Organization the session belongs to: `Customer Co`" in rendered
         # The privacy block must carve the subject out, or the model keeps writing "a user" (see the
         # `<output_privacy>` test, which locks in that everyone else stays generic).
-        assert "The subject is the exception" in rendered
+        assert "explicitly asks who the session belongs to" in rendered
 
     def test_preamble_escapes_left_angle_in_session_identity(self) -> None:
         # A person or group name is customer-controlled free text, so it could forge a closing tag.
@@ -763,7 +769,7 @@ class TestSummarizerScanner:
             )
         )
         assert "1-2 sentences" in short.core_steps()[0].instruction
-        assert "3-5 paragraphs" in long.core_steps()[0].instruction
+        assert "3-5 short paragraphs" in long.core_steps()[0].instruction
 
     def test_output_round_trip(self) -> None:
         out = SummarizerOutput(
@@ -787,7 +793,12 @@ class TestSummarizerScannerSteps:
         assert steps[0].required is True
 
     @pytest.mark.parametrize(
-        "length,guidance", [("short", "1-2 sentences"), ("medium", "1 paragraph"), ("long", "3-5 paragraphs")]
+        "length,guidance",
+        [
+            ("short", "1-2 sentences"),
+            ("medium", "4-6 sentences in two short paragraphs"),
+            ("long", "3-5 short paragraphs"),
+        ],
     )
     def test_core_step_carries_the_configured_length_guidance(self, length: str, guidance: str) -> None:
         scanner = scanner_from_db(

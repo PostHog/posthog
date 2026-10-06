@@ -138,6 +138,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             user=user,
             run=manual_run,
             query_context=BATCH_QUERY,
+            scheduled=manual_run is None,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
