@@ -496,7 +496,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
-            if query_status.error_message:
+            if query_status.error_http_status is not None:
+                http_code = query_status.error_http_status
+            elif query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise

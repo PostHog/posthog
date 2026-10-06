@@ -319,6 +319,13 @@ def execute_process_query(
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
+        # Preserve the HTTP status before adding a safe explanation to an internal failure.
+        query_status.error_http_status = 400 if is_user_safe_error or is_staff_user else 500
+        error_code = (
+            look_up_clickhouse_error_code_meta(err).name.lower() if isinstance(err, InternalCHQueryError) else None
+        )
+        if error_code in USER_ERROR_CODE_NAMES:
+            query_status.error_code = error_code
         # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
         # for polling. Only for a real user: a shared link must not see the project's data volume.
         if user_id:
@@ -334,10 +341,7 @@ def execute_process_query(
                 if isinstance(codes, str):
                     query_status.error_code = codes
         elif isinstance(err, InternalCHQueryError):
-            error_code = look_up_clickhouse_error_code_meta(err).name.lower()
             query_status.error_message = internal_ch_error_user_message(error_code)
-            if error_code in USER_ERROR_CODE_NAMES:
-                query_status.error_code = error_code
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

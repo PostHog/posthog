@@ -2921,6 +2921,12 @@ export type QueryStatus = {
     /**  @default null */
     error_message: string | null
     /**
+     * HTTP status chosen when the query failed, independently of whether a safe explanation is available.
+     * Older cached query statuses do not include this field.
+     * @default null
+     */
+    error_http_status?: integer | null
+    /**
      * Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.
      * @default null
      */

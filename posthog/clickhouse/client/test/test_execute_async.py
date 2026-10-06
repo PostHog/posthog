@@ -468,7 +468,56 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, expected_message)
         self.assertEqual(result.error_code, expected_code)
+        self.assertEqual(result.error_http_status, 500)
         mock_capture.assert_called_once_with(error)
+
+    @parameterized.expand(
+        [
+            (
+                "staff_internal_rejection",
+                True,
+                InternalCHQueryError("Unknown column", code=47),
+                "unknown_identifier",
+                "Code: 47.\nUnknown column",
+                True,
+            ),
+            (
+                "exposed_rejection",
+                False,
+                ExposedCHQueryError("Expected an integer argument", code=43),
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                False,
+            ),
+            (
+                "staff_exposed_rejection",
+                True,
+                ExposedCHQueryError("Expected an integer argument", code=43),
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                False,
+            ),
+        ]
+    )
+    def test_async_query_rejection_code_is_independent_of_message_exposure(
+        self, _name, is_staff, error, expected_code, expected_message, captured
+    ):
+        self.user.is_staff = is_staff
+        self.user.save(update_fields=["is_staff"])
+        query_id = uuid.uuid4().hex
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception") as mock_capture,
+        ):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, build_query("SELECT 1"), query_id=query_id, _test_only_bypass_celery=True
+            )
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_code, expected_code)
+        self.assertEqual(result.error_message, expected_message)
+        self.assertEqual(result.error_http_status, 400)
+        self.assertEqual(mock_capture.called, captured)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
