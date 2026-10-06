@@ -262,13 +262,14 @@ describe('materializationJobsLogic', () => {
         ])
     })
 
-    it('reloads the view list once when the newest run ends, not on every poll', async () => {
-        let status = 'Running'
+    it.each([
+        ['the observed run ends', { id: 'run-1', status: 'Running' }, { id: 'run-1', status: 'Failed' }],
+        ['a run fails between polls', { id: 'run-1', status: 'Completed' }, { id: 'run-2', status: 'Failed' }],
+        ['a run succeeds between polls', { id: 'run-1', status: 'Failed' }, { id: 'run-2', status: 'Completed' }],
+    ])('reloads the view list once when %s, not on every poll', async (_name, before, after) => {
+        let newestJob = before
         const mocks = apiMocks({ isMaterialized: true })
-        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [
-            200,
-            { count: 1, results: [{ id: 'run-1', status }] },
-        ]
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [200, { count: 1, results: [newestJob] }]
         useMocks(mocks)
         logic = materializationJobsLogic({ viewId: 'view-1' })
         logic.mount()
@@ -276,11 +277,14 @@ describe('materializationJobsLogic', () => {
         await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
             .toDispatchActions(['loadDataModelingJobsSuccess'])
             .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
-        status = 'Failed'
+        newestJob = after
         await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
             'loadDataModelingJobsSuccess',
             'loadDataWarehouseSavedQueries',
         ])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
     })
 
     // Another product owns these views: a managed viewset refuses the delete outright, and deleting

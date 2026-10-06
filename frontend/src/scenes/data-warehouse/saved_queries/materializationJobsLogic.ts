@@ -732,11 +732,14 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                 actions.loadLatestCompletedJob()
             }
             // The SQL editor sidebar reads run status from the view list, so reload it once when a run ends.
-            const running = dataModelingJobs.results[0]?.status === 'Running'
-            if (cache.newestJobRunning && !running) {
+            // Compare the newest run's id and status, because a run can start and end between idle polls.
+            const newestJob = dataModelingJobs.results[0]
+            const running = newestJob?.status === 'Running'
+            const newestJobState = newestJob ? `${newestJob.id}:${newestJob.status}` : null
+            if (cache.newestJobState !== undefined && cache.newestJobState !== newestJobState && !running) {
                 actions.loadDataWarehouseSavedQueries()
             }
-            cache.newestJobRunning = running
+            cache.newestJobState = newestJobState
             const active = values.startingMaterialization || running
             actions.scheduleJobsRefresh(active ? ACTIVE_REFRESH_INTERVAL_MS : IDLE_REFRESH_INTERVAL_MS)
         },
