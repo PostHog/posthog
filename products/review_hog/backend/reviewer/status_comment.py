@@ -31,9 +31,9 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
+    REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
-    message_prefix_for_mode,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
@@ -157,6 +157,10 @@ def report_deep_link(team_id: int, report_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
 
 
+def _product_name(review_mode: str) -> str:
+    return "PostHog Review (flash)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
+
+
 def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
@@ -169,9 +173,9 @@ def render_in_progress_body(
     done = progress.get("done") if progress else None
     total = progress.get("total") if progress else None
     counter = f" · {done}/{total}" if done is not None and total else ""
-    return message_prefix_for_mode(review_mode) + "\n".join(
+    return "\n".join(
         [
-            "### \U0001f994 PostHog Review is reviewing this pull request",
+            f"### \U0001f994 {_product_name(review_mode)} is reviewing this pull request",
             "",
             f"**{label}{counter}**",
             "",
@@ -211,8 +215,11 @@ def render_final_body(
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
-    lines = ["### \U0001f994 PostHog Review reviewed this pull request", ""]
-    if found_total == 0 and celebrate_clean_reviews:
+    lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
+    # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
+    if found_total == 0 and review_mode == REVIEW_MODE_FLASH:
+        lines.append("Nothing worth raising.")
+    elif found_total == 0 and celebrate_clean_reviews:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
@@ -245,7 +252,7 @@ def render_final_body(
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
-    return message_prefix_for_mode(review_mode) + "\n".join(lines)
+    return "\n".join(lines)
 
 
 def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
@@ -323,9 +330,9 @@ def _splice_resolution_section(body: str, section: str) -> str:
 
 
 def render_failed_body(report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> str:
-    return message_prefix_for_mode(review_mode) + "\n".join(
+    return "\n".join(
         [
-            "### \U0001f994 PostHog Review couldn't finish this review",
+            f"### \U0001f994 {_product_name(review_mode)} couldn't finish this review",
             "",
             "The review run failed partway. It will run again on the next push to this pull request.",
             "",
