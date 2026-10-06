@@ -54,7 +54,7 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
-interface SlopeLegendItemSummary {
+interface LegendItemSummary {
     label: string
     /** The per-series change text, or null when absent. */
     secondaryLabel: string | null
@@ -90,7 +90,10 @@ export interface HogChart<Meta = unknown> {
     /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
     slopeSeriesLabels(): string[]
     /** Slope-chart legend rows — label plus the per-series change. Empty when the legend is hidden. */
-    slopeLegendItems(): SlopeLegendItemSummary[]
+    slopeLegendItems(): LegendItemSummary[]
+    /** Proportion-bar legend rows — label plus `share · value`, or null for a hidden part. Empty when
+     *  the legend is hidden. */
+    proportionLegendItems(): LegendItemSummary[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -226,22 +229,8 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
                 (el) => el.textContent ?? ''
             ),
-        slopeLegendItems: () => {
-            // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it
-            // lives in the broader render scope rather than under `wrapper`.
-            const legend = scope.querySelector<HTMLElement>('[data-attr="hog-chart-slope-legend"]')
-            if (!legend) {
-                return []
-            }
-            return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
-                const secondary = labelEl.nextElementSibling
-                const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
-                return {
-                    label: labelEl.textContent ?? '',
-                    secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
-                }
-            })
-        },
+        slopeLegendItems: () => readLegendItems(scope, 'hog-chart-slope-legend'),
+        proportionLegendItems: () => readLegendItems(scope, 'hog-chart-proportion-legend'),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
@@ -281,4 +270,21 @@ export function getHogChart<Meta = unknown>(
             }
         },
     }
+}
+
+// The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it lives in the
+// broader render scope rather than under the chart wrapper.
+function readLegendItems(scope: ParentNode, legendDataAttr: string): LegendItemSummary[] {
+    const legend = scope.querySelector<HTMLElement>(`[data-attr="${legendDataAttr}"]`)
+    if (!legend) {
+        return []
+    }
+    return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
+        const secondary = labelEl.nextElementSibling
+        const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
+        return {
+            label: labelEl.textContent ?? '',
+            secondaryLabel: isSecondary ? (secondary as HTMLElement).textContent : null,
+        }
+    })
 }
