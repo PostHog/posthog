@@ -259,19 +259,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
+            self._parse_expr("toFloat(properties.a) > 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
+            self._parse_expr("toFloat(properties.a) < 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            self._parse_expr("properties.a >= '3'"),
+            self._parse_expr("toFloat(properties.a) >= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            self._parse_expr("properties.a <= '3'"),
+            self._parse_expr("toFloat(properties.a) <= 3.0"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
@@ -446,16 +446,6 @@ class TestProperty(BaseTest):
                 ),
                 right=ast.Call(name="toDateTime", args=[ast.Constant(value=expected_rhs)]),
             ),
-        )
-
-    def test_property_to_expr_generic_lt_gt_unchanged(self):
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            self._parse_expr("properties.a < '3'"),
-        )
-        self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            self._parse_expr("properties.a > '3'"),
         )
 
     @parameterized.expand(
@@ -1472,16 +1462,24 @@ class TestProperty(BaseTest):
                 f"toFloat({prefix}.prop) < 5 or toFloat({prefix}.prop) > 10 or isNull(toFloat({prefix}.prop))"
             ),
         )
-        # a string value keeps the uncoerced String comparison
+        # a non-numeric string value keeps the uncoerced String comparison
         self.assertEqual(
             self._property_to_expr({**base, "value": "abc"}),
             self._parse_expr(f"{prefix}.prop > 'abc'"),
         )
 
-    def test_property_to_expr_between_string_bound_parses_against_coerced_lhs(self):
-        # Coercion triggers off the numeric bound, so the string bound must become a number too,
-        # or the comparison fails with the same NO_COMMON_TYPE the coercion avoids.
-        expr = self._property_to_expr({"type": "event", "key": "prop", "value": [5, "10"], "operator": "between"})
+    def test_property_to_expr_numeric_text_bound_parses_against_coerced_lhs(self):
+        # The filter UI submits a typed-in bound as text, so "200" must coerce like 200 does.
+        # Left uncoerced it compares lexicographically: "9" > "200" matches even though 9 < 200.
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": "200", "operator": "gt"})
+        assert isinstance(expr, ast.CompareOperation)
+        self.assertEqual(expr.left, ast.Call(name="toFloat", args=[ast.Field(chain=["properties", "prop"])]))
+        assert isinstance(expr.right, ast.Constant)
+        self.assertIsInstance(expr.right.value, float)
+        self.assertEqual(expr.right.value, 200.0)
+
+        # between bounds are validated numeric, so text bounds coerce there too
+        expr = self._property_to_expr({"type": "event", "key": "prop", "value": ["5", "10"], "operator": "between"})
         assert isinstance(expr, ast.And)
         upper = expr.exprs[1]
         assert isinstance(upper, ast.CompareOperation)

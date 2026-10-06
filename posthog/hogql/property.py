@@ -512,22 +512,41 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
     return cast(ValueT, _stringify(value))
 
 
-def _force_numeric_for_string_property(expr: ast.Expr, value: ValueT, property: Property, team: Team) -> ast.Expr:
-    """Coerce the LHS of an ordered comparison (lt/gt/lte/gte/between) to Float64 when a
-    numeric filter value meets a String LHS.
+def _parse_numeric_bound(value: ValueT) -> int | float | None:
+    """Read an ordered-comparison bound as a number, or None when it is not one.
+
+    The filter UI submits a typed-in bound as text ('200'), so numeric text counts as
+    numeric here. NaN parses without error but orders meaninglessly, so it is rejected."""
+    if _is_numeric_filter_value(value):
+        return cast(int | float, value)
+    if isinstance(value, str):
+        try:
+            parsed = float(value)
+        except ValueError:
+            return None
+        return None if math.isnan(parsed) else parsed
+    return None
+
+
+def _coerce_ordered_bound(
+    expr: ast.Expr, value: ValueT, property: Property, team: Team
+) -> tuple[ast.Expr, ValueT | int | float]:
+    """Coerce an ordered comparison (lt/gt/lte/gte) of a numeric bound against a String LHS.
 
     Stringifying the value, the way exact/is_not do, would order lexicographically
     ('9' > '10'), so the cast has to go on the LHS instead. HogQL's toFloat prints as
     accurateCastOrNull(..., 'Float64'), so a row whose value does not parse as a number
-    becomes NULL and drops out of the comparison, same as a row missing the property."""
-    values = value if isinstance(value, list) else [value]
-    if not any(_is_numeric_filter_value(v) for v in values):
-        return expr
+    becomes NULL and drops out of the comparison, same as a row missing the property.
+    The bound comes back in parsed form, or a numeric-text bound would compare as
+    String against the Float64 LHS."""
+    bound = _parse_numeric_bound(value)
+    if bound is None:
+        return expr, value
 
     if not _property_lhs_stays_string(property, team):
-        return expr
+        return expr, value
 
-    return ast.Call(name="toFloat", args=[expr])
+    return ast.Call(name="toFloat", args=[expr]), bound
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
@@ -620,18 +639,22 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     return True
 
 
-def _normalize_between_bounds(value: list) -> tuple[int | float, int | float]:
-    """Parse between bounds for a comparison against a Float64-coerced LHS.
+def _coerce_between_bounds(
+    expr: ast.Expr, value: list, property: Property, team: Team
+) -> tuple[ast.Expr, int | float | str, int | float | str]:
+    """Coerce a between/not_between comparison against a String LHS to numeric.
 
-    Coercion triggers when at least one bound is numeric, so the other bound can still be a
-    numeric string ('10'); left as a String constant it would fail against the Float64 LHS
-    with the same NO_COMMON_TYPE the coercion exists to avoid. _validate_between_values
-    already guaranteed both bounds parse."""
+    _validate_between_values already guaranteed both bounds parse as numbers, so a String
+    LHS always gets the toFloat cast (see _coerce_ordered_bound for the semantics). The
+    bounds are parsed with it, or a numeric-text bound ('10') would compare as String
+    against the Float64 LHS."""
+    if not _property_lhs_stays_string(property, team):
+        return expr, value[0], value[1]
 
     def _parse(v: object) -> int | float:
         return float(v) if isinstance(v, str) else cast(int | float, v)
 
-    return _parse(value[0]), _parse(value[1])
+    return ast.Call(name="toFloat", args=[expr]), _parse(value[0]), _parse(value[1])
 
 
 def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
@@ -844,8 +867,8 @@ def _expr_to_compare_op(
             ),
         )
     elif operator == PropertyOperator.LT:
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -854,8 +877,8 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -864,16 +887,15 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=value))
+        left, bound = _coerce_ordered_bound(expr, value, property, team)
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        low, high = _normalize_between_bounds(value) if left is not expr else (value[0], value[1])
+        left, low, high = _coerce_between_bounds(expr, value, property, team)
         return ast.And(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=low)),
@@ -883,8 +905,7 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        left = _force_numeric_for_string_property(expr, value, property, team)
-        low, high = _normalize_between_bounds(value) if left is not expr else (value[0], value[1])
+        left, low, high = _coerce_between_bounds(expr, value, property, team)
         return ast.Or(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=low)),
