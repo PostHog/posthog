@@ -98,7 +98,7 @@ describe('scaffold-yaml', () => {
         const content = renderCategoryYaml(existing, 'things', { ...existing.tools, [toolName]: entry })
 
         expect(CategoryConfigSchema.parse(parseYaml(content)).tools).toEqual({
-            'things-create': { operation: 'things_create', enabled: true, description: 'Create a thing.' },
+            'things-create': { operation: 'things_create', enabled: true },
         })
     })
 

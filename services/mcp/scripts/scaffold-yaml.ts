@@ -400,13 +400,8 @@ function buildAddedTool(
         throw new Error(`Tool name "${toolName}" is already used by "${existing.tools[toolName]!.operation}".`)
     }
 
+    // Title and description fall back to the spec in codegen, so the entry only overrides them when needed.
     const entry: Record<string, unknown> = { operation: operationId, enabled: true }
-    if (op.summary) {
-        entry.title = oneLine(op.summary, 120)
-    }
-    if (op.description) {
-        entry.description = op.description.trim()
-    }
     return { toolName, op, entry }
 }
 
@@ -578,7 +573,9 @@ function addTool(spec: OpenApiSpec, product: string, operationId: string, filePa
 
     const label = path.relative(REPO_ROOT, targetFile)
     process.stdout.write(`Added "${added.toolName}" (${added.op.method} ${added.op.path}) to ${label}.\n`)
-    process.stdout.write('Next: review title and description')
+    process.stdout.write(
+        'Next: check the title and description the API gives the tool, set them in the YAML if they do not read well for an agent'
+    )
     if (!['GET', 'DELETE'].includes(added.op.method)) {
         process.stdout.write(`, add annotations (required for ${added.op.method})`)
     }

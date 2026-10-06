@@ -260,7 +260,7 @@ Product teams own their definitions and control which operations are exposed as 
        --output ../../products/your_product/mcp/tools.yaml
    # List the product's operations that have no YAML entry
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
-   # Add one as an enabled tool, with the title and description from the spec
+   # Add one as an enabled tool
    # (--file <path> writes to a YAML file other than the product's tools.yaml)
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
    ```
@@ -269,7 +269,7 @@ Product teams own their definitions and control which operations are exposed as 
    give its entry `enabled: false` and `disabled_reason: <why>`.
    Codegen rejects `enabled: false` without a `disabled_reason`, and a `disabled_reason` on an enabled tool.
 
-2. **Configure** each entry – review the title and description.
+2. **Configure** each entry – the title and description come from the API; set them in the YAML when they do not read well for an agent.
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.

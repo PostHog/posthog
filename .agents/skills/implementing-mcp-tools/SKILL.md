@@ -19,7 +19,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
 # 2. List the product's operations that have no YAML entry, then add the ones agents need.
-#    --add writes an enabled entry with the title and description from the spec.
+#    --add writes an enabled entry; title and description come from the API unless the YAML sets them.
 #    Add --file <path> to write to a YAML file other than the product's tools.yaml.
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
