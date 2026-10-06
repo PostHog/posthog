@@ -1,4 +1,5 @@
-import { VIEW_FILE_SYSTEM_TYPES, libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { ANALYTICS_FILE_SYSTEM_TYPES, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
+import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -46,7 +47,13 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
 
 /** Whether a page gets its own row in the Products list. Library rows and the Views pane open the other pages. */
 export function isToolItem(item: FileSystemImport): boolean {
-    return !!item.href && !libraryRowOpensProduct(item) && !VIEW_FILE_SYSTEM_TYPES.has(productObjectType(item))
+    // The ready-made analytics products open from the Analytics pane, so they are not tools as well.
+    return (
+        !!item.href &&
+        !isFromPostHogItem(item) &&
+        !libraryRowOpensProduct(item) &&
+        !ANALYTICS_FILE_SYSTEM_TYPES.has(productObjectType(item))
+    )
 }
 
 let productLabelsByLibraryType: Map<string, string[]> | null = null

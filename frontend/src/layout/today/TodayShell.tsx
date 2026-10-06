@@ -26,8 +26,8 @@ import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
-const TodayViewsSidebar = lazyWithRetry(() =>
-    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+const TodayAnalyticsSidebar = lazyWithRetry(() =>
+    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
 const TodayProductsSidebar = lazyWithRetry(() =>
     import('./TodayProductsSidebar').then((m) => ({ default: m.TodayProductsSidebar }))
@@ -94,8 +94,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
-            ) : activePane === 'views' ? (
-                <TodayViewsSidebar />
+            ) : activePane === 'analytics' ? (
+                <TodayAnalyticsSidebar />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (

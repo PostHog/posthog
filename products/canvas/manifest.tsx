@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
             // Canvases open only under the Today navigation, so the old tree's type filters hide them with it.
             flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
             href: (ref: string) => urls.canvasDetail(ref),
-            listHref: () => urls.canvases(),
+            listHref: () => urls.analyticsList({ type: 'canvas' }),
             iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
             filterKey: 'canvas',
         },
