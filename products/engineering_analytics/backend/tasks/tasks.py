@@ -10,7 +10,10 @@ from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.engineering_analytics.backend.logic.census import collect_repo_census, emit_census_events
-from products.engineering_analytics.backend.logic.ci_precompute import refresh_after_load
+from products.engineering_analytics.backend.logic.ci_precompute import (
+    REFRESH_TASK_TIME_LIMIT_SECONDS,
+    refresh_after_load,
+)
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -54,7 +57,11 @@ def emit_team_test_census(team_id: int) -> None:
         emit_census_events(team, source.repo, rows)
 
 
-@shared_task(ignore_result=True, soft_time_limit=30 * 60, time_limit=35 * 60)
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=REFRESH_TASK_TIME_LIMIT_SECONDS - 5 * 60,
+    time_limit=REFRESH_TASK_TIME_LIMIT_SECONDS,
+)
 @with_team_scope()
 def refresh_ci_precompute(team_id: int) -> None:
     refresh_after_load(Team.objects.get(id=team_id))
