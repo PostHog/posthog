@@ -67,8 +67,7 @@ function crossLaneParagraph({ heavyFiles, lightFiles, heavyCount, lightCount }) 
     )
 }
 
-// The properties come from the job that runs the PR's own scripts, so a wrong
-// shape gives no warning rather than a failed section.
+// PR-controlled scripts produce these properties, so a wrong shape must not fail the section.
 export function parseCrossLane(laneProperties) {
     const strings = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
     const heavyFiles = strings(laneProperties.cross_lane_heavy_files)

@@ -32,8 +32,7 @@ function crossLaneFiles(changedFiles, context) {
     const lightFiles = []
     let unclassified = false
     for (const file of changedFiles) {
-        // A tripwire is a workflow or a tool's settings. The warning asks the
-        // author to split code, so configuration counts on neither side.
+        // Tripwires are workflows and tool settings, and the warning is about code.
         if (isTripwire(file)) {
             continue
         }
@@ -50,8 +49,7 @@ function crossLaneFiles(changedFiles, context) {
         }
     }
     const mixed = heavyFiles.length > 0 && lightFiles.length > 0
-    // An unclassified file can add a side but cannot remove one, so a mix the
-    // other files prove still holds.
+    // An unclassified file can add a side but not remove one, so a proven mix holds.
     if (unclassified && !mixed) {
         return null
     }
@@ -72,8 +70,7 @@ function laneTargets(file, context, universe) {
         console.error(`Could not enumerate the lanes of ${file}; it counts on neither side`)
         return null
     }
-    // Every lane is either the fallback for an unknown path or a deliberate
-    // widening. Neither says which side the file is on.
+    // Every lane is the unknown-path fallback or a deliberate widening. Neither names a side.
     if (universe && targets.length >= universe.length) {
         console.error(`${file} claims every lane; it counts on neither side`)
         return null
