@@ -4,7 +4,7 @@ use common::TestContext;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{
-    DeletePersonsMode, GroupKey, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    GroupKey, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
 };
 use rand::Rng;
 use rstest::rstest;
@@ -398,7 +398,7 @@ async fn test_delete_persons_clears_cohort_memberships() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .expect("delete persons")
         .deleted;
@@ -470,7 +470,7 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .expect("delete persons")
         .deleted;
@@ -510,7 +510,7 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     // Deleting again is a no-op: no second version bump.
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .unwrap()
         .deleted;
@@ -588,11 +588,7 @@ async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tom
     let storage = ctx.storage.clone();
     let team_id = ctx.team_id;
     let uuid = person.uuid;
-    let delete = tokio::spawn(async move {
-        storage
-            .delete_persons(team_id, &[uuid], DeletePersonsMode::Tombstone)
-            .await
-    });
+    let delete = tokio::spawn(async move { storage.delete_persons(team_id, &[uuid]).await });
 
     // Commit the attach only once the delete waits on the mark, so the delete cannot finish first.
     wait_for_a_mark_claim_blocked_by(&ctx.pool, attach_pid).await;
@@ -652,11 +648,7 @@ async fn test_delete_persons_tombstone_mode_leaves_a_person_created_after_the_cl
     let storage = ctx.storage.clone();
     let team_id = ctx.team_id;
     let uuids = [held.uuid, recreated_uuid];
-    let delete = tokio::spawn(async move {
-        storage
-            .delete_persons(team_id, &uuids, DeletePersonsMode::Tombstone)
-            .await
-    });
+    let delete = tokio::spawn(async move { storage.delete_persons(team_id, &uuids).await });
 
     // Create the second person only after the delete's claim read missed it.
     wait_for_a_mark_claim_blocked_by(&ctx.pool, holder_pid).await;
@@ -690,11 +682,7 @@ async fn test_delete_persons_tombstone_mode_fails_when_a_lifecycle_op_holds_the_
 
     let result = ctx
         .storage
-        .delete_persons(
-            ctx.team_id,
-            &[held.uuid, free.uuid],
-            DeletePersonsMode::Tombstone,
-        )
+        .delete_persons(ctx.team_id, &[held.uuid, free.uuid])
         .await;
 
     assert!(
@@ -724,7 +712,7 @@ async fn test_delete_persons_tombstone_mode_reports_the_versions() {
 
     let outcome = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .unwrap();
 
@@ -762,7 +750,7 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
 
     let first = ctx
         .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .unwrap();
     // A caller that lost the first response must get the same versions back, or
@@ -770,11 +758,7 @@ async fn test_delete_persons_tombstone_mode_reports_versions_again_on_retry() {
     // request is tombstoned and counted; the earlier one is reported, not counted.
     let retry = ctx
         .storage
-        .delete_persons(
-            ctx.team_id,
-            &[person.uuid, live.uuid],
-            DeletePersonsMode::Tombstone,
-        )
+        .delete_persons(ctx.team_id, &[person.uuid, live.uuid])
         .await
         .unwrap();
 
@@ -812,7 +796,7 @@ async fn test_delete_persons_tombstone_mode_requeues_a_revived_person() {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("requeue", None).await.unwrap();
     ctx.storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .unwrap();
     sqlx::query(
@@ -839,7 +823,7 @@ async fn test_delete_persons_tombstone_mode_requeues_a_revived_person() {
     }
 
     ctx.storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &[person.uuid])
         .await
         .unwrap();
 
@@ -861,11 +845,7 @@ async fn test_ack_person_tombstones_clears_only_rows_at_or_below_the_acked_versi
     let acked = ctx.insert_person("ack_delivered", None).await.unwrap();
     let stale = ctx.insert_person("ack_stale", None).await.unwrap();
     ctx.storage
-        .delete_persons(
-            ctx.team_id,
-            &[acked.uuid, stale.uuid],
-            DeletePersonsMode::Tombstone,
-        )
+        .delete_persons(ctx.team_id, &[acked.uuid, stale.uuid])
         .await
         .unwrap();
 
@@ -895,7 +875,7 @@ async fn test_list_person_tombstone_queue_pages_in_key_order() {
         uuids.push(ctx.insert_person(name, None).await.unwrap().uuid);
     }
     ctx.storage
-        .delete_persons(ctx.team_id, &uuids, DeletePersonsMode::Tombstone)
+        .delete_persons(ctx.team_id, &uuids)
         .await
         .unwrap();
     uuids.sort();
@@ -933,11 +913,7 @@ async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
     let live = ctx.insert_person("get_live", None).await.unwrap();
     let deleted = ctx
         .storage
-        .delete_persons(
-            ctx.team_id,
-            &[tombstoned.uuid],
-            DeletePersonsMode::Tombstone,
-        )
+        .delete_persons(ctx.team_id, &[tombstoned.uuid])
         .await
         .unwrap();
 
@@ -958,34 +934,12 @@ async fn test_get_person_tombstones_reports_only_tombstoned_persons() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_hard_mode_reports_no_versions() {
-    let ctx = TestContext::new().await;
-    let person = ctx.insert_person("hard_mode", None).await.unwrap();
-
-    let outcome = ctx
-        .storage
-        .delete_persons(ctx.team_id, &[person.uuid], DeletePersonsMode::Hard)
-        .await
-        .unwrap();
-
-    assert_eq!(outcome.deleted, 1);
-    assert_eq!(outcome.tombstones, None);
-    assert!(!ctx.person_row_exists(person.id).await.unwrap());
-
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
 async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
     let ctx = TestContext::new().await;
     let live = ctx.insert_person("batch_live", None).await.unwrap();
     let tombstoned = ctx.insert_person("batch_tombstoned", None).await.unwrap();
     ctx.storage
-        .delete_persons(
-            ctx.team_id,
-            &[tombstoned.uuid],
-            DeletePersonsMode::Tombstone,
-        )
+        .delete_persons(ctx.team_id, &[tombstoned.uuid])
         .await
         .unwrap();
     let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
@@ -2004,7 +1958,7 @@ async fn test_delete_persons_small_batch() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2059,7 +2013,7 @@ async fn test_delete_persons_empty_uuids() {
     let ctx = TestContext::new().await;
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2072,11 +2026,7 @@ async fn test_delete_persons_nonexistent_uuids() {
     let ctx = TestContext::new().await;
     let deleted = ctx
         .storage
-        .delete_persons(
-            ctx.team_id,
-            &[Uuid::now_v7(), Uuid::now_v7()],
-            DeletePersonsMode::Hard,
-        )
+        .delete_persons(ctx.team_id, &[Uuid::now_v7(), Uuid::now_v7()])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2098,7 +2048,7 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[p1.uuid])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2129,30 +2079,32 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
 }
 
 #[tokio::test]
-async fn test_delete_persons_large_batch_triggers_parallel() {
+async fn test_delete_persons_large_batch_tombstones_every_chunk() {
     let ctx = TestContext::new().await;
 
-    // Create 150 persons — with chunk_size=50, this triggers 3 parallel chunks
+    // 150 persons with chunk_size=50 make 3 chunks in one transaction.
     let mut uuids = Vec::new();
+    let mut persons_with_extra_ids = Vec::new();
     for i in 0..150 {
         let p = ctx
-            .insert_person(&format!("parallel_del_{i}"), None)
+            .insert_person(&format!("large_batch_del_{i}"), None)
             .await
             .unwrap();
         // Give some persons extra distinct_ids to exercise bin-packing
         if i % 10 == 0 {
             for j in 0..5 {
-                ctx.add_distinct_id_to_person(p.id, &format!("parallel_del_{i}_extra_{j}"))
+                ctx.add_distinct_id_to_person(p.id, &format!("large_batch_del_{i}_extra_{j}"))
                     .await
                     .unwrap();
             }
+            persons_with_extra_ids.push(p.id);
         }
         uuids.push(p.uuid);
     }
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &uuids, DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &uuids)
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2163,11 +2115,22 @@ async fn test_delete_persons_large_batch_triggers_parallel() {
     for i in 0..150 {
         assert!(
             ctx.storage
-                .get_person_by_distinct_id(ctx.team_id, &format!("parallel_del_{i}"))
+                .get_person_by_distinct_id(ctx.team_id, &format!("large_batch_del_{i}"))
                 .await
                 .unwrap()
                 .is_none(),
             "Person {i} should have been deleted"
+        );
+    }
+
+    for person_id in persons_with_extra_ids {
+        let (is_deleted, _, _, distinct_ids) =
+            tombstone_state(&ctx.pool, ctx.team_id, person_id).await;
+        assert!(is_deleted, "Person {person_id} should be tombstoned");
+        assert_eq!(distinct_ids.len(), 6);
+        assert!(
+            distinct_ids.iter().all(|(is_deleted, _)| *is_deleted),
+            "Every distinct id of person {person_id} should be tombstoned"
         );
     }
 
@@ -2230,7 +2193,7 @@ async fn test_delete_persons_idempotent() {
 
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2239,7 +2202,7 @@ async fn test_delete_persons_idempotent() {
     // Second call with the same UUIDs should be a no-op
     let deleted_again = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[p1.uuid, p2.uuid])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2276,7 +2239,7 @@ async fn test_delete_persons_cross_team_isolation() {
     // Delete from ctx.team_id — should not touch the other team's person
     let deleted = ctx
         .storage
-        .delete_persons(ctx.team_id, &[p1.uuid, other_uuid], DeletePersonsMode::Hard)
+        .delete_persons(ctx.team_id, &[p1.uuid, other_uuid])
         .await
         .expect("Failed to delete persons")
         .deleted;
@@ -2296,62 +2259,6 @@ async fn test_delete_persons_cross_team_isolation() {
     // Cleanup
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(other_team_id as i32)
-        .execute(&ctx.pool)
-        .await
-        .ok();
-    ctx.cleanup().await.ok();
-}
-
-#[tokio::test]
-async fn test_delete_persons_partial_failure_returns_error() {
-    let ctx = TestContext::new().await;
-
-    // Create a person and block its deletion with a RESTRICT FK.
-    let blocked = ctx.insert_person("blocked_person", None).await.unwrap();
-    let normal = ctx.insert_person("normal_person", None).await.unwrap();
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS _test_person_fk_block (
-            id SERIAL PRIMARY KEY,
-            team_id INTEGER NOT NULL,
-            person_id BIGINT NOT NULL,
-            FOREIGN KEY (team_id, person_id)
-                REFERENCES posthog_person(team_id, id) ON DELETE RESTRICT
-        )",
-    )
-    .execute(&ctx.pool)
-    .await
-    .expect("Failed to create blocking FK table");
-
-    sqlx::query("INSERT INTO _test_person_fk_block (team_id, person_id) VALUES ($1, $2)")
-        .bind(ctx.team_id as i32)
-        .bind(blocked.id)
-        .execute(&ctx.pool)
-        .await
-        .expect("Failed to insert blocking reference");
-
-    // The call should return an error because the FK blocks deletion
-    let result = ctx
-        .storage
-        .delete_persons(
-            ctx.team_id,
-            &[blocked.uuid, normal.uuid],
-            DeletePersonsMode::Hard,
-        )
-        .await;
-    assert!(result.is_err(), "Expected error due to blocked FK");
-
-    // The blocked person should still exist
-    assert!(ctx
-        .storage
-        .get_person_by_id(ctx.team_id, blocked.id)
-        .await
-        .unwrap()
-        .is_some());
-
-    // Cleanup
-    sqlx::query("DELETE FROM _test_person_fk_block WHERE team_id = $1")
-        .bind(ctx.team_id as i32)
         .execute(&ctx.pool)
         .await
         .ok();
