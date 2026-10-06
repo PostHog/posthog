@@ -73,10 +73,13 @@ pub struct Purged {
     pub evicted_keys: Vec<Arc<str>>,
 }
 
-struct QueuedMessage {
+/// One push's messages, or one settle's returned messages. Kept whole, so
+/// a claim of one segment hands its messages on without copying them.
+struct Segment {
     class: RequestClass,
     queued_at: Instant,
-    message: SerializedKafkaMessage,
+    bytes: usize,
+    messages: Vec<SerializedKafkaMessage>,
 }
 
 struct Claim {
@@ -93,7 +96,8 @@ struct Claim {
 /// waiting key queue behind it.
 #[derive(Default)]
 struct KeyState {
-    queue: VecDeque<QueuedMessage>,
+    /// Never holds an empty segment.
+    queue: VecDeque<Segment>,
     claim: Option<Claim>,
     retry_at: Option<Instant>,
 }
@@ -168,8 +172,9 @@ impl KeyQueues {
         if messages.is_empty() {
             return;
         }
+        let bytes = payload_bytes(&messages);
         self.queued_messages += messages.len();
-        self.queued_bytes += payload_bytes(&messages);
+        self.queued_bytes += bytes;
         let class = RequestClass {
             assignment_epoch,
             replay: false,
@@ -179,13 +184,12 @@ impl KeyQueues {
             None => self.keys.entry(Arc::clone(&routing_key)).or_default(),
         };
         let was_ready = state.is_ready();
-        state
-            .queue
-            .extend(messages.into_iter().map(|message| QueuedMessage {
-                class,
-                queued_at: now,
-                message,
-            }));
+        state.queue.push_back(Segment {
+            class,
+            queued_at: now,
+            bytes,
+            messages,
+        });
         if !was_ready && state.is_ready() {
             self.ready.push_back(routing_key);
         }
@@ -213,18 +217,21 @@ impl KeyQueues {
             if !state.is_ready() {
                 continue;
             }
-            let front = state.queue.front().expect("a ready key has messages");
-            let class = front.class;
-            let first_arrival = front.queued_at;
-            let mut messages = Vec::new();
+            let Segment {
+                class,
+                queued_at: first_arrival,
+                mut bytes,
+                mut messages,
+            } = state.queue.pop_front().expect("a ready key has messages");
             while state
                 .queue
                 .front()
-                .is_some_and(|queued| queued.class == class)
+                .is_some_and(|segment| segment.class == class)
             {
-                messages.push(state.queue.pop_front().expect("checked").message);
+                let next = state.queue.pop_front().expect("checked");
+                bytes += next.bytes;
+                messages.extend(next.messages);
             }
-            let bytes = payload_bytes(&messages);
             debug_assert!(self.queued_messages >= messages.len());
             self.queued_messages = self.queued_messages.saturating_sub(messages.len());
             self.queued_bytes = self.queued_bytes.saturating_sub(bytes);
@@ -273,19 +280,18 @@ impl KeyQueues {
             });
         }
         if !returned.is_empty() {
+            let bytes = payload_bytes(&returned);
             self.queued_messages += returned.len();
-            self.queued_bytes += payload_bytes(&returned);
-            let class = RequestClass {
-                assignment_epoch: claim.assignment_epoch,
-                replay: true,
-            };
-            for message in returned.into_iter().rev() {
-                state.queue.push_front(QueuedMessage {
-                    class,
-                    queued_at: now,
-                    message,
-                });
-            }
+            self.queued_bytes += bytes;
+            state.queue.push_front(Segment {
+                class: RequestClass {
+                    assignment_epoch: claim.assignment_epoch,
+                    replay: true,
+                },
+                queued_at: now,
+                bytes,
+                messages: returned,
+            });
             if let Some(at) = retry_at.filter(|at| *at > now) {
                 state.retry_at = Some(at);
                 self.waiting.insert((at, Arc::clone(routing_key)));
@@ -317,19 +323,22 @@ impl KeyQueues {
                     }
                 }
             }
-            let before = state.queue.len();
-            state.queue.retain(|queued| {
-                let keep =
-                    !revoked_set.contains(&(&*queued.message.topic, queued.message.partition));
-                if !keep {
-                    purged_bytes += queued.message.payload_bytes();
-                }
-                keep
-            });
-            purged += before - state.queue.len();
+            for segment in state.queue.iter_mut() {
+                let before = segment.messages.len();
+                segment.messages.retain(|message| {
+                    let keep = !revoked_set.contains(&(&*message.topic, message.partition));
+                    if !keep {
+                        segment.bytes -= message.payload_bytes();
+                        purged_bytes += message.payload_bytes();
+                    }
+                    keep
+                });
+                purged += before - segment.messages.len();
+            }
+            state.queue.retain(|segment| !segment.messages.is_empty());
             // The wait belongs to the returned messages. Once the revoke drops
             // them, newer messages behind them must not wait for their retry.
-            if !state.queue.iter().any(|queued| queued.class.replay) {
+            if !state.queue.iter().any(|segment| segment.class.replay) {
                 if let Some(at) = state.retry_at.take() {
                     self.waiting.remove(&(at, key.clone()));
                     if state.is_ready() {
