@@ -5,6 +5,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -31,7 +32,10 @@ export function CanvasesScene(): JSX.Element {
 
 function CanvasesList(): JSX.Element {
     const { canvases, canvasesResponse, canvasesResponseLoading, search, ordering, page } = useValues(canvasesListLogic)
-    const { setSearch, setOrdering, setPage, deleteCanvas } = useActions(canvasesListLogic)
+    const { loadCanvases, setSearch, setOrdering, setPage, deleteCanvas } = useActions(canvasesListLogic)
+
+    // Loads on mount rather than on the route, because the list only mounts once the flag is on.
+    useOnMountEffect(loadCanvases)
 
     const columns: LemonTableColumns<CanvasApi> = [
         {
