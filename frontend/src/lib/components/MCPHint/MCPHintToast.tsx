@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
+import { MCPAgentButton } from './MCPAgentButton'
 import { mcpHintLogic } from './mcpHintLogic'
-import { MCPInstallCommand } from './MCPInstallCommand'
 import { type SurfaceKey, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
 
 export function MCPHintToast({
@@ -29,7 +29,7 @@ export function MCPHintToast({
                 </span>
             </div>
             <div className="text-xs italic text-muted leading-snug">{prompt}</div>
-            <MCPInstallCommand size="sm" silentCopy />
+            <MCPAgentButton surfaceKey={surfaceKey} example={prompt} placement="toast" />
         </div>
     )
 }
