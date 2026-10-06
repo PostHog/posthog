@@ -47,6 +47,10 @@ import {
     isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+import type { BillingSectionId } from './types'
+
+// The partner that pays for an organization reads its spend, and billing alerts only watch spend.
+const PARTNER_HIDDEN_BILLING_SECTIONS: BillingSectionId[] = ['spend', 'alerts']
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -267,8 +271,8 @@ export interface billingLogicValues {
     creditOverviewLoading: boolean
     currentPlatformAddon: BillingProductV2AddonType | null
     estimatedMonthlyCreditAmountUsd: number | null
-    hasLoadedBilling: boolean
     hasSupportAddonPlan: boolean
+    hiddenBillingSections: BillingSectionId[]
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
     isAnnualPlanCustomer: boolean
@@ -341,6 +345,9 @@ export interface billingLogicActions {
         payload?: string
     }
     determineBillingAlert: () => {
+        value: true
+    }
+    leavePartnerHiddenBillingSection: () => {
         value: true
     }
     loadBilling: () => any
@@ -653,6 +660,7 @@ export interface billingLogicMeta {
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         isBillingManagedByPartner: (billing: BillingType | null) => boolean
+        hiddenBillingSections: (isBillingManagedByPartner: boolean) => BillingSectionId[]
         billingPartnerName: (billing: BillingType | null) => string | null
         billingManagedByPartnerDisabledReason: (billingPartnerName: string | null) => string | null
         billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
@@ -722,6 +730,7 @@ export const billingLogic = kea<billingLogicType>([
         setRedirectPath: (redirectPath: string) => ({ redirectPath }),
         setIsOnboarding: (isOnboarding: boolean) => ({ isOnboarding }),
         determineBillingAlert: true,
+        leavePartnerHiddenBillingSection: true,
         setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
         resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
@@ -860,13 +869,6 @@ export const billingLogic = kea<billingLogicType>([
             null as string | null,
             {
                 setSwitchPlanLoading: (_, { productKey }) => productKey,
-            },
-        ],
-        // A failed load answers too: it keeps the last known billing, which can be null.
-        hasLoadedBilling: [
-            false,
-            {
-                loadBillingSuccess: () => true,
             },
         ],
     }),
@@ -1256,6 +1258,11 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): boolean => !!billing?.billing_managed_by_partner,
         ],
+        hiddenBillingSections: [
+            (s) => [s.isBillingManagedByPartner],
+            (isBillingManagedByPartner: boolean): BillingSectionId[] =>
+                isBillingManagedByPartner ? PARTNER_HIDDEN_BILLING_SECTIONS : [],
+        ],
         billingPartnerName: [
             (s) => [s.billing],
             (billing: BillingType | null): string | null => {
@@ -1528,10 +1535,21 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
+        leavePartnerHiddenBillingSection: () => {
+            const { pathname } = router.values.location
+            if (
+                values.hiddenBillingSections.some((section) =>
+                    pathname.endsWith(urls.organizationBillingSection(section))
+                )
+            ) {
+                router.actions.replace(urls.organizationBillingSection('usage'))
+            }
+        },
         loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
             actions.loadCreditOverview()
+            actions.leavePartnerHiddenBillingSection()
 
             // If the activation is successful, we reload the user/organization to get the updated available features
             // activation can be triggered from the billing page or onboarding
@@ -1840,22 +1858,28 @@ export const billingLogic = kea<billingLogicType>([
             }
         }
 
+        const handleOtherRoute = (): void => {
+            const redirectPath = window.location.pathname.includes('/onboarding')
+                ? window.location.pathname + window.location.search
+                : ''
+            if (values.redirectPath !== redirectPath) {
+                actions.setRedirectPath(redirectPath)
+            }
+            const isOnboarding = window.location.pathname.includes('/onboarding')
+            if (values.isOnboarding !== isOnboarding) {
+                actions.setIsOnboarding(isOnboarding)
+            }
+        }
+
         return {
             // IMPORTANT: These need to be above the "*" so they take precedence
             '/*/billing': handleBillingRoute,
             '/*/billing/overview': handleBillingRoute,
-            '*': () => {
-                const redirectPath = window.location.pathname.includes('/onboarding')
-                    ? window.location.pathname + window.location.search
-                    : ''
-                if (values.redirectPath !== redirectPath) {
-                    actions.setRedirectPath(redirectPath)
-                }
-                const isOnboarding = window.location.pathname.includes('/onboarding')
-                if (values.isOnboarding !== isOnboarding) {
-                    actions.setIsOnboarding(isOnboarding)
-                }
+            [urls.organizationBillingSection(':section' as BillingSectionId)]: () => {
+                handleOtherRoute()
+                actions.leavePartnerHiddenBillingSection()
             },
+            '*': handleOtherRoute,
         }
     }),
     events(({ actions, values }) => ({

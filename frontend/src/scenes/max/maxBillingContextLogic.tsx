@@ -128,7 +128,7 @@ export const billingToMaxContext = (
     if (!billing) {
         return null
     }
-    // The partner pays this organization's bill, so its spend and amounts are the partner's to read.
+    // The partner pays this organization's bill, so its spend, amounts, and dollar limits are the partner's to read.
     const showsAmounts = !isBillingManagedByPartner
 
     // Helper function to get custom limit for a product
@@ -201,8 +201,8 @@ export const billingToMaxContext = (
             current_usage: product.current_usage,
             usage_limit: product.usage_limit,
             percentage_usage: product.percentage_usage || 0,
-            custom_limit_usd: customLimit,
-            next_period_custom_limit_usd: nextPeriodCustomLimit,
+            custom_limit_usd: showsAmounts ? customLimit : undefined,
+            next_period_custom_limit_usd: showsAmounts ? nextPeriodCustomLimit : undefined,
             projected_amount_usd: showsAmounts ? product.projected_amount_usd : undefined,
             projected_amount_usd_with_limit: showsAmounts ? product.projected_amount_usd_with_limit : undefined,
             docs_url: product.docs_url,

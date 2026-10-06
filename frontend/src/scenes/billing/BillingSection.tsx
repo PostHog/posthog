@@ -39,7 +39,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend, isBillingManagedByPartner } =
+    const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend, hiddenBillingSections } =
         useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
     const alertsRequested = location.pathname.includes('alerts')
@@ -69,21 +69,12 @@ export function BillingSection(): JSX.Element {
         }
     }, [section, canOnlyViewUsageAndSpend])
 
-    // The partner pays the organization's bill, so its spend is the partner's to read.
-    useEffect(() => {
-        if (section === 'spend' && isBillingManagedByPartner) {
-            router.actions.replace(urls.organizationBillingSection('usage'))
-        }
-    }, [section, isBillingManagedByPartner])
-
     // Usage and Spend are the read-only surfaces. Overview and Alerts stay admin-only, since both
     // can change what the organization is billed.
-    const visibleTabs = tabs.filter((tab) =>
-        tab.key === 'spend'
-            ? canViewUsageAndSpend && !isBillingManagedByPartner
-            : tab.key === 'usage'
-              ? canViewUsageAndSpend
-              : canAccessBilling
+    const visibleTabs = tabs.filter(
+        (tab) =>
+            !hiddenBillingSections.includes(tab.key) &&
+            (tab.key === 'usage' || tab.key === 'spend' ? canViewUsageAndSpend : canAccessBilling)
     )
 
     const handleTabChange = (key: BillingSectionId): void => {
@@ -119,8 +110,8 @@ export function BillingSection(): JSX.Element {
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
-            {section === 'spend' && !isBillingManagedByPartner && <BillingSpendView />}
-            {section === 'alerts' && (
+            {section === 'spend' && !hiddenBillingSections.includes(section) && <BillingSpendView />}
+            {section === 'alerts' && !hiddenBillingSections.includes(section) && (
                 <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
                     {billingAlertsPending ? <Spinner className="text-3xl mx-auto my-8" /> : <BillingAlerts />}
                 </Suspense>

@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { formatDisplayUsage, getProductUnitLabel } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
@@ -31,11 +32,36 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const initialBillingLimit = currentAndUpgradePlans?.currentPlan?.initial_billing_limit
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
-    const canEditBillingLimit = !billingPartnerName
-    const isEditing = isEditingBillingLimit && canEditBillingLimit
 
     if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
         return null
+    }
+
+    // A partner-paid organization's dollar limits are withheld, because with the usage limit they give the unit
+    // price, so its members read the limit in units.
+    if (billingPartnerName) {
+        const usageLimit =
+            product.usage_limit != null
+                ? `${formatDisplayUsage(product.usage_limit, product, { compactFallback: true })} ${getProductUnitLabel(product)}`.trim()
+                : null
+        return (
+            <div
+                className="border-t border-primary px-8 py-4"
+                data-attr={`billing-limit-input-wrapper-${product.type}`}
+            >
+                <h4>Billing limit</h4>
+                <span className="text-sm" data-attr={`billing-limit-set-by-partner-${product.type}`}>
+                    {usageLimit ? (
+                        <>
+                            <b>{usageLimit}</b>
+                            <span>{` a month, set by ${billingPartnerName}.`}</span>
+                        </>
+                    ) : (
+                        <span>{`${billingPartnerName} manages this product's billing limit.`}</span>
+                    )}
+                </span>
+            </div>
+        )
     }
 
     return (
@@ -47,7 +73,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                 <h4>Billing limit</h4>
                 <div className="flex flex-col xl:flex-row w-full items-stretch xl:items-center justify-start xl:justify-between gap-2">
                     <div className="flex items-center gap-1">
-                        {!isEditing ? (
+                        {!isEditingBillingLimit ? (
                             <>
                                 {hasCustomLimitSet ? (
                                     <>
@@ -73,15 +99,13 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                             </Tooltip>
                                         )}
 
-                                        {canEditBillingLimit && (
-                                            <LemonButton
-                                                onClick={() => setIsEditingBillingLimit(true)}
-                                                status="danger"
-                                                size="small"
-                                            >
-                                                Edit limit
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            onClick={() => setIsEditingBillingLimit(true)}
+                                            status="danger"
+                                            size="small"
+                                        >
+                                            Edit limit
+                                        </LemonButton>
                                     </>
                                 ) : (
                                     <>
@@ -89,15 +113,13 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                             You do not have a billing limit set for {billingProductDisplayName(product)}
                                             .
                                         </span>
-                                        {canEditBillingLimit && (
-                                            <LemonButton
-                                                onClick={() => setIsEditingBillingLimit(true)}
-                                                status="danger"
-                                                size="small"
-                                            >
-                                                Set a billing limit
-                                            </LemonButton>
-                                        )}
+                                        <LemonButton
+                                            onClick={() => setIsEditingBillingLimit(true)}
+                                            status="danger"
+                                            size="small"
+                                        >
+                                            Set a billing limit
+                                        </LemonButton>
                                     </>
                                 )}
                             </>
@@ -166,27 +188,21 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             <span className="text-sm xl:text-right">
                                 Your limit for next period: <b>${billingLimitNextPeriod.toLocaleString()}</b>.
                             </span>
-                            {canEditBillingLimit && (
-                                <LemonButton
-                                    size="small"
-                                    status="danger"
-                                    loading={removingBillingLimitNextPeriod}
-                                    tooltip="Remove billing limit for next period"
-                                    disabledReason={billingLimitConfig.removalDisabledReason}
-                                    onClick={() => removeBillingLimitNextPeriod(product.type)}
-                                    data-attr={`remove-billing-limit-next-period-${product.type}`}
-                                >
-                                    Remove limit for next period
-                                </LemonButton>
-                            )}
+                            <LemonButton
+                                size="small"
+                                status="danger"
+                                loading={removingBillingLimitNextPeriod}
+                                tooltip="Remove billing limit for next period"
+                                disabledReason={billingLimitConfig.removalDisabledReason}
+                                onClick={() => removeBillingLimitNextPeriod(product.type)}
+                                data-attr={`remove-billing-limit-next-period-${product.type}`}
+                            >
+                                Remove limit for next period
+                            </LemonButton>
                         </div>
                     ) : null}
                 </div>
-                {billingPartnerName ? (
-                    <div className="text-xs text-secondary mt-2">
-                        {`Billing limits for this organization are managed by ${billingPartnerName}.`}
-                    </div>
-                ) : billingLimitConfig.help && !isEditing ? (
+                {billingLimitConfig.help && !isEditingBillingLimit ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.help}</div>
                 ) : null}
                 {billingLimitConfig.currentAboveMaxNotice ? (

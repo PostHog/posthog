@@ -10,10 +10,10 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
+import { isCreditUsageType } from './billing-utils'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
-const BILLING_LIMIT_FIELDS = new Set(['custom_limits_usd', 'next_period_custom_limits_usd'])
 const BILLING_MONEY_FIELDS = new Set([
     'amount_off_expires_at',
     'discount_percent',
@@ -24,7 +24,10 @@ const BILLING_MONEY_FIELDS = new Set([
     'tiers',
 ])
 
-// What the billing API answers while a partner pays: every amount and price is null, limits and usage stay.
+const CREDIT_USAGE_FIELDS = new Set(['current_usage', 'usage_limit', 'projected_usage'])
+
+// What the billing API answers while a partner pays: every amount, price, dollar limit, and count of credits is
+// null, and other usage and usage limits stay.
 const withoutMoney = <T,>(value: T): T => {
     if (Array.isArray(value)) {
         return value.map(withoutMoney) as T
@@ -32,10 +35,15 @@ const withoutMoney = <T,>(value: T): T => {
     if (value === null || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) {
         return value
     }
+    const usageKey = (value as { usage_key?: unknown }).usage_key
+    const countsCredits = typeof usageKey === 'string' && isCreditUsageType(usageKey)
     return Object.fromEntries(
         Object.entries(value).map(([field, fieldValue]) => [
             field,
-            BILLING_MONEY_FIELDS.has(field) || (field.split('_').includes('usd') && !BILLING_LIMIT_FIELDS.has(field))
+            BILLING_MONEY_FIELDS.has(field) ||
+            field.split('_').includes('usd') ||
+            isCreditUsageType(field) ||
+            (countsCredits && CREDIT_USAGE_FIELDS.has(field))
                 ? null
                 : withoutMoney(fieldValue),
         ])

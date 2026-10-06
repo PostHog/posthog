@@ -114,18 +114,20 @@ describe('BillingLimit', () => {
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
     })
 
-    it('shows a partner-paid limit without a way to change it', async () => {
-        await seedBilling({ product_analytics: 500 }, { partner_name: 'Example Partner' })
+    // Billing withholds a partner-paid organization's dollar limits, so the limit reads in units or not at all.
+    it.each([
+        { usageLimit: 8821280, shown: '8.82 M events a month, set by Example Partner.' },
+        { usageLimit: null, shown: "Example Partner manages this product's billing limit." },
+    ])('shows a partner-paid limit of $usageLimit units without a way to change it', async ({ usageLimit, shown }) => {
+        await seedBilling(null, { partner_name: 'Example Partner' })
         render(
             <Provider>
-                <BillingLimit product={makeProduct()} />
+                <BillingLimit product={{ ...makeProduct(), usage_limit: usageLimit }} />
             </Provider>
         )
 
-        expect(await screen.findByTestId('billing-limit-set-product_analytics')).toHaveTextContent(
-            'You have a $500 billing limit set for PostHog Desktop (usage-based).'
-        )
-        expect(screen.getByText('Billing limits for this organization are managed by Example Partner.')).toBeVisible()
+        expect(await screen.findByTestId('billing-limit-set-by-partner-product_analytics')).toHaveTextContent(shown)
         expect(screen.queryByText('Edit limit')).not.toBeInTheDocument()
+        expect(screen.queryByText('Set a billing limit')).not.toBeInTheDocument()
     })
 })

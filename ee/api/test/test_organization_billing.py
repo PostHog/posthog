@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import urlencode
 
 from unittest.mock import MagicMock, patch
 
@@ -876,15 +877,36 @@ PRICED_PRODUCTS: dict[str, Any] = {
             "kind": "product",
             "key": "product_analytics",
             "name": "Product analytics",
+            "usage_key": "events",
             "usage_limit": 5000000,
             "price_description": "$0.00005 per event",
             "unit_amount_usd": "0.00005",
             "tiers": [PRICE_TIER],
             "plans": [{"name": "Pay as you go", "unit_amount_usd": "0.00005", "tiers": [PRICE_TIER]}],
             "addons": [{"kind": "addon", "key": "group_analytics", "default_unit_amount_usd": "0.0001"}],
-        }
+        },
+        {"kind": "product", "key": "posthog_ai", "name": "PostHog AI", "usage_key": "ai_credits", "usage_limit": 2000},
     ],
 }
+CREDIT_USAGE_SUMMARY_ENTRY: dict[str, Any] = {"usage_key": "ai_credits", "usage": 1234, "limit": 5000}
+CREDIT_PRODUCT_USAGE: dict[str, Any] = {
+    "kind": "product",
+    "key": "posthog_ai",
+    "usage_key": "ai_credits",
+    "current_usage": 1234,
+    "usage_limit": 5000,
+    "has_exceeded_limit": False,
+    "usage_ratio": 0.25,
+    "tier_usage": None,
+    "addons": [],
+}
+CREDIT_USAGE_QUERY = urlencode(
+    {
+        "start_date": "2026-09-01",
+        "end_date": "2026-09-14",
+        "usage_types": json.dumps(["event_count_in_period", "ai_credits_used_in_period"]),
+    }
+)
 
 
 # Every read of the organization billing API, by what it answers while a partner pays. The refused
@@ -897,8 +919,9 @@ REFUSED_WHILE_A_PARTNER_PAYS: dict[str, str] = {
     "invoices": "invoices/",
     "invoice_content": "invoices/in_1/content/",
 }
-NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS = {"subscription", "products", "product", "limits"}
-WITHOUT_AMOUNTS = {"features", "summary", "usage", "usage_status", "usage_timeseries", "usage_export", "projects"}
+NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS = {"subscription", "products", "product", "limits", "usage_status"}
+WITHOUT_CREDIT_USAGE_WHILE_A_PARTNER_PAYS = {"usage", "usage_timeseries", "usage_export"}
+WITHOUT_AMOUNTS = {"features", "summary", "projects"}
 
 
 class TestOrganizationBillingMoneyCoverage(SimpleTestCase):
@@ -907,7 +930,10 @@ class TestOrganizationBillingMoneyCoverage(SimpleTestCase):
 
         self.assertEqual(
             actions,
-            set(REFUSED_WHILE_A_PARTNER_PAYS) | NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS | WITHOUT_AMOUNTS,
+            set(REFUSED_WHILE_A_PARTNER_PAYS)
+            | NULLED_AMOUNTS_WHILE_A_PARTNER_PAYS
+            | WITHOUT_CREDIT_USAGE_WHILE_A_PARTNER_PAYS
+            | WITHOUT_AMOUNTS,
         )
 
 
@@ -916,7 +942,13 @@ class TestOrganizationBillingForPartnerPaidOrganizations(OrganizationBillingTest
         super().setUp()
         self._provision_by_paying_partner()
 
-    @parameterized.expand(sorted(REFUSED_WHILE_A_PARTNER_PAYS.items()))
+    @parameterized.expand(
+        [
+            *sorted(REFUSED_WHILE_A_PARTNER_PAYS.items()),
+            ("usage_timeseries_of_credits", f"usage/timeseries/?{CREDIT_USAGE_QUERY}"),
+            ("usage_export_of_credits", f"usage/export/?{CREDIT_USAGE_QUERY}"),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
     def test_money_read_is_refused_before_billing_is_called(self, _name: str, path: str, mock_get: MagicMock) -> None:
         response = self.client.get(self._url(path))
@@ -944,7 +976,9 @@ class TestOrganizationBillingForPartnerPaidOrganizations(OrganizationBillingTest
         ]
     )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_usage_stays_readable(self, _name: str, path: str, billing_answer: MagicMock, mock_get: MagicMock) -> None:
+    def test_usage_stays_readable_without_usage_counted_in_credits(
+        self, _name: str, path: str, billing_answer: MagicMock, mock_get: MagicMock
+    ) -> None:
         mock_get.return_value = billing_answer
 
         response = self.client.get(self._url(path))
@@ -952,11 +986,14 @@ class TestOrganizationBillingForPartnerPaidOrganizations(OrganizationBillingTest
         b"".join(response)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        requested_usage_types = json.loads(mock_get.call_args.kwargs["params"]["usage_types"])
+        self.assertIn("event_count_in_period", requested_usage_types)
+        self.assertEqual([usage_type for usage_type in requested_usage_types if "credits" in usage_type], [])
 
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_products_and_limits_leave_out_prices_and_spend(self, mock_get: MagicMock) -> None:
+    def test_products_and_limits_leave_out_prices_spend_and_dollar_limits(self, mock_get: MagicMock) -> None:
         mock_get.return_value = _response(PRICED_PRODUCTS)
-        product = self.client.get(self._url("products/?include_plans=true")).json()["results"][0]
+        product, credit_product = self.client.get(self._url("products/?include_plans=true")).json()["results"]
         mock_get.return_value = _response(LIMITS)
         limit = self.client.get(self._url("limits/")).json()["results"][0]
 
@@ -968,11 +1005,51 @@ class TestOrganizationBillingForPartnerPaidOrganizations(OrganizationBillingTest
                 product["plans"][0]["unit_amount_usd"],
                 product["plans"][0]["tiers"],
                 product["addons"][0]["default_unit_amount_usd"],
+                credit_product["usage_limit"],
                 limit["spend_usd"],
+                limit["limit_usd"],
             ),
-            (None, None, None, None, None, None, None),
+            (None, None, None, None, None, None, None, None, None),
         )
         self.assertEqual(
-            (product["name"], product["usage_limit"], product["plans"][0]["name"], limit["limit_usd"]),
-            ("Product analytics", 5000000, "Pay as you go", 500),
+            (product["name"], product["usage_limit"], product["plans"][0]["name"], limit["key"], limit["reached"]),
+            ("Product analytics", 5000000, "Pay as you go", "product_analytics", False),
         )
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_usage_reads_leave_out_usage_counted_in_credits(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _response(
+            {
+                **USAGE,
+                "usage_summary": [*USAGE["usage_summary"], CREDIT_USAGE_SUMMARY_ENTRY],
+                "products": [*USAGE["products"], CREDIT_PRODUCT_USAGE],
+            }
+        )
+        usage = self.client.get(self._url("usage/")).json()
+        credit_product_status = {
+            "kind": "product",
+            "key": "posthog_ai",
+            "usage_key": "ai_credits",
+            "usage_limit": 5000,
+            "has_exceeded_limit": False,
+            "approaching_limit": True,
+            "addons": [],
+        }
+        mock_get.return_value = _response(
+            {**USAGE_STATUS, "products": [*USAGE_STATUS["products"], credit_product_status]}
+        )
+        usage_status = self.client.get(self._url("usage/status/")).json()
+
+        self.assertEqual(
+            (
+                [entry["usage_key"] for entry in usage["usage_summary"]],
+                [product["usage_key"] for product in usage["products"]],
+                [(product["usage_key"], product["usage_limit"]) for product in usage_status["products"]],
+            ),
+            (
+                ["events", "recordings"],
+                ["events"],
+                [("events", 5000000), ("recordings", 15000), ("ai_credits", None)],
+            ),
+        )
+        self.assertTrue(usage_status["products"][2]["approaching_limit"])

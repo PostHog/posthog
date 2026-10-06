@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -312,24 +313,66 @@ describe('billing spend load triggers', () => {
         expect(new Set(startDates)).toEqual(new Set(['2026-01-01']))
     })
 
-    it.each([
-        { name: 'reads spend once billing answers', partner: null, expectedRequests: 1 },
-        {
-            name: 'never reads spend while a partner pays',
-            partner: { partner_name: 'Example Partner' },
-            expectedRequests: 0,
-        },
-    ])('waits for billing when it mounts first, then $name', async ({ partner, expectedRequests }) => {
-        useMocks({
-            get: { '/api/billing': () => [200, { ...billingJson, billing_managed_by_partner: partner }] },
+    it('reads spend while billing is still loading, so the chart is never blank waiting on it', async () => {
+        let answerBilling: (answer: [number, typeof billingJson]) => void = () => {}
+        const billingAnswer = new Promise<[number, typeof billingJson]>((resolve) => {
+            answerBilling = resolve
         })
+        useMocks({ get: { '/api/billing': () => billingAnswer } })
 
         logic = billingSpendLogic({})
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadBillingSpendSuccess'])
+
+        expect(requests).toEqual(1)
+        answerBilling([200, billingJson])
         await expectLogic(billingLogic).toDispatchActions(['loadBillingSuccess']).toFinishAllListeners()
+    })
+
+    it('never reads spend once billing says a partner pays', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    { ...billingJson, billing_managed_by_partner: { partner_name: 'Example Partner' } },
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+        logic = billingSpendLogic({})
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(requests).toEqual(expectedRequests)
+        expect(requests).toEqual(0)
+    })
+
+    it('shows a refused spend read in the page rather than as a toast', async () => {
+        const refusal = {
+            code: 'permission_denied',
+            detail: 'Billing for this organization is managed by Example Partner. Contact Example Partner for spend, invoices, and pricing.',
+        }
+        useMocks({
+            get: {
+                '/api/organizations/@current/billing/spend/timeseries/': () => [
+                    403,
+                    { type: 'authentication_error', attr: null, ...refusal },
+                ],
+            },
+        })
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+
+        try {
+            logic = billingSpendLogic({})
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBillingSpendSuccess']).toFinishAllListeners()
+
+            expect(logic.values.billingSpendError).toEqual(refusal)
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+        } finally {
+            toastErrorSpy.mockRestore()
+        }
     })
 
     it('keeps an open-ended preset open, and asks for a range that ends yesterday', async () => {

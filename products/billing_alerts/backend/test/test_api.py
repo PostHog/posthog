@@ -8,9 +8,12 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 
 from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG
@@ -326,6 +329,51 @@ class TestBillingAlertAPI(APIBaseTest):
         assert len(data[0]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
         assert len(data[1]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
         assert data[2]["destinations"] == []
+
+    @parameterized.expand(
+        [
+            ("create", "post", ""),
+            ("check_now", "post", "{alert_id}/check_now/"),
+            ("events", "get", "{alert_id}/events/"),
+        ]
+    )
+    def test_spend_reads_are_refused_while_a_partner_pays(self, _name: str, method: str, path: str) -> None:
+        alert = self._alert()
+        application = OAuthApplication.objects.create(
+            name="Example Partner",
+            client_id="example-partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+        )
+        application.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=application,
+        )
+        url = f"{self.url}{path.format(alert_id=alert.id)}"
+
+        with (
+            patch("products.billing_alerts.backend.presentation.views.billing_alerts_api.preview_alert") as preview,
+            patch(
+                "products.billing_alerts.backend.presentation.views.billing_alerts_api.evaluate_and_dispatch_alert"
+            ) as dispatch,
+        ):
+            response = (
+                self.client.post(url, self._payload(), format="json") if method == "post" else self.client.get(url)
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == (
+            "Billing for this organization is managed by Example Partner. "
+            "Contact Example Partner for spend, invoices, and pricing."
+        )
+        assert BillingAlertConfiguration.objects.count() == 1
+        preview.assert_not_called()
+        dispatch.assert_not_called()
 
     def test_api_is_gated_behind_billing_alerts_flag(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):

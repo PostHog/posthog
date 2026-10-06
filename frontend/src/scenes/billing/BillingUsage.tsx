@@ -15,7 +15,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { billingErrorGuidance, getUsageTypeOptions, selectionCoversEveryProject } from './billing-utils'
+import { billingErrorGuidance, selectionCoversEveryProject } from './billing-utils'
 import { BillingChart } from './BillingChart'
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
@@ -55,6 +55,7 @@ export function BillingUsage(): JSX.Element {
         usageChartExportUrl,
         effectiveChartType,
         canStackSeries,
+        usageTypeOptions,
     } = useValues(logic)
     const {
         setFilters,
@@ -96,7 +97,7 @@ export function BillingUsage(): JSX.Element {
                             value={filters.usage_types || []}
                             onChange={(value) => setFilters({ usage_types: value })}
                             placeholder="All products"
-                            options={getUsageTypeOptions()}
+                            options={usageTypeOptions}
                             allowCustomValues={false}
                         />
                     </div>

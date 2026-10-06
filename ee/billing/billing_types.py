@@ -87,6 +87,16 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
 USAGE_TYPE_VALUES: tuple[UsageType, ...] = cast(tuple[UsageType, ...], get_args(UsageType))
 
 
+# One credit is one cent, so a count of credits is an amount of money.
+def is_credit_denominated(name: object) -> bool:
+    return isinstance(name, str) and "credits" in name.split("_")
+
+
+NON_CREDIT_USAGE_TYPES: tuple[UsageType, ...] = tuple(
+    usage_type for usage_type in USAGE_TYPE_VALUES if not is_credit_denominated(usage_type)
+)
+
+
 class Tier(TypedDict):
     flat_amount_usd: str
     unit_amount_usd: str

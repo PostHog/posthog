@@ -556,6 +556,9 @@ export const buildSpendTrackingProperties = (
 export const getUsageTypeOptions = (): { key: string; label: string }[] =>
     USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
 
+// One credit is one cent, so usage counted in credits is an amount of money.
+export const isCreditUsageType = (usageType: string): boolean => usageType.split('_').includes('credits')
+
 export const getSpendTypeOptions = (): { key: string; label: string }[] =>
     SPEND_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
 

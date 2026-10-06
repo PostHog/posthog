@@ -39,6 +39,7 @@ import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
+import { BillingGaugeItemType } from './types'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const getTierDescription = (
@@ -61,8 +62,18 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, isBillingManagedByPartner, billingPartnerName } = useValues(billingLogic)
     const showsAmounts = !isBillingManagedByPartner
+    // Billing withholds usage counted in credits from a partner-paid organization, since one credit is one cent.
+    const renderGauge = (
+        items: BillingGaugeItemType[],
+        gaugeProduct: BillingProductV2Type | BillingProductV2AddonType
+    ): JSX.Element =>
+        isBillingManagedByPartner && gaugeProduct.current_usage == null ? (
+            <p className="text-sm text-secondary my-4">{`Contact ${billingPartnerName} for this product's usage.`}</p>
+        ) : (
+            <BillingGauge items={items} product={gaugeProduct} />
+        )
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -344,14 +355,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {variantExpandedStates?.[variant.key] && (
                                                 <div className="mt-4">
                                                     <div className="ml-16">
-                                                        <BillingGauge
-                                                            items={
-                                                                isProductVariantPrimary(variant.key)
-                                                                    ? billingGaugeItems
-                                                                    : createGaugeItems(variant.product)
-                                                            }
-                                                            product={variant.product}
-                                                        />
+                                                        {renderGauge(
+                                                            isProductVariantPrimary(variant.key)
+                                                                ? billingGaugeItems
+                                                                : createGaugeItems(variant.product),
+                                                            variant.product
+                                                        )}
                                                     </div>
                                                     {showsAmounts && (
                                                         <BillingProductPricingTable product={variant.product} />
@@ -381,7 +390,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <h4 className="font-bold">{variant.displayName}</h4>
                                             <div className="sm:flex w-full items-center gap-x-8">
                                                 <div className="grow -my-4">
-                                                    <BillingGauge items={variantGaugeItems} product={variant.product} />
+                                                    {renderGauge(variantGaugeItems, variant.product)}
                                                 </div>
                                             </div>
                                         </div>
@@ -415,9 +424,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     <>
                                         {isTemporaryFreeProduct ? (
                                             <div className="grow">
-                                                <div className="grow">
-                                                    <BillingGauge items={billingGaugeItems} product={product} />
-                                                </div>
+                                                <div className="grow">{renderGauge(billingGaugeItems, product)}</div>
                                                 {/* TODO: rms: remove this notice after August 8 2024 */}
                                                 {product.type == ProductKey.DATA_WAREHOUSE &&
                                                     [
@@ -449,7 +456,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         />
                                                     )}
                                                     <div className="grow">
-                                                        <BillingGauge items={billingGaugeItems} product={product} />
+                                                        {renderGauge(billingGaugeItems, product)}
                                                     </div>
                                                 </div>
                                                 {product.subscribed && showsAmounts ? (

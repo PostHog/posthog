@@ -42,6 +42,7 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -631,7 +632,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
-        from ee.billing.billing_manager import BillingManager
+        from ee.billing.billing_manager import BillingManager, partner_display_name
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
@@ -647,6 +648,14 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    partner = get_billing_lock_partner(organization)
+                    if partner is not None:
+                        partner_name = partner_display_name(partner)
+                        raise exceptions.ValidationError(
+                            "Cannot delete organization with an active subscription. "
+                            f"Billing for this organization is managed by {partner_name}. "
+                            f"Contact {partner_name} to cancel the subscription."
+                        )
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."

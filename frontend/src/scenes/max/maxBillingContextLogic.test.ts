@@ -345,7 +345,7 @@ describe('maxBillingContextLogic', () => {
             })
         })
 
-        it('leaves out spend and amounts when a partner pays, and keeps usage and limits', () => {
+        it('leaves out spend, amounts, and dollar limits when a partner pays, and keeps usage and usage limits', () => {
             const result = billingToMaxContext(
                 mockBilling,
                 {},
@@ -365,11 +365,13 @@ describe('maxBillingContextLogic', () => {
                 result?.spend_history,
                 result?.products[0].projected_amount_usd,
                 result?.products[0].projected_amount_usd_with_limit,
+                result?.products[0].custom_limit_usd,
+                result?.products[0].next_period_custom_limit_usd,
                 result?.products[0].addons[0].projected_amount_usd,
             ]
             expect(amounts).toEqual(amounts.map(() => undefined))
             expect(result?.usage_history).toEqual(mockBillingUsageResponse.results)
-            expect(result?.products[0]).toMatchObject({ current_usage: 1000000, custom_limit_usd: 50 })
+            expect(result?.products[0]).toMatchObject({ current_usage: 1000000, usage_limit: 1000000 })
         })
 
         it('processes products correctly', () => {

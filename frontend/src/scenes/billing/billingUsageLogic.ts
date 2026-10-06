@@ -26,6 +26,8 @@ import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
+    getUsageTypeOptions,
+    isCreditUsageType,
     selectionCoversEveryProject,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -123,7 +125,7 @@ export interface BillingUsageLogicProps {
 
 /**
  * Billing errors that describe something the person can change, rather than something broken.
- * These render as guidance in the page; anything else is a failure and gets an error toast.
+ * These render as guidance in the page.
  *
  * `usage_breakdown_too_large` means the request would need more than a billing worker holds, and
  * the guidance says what to narrow.
@@ -133,6 +135,12 @@ export const ACTIONABLE_BILLING_ERROR_CODES = [
     'usage_breakdown_too_large',
     'usage_date_range_too_long',
 ]
+
+/**
+ * The billing errors the page shows; anything else is a failure and gets an error toast. A refusal is
+ * shown too, because it says who to ask, such as the partner that pays for the organization.
+ */
+export const IN_PAGE_BILLING_ERROR_CODES = [...ACTIONABLE_BILLING_ERROR_CODES, 'permission_denied']
 
 export const BILLING_USAGE_QUERY_TOO_LARGE_CODE = 'usage_breakdown_too_large'
 
@@ -158,6 +166,7 @@ export interface billingUsageLogicValues {
     billingPeriodUTC: BillingPeriod // billingLogic
     canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
+    isBillingManagedByPartner: boolean // billingLogic
     billingReads: BillingReads // billingReadsLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
@@ -203,6 +212,10 @@ export interface billingUsageLogicValues {
     }[]
     usageChartExportUrl: string
     usageExportUrl: string
+    usageTypeOptions: {
+        key: string
+        label: string
+    }[]
     userHiddenSeries: number[]
 }
 
@@ -408,6 +421,10 @@ export interface billingUsageLogicMeta {
             key: string
             label: string
         }[]
+        usageTypeOptions: (isBillingManagedByPartner: boolean) => {
+            key: string
+            label: string
+        }[]
     }
 }
 
@@ -448,7 +465,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
+            ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization', 'isBillingManagedByPartner'],
             preflightLogic,
             ['isHobby'],
             billingReadsLogic,
@@ -535,10 +552,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         return await values.billingReads.usageSeries(params)
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)
-                        const isActionable =
-                            !!billingUsageError && ACTIONABLE_BILLING_ERROR_CODES.includes(billingUsageError.code)
-                        actions.setBillingUsageError(isActionable ? billingUsageError : null)
-                        if (!isActionable) {
+                        const isShownInPage =
+                            !!billingUsageError && IN_PAGE_BILLING_ERROR_CODES.includes(billingUsageError.code)
+                        actions.setBillingUsageError(isShownInPage ? billingUsageError : null)
+                        if (!isShownInPage) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                         }
                         // The toast or the page names the failure, so it does not also go to error tracking.
@@ -799,6 +816,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 }))
                 return [...liveOptions, ...deletedOptions]
             },
+        ],
+        // Billing leaves usage counted in credits out of a partner-paid organization's reads, and refuses a
+        // read that names it, so the filter does not offer it.
+        usageTypeOptions: [
+            (s) => [s.isBillingManagedByPartner],
+            (isBillingManagedByPartner: boolean) =>
+                getUsageTypeOptions().filter((option) => !(isBillingManagedByPartner && isCreditUsageType(option.key))),
         ],
     }),
 

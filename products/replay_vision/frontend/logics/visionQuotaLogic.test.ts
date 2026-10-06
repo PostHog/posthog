@@ -102,6 +102,13 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.onFreePlan).toBe(true)
         expect(logic.values.billedCredits).toBe(0)
         expect(logic.values.billedLimitCredits).toBe(0)
+
+        // Partner-paid org: spend bills the partner, which sets its own prices, so no dollars show.
+        logic.actions.loadQuotaSuccess(makeQuota({ credits_used: 4000, remaining: 6000 }))
+        billingLogic.actions.loadBillingSuccess({
+            billing_managed_by_partner: { partner_name: 'Example Partner' },
+        } as BillingType)
+        expect(logic.values.showUsd).toBe(false)
     })
 
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {

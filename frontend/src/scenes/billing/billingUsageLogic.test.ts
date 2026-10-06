@@ -228,6 +228,12 @@ describe('billingUsageLogic loader', () => {
             toasts: 0,
         },
         { case: 'a server error', answer: [500, { detail: 'A server error occurred.' }], pageError: null, toasts: 1 },
+        {
+            case: 'a refusal that names who to ask',
+            answer: [403, { code: 'permission_denied', detail: 'Contact Example Partner for spend.' }],
+            pageError: { code: 'permission_denied', detail: 'Contact Example Partner for spend.' },
+            toasts: 0,
+        },
     ])('handles $case without failing the loader', async ({ answer, pageError, toasts }) => {
         useMocks({
             get: {

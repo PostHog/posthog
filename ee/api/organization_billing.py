@@ -45,9 +45,11 @@ from ee.api.billing import (
     BillingTimeSeriesPointSerializer,
     BillingUsageRequestSerializer,
     billing_managed_by_partner,
+    narrow_usage_types_for_partner,
     without_money,
 )
-from ee.billing.billing_manager import BillingManager, raise_if_billing_amounts_managed_by_partner
+from ee.billing.billing_manager import BillingManager, PartnerLock, raise_if_billing_managed_by_partner
+from ee.billing.billing_types import is_credit_denominated
 from ee.billing.exports import (
     _gzip_stream,
     _release_export_stream_slot,
@@ -93,6 +95,14 @@ def _with_todays_usage(products: list[dict[str, Any]], organization_usage: dict[
         return {**item, "current_usage": current, "usage_ratio": current / limit if limit else 0}
 
     return [{**add(product), "addons": [add(addon) for addon in product.get("addons", [])]} for product in products]
+
+
+def _without_credit_usage(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {**row, "addons": _without_credit_usage(row["addons"])} if "addons" in row else row
+        for row in rows
+        if not is_credit_denominated(row.get("usage_key"))
+    ]
 
 
 def fetch_invoice_document(url: str) -> requests.Response:
@@ -733,7 +743,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         if kind == "spend":
-            raise_if_billing_amounts_managed_by_partner(organization)
+            raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         # Spend serves a project-only breakdown and usage does not, so each read checks its own.
         serializer_class = (
             OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
@@ -741,6 +751,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         serializer = serializer_class(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        narrow_usage_types_for_partner(organization, params)
         # Billing pages with page_size and after. The API calls the same two limit and cursor.
         if "limit" in params:
             params["page_size"] = params.pop("limit")
@@ -892,7 +903,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        raise_if_billing_amounts_managed_by_partner(organization)
+        raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         data = self._manager().get_organization_spend(organization, grants)
         return Response({**data, "billing_period": _billing_period(data.get("billing_period"))})
 
@@ -907,7 +918,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        raise_if_billing_amounts_managed_by_partner(organization)
+        raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         data = self._manager().get_organization_forecast(organization, grants)
         return Response(
             {
@@ -946,13 +957,14 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         if kind == "spend":
-            raise_if_billing_amounts_managed_by_partner(organization)
+            raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         serializer_class = (
             OrganizationUsageExportRequestSerializer if kind == "usage" else OrganizationExportRequestSerializer
         )
         serializer = serializer_class(data=request.GET)
         serializer.is_valid(raise_exception=True)
         params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        narrow_usage_types_for_partner(organization, params)
         teams_map = self._scope_projects(request, grants, organization, params, for_export=True)
         # The names go into the file here, not into the request.
         params.pop("teams_map", None)
@@ -1045,7 +1057,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        raise_if_billing_amounts_managed_by_partner(organization)
+        raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         params = BillingInvoiceListParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         data = self._manager().get_organization_invoices(organization, grants, **params.validated_data)
@@ -1083,7 +1095,7 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         organization = self.organization
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.FULL_ACCESS, whole_organization=True)
-        raise_if_billing_amounts_managed_by_partner(organization)
+        raise_if_billing_managed_by_partner(organization, PartnerLock.AMOUNTS)
         url = self._manager().get_organization_invoice_pdf_url(organization, grants, invoice_id)
         upstream = fetch_invoice_document(url)
         if upstream.status_code != 200:
@@ -1167,12 +1179,15 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     "quota_limiting_suspended_until": _iso(own.get("quota_limiting_suspended_until")),
                 }
             )
+        products = _with_todays_usage(data.get("products", []), organization_usage)
+        if get_billing_lock_partner(organization):
+            usage_summary, products = _without_credit_usage(usage_summary), _without_credit_usage(products)
         return Response(
             {
                 "billing_period": _billing_period(data.get("billing_period")),
                 "usage_reported_through": data.get("usage_reported_through"),
                 "usage_summary": usage_summary,
-                "products": _with_todays_usage(data.get("products", []), organization_usage),
+                "products": products,
             }
         )
 
@@ -1205,9 +1220,15 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             {
                 "billing_period": _billing_period(data.get("billing_period")),
                 "usage_reported_through": data.get("usage_reported_through"),
-                "products": [
-                    {**with_quota_state(product), "addons": [with_quota_state(a) for a in product.get("addons", [])]}
-                    for product in data.get("products", [])
-                ],
+                "products": self._without_partner_paid_money(
+                    organization,
+                    [
+                        {
+                            **with_quota_state(product),
+                            "addons": [with_quota_state(a) for a in product.get("addons", [])],
+                        }
+                        for product in data.get("products", [])
+                    ],
+                ),
             }
         )

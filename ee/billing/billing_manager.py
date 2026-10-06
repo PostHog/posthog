@@ -103,49 +103,22 @@ def partner_display_name(partner: OAuthApplication) -> str:
     return partner.name.strip() or "your partner"
 
 
+class PartnerLock(StrEnum):
+    PLAN = "to change your plan or payment details"
+    AMOUNTS = "for spend, invoices, and pricing"
+    LIMITS = "to change billing limits"
+
+
 class BillingManagedByPartnerError(PermissionDenied):
-    def __init__(self, partner: OAuthApplication) -> None:
+    def __init__(self, partner: OAuthApplication, lock: PartnerLock = PartnerLock.PLAN) -> None:
         partner_name = partner_display_name(partner)
-        super().__init__(
-            f"Billing for this organization is managed by {partner_name}. "
-            f"Contact {partner_name} to change your plan or payment details."
-        )
+        super().__init__(f"Billing for this organization is managed by {partner_name}. Contact {partner_name} {lock}.")
 
 
-class BillingAmountsManagedByPartnerError(PermissionDenied):
-    def __init__(self, partner: OAuthApplication) -> None:
-        partner_name = partner_display_name(partner)
-        super().__init__(
-            f"Billing for this organization is managed by {partner_name}. "
-            f"Contact {partner_name} for spend, invoices, and pricing."
-        )
-
-
-class BillingLimitsManagedByPartnerError(PermissionDenied):
-    def __init__(self, partner: OAuthApplication) -> None:
-        partner_name = partner_display_name(partner)
-        super().__init__(
-            f"Billing limits for this organization are managed by {partner_name}. "
-            f"Contact {partner_name} to change them."
-        )
-
-
-def raise_if_billing_managed_by_partner(organization: Organization) -> None:
+def raise_if_billing_managed_by_partner(organization: Organization, lock: PartnerLock = PartnerLock.PLAN) -> None:
     partner = get_billing_lock_partner(organization)
     if partner is not None:
-        raise BillingManagedByPartnerError(partner)
-
-
-def raise_if_billing_amounts_managed_by_partner(organization: Organization) -> None:
-    partner = get_billing_lock_partner(organization)
-    if partner is not None:
-        raise BillingAmountsManagedByPartnerError(partner)
-
-
-def raise_if_billing_limits_managed_by_partner(organization: Organization) -> None:
-    partner = get_billing_lock_partner(organization)
-    if partner is not None:
-        raise BillingLimitsManagedByPartnerError(partner)
+        raise BillingManagedByPartnerError(partner, lock)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:

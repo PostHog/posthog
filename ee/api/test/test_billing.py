@@ -3,6 +3,7 @@ import json
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast, get_args
+from urllib.parse import urlencode
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -1201,6 +1202,11 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
+CREDIT_USAGE_QUERY = urlencode(
+    {"start_date": "2025-01-01", "usage_types": json.dumps(["event_count_in_period", "ai_credits_used_in_period"])}
+)
+
+
 class TestPartnerManagedBillingAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1296,6 +1302,8 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             ("get_invoices", "/api/billing/get_invoices?status=open", "get_invoices"),
             ("credits_overview", "/api/billing/credits/overview", "credits_overview"),
             ("coupons_overview", "/api/billing/coupons/overview", "coupons_overview"),
+            ("usage_of_credits", f"/api/billing/usage/?{CREDIT_USAGE_QUERY}", "get_usage_data"),
+            ("usage_export_of_credits", f"/api/billing/usage/export/?{CREDIT_USAGE_QUERY}", "get_usage_csv"),
         ]
     )
     def test_money_read_is_refused_while_the_partner_pays(self, _name: str, url: str, manager_method: str) -> None:
@@ -1316,7 +1324,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         "Contact Example Partner to change your plan or payment details."
     )
     LIMITS_REFUSAL = (
-        "Billing limits for this organization are managed by Example Partner. Contact Example Partner to change them."
+        "Billing for this organization is managed by Example Partner. Contact Example Partner to change billing limits."
     )
 
     @parameterized.expand(
@@ -1438,7 +1446,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             ),
         ]
     )
-    def test_usage_stays_readable_while_the_partner_pays(
+    def test_usage_stays_readable_without_usage_counted_in_credits_while_the_partner_pays(
         self, _name: str, url: str, manager_method: str, manager_result: object
     ) -> None:
         self._provision(pays_for_customers=True)
@@ -1449,7 +1457,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             b"".join(response)
 
         assert response.status_code == status.HTTP_200_OK
-        mock_manager_method.assert_called_once()
+        requested_usage_types = json.loads(mock_manager_method.call_args.args[1]["usage_types"])
+        assert "event_count_in_period" in requested_usage_types
+        assert [usage_type for usage_type in requested_usage_types if "credits" in usage_type] == []
 
     @parameterized.expand(
         [
@@ -1478,9 +1488,15 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             "discount_amount_usd": "100.00",
             "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "custom_limits_usd": {"product_analytics": 500},
+            "next_period_custom_limits_usd": {"product_analytics": 600},
+            "usage_summary": {
+                "events": {"usage": 20000, "limit": 1000000},
+                "ai_credits": {"usage": 1234, "limit": 5000},
+            },
             "products": [
                 {
                     "type": "product_analytics",
+                    "usage_key": "events",
                     "current_usage": 20000,
                     "usage_limit": 1000000,
                     "unit_amount_usd": "0.00045",
@@ -1489,7 +1505,16 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
                     "tiers": [tier],
                     "plans": [{"name": "Paid", "unit_amount_usd": "0.00045", "tiers": [tier]}],
                     "addons": [{"type": "group_analytics", "current_usage": 300, "projected_amount_usd": "3.00"}],
-                }
+                },
+                {
+                    "type": "posthog_ai",
+                    "usage_key": "ai_credits",
+                    "current_usage": 1234,
+                    "usage_limit": 5000,
+                    "projected_usage": 2000,
+                    "percentage_usage": 0.25,
+                    "addons": [],
+                },
             ],
         }
         self._provision(pays_for_customers)
@@ -1500,7 +1525,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        product = body["products"][0]
+        product, credit_product = body["products"]
         assert body["billing_managed_by_partner"] == expected
         amounts = [
             body["current_total_amount_usd"],
@@ -1508,6 +1533,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             body["discount_percent"],
             body["discount_amount_usd"],
             body["stripe_portal_url"],
+            body["custom_limits_usd"],
+            body["next_period_custom_limits_usd"],
+            body["usage_summary"]["ai_credits"],
             product["unit_amount_usd"],
             product["current_amount_usd"],
             product["projected_amount_usd_with_limit"],
@@ -1515,16 +1543,20 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             product["plans"][0]["unit_amount_usd"],
             product["plans"][0]["tiers"],
             product["addons"][0]["projected_amount_usd"],
+            credit_product["current_usage"],
+            credit_product["usage_limit"],
+            credit_product["projected_usage"],
         ]
         assert [amount is None for amount in amounts] == [expected is not None] * len(amounts)
         assert (
             body["billing_plan"],
-            body["custom_limits_usd"],
+            body["usage_summary"]["events"],
             product["current_usage"],
             product["usage_limit"],
             product["plans"][0]["name"],
             product["addons"][0]["current_usage"],
-        ) == ("paid", {"product_analytics": 500}, 20000, 1000000, "Paid", 300)
+            credit_product["percentage_usage"],
+        ) == ("paid", {"usage": 20000, "limit": 1000000}, 20000, 1000000, "Paid", 300, 0.25)
 
 
 class TestPartnerBillingLockCoverage(SimpleTestCase):
@@ -1550,7 +1582,9 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
     MONEY_READ_ACTIONS = {"spend", "spend_export", "get_invoices", "credits_overview", "coupons_overview"}
     # These answer with the overview, which sets its amounts to null while a partner pays.
     OVERVIEW_ACTIONS = {"list", "patch"}
-    MONEY_FREE_ACTIONS = {"period", "usage", "usage_team_options", "usage_export", "license"}
+    # One credit is one cent, so these leave out usage counted in credits while a partner pays.
+    CREDIT_NARROWED_ACTIONS = {"usage", "usage_export"}
+    MONEY_FREE_ACTIONS = {"period", "usage_team_options", "license"}
 
     @staticmethod
     def _declared_permissions() -> dict[str, Sequence[object]]:
@@ -1588,7 +1622,9 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         } - self.LOCKED_IN_HANDLER_WRITE_ACTIONS
 
         assert money_reads == self.MONEY_READ_ACTIONS
-        assert reachable == self.MONEY_READ_ACTIONS | self.OVERVIEW_ACTIONS | self.MONEY_FREE_ACTIONS
+        assert reachable == (
+            self.MONEY_READ_ACTIONS | self.OVERVIEW_ACTIONS | self.CREDIT_NARROWED_ACTIONS | self.MONEY_FREE_ACTIONS
+        )
 
 
 class TestBillingUsageRequestSerializer(SimpleTestCase):

@@ -2469,10 +2469,10 @@ export interface BillingType {
 
     custom_limits_usd?: {
         [key: string]: number | null
-    }
+    } | null
     next_period_custom_limits_usd?: {
         [key: string]: number | null
-    }
+    } | null
     billing_period?: {
         current_period_start: Dayjs
         current_period_end: Dayjs

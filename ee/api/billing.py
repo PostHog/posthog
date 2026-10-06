@@ -37,13 +37,13 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
 from ee.billing.billing_manager import (
+    BillingManagedByPartnerError,
     BillingManager,
+    PartnerLock,
     http_session,
-    raise_if_billing_amounts_managed_by_partner,
-    raise_if_billing_limits_managed_by_partner,
     raise_if_billing_managed_by_partner,
 )
-from ee.billing.billing_types import USAGE_TYPE_VALUES
+from ee.billing.billing_types import NON_CREDIT_USAGE_TYPES, USAGE_TYPE_VALUES, is_credit_denominated
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
     _gzip_stream,
@@ -274,32 +274,36 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
         return user_has_billing_usage_spend_read_access(request.user, org)
 
 
-class BillingNotManagedByPartner(permissions.BasePermission):
+class PartnerLockPermission(permissions.BasePermission):
+    lock: PartnerLock
+
+    def locks(self, request: Request) -> bool:
+        return True
+
     def has_permission(self, request: Request, view: Any) -> bool:
         organization = view._get_org()
-        if organization is not None:
-            raise_if_billing_managed_by_partner(organization)
+        if organization is not None and self.locks(request):
+            raise_if_billing_managed_by_partner(organization, self.lock)
         return True
 
 
-class BillingAmountsNotManagedByPartner(permissions.BasePermission):
-    def has_permission(self, request: Request, view: Any) -> bool:
-        organization = view._get_org()
-        if organization is not None:
-            raise_if_billing_amounts_managed_by_partner(organization)
-        return True
+class BillingNotManagedByPartner(PartnerLockPermission):
+    lock = PartnerLock.PLAN
+
+
+class BillingAmountsNotManagedByPartner(PartnerLockPermission):
+    lock = PartnerLock.AMOUNTS
 
 
 def changes_billing_limits(data: Any) -> bool:
     return bool(data.get("custom_limits_usd") or data.get("reset_limit_next_period"))
 
 
-class BillingLimitsNotManagedByPartner(permissions.BasePermission):
-    def has_permission(self, request: Request, view: Any) -> bool:
-        organization = view._get_org()
-        if organization is not None and changes_billing_limits(request.data):
-            raise_if_billing_limits_managed_by_partner(organization)
-        return True
+class BillingLimitsNotManagedByPartner(PartnerLockPermission):
+    lock = PartnerLock.LIMITS
+
+    def locks(self, request: Request) -> bool:
+        return changes_billing_limits(request.data)
 
 
 def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
@@ -307,12 +311,9 @@ def billing_managed_by_partner(organization: Organization | None) -> dict[str, s
     return {"partner_name": partner.name} if partner else None
 
 
-# A field with "usd" in its name is money unless it is a limit, wherever "usd" falls in the name:
-# projected_amount_usd_with_limit is as much an amount as current_amount_usd. The partner sets the
-# limits, and the organization's own members may read them.
-BILLING_LIMIT_FIELDS = frozenset(
-    {"custom_limits_usd", "next_period_custom_limits_usd", "limit_usd", "next_period_limit_usd"}
-)
+# A field with "usd" in its name is money wherever "usd" falls in it: projected_amount_usd_with_limit is as
+# much an amount as current_amount_usd. Dollar limits are money too, because custom_limits_usd divided by a
+# product's usage limit gives its discounted unit price.
 BILLING_MONEY_FIELDS = frozenset(
     {
         "amount_off_expires_at",
@@ -324,20 +325,38 @@ BILLING_MONEY_FIELDS = frozenset(
         "tiers",
     }
 )
+CREDIT_USAGE_FIELDS = frozenset({"current_usage", "usage_limit", "projected_usage"})
 
 
 def _is_money_field(field: str) -> bool:
-    return field in BILLING_MONEY_FIELDS or ("usd" in field.split("_") and field not in BILLING_LIMIT_FIELDS)
+    return field in BILLING_MONEY_FIELDS or "usd" in field.split("_") or is_credit_denominated(field)
 
 
 def without_money(payload: Any) -> Any:
     """Money fields become null rather than absent, so a client that reads one still finds the shape
     the contract promises."""
     if isinstance(payload, dict):
-        return {field: None if _is_money_field(field) else without_money(value) for field, value in payload.items()}
+        counts_credits = is_credit_denominated(payload.get("usage_key"))
+        return {
+            field: None
+            if _is_money_field(field) or (counts_credits and field in CREDIT_USAGE_FIELDS)
+            else without_money(value)
+            for field, value in payload.items()
+        }
     if isinstance(payload, list):
         return [without_money(item) for item in payload]
     return payload
+
+
+def narrow_usage_types_for_partner(organization: Organization, params: dict[str, Any]) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is None:
+        return
+    requested = json.loads(params["usage_types"]) if params.get("usage_types") else []
+    if any(is_credit_denominated(usage_type) for usage_type in requested):
+        raise BillingManagedByPartnerError(partner, PartnerLock.AMOUNTS)
+    if not requested:
+        params["usage_types"] = json.dumps(NON_CREDIT_USAGE_TYPES)
 
 
 class BillingSerializer(serializers.Serializer):
@@ -353,8 +372,10 @@ class BillingManagedByPartnerSerializer(serializers.Serializer):
 
 BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
     "Set when a provisioning partner pays for this organization. While it is set, self-serve subscription, "
-    "payment, and billing limit changes are refused, reads of spend, invoices, and credits are refused, and "
-    "amounts and prices in billing responses are null. Usage and limits stay readable. Null when no partner pays."
+    "payment, and billing limit changes are refused, and reads of spend, invoices, and credit balances are "
+    "refused. Amounts, prices, and dollar limits in billing responses are null. Usage counted in credits is "
+    "null or left out, because one credit is one cent. Other usage, and usage limits in units, stay readable. "
+    "Null when no partner pays."
 )
 
 
@@ -1205,6 +1226,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+        narrow_usage_types_for_partner(organization, params_to_pass)
         # The same narrowing as the interactive endpoints: a member who can only see some projects
         # must not export the others. Export access is set per project too, like the page's
         # button, so the file carries only the projects the person may export. A member who may
@@ -1262,6 +1284,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            narrow_usage_types_for_partner(organization, params_to_pass)
             scoped_team_ids = self._scoped_team_ids_for_usage_spend_request(request, organization, params_to_pass)
             teams_map = self._get_teams_map(organization, scoped_team_ids)
 

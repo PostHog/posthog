@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from langchain_core.prompts import PromptTemplate
@@ -12,7 +13,7 @@ from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.sync import database_sync_to_async
 
 from ee.billing.billing_manager import partner_display_name
-from ee.billing.billing_types import USAGE_TYPE_OPTIONS
+from ee.billing.billing_types import USAGE_TYPE_OPTIONS, is_credit_denominated
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool
 from ee.hogai.tool_errors import MaxToolFatalError
@@ -51,7 +52,11 @@ class ReadBillingTool(MaxSubtool):
     def _partner_managed_billing_prompt(partner: OAuthApplication | None) -> str | None:
         if partner is None:
             return None
-        return PARTNER_MANAGED_BILLING_PROMPT.format(partner_name=partner_display_name(partner))
+        # The partner sets its own name, so it goes in as a JSON string that can't end early or close the tag around it.
+        quoted_name = json.dumps(partner_display_name(partner), ensure_ascii=False)
+        return PARTNER_MANAGED_BILLING_PROMPT.format(
+            partner_name=quoted_name.replace("<", "\\u003c").replace(">", "\\u003e")
+        )
 
     @database_sync_to_async(thread_sensitive=False)
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
@@ -120,8 +125,8 @@ class ReadBillingTool(MaxSubtool):
                     "usage_limit": int(product.usage_limit) if product.usage_limit else None,
                     "percentage_usage": product.percentage_usage,
                     "has_exceeded_limit": product.has_exceeded_limit,
-                    "custom_limit_usd": product.custom_limit_usd,
-                    "next_period_custom_limit_usd": product.next_period_custom_limit_usd,
+                    "custom_limit_usd": product.custom_limit_usd if shows_money else None,
+                    "next_period_custom_limit_usd": product.next_period_custom_limit_usd if shows_money else None,
                     "docs_url": product.docs_url,
                     "projected_amount_usd": product.projected_amount_usd if shows_money else None,
                     "projected_amount_usd_with_limit": product.projected_amount_usd_with_limit if shows_money else None,
@@ -152,9 +157,14 @@ class ReadBillingTool(MaxSubtool):
                 "target": billing_context.trial.target,
             }
 
-        if billing_context.usage_history:
+        usage_history = (
+            billing_context.usage_history
+            if shows_money
+            else [item for item in billing_context.usage_history or [] if not self._counts_credits(item)]
+        )
+        if usage_history:
             # Format usage history as a table with breakdown by date
-            usage_table = self._format_history_table(billing_context.usage_history)
+            usage_table = self._format_history_table(usage_history)
             template_data["usage_history_table"] = usage_table
 
         if shows_money and billing_context.spend_history:
@@ -175,6 +185,11 @@ class ReadBillingTool(MaxSubtool):
 
         template = PromptTemplate.from_template(BILLING_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(**template_data).to_string()
+
+    @staticmethod
+    def _counts_credits(item: UsageHistoryItem) -> bool:
+        values = item.breakdown_value if isinstance(item.breakdown_value, list) else [item.breakdown_value]
+        return any(is_credit_denominated(value) for value in values)
 
     def _get_teams_map(self) -> dict[int, str]:
         if self._teams_map:

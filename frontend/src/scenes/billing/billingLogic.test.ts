@@ -8,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
+import type { BillingSectionId } from 'scenes/billing/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -161,6 +162,39 @@ describe('billingLogic', () => {
             expect(billingLogic.values.scrollToProductKey).toBe(ProductKey.REPLAY_VISION)
         }
     )
+
+    it.each<{ name: string; partnerPays: boolean; section: BillingSectionId; openedBeforeBilling: boolean }>([
+        {
+            name: 'a partner-paid spend link opened before billing answers',
+            partnerPays: true,
+            section: 'spend',
+            openedBeforeBilling: true,
+        },
+        {
+            name: 'a partner-paid alerts link followed once billing answered',
+            partnerPays: true,
+            section: 'alerts',
+            openedBeforeBilling: false,
+        },
+        { name: 'a self-paying spend link', partnerPays: false, section: 'spend', openedBeforeBilling: false },
+    ])('sends $name where its members may read', async ({ partnerPays, section, openedBeforeBilling }) => {
+        billingState = {
+            ...billingState,
+            billing_managed_by_partner: partnerPays ? { partner_name: 'Example Partner' } : null,
+        }
+        if (openedBeforeBilling) {
+            router.actions.push(urls.organizationBillingSection(section))
+        }
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        if (!openedBeforeBilling) {
+            router.actions.push(urls.organizationBillingSection(section))
+        }
+
+        expect(router.values.location.pathname).toEqual(
+            urls.organizationBillingSection(partnerPays ? 'usage' : section)
+        )
+    })
 
     it.each(['/organization/billing/usage', '/organization/billing/spend'])(
         'does not restore product deep-link scrolling from %s after mount',

@@ -31,6 +31,8 @@ from products.billing_alerts.backend.presentation.serializers import (
 )
 from products.billing_alerts.backend.presentation.throttles import BillingAlertCheckNowThrottle
 
+from ee.billing.billing_manager import PartnerLock, raise_if_billing_managed_by_partner
+
 
 @extend_schema(tags=["billing"])
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -45,6 +47,10 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(organization_id=self.organization.id).order_by("-created_at")
+
+    def create(self, request: Request, *args: object, **kwargs: object) -> Response:
+        raise_if_billing_managed_by_partner(self.organization, PartnerLock.AMOUNTS)
+        return super().create(request, *args, **kwargs)
 
     def _execution_team(self) -> Team:
         user = cast(User, self.request.user)
@@ -81,6 +87,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["organization:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
+        raise_if_billing_managed_by_partner(self.organization, PartnerLock.AMOUNTS)
         alert = self.get_object()
         queryset = billing_alerts_api.visible_events_for_alert(alert)
         page = self.paginate_queryset(queryset)
@@ -109,6 +116,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         throttle_classes=[BillingAlertCheckNowThrottle],
     )
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
+        raise_if_billing_managed_by_partner(self.organization, PartnerLock.AMOUNTS)
         alert = self.get_object()
 
         def _amount(value: object) -> str | None:
