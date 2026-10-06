@@ -5,7 +5,7 @@ import { LemonButton, LemonCheckbox, LemonModal, Spinner } from '@posthog/lemon-
 import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
 
 export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
-    const { isApplyDialogOpen, enableWhereOff, preview, previewLoading, applyResultLoading } =
+    const { isApplyDialogOpen, enableWhereOff, preview, previewLoading, isPreviewCurrent, applyResultLoading } =
         useValues(workflowsUtmDefaultsApplyLogic)
     const { closeApplyDialog, setEnableWhereOff, applyDefaults } = useActions(workflowsUtmDefaultsApplyLogic)
 
@@ -27,7 +27,7 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         onClick={applyDefaults}
                         loading={applyResultLoading}
                         disabledReason={
-                            previewLoading || !preview
+                            previewLoading || !preview || !isPreviewCurrent
                                 ? 'Counting the emails to update'
                                 : nothingToUpdate
                                   ? 'No emails to update'
@@ -35,13 +35,17 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         }
                         data-attr="workflows-utm-defaults-apply"
                     >
-                        {preview && !nothingToUpdate ? `Update ${preview.emails_updated} emails` : 'Update emails'}
+                        {preview && isPreviewCurrent && !nothingToUpdate
+                            ? `Update ${preview.emails_updated} emails`
+                            : 'Update emails'}
                     </LemonButton>
                 </>
             }
         >
-            {previewLoading || !preview ? (
+            {previewLoading ? (
                 <Spinner />
+            ) : !preview || !isPreviewCurrent ? (
+                <p className="m-0">Couldn't count the emails to update. Close this and try again.</p>
             ) : (
                 <div className="flex flex-col gap-3">
                     <p className="m-0">

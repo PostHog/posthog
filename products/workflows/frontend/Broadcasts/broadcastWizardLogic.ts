@@ -372,6 +372,11 @@ export interface broadcastWizardLogicActions {
     saveName: () => {
         value: true
     }
+    seedTeamUtmDefaults: (
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    ) => {
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     }
@@ -386,11 +391,6 @@ export interface broadcastWizardLogicActions {
     }
     setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => {
         settings: Partial<BroadcastEmailSettings>
-    }
-    seedTeamUtmDefaults: (
-        settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
-    ) => {
-        settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
     }
     setExpandedRunOverride: (runIds: string[]) => {
         runIds: string[]

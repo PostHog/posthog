@@ -1,48 +1,32 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    cleanUtmParams,
-    getTeamUtmDefaults,
-    matchesTeamUtmDefaults,
-} from '../../Workflows/hogflows/steps/components/utmDefaults'
-import { UtmTagFields, type UtmTagValues } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { WorkflowsUtmDefaultsApplyDialog } from './WorkflowsUtmDefaultsApplyDialog'
 import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
 
 export function WorkflowsUtmDefaultsSettings(): JSX.Element {
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { saveDefaults, openApplyDialog } = useActions(workflowsUtmDefaultsApplyLogic)
-
-    const saved = getTeamUtmDefaults(currentTeam?.workflows_config)
-    const [enabled, setEnabled] = useState(saved.enabled)
-    const [params, setParams] = useState<UtmTagValues>(saved.params)
-
-    useEffect(() => {
-        setEnabled(saved.enabled)
-        setParams(saved.params)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentTeam?.workflows_config?.email_utm_tags_enabled, JSON.stringify(saved.params)])
-
-    const unchanged = enabled === saved.enabled && matchesTeamUtmDefaults(params, saved)
+    const { currentTeamLoading } = useValues(teamLogic)
+    const { form, hasUnsavedChanges } = useValues(workflowsUtmDefaultsApplyLogic)
+    const { setDraftEnabled, setDraftParams, saveDefaults, openApplyDialog } =
+        useActions(workflowsUtmDefaultsApplyLogic)
 
     return (
         <div className="flex flex-col gap-2 max-w-160">
             <LemonSwitch
                 id="workflows-email-utm-defaults"
-                checked={enabled}
-                onChange={setEnabled}
+                checked={form.enabled}
+                onChange={setDraftEnabled}
                 label="Add UTM tags to links in new emails"
                 bordered
                 data-attr="workflows-utm-defaults-toggle"
             />
             <UtmTagFields
-                value={params}
-                onChange={setParams}
+                value={form.params}
+                onChange={setDraftParams}
                 campaignDefault="Broadcast or workflow name"
                 contentDefault="Email step name"
             />
@@ -51,11 +35,8 @@ export function WorkflowsUtmDefaultsSettings(): JSX.Element {
                     type="primary"
                     size="small"
                     loading={currentTeamLoading}
-                    disabledReason={unchanged ? 'No changes to save' : undefined}
-                    onClick={() => {
-                        const valuesChanged = !matchesTeamUtmDefaults(params, saved)
-                        saveDefaults(enabled, cleanUtmParams(params), valuesChanged || (enabled && !saved.enabled))
-                    }}
+                    disabledReason={hasUnsavedChanges ? undefined : 'No changes to save'}
+                    onClick={saveDefaults}
                     data-attr="workflows-utm-defaults-save"
                 >
                     Save
@@ -63,6 +44,7 @@ export function WorkflowsUtmDefaultsSettings(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     size="small"
+                    disabledReason={hasUnsavedChanges ? 'Save your changes first' : undefined}
                     onClick={openApplyDialog}
                     data-attr="workflows-utm-defaults-apply-existing"
                 >
