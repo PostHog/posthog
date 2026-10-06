@@ -5,15 +5,12 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
-import { getSidebarProduct } from '../../ProjectTree/defaultTree'
-import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
-import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
-import { NavProductTooltip } from './NavProductTooltip'
+import { NavStarredProductsTree } from './NavStarredProductsTree'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabProducts(): JSX.Element {
@@ -59,21 +56,7 @@ export function NavTabProducts(): JSX.Element {
                             {/* The tree insets its rows by 5px and pads itself by 4px vertically. This lines its
                             icons up with the rows above and cancels its own vertical padding. */}
                             <div className="-ml-[5px] -my-1">
-                                <ProjectTree
-                                    root="shortcuts://"
-                                    shortcutScope="products"
-                                    logicKey={PRODUCTS_STARRED_TREE_KEY}
-                                    onlyTree
-                                    showShortcutHelp={false}
-                                    renderItemTooltip={(treeItem) => {
-                                        const product = getSidebarProduct(treeItem.record?.href)
-                                        return product ? <NavProductTooltip item={product} /> : undefined
-                                    }}
-                                    renderItemTooltipDocLink={(treeItem) => {
-                                        const product = getSidebarProduct(treeItem.record?.href)
-                                        return product ? sidebarProductMeta(product).docsHref : undefined
-                                    }}
-                                />
+                                <NavStarredProductsTree />
                             </div>
                         </NavTabSection>
                     </section>
