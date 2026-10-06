@@ -424,6 +424,16 @@
         "params": [],
         "scope": "global"
     },
+    "crossProjectDashboard": {
+        "template": "/cross-project-dashboards/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "crossProjectDashboards": {
+        "template": "/cross-project-dashboards",
+        "params": [],
+        "scope": "project"
+    },
     "customCss": {
         "template": "/themes/custom-css",
         "params": [],

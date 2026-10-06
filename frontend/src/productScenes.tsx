@@ -69,6 +69,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     MyTickets: () => import('../../products/conversations/frontend/scenes/myTickets/MyTicketsScene'),
+    CrossProjectDashboards: () =>
+        import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardsScene'),
+    CrossProjectDashboard: () => import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsAccount: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/CustomerAnalyticsAccountScene'),
