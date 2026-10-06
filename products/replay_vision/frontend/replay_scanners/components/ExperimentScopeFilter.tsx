@@ -46,7 +46,8 @@ export function ExperimentScopeFilter({ scannerId }: ExperimentScopeFilterProps)
             <div className="text-xs text-muted">
                 This includes every session they have after their first exposure until the experiment ends, even
                 sessions that never reach the part of the product the experiment changes. To scan only sessions that
-                visit a certain page or flow, add a filter below, for example Visited page.
+                visit a certain page or flow, add a filter below, for example{' '}
+                <strong className="text-default">Visited page</strong>.
             </div>
         </div>
     )
