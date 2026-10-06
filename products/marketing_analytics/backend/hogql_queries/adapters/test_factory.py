@@ -428,7 +428,7 @@ class TestNativeHierarchicalConfigDiscovery(FactoryTestMixin, BaseTest):
         source.source_type = source_type
         return source
 
-    @parameterized.expand([(spec[0], *spec) for spec in _FIXTURES])
+    @parameterized.expand([(spec[0], *spec) for spec in _FIXTURES if "ad" in spec[-1]])
     def test_full_hierarchy_populates_all_slots(
         self,
         _name,

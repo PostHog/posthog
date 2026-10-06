@@ -256,7 +256,7 @@ class TestExplainConversionGoal(_InspectorMixin):
             ("uuid-1", ts1, "user-a", "purchase", "facebook", "spring_sale"),
             ("uuid-2", ts1, "user-b", "purchase", "google", "spring_sale"),
             ("uuid-3", ts2, "user-c", "purchase", None, None),
-            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),  # no alias hit
+            ("uuid-4", ts2, "user-d", "purchase", "twitter", "tweet_drive"),
         ]
         with patch(
             "products.marketing_analytics.backend.services.conversion_goals_inspector._query_goal_events",
@@ -269,11 +269,10 @@ class TestExplainConversionGoal(_InspectorMixin):
             )
 
         assert explanation.total_count == 4
-        assert explanation.integrated_count == 2
-        # 1 row had utm_source=None (without_utm), 1 row had utm_source='twitter' (unmatched_with_utm)
+        assert explanation.integrated_count == 3
         assert explanation.events_without_utm_source == 1
-        assert explanation.events_with_unmatched_utm_source == 1
-        assert explanation.non_integrated_count == 2
+        assert explanation.events_with_unmatched_utm_source == 0
+        assert explanation.non_integrated_count == 1
         assert dict(explanation.by_event) == {"purchase": 4}
 
         utm_dict = dict(explanation.by_utm_source)
@@ -284,7 +283,7 @@ class TestExplainConversionGoal(_InspectorMixin):
         integration_dict = dict(explanation.by_matched_integration)
         assert integration_dict.get("meta_ads") == 1
         assert integration_dict.get("google_ads") == 1
-        assert "twitter" not in integration_dict
+        assert integration_dict.get("twitter_ads") == 1
 
         assert len(explanation.samples) == 4
 

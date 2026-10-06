@@ -55,9 +55,9 @@ export interface newAdSourcesLogicMeta {
                 | 'PinterestAds'
                 | 'RedditAds'
                 | 'RoktAds'
-                | 'TwitterAds'
                 | 'SnapchatAds'
                 | 'TikTokAds'
+                | 'TwitterAds'
             )[],
             dismissedUserId: number | null
         ) => boolean
