@@ -3339,10 +3339,57 @@ async fn test_split_person_each_did_gets_unique_person() {
 // Undelete repair: reset version tests
 // ============================================================
 
+async fn seed_person(
+    ctx: &TestContext,
+    distinct_id: &str,
+    version: Option<i64>,
+    is_deleted: bool,
+) -> common::TestPerson {
+    let person = ctx
+        .insert_person(distinct_id, Some(serde_json::json!({"seeded": true})))
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE posthog_person SET version = $3, is_deleted = $4 WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(person.id)
+    .bind(version)
+    .bind(is_deleted)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    person
+}
+
+async fn set_distinct_id_state(
+    ctx: &TestContext,
+    distinct_id: &str,
+    version: Option<i64>,
+    is_deleted: bool,
+) {
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET version = $3, is_deleted = $4 WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id)
+    .bind(distinct_id)
+    .bind(version)
+    .bind(is_deleted)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+}
+
+#[rstest]
+#[case::from_zero(Some(0))]
+#[case::from_null(None)]
 #[tokio::test]
-async fn test_set_person_distinct_id_version_floor_updates_and_returns_person() {
+async fn test_set_person_distinct_id_version_floor_updates_and_returns_person(
+    #[case] initial_version: Option<i64>,
+) {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("repair_did", None).await.unwrap();
+    set_distinct_id_state(&ctx, "repair_did", initial_version, false).await;
 
     let returned = ctx
         .storage
@@ -3417,12 +3464,14 @@ async fn test_set_person_distinct_id_version_floor_does_not_lower() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::from_zero(Some(0))]
+#[case::from_null(None)]
 #[tokio::test]
-async fn test_set_person_version_floor_guarded_bump() {
+async fn test_set_person_version_floor_guarded_bump(#[case] initial_version: Option<i64>) {
     let ctx = TestContext::new().await;
-    let person = ctx.insert_person("rv_did", None).await.unwrap();
+    let person = seed_person(&ctx, "rv_did", initial_version, false).await;
 
-    // Bump above the current version (0).
     let updated = ctx
         .storage
         .set_person_version_floor(ctx.team_id, person.id, 50)
