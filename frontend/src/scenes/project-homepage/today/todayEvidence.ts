@@ -46,21 +46,11 @@ const APP_LINKS: Record<string, AppLink> = {
     analytics: analyticsView,
 }
 
-const PLAYER_LEAD_IN_SECONDS = 5
-const OFFSET = /^(\d+):(\d{2})$/
-
-function offsetSeconds(offset: string | null): number | null {
-    const match = offset ? OFFSET.exec(offset) : null
-    return match ? Number(match[1]) * 60 + Number(match[2]) : null
-}
-
 function recordingDestination(recording: NonNullable<SignalViewApi['recording']>): TodaySignalDestination {
-    const seconds = offsetSeconds(recording.offset)
-    if (!recording.start_at && seconds !== null) {
-        const secondsOffsetFromStart = Math.max(seconds - PLAYER_LEAD_IN_SECONDS, 0)
+    if (!recording.start_at && recording.seek_seconds !== null) {
         return {
             kind: 'link',
-            to: urls.replaySingle(recording.session_id, { secondsOffsetFromStart }),
+            to: urls.replaySingle(recording.session_id, { secondsOffsetFromStart: recording.seek_seconds }),
             external: false,
             label: `Play at ${recording.offset}`,
         }

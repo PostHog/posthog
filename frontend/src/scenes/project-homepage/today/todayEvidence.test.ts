@@ -7,7 +7,7 @@ describe('todayEvidence', () => {
             'a recording without a start time, to its replay at the finding',
             signal({
                 source_product: 'replay_vision',
-                recording: { session_id: 's1', start_at: null, offset: '01:48' },
+                recording: { session_id: 's1', start_at: null, offset: '01:48', seek_seconds: 103 },
             }),
             { kind: 'link', to: '/replay/s1?t=103', external: false, label: 'Play at 01:48' },
         ],
@@ -15,7 +15,7 @@ describe('todayEvidence', () => {
             'a recording, just before the finding',
             signal({
                 source_product: 'replay_vision',
-                recording: { session_id: 's1', start_at: '2026-10-02T12:17:06Z', offset: '01:48' },
+                recording: { session_id: 's1', start_at: '2026-10-02T12:17:06Z', offset: '01:48', seek_seconds: 103 },
             }),
             { kind: 'recording', sessionId: 's1', startAt: Date.parse('2026-10-02T12:17:06Z'), offset: '01:48' },
         ],

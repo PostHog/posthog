@@ -573,8 +573,7 @@ function mockReportPage(reportId: string): ReportPageApi {
         impact_sentence: '',
         named_pull_request: null,
         solution_names_pull_request: false,
-        signals,
-        evidence_signal_ids: signals.slice(0, 3).map((signal) => signal.signal_id),
+        evidence: signals.slice(0, 3),
         source_count: signals.length,
         impact_numbers:
             report.id === 'report-1'
@@ -583,8 +582,7 @@ function mockReportPage(reportId: string): ReportPageApi {
                           key: 'tickets',
                           value: '4',
                           sentence: 'support tickets over 3 days.',
-                          signal_id: signals[0].signal_id,
-                          excerpt: signals[0].headline,
+                          signal: signals[0],
                           values: [],
                           working: null,
                       },
