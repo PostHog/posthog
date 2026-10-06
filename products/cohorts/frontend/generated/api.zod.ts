@@ -164,3 +164,10 @@ export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
     person_id: zod.uuid().optional().describe('Person UUID to remove from the cohort'),
 })
+
+export const CohortsRemovePersonsFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
+    person_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('List of person UUIDs to remove from the cohort. At most 1000 per call.'),
+})

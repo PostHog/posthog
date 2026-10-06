@@ -74,6 +74,7 @@ describe('cohortActivityDescriber', () => {
         ['restored', 'High value users', 'Max Hog restored the cohort: High value users'],
         ['persons_added_manually', 'Beta testers', 'Max Hog added users to the cohort: Beta testers'],
         ['person_removed_manually', 'Beta testers', 'Max Hog removed a user from the cohort: Beta testers'],
+        ['persons_removed_manually', 'Beta testers', 'Max Hog removed users from the cohort: Beta testers'],
     ])('describes %s activity', (activity, name, expected) => {
         expect(
             describeText(

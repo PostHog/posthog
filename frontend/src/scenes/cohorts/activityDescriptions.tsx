@@ -207,6 +207,17 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
+    if (logItem.activity == 'persons_removed_manually') {
+        return {
+            summary: activityLogSummary(logItem, 'Removed people from the cohort', cohortLink),
+            description: (
+                <>
+                    {actor} removed users from the cohort: {cohortLink}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'person_removed_manually') {
         return {
             summary: activityLogSummary(logItem, 'Removed a person from the cohort', cohortLink),

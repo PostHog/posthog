@@ -543,6 +543,7 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+DELETE_PERSONS_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id IN %(person_ids)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
 
 #
 # Copying demo data
