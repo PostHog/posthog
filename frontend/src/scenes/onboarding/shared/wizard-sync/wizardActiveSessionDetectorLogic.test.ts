@@ -104,9 +104,13 @@ describe('wizardActiveSessionDetectorLogic', () => {
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
     })
 
-    it('keeps one pending poll per project across a project switch and back', () => {
+    it('keeps one pending poll per project across a project switch and back, and applies only its answer', async () => {
         const originalProject = projectLogic.values.currentProject as ProjectType
-        mockLatestRetrieve.mockReturnValue(new Promise(() => {}))
+        let releaseOriginal: (value: WizardSessionDTOApi | null) => void = () => {}
+        let releaseOther: (value: WizardSessionDTOApi | null) => void = () => {}
+        mockLatestRetrieve
+            .mockReturnValueOnce(new Promise((resolve) => (releaseOriginal = resolve)))
+            .mockReturnValueOnce(new Promise((resolve) => (releaseOther = resolve)))
 
         logic.actions.check()
         projectLogic.actions.loadCurrentProjectSuccess({ ...originalProject, id: originalProject.id + 1 })
@@ -114,6 +118,13 @@ describe('wizardActiveSessionDetectorLogic', () => {
 
         projectLogic.actions.loadCurrentProjectSuccess(originalProject)
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+        releaseOther(makeSession({ run_phase: 'running' }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.hasActiveSession).toBe(false)
+
+        releaseOriginal(makeSession({ run_phase: 'running' }))
+        await expectLogic(logic).toDispatchActions(['markActive']).toMatchValues({ hasActiveSession: true })
     })
 
     it('stays inactive when the poll returns no session (204/null)', async () => {
