@@ -8,6 +8,7 @@ import { SessionPlayerState } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrame } from './PlayerFrame'
+import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 describe('PlayerFrame', () => {
@@ -221,17 +222,24 @@ describe('PlayerFrame', () => {
     it('loads a new frame and mounts the player when the viewer retries from the error state', () => {
         const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
         try {
-            const container = renderPlayerFrame().parentElement!
+            const { container, getByRole } = render(
+                <Provider>
+                    <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
+                        <PlayerFrame />
+                        <PlayerFrameOverlay />
+                    </BindLogic>
+                </Provider>
+            )
             const logic = sessionRecordingPlayerLogic(logicProps)
-            fireEvent.load(currentFrame(container))
+            const failedFrame = currentFrame(container)
+            fireEvent.load(failedFrame)
             expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
             onLine.mockReturnValue(true)
 
-            act(() => {
-                logic.actions.restartPlayerFrameLoad()
-            })
+            fireEvent.click(getByRole('button', { name: 'Retry' }))
 
             expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
+            expect(currentFrame(container)).not.toBe(failedFrame)
             const frameDocument = currentFrame(container).contentDocument!
             frameDocument.open()
             frameDocument.write('<div id="player-frame-content"></div>')
