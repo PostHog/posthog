@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
+SUSPENSION_FIELDS = frozenset({"at", "reason", "job_id"})
 
 
 def _now() -> str:
@@ -129,19 +130,27 @@ def unsuspend_nodes(
     return sum(_persist_change(node, change) for node in nodes)
 
 
-def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
-    """Merged per-engine suspension state across every node backing the query.
+def merged_suspension_state(nodes: Iterable[Node]) -> dict[str, dict]:
+    """Merged per-engine suspension state across every node backing one query.
 
     When duplicate DAGs give the query several nodes, the earliest suspension per engine wins —
     that is when the model actually stopped updating.
     """
     merged: dict[str, dict] = {}
-    for node in Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id):
+    for node in nodes:
         for engine, entry in suspension_state(node).items():
+            # The saved-query list serializes these fields, so one malformed marker would fail the page.
+            if not (isinstance(entry, dict) and SUSPENSION_FIELDS <= entry.keys() and isinstance(entry["at"], str)):
+                logger.warning("Skipped a malformed suspension marker", node_id=str(node.pk), engine=engine)
+                continue
             existing = merged.get(engine)
-            if existing is None or (entry.get("at") or "") < (existing.get("at") or ""):
+            if existing is None or entry["at"] < existing["at"]:
                 merged[engine] = entry
     return merged
+
+
+def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
+    return merged_suspension_state(Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id))
 
 
 def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:

@@ -2543,7 +2543,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
 
-    def test_retrieve_exposes_earliest_suspension_across_nodes(self):
+    @parameterized.expand([("retrieve",), ("list",)])
+    def test_exposes_earliest_suspension_across_nodes(self, route: str):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="suspended_view_read",
@@ -2566,10 +2567,12 @@ class TestSavedQuery(APIBaseTest):
         for node in nodes:
             node.save()
 
-        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/")
+        base_url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        response = self.client.get(f"{base_url}{saved_query.id}/" if route == "retrieve" else base_url)
 
         self.assertEqual(response.status_code, 200)
-        suspended = response.json()["suspended"]
+        rows = [response.json()] if route == "retrieve" else response.json()["results"]
+        suspended = next(row["suspended"] for row in rows if row["id"] == str(saved_query.id))
         self.assertEqual(list(suspended), ["clickhouse"])
         self.assertEqual(suspended["clickhouse"]["reason"], "first failure")
         self.assertEqual(suspended["clickhouse"]["job_id"], "job-1")

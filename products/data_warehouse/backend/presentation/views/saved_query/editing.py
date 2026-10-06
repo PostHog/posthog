@@ -304,21 +304,6 @@ class DataWarehouseSavedQuerySerializer(
     def get_has_incremental_history(self, view: DataWarehouseSavedQuery) -> bool:
         return has_incremental_history(view)
 
-    @extend_schema_field(
-        serializers.DictField(
-            child=view_state.SavedQuerySuspensionSerializer(),
-            help_text="Engines this query's materialization is suspended for after repeated failures. "
-            "Suspended engines are skipped by scheduled runs until the query is resumed.",
-        )
-    )
-    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
-        from products.data_modeling.backend.facade.api import suspension_state_for_saved_query
-
-        return {
-            engine: view_state.SavedQuerySuspensionSerializer(entry).data
-            for engine, entry in suspension_state_for_saved_query(view).items()
-        }
-
     def _report_view_action(
         self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
     ) -> None:

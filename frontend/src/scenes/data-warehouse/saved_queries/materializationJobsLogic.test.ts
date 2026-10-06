@@ -250,6 +250,39 @@ describe('materializationJobsLogic', () => {
         expect(router.values.location.pathname).toBe(path)
     })
 
+    it('reloads the view list after a resume so the sidebar clears its paused icon', async () => {
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/projects/:team_id/warehouse_saved_queries/:id/resume/'] = [200, { resumed: true }]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        await expectLogic(logic, () => logic.actions.resumeMaterialization()).toDispatchActions([
+            'loadDataWarehouseSavedQueries',
+        ])
+    })
+
+    it('reloads the view list once when the newest run ends, not on every poll', async () => {
+        let status = 'Running'
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = () => [
+            200,
+            { count: 1, results: [{ id: 'run-1', status }] },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataModelingJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs())
+            .toDispatchActions(['loadDataModelingJobsSuccess'])
+            .toNotHaveDispatchedActions(['loadDataWarehouseSavedQueries'])
+        status = 'Failed'
+        await expectLogic(logic, () => logic.actions.loadDataModelingJobs()).toDispatchActions([
+            'loadDataModelingJobsSuccess',
+            'loadDataWarehouseSavedQueries',
+        ])
+    })
+
     // Another product owns these views: a managed viewset refuses the delete outright, and deleting
     // an endpoint-origin view breaks the endpoint it serves. The SQL editor renders the actions
     // without the endpoint `kind`, so the saved query has to carry the signal.

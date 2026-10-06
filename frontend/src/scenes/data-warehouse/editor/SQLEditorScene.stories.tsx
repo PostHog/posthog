@@ -394,6 +394,67 @@ export const MaterializationSettings: StoryObj = {
     ],
 }
 
+const sidebarStatusView = (
+    id: string,
+    name: string,
+    status: string,
+    latestError: string | null,
+    suspended: DataWarehouseSavedQuery['suspended'] = {}
+): Partial<DataWarehouseSavedQuery> => ({
+    id,
+    name,
+    is_materialized: true,
+    status,
+    latest_error: latestError,
+    suspended,
+    columns: [],
+    managed_viewset_kind: null,
+    user_access_level: AccessControlLevel.Editor,
+})
+
+export const SidebarMaterializationStatus: Story = {
+    parameters: {
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-weekly_revenue"]'],
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+                    '/api/projects/:team_id/warehouse_saved_queries/': [
+                        200,
+                        {
+                            results: [
+                                sidebarStatusView('healthy-view', 'daily_signups', 'Completed', null),
+                                sidebarStatusView(
+                                    'failed-view',
+                                    'orders_by_region',
+                                    'Failed',
+                                    'QueryError: Unable to resolve field: region_code'
+                                ),
+                                sidebarStatusView(
+                                    'paused-view',
+                                    'weekly_revenue',
+                                    'Failed',
+                                    'This model has been suspended after 5 consecutive failed materializations. Error: QueryError: Unable to resolve field: net_amount',
+                                    {
+                                        clickhouse: {
+                                            at: '2026-06-06T12:00:00Z',
+                                            reason: 'QueryError: Unable to resolve field: net_amount',
+                                            job_id: 'job-paused',
+                                        },
+                                    }
+                                ),
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
 export const BIModeWorksheet: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],

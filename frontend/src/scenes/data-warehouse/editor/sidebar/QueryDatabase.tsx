@@ -49,6 +49,7 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
@@ -491,6 +492,9 @@ export const QueryDatabase = ({
                     >
                         <div className="flex flex-row gap-1 justify-between">
                             <div className="shrink-0 flex min-w-0 items-center gap-2">
+                                {item.record?.type === 'view' && item.record.isSavedQuery ? (
+                                    <MaterializationStatusIcon view={item.record.view} />
+                                ) : null}
                                 {hasMatches && searchTerm ? (
                                     <SearchHighlightMultiple
                                         string={itemLabel}

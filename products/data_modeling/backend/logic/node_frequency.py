@@ -77,16 +77,25 @@ def get_declared_target(node: Node) -> timedelta | None:
 def declared_targets_by_saved_query(team_id: int, saved_query_ids: Iterable[str | uuid.UUID]) -> dict[str, timedelta]:
     """Declared freshness target per saved query id, for those whose node carries one.
 
-    Batched for callers that render many saved queries at once. A saved query can hold nodes in
-    several DAGs, but `apply_saved_query_frequency_target` writes the same target to all of them,
-    so the first one found wins.
+    Batched for callers that render many saved queries at once.
     """
     ids = [str(saved_query_id) for saved_query_id in saved_query_ids]
     if not ids:
         return {}
 
+    return declared_targets_from_nodes(
+        Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties")
+    )
+
+
+def declared_targets_from_nodes(nodes: Iterable[Node]) -> dict[str, timedelta]:
+    """Declared freshness target per saved query id, from nodes the caller already loaded.
+
+    A saved query can hold nodes in several DAGs, but `apply_saved_query_frequency_target` writes
+    the same target to all of them, so the first one found wins.
+    """
     targets: dict[str, timedelta] = {}
-    for node in Node.objects.filter(team_id=team_id, saved_query_id__in=ids).only("saved_query_id", "properties"):
+    for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             targets.setdefault(str(node.saved_query_id), target)
