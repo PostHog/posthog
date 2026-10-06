@@ -2015,6 +2015,33 @@ class TestHogqlTableDescribeSettings:
         assert batches[0][1] == [("distinct_id", "String")]
 
 
+class TestHogqlTableUnionColumns:
+    @pytest.mark.parametrize(
+        "ch_type",
+        [
+            pytest.param("Variant(DateTime64(6, 'UTC'), String)", id="variant-with-a-datetime-member"),
+            pytest.param("Dynamic", id="dynamic"),
+            pytest.param("Array(Variant(Int64, UInt64))", id="array-of-variant"),
+        ],
+    )
+    async def test_union_typed_columns_are_read_as_text(self, ateam: Team, ch_type: str) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = f"distinct_id\t{ch_type}\n".encode()
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        assert "toString(" in client.arrow_query
+        assert "toTimeZone(" not in client.arrow_query
+
+
 class TestHogqlTableDuplicateOutputColumns:
     @pytest.mark.parametrize(
         ("describe_body", "expected_duplicates"),

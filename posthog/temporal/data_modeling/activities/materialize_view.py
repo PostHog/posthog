@@ -719,7 +719,11 @@ async def hogql_table(
 
     printed = await database_sync_to_async_pool(_print_describe_variant)(prepared_hogql_query, context, settings)
 
+    # Variant and Dynamic come first: ClickHouse sends them to Arrow as a union, which Delta cannot
+    # store, and a member type such as DateTime must not pick a converter that fails on the union.
     arrow_type_conversion: dict[str, tuple[str, tuple[ast.Constant, ...]]] = {
+        "Variant(": ("toString", ()),
+        "Dynamic": ("toString", ()),
         "DateTime": ("toTimeZone", (ast.Constant(value="UTC"),)),
         "Nullable(Nothing)": ("toNullableString", ()),
         "FIXED_SIZE_BINARY": ("toString", ()),
@@ -730,7 +734,12 @@ async def hogql_table(
         "IPv6": ("toString", ()),
     }
 
+    def _is_union_type(ch_type: str) -> bool:
+        return "variant(" in ch_type.lower() or "dynamic" in ch_type.lower()
+
     def _needs_conversion(ch_type: str) -> bool:
+        if _is_union_type(ch_type):
+            return True
         # Skip array types from conversion — they are already properly typed by ClickHouse
         # and attempting to convert them causes errors like:
         # "Illegal type Array(DateTime) of argument of function toTimezone"
