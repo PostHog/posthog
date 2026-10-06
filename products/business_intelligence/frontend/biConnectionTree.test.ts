@@ -1,3 +1,4 @@
+import { BIDataSource, BIField } from '~/queries/schema/schema-business-intelligence'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import {
@@ -5,13 +6,7 @@ import {
     filterBIConnections,
     getPendingBIConnectionTables,
 } from 'products/business_intelligence/frontend/biConnectionTree'
-import {
-    BIDataSource,
-    BIField,
-    buildBIQuery,
-    DEFAULT_BI_CONFIG,
-    getBIDropTarget,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { buildBIQuery, DEFAULT_BI_CONFIG, getBIDropTarget } from 'products/business_intelligence/frontend/biEditorTypes'
 
 const field = (
     name: string,

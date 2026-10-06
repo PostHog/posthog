@@ -4,14 +4,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
+import { BIAggregation, BIDateBucket, BIFilterOperator } from '~/queries/schema/schema-business-intelligence'
 import { ChartDisplayType } from '~/types'
 
-import {
-    BIAggregation,
-    BIDateBucket,
-    BIFilterOperator,
-    BI_QUERY_LIMITS,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { BI_QUERY_LIMITS } from 'products/business_intelligence/frontend/biEditorTypes'
 
 export const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.Element }[] = [
     { value: ChartDisplayType.Auto, label: 'Automatic', icon: <IconMagicWand /> },

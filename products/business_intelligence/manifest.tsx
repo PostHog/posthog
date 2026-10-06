@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory } from '~/queries/schema/schema-general'
+import { HogQLFilters, ProductItemCategory } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -22,7 +22,30 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
-        businessIntelligence: (): string => '/bi',
+        businessIntelligence: ({
+            insightShortId,
+            viewId,
+            dashboard,
+            filters,
+        }: {
+            insightShortId?: string
+            viewId?: string
+            dashboard?: number
+            filters?: HogQLFilters
+        } = {}): string => {
+            const search = new URLSearchParams()
+            if (insightShortId) {
+                search.set('open_insight', insightShortId)
+            } else if (viewId) {
+                search.set('open_view', viewId)
+            }
+            if (dashboard) {
+                search.set('dashboard', String(dashboard))
+            }
+            const hash = filters ? `#filters=${encodeURIComponent(JSON.stringify(filters))}` : ''
+            const query = search.toString()
+            return `/bi${query ? `?${query}` : ''}${hash}`
+        },
     },
     fileSystemTypes: {},
     treeItemsNew: [],

@@ -1,11 +1,9 @@
+import { BIConfig, BIField, BIFilter } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import {
-    BIConfig,
     BIEditorView,
-    BIField,
-    BIFilter,
     DEFAULT_BI_CONFIG,
     buildBIFilterOptionsQuery,
     buildBIQuery,

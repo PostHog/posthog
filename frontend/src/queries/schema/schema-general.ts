@@ -60,6 +60,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
+import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
@@ -123,6 +124,7 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     DataVisualizationNode = 'DataVisualizationNode',
+    BIVisualizationNode = 'BIVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -369,6 +371,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataVisualizationNode
+    | BIVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -1609,6 +1612,8 @@ export interface DataVisualizationNode extends Node<never> {
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
 }
+
+export type VisualizationNode = DataVisualizationNode | BIVisualizationNode
 
 export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
 
