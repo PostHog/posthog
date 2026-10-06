@@ -16,6 +16,8 @@ export interface VariantCardProps {
     color: string
     /** Whether the scanner samples variants evenly, which makes counts follow sampling, not traffic. */
     balanced: boolean
+    /** Shown in the Themes section while no variant analysis scout runs, so the section says how to fill it. */
+    themesHint: string | null
     observationsUrl: string
     onOpenObservations: () => void
 }
@@ -25,6 +27,7 @@ export function VariantCard({
     variant,
     color,
     balanced,
+    themesHint,
     observationsUrl,
     onOpenObservations,
 }: VariantCardProps): JSX.Element {
@@ -53,7 +56,7 @@ export function VariantCard({
         return (
             <LemonCard hoverEffect={false} className="p-0 flex flex-col" data-attr="vision-variant-card">
                 {header}
-                <WaitingForObservations />
+                <WaitingForObservations themesHint={themesHint} />
             </LemonCard>
         )
     }
@@ -75,6 +78,13 @@ export function VariantCard({
                             {`Sampled at ${percentage(variant.sampling_rate, 1)} of sessions`}
                         </span>
                     </Tooltip>
+                </div>
+            )}
+
+            {themesHint && !variant.digest?.length && (
+                <div className="px-4 pt-3 space-y-1.5">
+                    <div className="text-xs font-semibold uppercase text-muted">Themes</div>
+                    <p className="m-0 text-sm text-muted">{themesHint}</p>
                 </div>
             )}
 
@@ -140,7 +150,7 @@ export function VariantCard({
 }
 
 /** The variant's themes and latest observations, laid out empty until the scanner has some. */
-function WaitingForObservations(): JSX.Element {
+function WaitingForObservations({ themesHint }: { themesHint: string | null }): JSX.Element {
     const placeholderLine = 'h-2.5 rounded bg-surface-secondary'
     return (
         <div className="flex flex-col gap-4 p-4" data-attr="vision-variant-waiting">
@@ -153,8 +163,14 @@ function WaitingForObservations(): JSX.Element {
             </div>
             <div className="space-y-2">
                 <div className="text-xs font-semibold uppercase text-muted">Themes</div>
-                <div className={`${placeholderLine} w-3/4`} />
-                <div className={`${placeholderLine} w-3/5`} />
+                {themesHint ? (
+                    <p className="m-0 text-sm text-muted">{themesHint}</p>
+                ) : (
+                    <>
+                        <div className={`${placeholderLine} w-3/4`} />
+                        <div className={`${placeholderLine} w-3/5`} />
+                    </>
+                )}
             </div>
             <div className="space-y-3">
                 <div className="text-xs font-semibold uppercase text-muted">Latest observations</div>

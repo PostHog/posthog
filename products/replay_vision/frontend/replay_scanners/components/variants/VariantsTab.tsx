@@ -56,6 +56,13 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const existingScout = variantAnalysisScout(scoutConfigsForScanner)
     const comparisonState = variantComparisonState(readout.analysis, !!existingScout)
     const balanced = scanner?.scanner_type !== 'experiment' || scanner.scanner_config.balance_variants !== false
+    // Themes come from the variant analysis scout, so without a running one each card says how to get them.
+    const themesHint =
+        comparisonState === 'no_scout'
+            ? 'Set up variant analysis above to see themes here.'
+            : readout.analysis?.scout_enabled === false || existingScout?.enabled === false
+              ? 'Variant analysis is paused. Turn it on in the scout settings above to see themes here.'
+              : null
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="vision-variants-tab">
@@ -91,6 +98,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                             variant={variant}
                             color={variantColors[variant.key]}
                             balanced={balanced}
+                            themesHint={themesHint}
                             observationsUrl={variantObservationsUrl(scannerId, variant.key)}
                             onOpenObservations={() => variantObservationsOpened(variant.key)}
                         />
