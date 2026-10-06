@@ -551,6 +551,9 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 def _query_supports_limit(query: dict) -> bool:
     if not query.get("kind"):
         return False
+    if query["kind"] == "HogQLQuery":
+        # Its response cap does not support offset pagination; preserve the SQL LIMIT.
+        return False
     try:
         QuerySchemaRoot.model_validate({**query, "limit": 1})
         return True
