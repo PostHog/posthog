@@ -2828,6 +2828,14 @@ snapshots:
         hash: v1.k794b7964.493527f984dd150ed9590df45c866637a56287c585d69cdcf411ef5bce24dbf8.ocw1FaRlbBWs5pDrll11AbuJkknCONuxdXMhz365RB4
     data-warehouse-sourcecatalogskeleton--narrow-scene--light:
         hash: v1.k794b7964.b40c7d9b2dec21673858a8d0dc300b4e25d437140ac3c795e904cfff09934683.LIlhXoMvI575ZULUieEZGXzmVaeYYgk1mWwvjsbNC9U
+    data-warehouse-sourcedestinationsbanner--default--dark:
+        hash: v1.k794b7964.ff535a74651a80b0189c8eb55c97d1289f6143bbdbb3cc46e0bc6c18a8f84161.z7IdJ_UhwMwxzcPtydYbQLbC5MZHWx1uut_ozbY1VUA
+    data-warehouse-sourcedestinationsbanner--default--light:
+        hash: v1.k794b7964.1f6a5b602d0fddce79e8c6e97ea487ee1575eac67662e5a7a7cd028b40c57a12.rNQbMly6nX6cFn_3TZbvXxbRIOW8MWc5Y9vLbYI9GJc
+    data-warehouse-sourcedestinationsbanner--flag-off--dark:
+        hash: v1.k794b7964.9a49a8f585bc19a5cfa16e18daa7451cd12e8581406a5b65ef3ffaffa925d374.unCVrr9wwOp9AC6sc8cpWb4M69fcGVV214aEygIfO6I
+    data-warehouse-sourcedestinationsbanner--flag-off--light:
+        hash: v1.k794b7964.48c6b225dec1945c20d154de4f18c40be7b0c4f34c4b337878243bf984816e16.-vKIJKAdSQSKB0z_IMuQYV4bY1tzFQwajwGoiiB2TGg
     data-warehouse-warehousedestinationstable--default--dark:
         hash: v1.k794b7964.6595934174706ea9708694fdfe156d472e769213d8c3d41c59c0678447d20710.ZjAq0JuruCScBFFZXbK-MCQwdIrHPU50EmeRJGlFupY
     data-warehouse-warehousedestinationstable--default--light:
