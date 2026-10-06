@@ -2,8 +2,8 @@ import { type ReactElement, useMemo } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
-import { SankeyChart, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
-import type { SankeyChartConfig, SankeyTooltipContext } from '@posthog/quill-charts'
+import { SankeyChart } from '@posthog/quill-charts'
+import type { SankeyChartConfig } from '@posthog/quill-charts'
 
 import {
     buildPathsSankeyGraph,
@@ -32,41 +32,6 @@ const CHART_CONFIG: SankeyChartConfig = {
 /** Which steps a transition joins, so a pair of pages that repeats at two stages reads apart. */
 function stepRange(edge: PathsResultItem): string {
     return `step ${parsePathNodeKey(edge.source).step} to ${parsePathNodeKey(edge.target).step}`
-}
-
-function PathsTooltip({ ctx }: { ctx: SankeyTooltipContext<string, PathsResultItem> }): ReactElement {
-    const { hit } = ctx
-    if (hit.kind === 'node') {
-        return (
-            <TooltipSurface>
-                <div className="flex items-center gap-2">
-                    <TooltipSwatch color={hit.node.color} />
-                    <span className="font-semibold">{hit.node.label}</span>
-                </div>
-                {hit.node.meta && hit.node.meta !== hit.node.label && (
-                    <div className="text-muted-foreground break-all">{hit.node.meta}</div>
-                )}
-                <div>{formatNumber(hit.node.value)} users</div>
-            </TooltipSurface>
-        )
-    }
-    const { link } = hit
-    return (
-        <TooltipSurface>
-            <div className="font-semibold">
-                {link.source.label} → {link.target.label}
-            </div>
-            {link.meta && <div className="text-muted-foreground">{stepRange(link.meta)}</div>}
-            <div>{formatNumber(link.value)} users</div>
-            {link.meta?.average_conversion_time != null && (
-                <div>{formatDuration(link.meta.average_conversion_time)} on average</div>
-            )}
-        </TooltipSurface>
-    )
-}
-
-function renderTooltip(ctx: SankeyTooltipContext<string, PathsResultItem>): ReactElement {
-    return <PathsTooltip ctx={ctx} />
 }
 
 export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement {
@@ -111,7 +76,6 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
                     links={graph.links}
                     theme={theme}
                     config={config}
-                    tooltip={renderTooltip}
                 />
             </div>
             {/* The canvas has no per-ribbon semantics, so screen readers get the transitions as text. */}
