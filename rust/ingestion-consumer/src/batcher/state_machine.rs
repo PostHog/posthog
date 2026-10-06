@@ -99,6 +99,8 @@ pub struct Effects {
     /// Workers with nothing left in flight. A draining worker in this list
     /// has finished its work.
     pub idle_workers: Vec<WorkerId>,
+    /// Workers that had nothing in flight and now have a request.
+    pub busy_workers: Vec<WorkerId>,
     /// Set on the action that fails the state machine. The caller fails the
     /// process.
     pub fatal: Option<String>,
@@ -208,12 +210,6 @@ impl BatcherStateMachine {
 
     pub fn pending_messages(&self) -> usize {
         self.work().map_or(0, Work::pending_messages)
-    }
-
-    pub fn busy_workers(&self) -> impl Iterator<Item = &WorkerId> {
-        self.work()
-            .into_iter()
-            .flat_map(|work| work.assigner.busy_workers())
     }
 
     pub fn in_flight_messages(&self) -> usize {
@@ -548,6 +544,9 @@ impl Work {
                     continue;
                 };
                 placed_any = true;
+                if self.assigner.requests_on(&worker) == 1 {
+                    effects.busy_workers.push(worker.clone());
+                }
                 self.send(now, worker, request, effects);
             }
             if !placed_any {
@@ -963,6 +962,29 @@ mod tests {
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
         assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
+        // The freed slot is refilled in the same action, so the worker is
+        // reported idle and then busy again.
+        assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
+        assert_eq!(effects.busy_workers, vec![WorkerId::from("w")]);
+    }
+
+    #[test]
+    fn a_worker_is_busy_from_its_first_request_until_its_last_settles() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = batcher(config(1, Duration::ZERO, 2), now);
+
+        let (batcher, effects) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        assert_eq!(effects.sends.len(), 2);
+        assert_eq!(effects.busy_workers, vec![WorkerId::from("w")]);
+        let (first, second) = (effects.sends[0].request, effects.sends[1].request);
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, first, 1, Vec::new());
+        assert!(effects.idle_workers.is_empty());
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, second, 1, Vec::new());
+        assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
     }
 
     /// Where the revoked message waits: in an open pack batch, sealed with no

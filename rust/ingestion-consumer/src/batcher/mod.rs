@@ -26,13 +26,14 @@ pub mod worker_assigner;
 pub mod worker_pool;
 
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -216,7 +217,7 @@ impl Batcher {
                 &inner.inner.dispatcher,
             ))),
             Backend::StateMachine(driver) => {
-                BatcherObserver(ObserverTarget::StateMachine(driver.snapshot()))
+                BatcherObserver(ObserverTarget::StateMachine(driver.load()))
             }
         }
     }
@@ -238,7 +239,7 @@ pub struct BatcherObserver(ObserverTarget);
 #[derive(Clone)]
 enum ObserverTarget {
     Dispatcher(Arc<Dispatcher>),
-    StateMachine(watch::Receiver<driver::Snapshot>),
+    StateMachine(Arc<driver::Load>),
 }
 
 impl BatcherObserver {
@@ -247,8 +248,8 @@ impl BatcherObserver {
     pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.has_in_flight(worker),
-            ObserverTarget::StateMachine(snapshot) => {
-                snapshot.borrow().busy_workers.contains(worker)
+            ObserverTarget::StateMachine(load) => {
+                load.busy_workers.lock().unwrap().contains(worker)
             }
         }
     }
@@ -258,14 +259,14 @@ impl BatcherObserver {
     pub fn held_messages(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.stashed_messages(),
-            ObserverTarget::StateMachine(snapshot) => snapshot.borrow().pending_messages,
+            ObserverTarget::StateMachine(load) => load.pending_messages.load(Ordering::Relaxed),
         }
     }
 
     pub fn total_in_flight(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.total_in_flight(),
-            ObserverTarget::StateMachine(snapshot) => snapshot.borrow().in_flight_messages,
+            ObserverTarget::StateMachine(load) => load.in_flight_messages.load(Ordering::Relaxed),
         }
     }
 

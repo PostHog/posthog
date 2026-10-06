@@ -28,10 +28,6 @@ impl WorkerAssigner {
         self.message_load.values().sum()
     }
 
-    pub fn busy_workers(&self) -> impl Iterator<Item = &WorkerId> {
-        self.request_load.keys()
-    }
-
     pub fn prefers_largest_first(&self) -> bool {
         self.router.prefers_largest_first()
     }
@@ -75,7 +71,7 @@ impl WorkerAssigner {
         idle
     }
 
-    fn requests_on(&self, worker: &WorkerId) -> usize {
+    pub fn requests_on(&self, worker: &WorkerId) -> usize {
         self.request_load.get(worker).copied().unwrap_or(0)
     }
 }

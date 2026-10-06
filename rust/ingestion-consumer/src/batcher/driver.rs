@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::error;
 
@@ -29,7 +30,7 @@ pub(super) struct StateMachineDriver {
     inputs: mpsc::UnboundedSender<Input>,
     assignment_epoch: AssignmentEpoch,
     key_sentinel: Arc<KeyOrderSentinel>,
-    snapshot: watch::Receiver<Snapshot>,
+    load: Arc<Load>,
     task: JoinHandle<()>,
 }
 
@@ -42,12 +43,14 @@ enum Input {
     Shutdown,
 }
 
-/// The state machine's load after its latest action.
-#[derive(Clone, Debug, Default)]
-pub(super) struct Snapshot {
-    pub pending_messages: usize,
-    pub in_flight_messages: usize,
-    pub busy_workers: HashSet<WorkerId>,
+/// The state machine's load after its latest action, for the observer.
+#[derive(Debug, Default)]
+pub(super) struct Load {
+    pub pending_messages: AtomicUsize,
+    pub in_flight_messages: AtomicUsize,
+    /// Changes only when a worker's first request goes out or its last one
+    /// settles, so a busy worker costs no lock per action.
+    pub busy_workers: Mutex<HashSet<WorkerId>>,
 }
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
@@ -64,7 +67,7 @@ struct BatcherTask {
     key_sentinel: Arc<KeyOrderSentinel>,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
-    snapshot: watch::Sender<Snapshot>,
+    load: Arc<Load>,
 }
 
 enum Event {
@@ -84,7 +87,7 @@ impl StateMachineDriver {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
-        let (snapshot_tx, snapshot_rx) = watch::channel(Snapshot::default());
+        let load = Arc::new(Load::default());
         let key_sentinel = Arc::new(KeyOrderSentinel::new());
         let assignment_epoch = transport.assignment_epoch();
         let task = BatcherTask {
@@ -96,7 +99,7 @@ impl StateMachineDriver {
             key_sentinel: Arc::clone(&key_sentinel),
             completions: completions_tx,
             errors: errors_tx,
-            snapshot: snapshot_tx,
+            load: Arc::clone(&load),
         };
         let task = tokio::spawn(task.run(state));
         Ok((
@@ -104,7 +107,7 @@ impl StateMachineDriver {
                 inputs: inputs_tx,
                 assignment_epoch,
                 key_sentinel,
-                snapshot: snapshot_rx,
+                load,
                 task,
             },
             BatcherOutputs {
@@ -118,8 +121,8 @@ impl StateMachineDriver {
         Arc::clone(&self.key_sentinel)
     }
 
-    pub(super) fn snapshot(&self) -> watch::Receiver<Snapshot> {
-        self.snapshot.clone()
+    pub(super) fn load(&self) -> Arc<Load> {
+        Arc::clone(&self.load)
     }
 
     pub(super) fn revoke_sender(&self) -> RevokeSender {
@@ -257,6 +260,7 @@ impl BatcherTask {
             evicted_keys,
             worker_outcomes,
             idle_workers,
+            busy_workers,
             fatal,
             next_wakeup,
         } = effects;
@@ -270,6 +274,16 @@ impl BatcherTask {
         }
         for send in sends {
             self.begin(send);
+        }
+
+        // Within one action a worker can settle its last request and then
+        // take a new one, never the reverse, so removals go first.
+        if !idle_workers.is_empty() || !busy_workers.is_empty() {
+            let mut busy = self.load.busy_workers.lock().unwrap();
+            for worker in &idle_workers {
+                busy.remove(worker);
+            }
+            busy.extend(busy_workers);
         }
 
         let registry = self.pool_source.registry();
@@ -296,7 +310,12 @@ impl BatcherTask {
             }
         }
         self.wakeup = next_wakeup;
-        self.publish(state);
+        self.load
+            .pending_messages
+            .store(state.pending_messages(), Ordering::Relaxed);
+        self.load
+            .in_flight_messages
+            .store(state.in_flight_messages(), Ordering::Relaxed);
     }
 
     fn begin(&mut self, send: Send) {
@@ -317,28 +336,6 @@ impl BatcherTask {
         let request = send.request;
         self.responses
             .push(Box::pin(async move { (request, pending.wait().await) }));
-    }
-
-    /// The busy-worker set is rebuilt only when it changed, so an action
-    /// that keeps the same workers busy allocates nothing.
-    fn publish(&self, state: &BatcherStateMachine) {
-        self.snapshot.send_if_modified(|snapshot| {
-            let pending_messages = state.pending_messages();
-            let in_flight_messages = state.in_flight_messages();
-            let mut modified = snapshot.pending_messages != pending_messages
-                || snapshot.in_flight_messages != in_flight_messages;
-            snapshot.pending_messages = pending_messages;
-            snapshot.in_flight_messages = in_flight_messages;
-            let busy_changed = state.busy_workers().count() != snapshot.busy_workers.len()
-                || state
-                    .busy_workers()
-                    .any(|worker| !snapshot.busy_workers.contains(worker));
-            if busy_changed {
-                snapshot.busy_workers = state.busy_workers().cloned().collect();
-                modified = true;
-            }
-            modified
-        });
     }
 }
 
