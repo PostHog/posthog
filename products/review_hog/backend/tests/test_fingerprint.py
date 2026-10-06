@@ -21,10 +21,7 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
-from products.review_hog.backend.reviewer.skill_loader import (
-    REVIEW_HOG_FLASH_GUIDANCE_SKILL_NAME,
-    REVIEW_HOG_VALIDATION_SKILL_NAME,
-)
+from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_CORE_FILE
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
@@ -79,16 +76,6 @@ class TestRecordTurnMarker(BaseTest):
     def _record_single_agent(self, run_index: int) -> ReviewHogMarker:
         return self._record(run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT)
 
-    def _add_team_guidance(self) -> None:
-        LLMSkill.objects.create(
-            team=self.team,
-            name=REVIEW_HOG_FLASH_GUIDANCE_SKILL_NAME,
-            description="Flash guidance",
-            body="Flag every query that skips the team filter.",
-            version=1,
-            is_latest=True,
-        )
-
     def _edit_core_prompt(self) -> None:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -98,10 +85,9 @@ class TestRecordTurnMarker(BaseTest):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    @parameterized.expand([("core_prompt_edit", "_edit_core_prompt"), ("team_guidance_added", "_add_team_guidance")])
-    def test_a_single_agent_input_change_changes_its_fingerprint(self, _name: str, change: str) -> None:
+    def test_a_core_prompt_edit_changes_the_single_agent_fingerprint(self) -> None:
         original = self._record_single_agent(run_index=1)
-        getattr(self, change)()
+        self._edit_core_prompt()
         changed = self._record_single_agent(run_index=2)
 
         assert original.version == "reviewhog-flash-2-0"

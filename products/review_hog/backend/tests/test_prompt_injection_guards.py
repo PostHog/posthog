@@ -75,9 +75,7 @@ def _issues_review_prompt() -> str:
 
 
 def _single_agent_prompt() -> str:
-    return SingleAgentPrompt(
-        repository="o/r", pr_metadata=_pr_metadata(), pr_files=[], prior_findings=[], team_guidance=None
-    ).render()
+    return SingleAgentPrompt(repository="o/r", pr_metadata=_pr_metadata(), pr_files=[], prior_findings=[]).render()
 
 
 def _chunking_prompt() -> str:

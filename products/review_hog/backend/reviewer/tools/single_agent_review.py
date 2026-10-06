@@ -2,7 +2,7 @@
 
 The prompt has three parts. `core.md` is the DevEx-owned review rubric and goes in as the system
 prompt. `prompt.jinja` carries the PR (title, description, numbered diff), the findings of earlier
-turns, the team's optional guidance, and the finding format. `schema.json` is generated from
+turns, and the finding format. `schema.json` is generated from
 `SingleAgentReview`. All three live in `prompts/single_agent_review/`, so a prompt iteration edits
 files and no code.
 """
@@ -42,7 +42,7 @@ def load_core_prompt() -> str:
 
 
 class SingleAgentPrompt:
-    """The task prompt of one single-agent review: the PR, earlier findings, team guidance, format."""
+    """The task prompt of one single-agent review: the PR, earlier findings, format."""
 
     def __init__(
         self,
@@ -51,13 +51,11 @@ class SingleAgentPrompt:
         pr_metadata: PRMetadata,
         pr_files: list[PRFile],
         prior_findings: list[ReviewIssueFinding],
-        team_guidance: str | None,
     ) -> None:
         self.repository = repository
         self.pr_metadata = pr_metadata
         self.pr_files = pr_files
         self.prior_findings = prior_findings
-        self.team_guidance = team_guidance
 
     @staticmethod
     def _numbered_lines(pr_file: PRFile) -> list[str]:
@@ -113,7 +111,6 @@ class SingleAgentPrompt:
             FILE_LIST=self._file_list(),
             DIFF=self._diff(),
             COVERED_FINDINGS=self._covered_findings(),
-            TEAM_GUIDANCE=self.team_guidance,
             OUTPUT_SCHEMA=output_schema,
         )
 

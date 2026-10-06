@@ -262,9 +262,8 @@ The **single-agent design** (`reviewhog-flash-2-0`) replaces steps 4, 5, and 8 b
 `single_agent_review_activity`: one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` @ xhigh) reviews
 the whole PR from one prompt and returns `SingleAgentReview`. The prompt is three files in
 `prompts/single_agent_review/`: `core.md` (the DevEx-owned rubric, adapted from OpenAI's Codex review rubric, sent as
-the system prompt), `prompt.jinja` (title, description, numbered diff, earlier turns' findings, the team slot, the
-finding format), and the generated `schema.json`. The team slot appends the body of a team skill named
-`review-hog-flash-guidance` when one exists; it adds to the rubric and never replaces it. Findings persist as one
+the system prompt), `prompt.jinja` (title, description, numbered diff, earlier turns' findings, the
+finding format), and the generated `schema.json`. There is no team slot: every team runs the same core rubric. Findings persist as one
 `perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so step 7 (dedup against earlier turns and PR comments) runs
 unchanged; no validator runs, so dedup writes an accept-as-found verdict per survivor. P0/P1 store as `must_fix`, P2 as
 `should_fix`, P3 as `consider`. P0-P2 publish inline; P3 findings stay out of the review (`review_priorities_for`) and
@@ -402,7 +401,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     Full, Flash pipeline, and Flash single agent evolve separately, so each bumps its own version.
     The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
     the review-turn prompts and schemas, and the content of the skills the acting user runs, team edits included.
-    A single-agent turn hashes its own prompt files, the dedup prompt, its arm, and the team's flash guidance instead.
+    A single-agent turn hashes its own prompt files, the dedup prompt, and its arm instead.
     A prompt or skill edit changes it without a version bump.
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final

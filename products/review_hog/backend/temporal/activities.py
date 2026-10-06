@@ -105,7 +105,6 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 )
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
-    load_flash_team_guidance,
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
@@ -1189,7 +1188,6 @@ def _prepare_single_agent_prompt(team_id: int, report_id: str, head_sha: str, ru
         pr_metadata=snapshot.pr_metadata,
         pr_files=snapshot.pr_files,
         prior_findings=load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index),
-        team_guidance=load_flash_team_guidance(team_id),
     ).render()
 
 

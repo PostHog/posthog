@@ -4,8 +4,8 @@
 changes only with a manual bump. The fingerprint is a short hash of everything else that decides how
 one turn reviews: the review mode, the model pins of every stage, the prompt texts, and the content
 of the skills the acting user runs (a team's own edited skill rows included). A single-agent turn
-hashes its own prompt files, the dedup stage it still runs, and the team's flash guidance instead of
-the pipeline's prompts and skills. A prompt edit or a skill edit changes the fingerprint without a
+hashes its own prompt files and the dedup stage it still runs instead of the pipeline's prompts and
+skills. A prompt edit or a skill edit changes the fingerprint without a
 version bump, so production data can be split by "reviewhog-flash-1-0 with inputs Y".
 """
 
@@ -42,7 +42,6 @@ from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
-    load_flash_team_guidance,
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
@@ -228,7 +227,6 @@ class TurnFingerprint:
             review_mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
         )
         if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-            team_guidance = load_flash_team_guidance(team_id)
             return cls(
                 {
                     "review_mode": review_mode,
@@ -236,7 +234,6 @@ class TurnFingerprint:
                     "review_arm": _arm_payload(review_arm),
                     "stage_pins": cls._stage_pins(),
                     "prompts": cls._single_agent_prompt_hashes(),
-                    "team_guidance": _text_hash(team_guidance) if team_guidance is not None else None,
                 }
             )
         validation_arm = validation_arm_for_mode(review_mode, flash_reasoning_effort=flash_reasoning_effort)

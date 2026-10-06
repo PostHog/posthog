@@ -209,9 +209,9 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   validator runs. Full turns are unchanged.
 - **Prompt.** Three files in `prompts/single_agent_review/`, so prompt iterations edit no code: `core.md` (the DevEx-owned
   rubric, adapted from OpenAI's Apache-2.0 Codex review rubric with attribution, sent as the system prompt),
-  `prompt.jinja` (the PR, earlier findings, the team slot, the finding format), and the generated `schema.json`.
-  The team slot appends the latest body of a team skill named `review-hog-flash-guidance`, when the team created one,
-  as added guidance after the core rubric. It never replaces the rubric or the format.
+  `prompt.jinja` (the PR, earlier findings, the finding format), and the generated `schema.json`.
+  No team slot: Flash v2 runs only the DevEx-owned core rubric, so every team gets the same review and the fingerprint
+  changes only with a DevEx prompt edit.
 - **Finding format.** Title (at most 80 characters, imperative), priority P0-P3, file and line range, one body
   paragraph that names trigger, consequence, and anchor, and an optional `suggestion_code`. Storage maps P0/P1 to
   `must_fix`, P2 to `should_fix`, P3 to `consider`. The finding's `suggestion` is empty; `suggestion_code` posts as a
@@ -228,7 +228,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Decision point.** The fetch activity picks the design, so the workflow branches on a recorded activity result,
   behind the `flash-single-agent-2026-10` patch.
 - **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
-  prompt files, the dedup prompt, the stage pins, its arm, and the team guidance text. Events carry `review_design`
+  prompt files, the dedup prompt, the stage pins, and its arm. Events carry `review_design`
   and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
 - **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
   stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the

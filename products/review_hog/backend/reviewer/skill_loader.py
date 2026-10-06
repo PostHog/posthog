@@ -407,20 +407,3 @@ def load_resolution_skill_for_run(team_id: int, acting_user_id: int | None) -> L
 # only needs to exist as a synced team `LLMSkill` so any agent can `skill-get` it.
 REVIEW_HOG_AUTHORING_PREFIX = "review-hog-authoring"
 REVIEW_HOG_AUTHORING_SKILL_NAME = REVIEW_HOG_AUTHORING_PREFIX
-
-
-# Optional and never seeded: a team that wants extra single-agent Flash guidance creates a skill with
-# this exact name, and its latest body is appended to the review prompt for every PR of the team.
-REVIEW_HOG_FLASH_GUIDANCE_SKILL_NAME = "review-hog-flash-guidance"
-
-
-def load_flash_team_guidance(team_id: int) -> str | None:
-    """The body of the team's flash guidance skill, or None when the team has none."""
-    body = (
-        LLMSkill.objects.filter(
-            team_id=team_id, name=REVIEW_HOG_FLASH_GUIDANCE_SKILL_NAME, deleted=False, is_latest=True
-        )
-        .values_list("body", flat=True)
-        .first()
-    )
-    return body if body and body.strip() else None
