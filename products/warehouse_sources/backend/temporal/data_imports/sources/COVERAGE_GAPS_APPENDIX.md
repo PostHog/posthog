@@ -4564,7 +4564,7 @@ Note: The connector covers only the platform v3 lookup tables plus /search/jql i
 
 ## JobNimbus — **thin**
 
-Today (4): `activities`, `contacts`, `jobs`, `tasks`
+Today (9): `activities`, `contacts`, `estimates`, `jobs`, `lead_sources`, `payments`, `tasks`, `users`, `workflows`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11PpG4x?segregateAuth=true&versionTag=latest>
 
@@ -4581,7 +4581,7 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11Pp
 - [ ] `/api1/account/settings?field=groups` — team/group lookup for rolling users up to crews or offices (medium)
 - [ ] `/api1/utility/uoms` — unit-of-measure lookup for product and order line items (low)
 
-Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector exposes 4 of the ~13 GET-able resources and, notably, none of the money ones (estimates, invoices, payments, budgets) - for a roofing/contracting CRM that is where nearly all the analytical value is. File upload endpoints were excluded per the rules.
+Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector exposes 9 of the ~13 GET-able resources, including estimates and payments; invoices and budgets remain the largest financial gaps. File upload endpoints were excluded per the rules.
 
 ## Jotform — gaps
 
