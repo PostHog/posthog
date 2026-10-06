@@ -8,7 +8,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { UserBasicType } from '~/types'
 
+import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
+import { todaySpacesLogic } from './todaySpacesLogic'
 
 jest.mock('lib/utils/writeToClipboard')
 
@@ -53,6 +56,7 @@ describe('todaySessionMenuLogic', () => {
         ['analysis', () => logic.actions.analyzeSession('task-1', 'run-1')],
         ['stop', () => logic.actions.stopSession('task-1', 'run-1')],
         ['archive confirm', () => logic.actions.confirmArchive('task-1', 'run-1')],
+        ['make public', () => logic.actions.setSessionVisibility('task-1', 'public', null, 'menu')],
     ])('clears the pending state when the %s request fails, so the menu works again', async (_, run) => {
         run()
         await expectLogic(logic).toDispatchActions(['sessionUpdateFailed'])
@@ -108,6 +112,21 @@ describe('todaySessionMenuLogic', () => {
         await expectLogic(logic).toDispatchActions(['sessionUpdateFailed'])
 
         expect(logic.values.archiveConfirmMenuId).toEqual('menu-1')
+    })
+
+    it('moves a chat to the team space when made public, so the header and rows see the new visibility', async () => {
+        writesSucceed = true
+        todaySpacesLogic.actions.loadSpacesSuccess([
+            { id: 'space-me', channel_type: 'personal', system_role: 'personal' },
+            { id: 'space-team', channel_type: 'public', system_role: 'general' },
+        ] as ChannelDTOApi[])
+        logic.actions.requestMakePublic('menu-1', 'header')
+        logic.actions.setSessionVisibility('task-1', 'public', 'space-me', 'header')
+        await expectLogic(logic).toDispatchActions(['sessionMoved', 'closeMakePublic'])
+
+        expect(requests).toEqual(['patch task-1 {"channel":"space-team"}'])
+        expect(logic.values.movedSessionSpaces).toEqual({ 'task-1': 'space-team' })
+        expect(logic.values.makePublicRequest).toBeNull()
     })
 
     it('copies the project-scoped session URL', async () => {

@@ -5,7 +5,8 @@ import {
     IconCheckbox,
     IconCopy,
     IconExternal,
-    IconFolder,
+    IconGlobe,
+    IconLock,
     IconPencil,
     IconPin,
     IconPinFilled,
@@ -18,12 +19,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMac } from 'lib/utils/dom'
 
+import { chatVisibility } from './todayChatVisibility'
 import { TodayMenuParts } from './todayMenuParts'
 import { todayArchiveShortcutLabel } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { todayShellLogic } from './todayShellLogic'
-import { TodaySpaceFileList } from './TodaySpaceFileList'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySessionMenuTarget } from './todayWorkItems'
 
@@ -37,20 +38,21 @@ interface TodaySessionActionItemsProps {
 
 /** A session's actions, in Desktop's order: the edits, the places it can go, then archive last. */
 export function TodaySessionActionItems({
-    parts: { Item, Separator, Shortcut, Sub },
+    parts: { Item, Separator, Shortcut },
     target,
     surface,
     dataAttrPrefix,
 }: TodaySessionActionItemsProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { spaces } = useValues(todaySpacesLogic)
+    const { spaces, personalSpaceId, publicSpaceId } = useValues(todaySpacesLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { toggleSessionSelection } = useActions(todaySessionSelectionLogic)
     const {
         setSessionPinned,
         startRenaming,
         requestArchive,
-        moveSession,
+        requestMakePublic,
+        setSessionVisibility,
         openHandoff,
         analyzeSession,
         openSessionInNewTab,
@@ -60,6 +62,7 @@ export function TodaySessionActionItems({
     const { menuId, sessionId, pinned, activeRunId } = target
     const runId = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS] ? target.analysisRunId : null
     const attr = (name: string): string => `${dataAttrPrefix}-${name}`
+    const visibility = chatVisibility(target.spaceId, spaces)
 
     return (
         <>
@@ -93,24 +96,20 @@ export function TodaySessionActionItems({
                     Stop session
                 </Item>
             )}
-            {spaces.length > 0 && (
-                <Sub
-                    label={
-                        <>
-                            <IconFolder />
-                            File to…
-                        </>
-                    }
-                    title="File to…"
-                    dataAttr={attr('file')}
+            {target.mine && publicSpaceId && visibility !== 'public' && (
+                <Item onClick={() => requestMakePublic(menuId, 'menu')} dataAttr={attr('make-public')}>
+                    <IconGlobe />
+                    Make public…
+                </Item>
+            )}
+            {target.mine && personalSpaceId && visibility !== 'personal' && (
+                <Item
+                    onClick={() => setSessionVisibility(sessionId, 'personal', target.spaceId, 'menu')}
+                    dataAttr={attr('move-to-personal')}
                 >
-                    <TodaySpaceFileList
-                        currentSpaceId={target.spaceId}
-                        onSelect={(spaceId) => moveSession(sessionId, spaceId)}
-                        itemDataAttr={attr('move')}
-                        searchDataAttr={attr('move-search')}
-                    />
-                </Sub>
+                    <IconLock />
+                    Move to personal
+                </Item>
             )}
             {target.canHandOff && (
                 <Item onClick={() => openHandoff(menuId)} dataAttr={attr('handoff')}>

@@ -31,7 +31,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
-import { TodayChatVisibility, chatVisibility } from './todayChatVisibility'
+import { TodayChatVisibility, chatVisibility, personalSpace, publicSpace } from './todayChatVisibility'
 import { matchesPaneQuery } from './todayPaneSearch'
 import {
     DEFAULT_RECENT_FILTERS,
@@ -131,6 +131,8 @@ export interface todaySpacesLogicValues {
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
     pinnedTasksLoading: boolean
+    personalSpaceId: string | null
+    publicSpaceId: string | null
     pullRequestStates: Record<string, PrStateEnumApi>
     recentFilters: TodayRecentFilters
     recentFiltersActive: boolean
@@ -311,6 +313,8 @@ export interface todaySpacesLogicActions {
 export interface todaySpacesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sortedSpaces: (spaces: ChannelDTOApi[]) => ChannelDTOApi[]
+        personalSpaceId: (spaces: ChannelDTOApi[]) => string | null
+        publicSpaceId: (spaces: ChannelDTOApi[]) => string | null
         pinnedItems: (pinnedTasks: TaskListItemApi[]) => TodayWorkItem[]
         allRecentItems: (
             recentTasks: TaskListItemApi[],
@@ -513,6 +517,11 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     }),
     selectors({
         sortedSpaces: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): ChannelDTOApi[] => sortSpaces(spaces)],
+        personalSpaceId: [
+            (s) => [s.spaces],
+            (spaces: ChannelDTOApi[]): string | null => personalSpace(spaces)?.id ?? null,
+        ],
+        publicSpaceId: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): string | null => publicSpace(spaces)?.id ?? null],
         pinnedItems: [
             (s) => [s.pinnedTasks],
             (pinnedTasks: TaskListItemApi[]): TodayWorkItem[] =>

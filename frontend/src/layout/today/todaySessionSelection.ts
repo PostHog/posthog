@@ -14,7 +14,7 @@ export type TodayBulkVerb = 'pin' | 'unpin' | 'file' | 'archive' | 'restore'
 const PAST_TENSE: Record<TodayBulkVerb, string> = {
     pin: 'pinned',
     unpin: 'unpinned',
-    file: 'filed',
+    file: 'moved',
     archive: 'archived',
     restore: 'restored',
 }

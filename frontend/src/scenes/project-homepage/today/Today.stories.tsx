@@ -121,7 +121,7 @@ const RECENT_SESSIONS = [
     {
         id: 'task-1',
         origin_product: 'slack',
-        channel: 'space-checkout',
+        channel: 'space-me',
         title: 'Add a retry to the billing webhook',
         archived: false,
         last_activity_at: '2026-09-28T18:05:00Z',
@@ -144,7 +144,7 @@ const RECENT_SESSIONS = [
     {
         id: 'task-3',
         origin_product: 'error_tracking',
-        channel: 'space-checkout',
+        channel: 'space-general',
         title: 'Speed up the invoice export',
         archived: false,
         last_activity_at: '2026-09-28T15:30:00Z',
@@ -898,6 +898,16 @@ export const ChatsPaneChatContextMenu: Story = {
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
         rightClick(row)
         await within(document.body).findByText('Open in new tab')
+    },
+}
+
+export const ChatsPaneMakePublicDialog: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
+        rightClick(row)
+        await userEvent.click(await within(document.body).findByText('Make public…'))
+        await within(document.body).findByText('Make this chat public?')
     },
 }
 

@@ -71,8 +71,12 @@ const MAX_ROW_BADGES = 3
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
 
+export function ownedBy(item: TodayWorkItem, userId: number | null | undefined): boolean {
+    return item.createdById !== null && item.createdById === userId
+}
+
 export function canHandOff(item: TodayWorkItem, userId: number | null | undefined): boolean {
-    return item.kind === 'session' && item.createdById !== null && item.createdById === userId
+    return item.kind === 'session' && ownedBy(item, userId)
 }
 
 export function analysisRunId(item: TodayWorkItem): string | null {
@@ -99,6 +103,7 @@ export interface TodaySessionMenuTarget {
     title: string
     pinned: boolean
     spaceId: string | null
+    mine: boolean
     canHandOff: boolean
     analysisRunId: string | null
     /** The latest run while it is an active cloud run: it can be stopped, and archiving asks first. */
@@ -115,6 +120,7 @@ export function sessionMenuTarget(
         title: item.title,
         pinned,
         spaceId: item.channel,
+        mine: ownedBy(item, userId),
         canHandOff: canHandOff(item, userId),
         analysisRunId: analysisRunId(item),
         activeRunId: activeCloudRunId(item),

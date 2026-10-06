@@ -21,6 +21,8 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { TodayChatVisibilityBanner } from '~/layout/today/TodayChatVisibilityBanner'
+import { TodayChatVisibilityButton } from '~/layout/today/TodayChatVisibilityButton'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
@@ -191,6 +193,14 @@ export function TaskRunSceneShell({
                             actions={
                                 <>
                                     {titleActions}
+                                    {task && todayRailEnabled && (
+                                        <TodayChatVisibilityButton
+                                            taskId={task.id}
+                                            title={task.title}
+                                            spaceId={task.channel ?? null}
+                                            ownerId={task.created_by?.id ?? null}
+                                        />
+                                    )}
                                     {task && (
                                         <QuillTaskMenu task={task} selectedRun={selectedRun} onArchive={onArchive} />
                                     )}
@@ -238,6 +248,15 @@ export function TaskRunSceneShell({
 
                             {headerDivider && <LemonDivider className="hidden lg:block mb-0 mt-2" />}
                         </header>
+                    )}
+
+                    {task && todayRailEnabled && (
+                        <TodayChatVisibilityBanner
+                            taskId={task.id}
+                            spaceId={task.channel ?? null}
+                            ownerId={task.created_by?.id ?? null}
+                            ownerName={task.created_by?.first_name || task.created_by?.email || null}
+                        />
                     )}
 
                     {children}
