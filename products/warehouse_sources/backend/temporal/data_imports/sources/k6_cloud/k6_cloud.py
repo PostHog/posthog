@@ -136,12 +136,17 @@ def _client_config(api_token: str, stack_id: str) -> ClientConfig:
         # errors/logs; only the non-secret stack id + accept headers are set here.
         "headers": {"X-Stack-Id": stack_id, "Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_token},
+        "request_timeout": (10, REQUEST_TIMEOUT_SECONDS),
     }
 
 
 def _explode_distribution(row: dict[str, Any]) -> list[dict[str, Any]]:
     """Turn one `{"distribution": {<load_zone>: {...}}}` body into one row per load zone."""
-    zones = row.get("distribution") or {}
+    # The spec marks `distribution` as required, so a 200 without it is a shape change. Fail
+    # loudly instead of dropping the run's rows from a full refresh.
+    if "distribution" not in row:
+        raise ValueError(f"k6 Cloud: distribution response for test run {row['test_run_id']} has no `distribution`")
+    zones = row["distribution"] or {}
     return [
         {
             "test_run_id": row["test_run_id"],

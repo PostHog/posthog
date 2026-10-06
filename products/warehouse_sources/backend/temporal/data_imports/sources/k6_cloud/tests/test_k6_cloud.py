@@ -332,6 +332,23 @@ class TestDistributionFanOut:
         assert [row["test_run_id"] for row in rows] == [1, 2]
         assert urls[2] == next_url
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_success_body_without_distribution_raises(self, MockSession: mock.MagicMock) -> None:
+        # A 200 without the required key is a shape change; silently emitting no rows would drop the
+        # run from a full refresh.
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        _wire(
+            session,
+            [
+                _response(runs_url, [{"id": 1, "created": "2026-03-04T00:00:00Z"}]),
+                _raw_response(f"{runs_url}/1/distribution", {}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="has no `distribution`"):
+            _rows(_source("test_run_distribution", _make_manager()))
+
 
 class TestIncremental:
     @mock.patch(CLIENT_SESSION_PATCH)
