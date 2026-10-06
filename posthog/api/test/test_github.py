@@ -24,7 +24,7 @@ from posthog.api.github import (
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_secret,
@@ -650,6 +650,9 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()[0]["label"], "true_positive")
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+        self.assertTrue(
+            RevokedTeamSecretToken.objects.filter(team=self.team, secure_value=hash_key_value(token)).exists()
+        )
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
         alert_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "github_secret_alert"]

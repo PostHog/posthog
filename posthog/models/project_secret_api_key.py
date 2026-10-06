@@ -69,6 +69,32 @@ def find_project_secret_api_key(token: str) -> Optional["ProjectSecretAPIKey"]:
         return None
 
 
+class RevokedTeamSecretToken(models.Model):
+    """Hash of a legacy team secret token whose migrated PSAK mirror row (#63111) was
+    deleted by leak revocation. The pre-drop rerun of the backfill reads these, so a
+    leaked token that was never rotated does not get a fresh mirror row.
+
+    Not TeamScopedRootMixin: tokens are environment-scoped, and the canonical-team
+    save() rewrite would file a child environment's hash under its root team.
+    """
+
+    objects: models.Manager["RevokedTeamSecretToken"]
+
+    # db_constraint=False: a real FK to the hot posthog_team table needs a parent lock
+    # to create. ORM-level CASCADE still removes rows when the team goes.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="revoked_secret_token_hashes",
+        db_constraint=False,
+    )
+    secure_value = models.CharField(max_length=300, unique=True, editable=False)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "posthog_revokedteamsecrettoken"
+
+
 def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
     """A PSAK row whose hash equals a retired legacy token IS that credential: it must
     stop authenticating when the token does (#63111 backfill)."""

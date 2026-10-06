@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import Client, override_settings
 
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.test.api_keys import create_project_secret_api_key
 
 
@@ -52,6 +53,7 @@ class TestProjectSecretAPIKeyAdmin(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertFalse(type(mirrored).objects.filter(pk=mirrored.pk).exists())
+        self.assertTrue(RevokedTeamSecretToken.objects.filter(team=self.team).exists())
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
         mock_ff_exposed.assert_called_once()

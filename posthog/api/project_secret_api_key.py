@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from typing import cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -16,7 +16,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import (
     TeamMemberStrictManagementPermission,
@@ -216,7 +216,13 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
     team = project_secret_api_key.team
     for token in (team.secret_api_token, team.secret_api_token_backup):
         if token and project_secret_api_key.secure_value == hash_key_value(token):
-            project_secret_api_key.delete()
+            with transaction.atomic():
+                # Remember the hash: the pre-drop rerun of the #63111 backfill must not
+                # give this still-unrotated leaked token a fresh mirror row.
+                RevokedTeamSecretToken.objects.get_or_create(
+                    team_id=team.id, secure_value=project_secret_api_key.secure_value
+                )
+                project_secret_api_key.delete()
             send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)

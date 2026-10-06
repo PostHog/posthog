@@ -27,7 +27,11 @@ from posthog.models.oauth import (
     find_oauth_refresh_token,
 )
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, find_personal_api_key
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
+from posthog.models.project_secret_api_key import (
+    ProjectSecretAPIKey,
+    RevokedTeamSecretToken,
+    find_project_secret_api_key,
+)
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
@@ -223,6 +227,9 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"found": True, "type": "team_secret_token"})
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+        self.assertTrue(
+            RevokedTeamSecretToken.objects.filter(team=self.team, secure_value=hash_key_value(token)).exists()
+        )
         self.team.refresh_from_db()
         self.assertEqual(getattr(self.team, token_field), token)
         mock_psak_exposed.assert_not_called()
