@@ -23,17 +23,20 @@ class _PageMetadata:
     description: str
 
 
+# Same share image as posthog.com, so links to the app and the website preview alike.
+_PREVIEW_IMAGE_URL = "https://posthog.com/images/og/default.png"
+
 # Each title matches the document title the SPA sets for the scene, so the tab title doesn't change when the app boots.
 _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
     "/login": _PageMetadata(
         title="Log in • PostHog",
-        description="Log in to PostHog to see your product analytics, session replays, feature flags, experiments, and surveys.",
+        description="Log in to PostHog, the single platform for engineers to analyze, test, observe, and deploy new features.",
     ),
     "/signup": _PageMetadata(
         title="Sign up • PostHog",
         description=(
-            "Create a PostHog account to get product analytics, session replay, feature flags, experiments, "
-            "and surveys in one place. The first 1 million events every month are free."
+            "Create a free PostHog account to analyze, test, observe, and deploy new features. "
+            "Every product has a monthly free tier, and no credit card is required."
         ),
     ),
 }
@@ -51,7 +54,7 @@ def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
         "page_title": metadata.title,
         "page_description": metadata.description,
         "canonical_url": f"{settings.SITE_URL}{path}",
-        "preview_image_url": f"{settings.SITE_URL}/static/icons/android-chrome-512x512.png",
+        "preview_image_url": _PREVIEW_IMAGE_URL,
     }
 
 

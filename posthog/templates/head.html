@@ -36,7 +36,8 @@
     <meta property="og:description" content="{{ page_description }}">
     <meta property="og:url" content="{{ canonical_url }}">
     <meta property="og:image" content="{{ preview_image_url }}">
-    <meta name="twitter:card" content="summary">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@PostHog">
 {% endif %}
 {% if not opt_out_capture and js_posthog_api_key %}
     {{ posthog_bootstrap|page_json_script:"posthog-user-identity-with-flags" }}
