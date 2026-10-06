@@ -379,6 +379,16 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     from ``setup_incremental_object``, and an unsupported key as a ``TypeError`` from the
     engine's ``Incremental(**config)`` constructor.
     """
+    resource_defaults = manifest.get("resource_defaults")
+    default_endpoint = resource_defaults.get("endpoint") if isinstance(resource_defaults, dict) else None
+    if isinstance(default_endpoint, dict) and _has_incremental_config(default_endpoint):
+        # The engine merges defaults into every resource, so a default cursor would bypass the
+        # per-resource handling: preview stripping, cursor typing, and keeping fan-out parents full-scan.
+        raise ManifestValidationError(
+            "resource_defaults.endpoint can't declare incremental config. "
+            "Set endpoint.incremental on each resource that syncs incrementally instead"
+        )
+
     for resource in manifest.get("resources") or []:
         if not isinstance(resource, dict):
             continue
@@ -405,6 +415,15 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
                 f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
+
+
+def _has_incremental_config(endpoint: dict[str, Any]) -> bool:
+    if endpoint.get("incremental") is not None:
+        return True
+    params = endpoint.get("params")
+    return isinstance(params, dict) and any(
+        isinstance(value, dict) and value.get("type") == "incremental" for value in params.values()
+    )
 
 
 def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
