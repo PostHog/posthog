@@ -139,7 +139,7 @@ export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @_
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
         .describe(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only"
         ),
     team_ids: zod
         .array(zod.number())
