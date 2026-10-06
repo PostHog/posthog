@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import sys
 import json
+import time
 import fnmatch
 import zipfile
 import argparse
@@ -143,14 +144,24 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
 
         def fetch(artifact: Artifact) -> None:
             archive = Path(scratch) / f"{artifact['artifact_id']}.zip"
-            depot(
-                "artifacts",
-                "download",
-                artifact["artifact_id"],
-                "--output-file",
-                str(archive),
-                timeout=DOWNLOAD_TIMEOUT_SECONDS,
-            )
+            for attempt in range(3):
+                try:
+                    depot(
+                        "artifacts",
+                        "download",
+                        artifact["artifact_id"],
+                        "--output-file",
+                        str(archive),
+                        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+                    )
+                    break
+                except subprocess.SubprocessError:
+                    # The CLI refuses to overwrite a file left by a partial download.
+                    archive.unlink(missing_ok=True)
+                    if attempt == 2:
+                        raise
+                    sys.stderr.write(f"Artifact {artifact['name']}: download failed, retrying\n")
+                    time.sleep(2**attempt)
             target = directory / artifact["name"]
             target.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(archive) as bundle:

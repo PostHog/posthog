@@ -1,5 +1,7 @@
 import json
+import zipfile
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -123,3 +125,38 @@ def test_download_keeps_the_newest_artifact_per_name() -> None:
     ]
 
     assert sorted(a["artifact_id"] for a in script.newest_per_name(artifacts)) == ["only", "retry"]
+
+
+@pytest.mark.parametrize("persistent_failure", [False, True])
+def test_download_recovers_from_partial_transfers_or_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, persistent_failure: bool
+) -> None:
+    failed = False
+
+    def depot_response(*args: str, timeout: int = script.CLI_TIMEOUT_SECONDS) -> str:
+        nonlocal failed
+        if args[:2] == ("artifacts", "list"):
+            return json.dumps(
+                {"artifacts": [{"artifact_id": "artifact", "name": "timing_data-Core-1", "created_at": "2026-01-01"}]}
+            )
+        archive = Path(args[args.index("--output-file") + 1])
+        if archive.exists():
+            raise FileExistsError(archive)
+        if persistent_failure or not failed:
+            failed = True
+            archive.write_bytes(b"partial archive")
+            raise subprocess.CalledProcessError(1, args)
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr(".test_durations", "{}")
+        return ""
+
+    monkeypatch.setattr(script, "depot", depot_response)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+
+    if persistent_failure:
+        with pytest.raises(subprocess.CalledProcessError):
+            script.download("run", ["timing_data-*"], tmp_path)
+        assert not (tmp_path / "timing_data-Core-1").exists()
+    else:
+        assert script.download("run", ["timing_data-*"], tmp_path) == 1
+        assert (tmp_path / "timing_data-Core-1" / ".test_durations").read_text() == "{}"
