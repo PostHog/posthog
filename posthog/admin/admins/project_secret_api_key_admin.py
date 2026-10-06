@@ -6,13 +6,13 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 from posthog.admin.admins.api_key_roll_mixin import RollApiKeyAdminMixin
-from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
+from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
 from posthog.models import ProjectSecretAPIKey
 
 
 @admin.register(ProjectSecretAPIKey)
 class ProjectSecretAPIKeyAdmin(RollApiKeyAdminMixin):
-    roll_success_message = "Project secret API key rolled and project admins notified."
+    roll_success_message = "Project secret API key revoked and project admins notified."
 
     fields = (
         "id",
@@ -61,4 +61,6 @@ class ProjectSecretAPIKeyAdmin(RollApiKeyAdminMixin):
         )
 
     def roll_and_notify(self, key: ProjectSecretAPIKey, more_info: str) -> None:
-        roll_project_secret_api_key_and_notify(key, more_info)
+        # A row mirroring a legacy team token (#63111) is deleted, not rolled, and the
+        # admins are told to rotate the legacy key — same semantics as the leak webhook.
+        revoke_exposed_project_secret_api_key(key, more_info)
