@@ -362,6 +362,9 @@ tools:
             include:
                 - results
                 - count
+    logs-backfill-status-retrieve:
+        operation: logs_backfill_status_retrieve
+        enabled: false
     logs-count:
         operation: logs_count_create
         enabled: true
