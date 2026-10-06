@@ -887,6 +887,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             flatSpans: values.filters.viewMode === 'spans',
+                            // The API defaults to root-only trace selection, which drops traces whose root never arrived.
+                            rootSpans: false,
                             limit: DEFAULT_PAGE_SIZE,
                         },
                         controller.signal
@@ -922,6 +924,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             flatSpans: values.filters.viewMode === 'spans',
+                            rootSpans: false,
                             limit: DEFAULT_PAGE_SIZE,
                             ...pagination,
                         },

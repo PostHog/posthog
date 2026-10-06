@@ -241,7 +241,10 @@ describe('tracingDataLogic', () => {
             const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSpans()
-            expect(listSpansSpy).toHaveBeenCalledWith(expect.objectContaining({ flatSpans: false }), expect.anything())
+            expect(listSpansSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ flatSpans: false, rootSpans: false }),
+                expect.anything()
+            )
             listSpansSpy.mockRestore()
         })
 
