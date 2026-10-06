@@ -183,6 +183,7 @@ class TestMintScopedToken:
     def test_mints_pinned_token(self, mint_settings, private: bool, gateway_config: AIGatewayConfig | None) -> None:
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc", "capture_mode": "none"})
+            token: str | None
             if private:
                 token = mint_private_gateway_token(team_id=123, expires_in_seconds=600, gateway_config=gateway_config)
             else:
