@@ -2386,10 +2386,12 @@ export type SignalMatchMetadataApi = MatchedMetadataApi | NoMatchMetadataApi
 
 export interface SignalNodeApi {
     /**
-     * Customer spend in USD cents, including fractional cents. Null while cost is unavailable or pending.
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.
      * @nullable
      */
     readonly total_spend: number | null
+    /** Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers. */
+    readonly spend_accounting_failed_stages: readonly string[]
     /** ClickHouse document id of the signal. */
     signal_id: string
     /** The signal's human-readable description. */
@@ -5044,7 +5046,7 @@ export const RunStatusEnumApi = {
  */
 export interface SignalScoutRunSummaryApi {
     /**
-     * Customer spend in USD cents, including fractional cents. Null while cost is unavailable or pending.
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
      * @nullable
      */
     readonly total_spend: number | null
@@ -5148,7 +5150,7 @@ export type SignalScoutRunDetailApiMetadata = {
  */
 export interface SignalScoutRunDetailApi {
     /**
-     * Customer spend in USD cents, including fractional cents. Null while cost is unavailable or pending.
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
      * @nullable
      */
     readonly total_spend: number | null

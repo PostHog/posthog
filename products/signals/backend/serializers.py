@@ -1861,7 +1861,12 @@ class SignalNodeSerializer(serializers.Serializer):
     total_spend = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        help_text="Customer spend in USD cents, including fractional cents. Null while cost is unavailable or pending.",
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.",
+    )
+    spend_accounting_failed_stages = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers.",
     )
     signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
     content = serializers.CharField(help_text="The signal's human-readable description.")

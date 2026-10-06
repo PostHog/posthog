@@ -14,6 +14,7 @@ function makeSignal(extra: Record<string, unknown>): SignalNode {
     return {
         signal_id: 'signal-1',
         total_spend: null,
+        spend_accounting_failed_stages: [],
         content: 'Checkout 500s spike after the payment flag rollout',
         source_product: 'signals_scout',
         source_type: 'cross_source_issue',

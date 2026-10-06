@@ -1,26 +1,29 @@
 import json
 import asyncio
+from collections.abc import Callable
 from decimal import Decimal
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import httpx
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.llm.gateway_client import build_async_anthropic_client
 from posthog.llm.gateway_usage import GatewayRequestCost
-from posthog.llm.usage import record_gateway_response
+from posthog.llm.usage import record_gateway_response, record_unpriced_response
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.spend import signal_spend_scope, signal_spend_totals
+from products.signals.backend.spend import signal_spend_scope, signal_spend_summaries, signal_spend_totals
 from products.signals.backend.spend_tasks import reconcile_signal_spend
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.logic.services.gateway_usage import process_pending_gateway_usage, record_generation_request
@@ -55,7 +58,7 @@ class TestSignalSpend(BaseTest):
             )
 
         async def call(driver: str | None, request_id: str) -> None:
-            with signal_spend_scope(self.team.id, driver):
+            with signal_spend_scope(self.team.id, driver, stage="actionability"):
                 await client.messages.create(
                     model="model-a", max_tokens=10, messages=[{"role": "user", "content": request_id}]
                 )
@@ -112,7 +115,7 @@ class TestSignalSpend(BaseTest):
         report.triggering_signal_id = other
         report.save(update_fields=["triggering_signal_id"])
         self._settle(research, "research-late", 3)
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: None}
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 11.5003}
         reconcile_signal_spend()
         reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5006}
@@ -123,9 +126,10 @@ class TestSignalSpend(BaseTest):
         reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 15.5007}
 
-    def test_one_shot_requests_are_deduplicated_and_pending_is_not_zero(self) -> None:
+    @parameterized.expand([(None,), (RuntimeError("usage lookup failed"),)])
+    def test_one_shot_requests_preserve_known_spend_and_record_failed_stage(self, failure: Exception | None) -> None:
         driver = str(uuid4())
-        with signal_spend_scope(self.team.id, driver):
+        with signal_spend_scope(self.team.id, driver, stage="actionability"):
             for request_id in ["one-shot-1", "one-shot-2", "one-shot-1"]:
                 record_gateway_response(
                     httpx.Response(
@@ -141,27 +145,36 @@ class TestSignalSpend(BaseTest):
                     request=httpx.Request("POST", "https://gateway.example.com/v1/messages/count_tokens"),
                 )
             )
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: None}
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0}
         with patch(
             "products.signals.backend.spend_tasks.fetch_gateway_cost",
             new=AsyncMock(
-                side_effect=[None, GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=9)]
+                side_effect=[failure, GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=9)]
             ),
         ):
             reconcile_signal_spend()
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: None}
+        summary = signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver]
+        assert summary.total_spend == 0.0009
+        assert summary.failed_stages == ["actionability"]
         with patch(
             "products.signals.backend.spend_tasks.fetch_gateway_cost",
             new=AsyncMock(return_value=GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=1)),
         ):
             reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0.001}
+        assert signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver].failed_stages == []
+        with signal_spend_scope(self.team.id, driver, stage="summarization"):
+            record_unpriced_response(
+                httpx.Response(200, request=httpx.Request("POST", "https://gateway.example.com/v1/messages"))
+            )
         now = timezone.now()
         with patch(
             "products.signals.backend.temporal.signal_queries.execute_hogql_query",
             return_value=Mock(results=[(driver, "Example finding", json.dumps({"total_spend": 0}), now, now)]),
         ):
-            assert fetch_signals_for_report_sync(self.team, str(uuid4()))[0]["total_spend"] == 0.001
+            signal = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
+            assert signal["total_spend"] == 0.001
+            assert signal["spend_accounting_failed_stages"] == ["summarization"]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         assert signal_spend_totals(team_id=other_team.id, signal_ids=[driver]) == {}
 
@@ -179,7 +192,47 @@ class TestSignalSpend(BaseTest):
         reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
-        self._settle(task_run, "scout-1", 123_456)
+        record_generation_request(team_id=self.team.id, run_id=task_run.id, request_id="scout-late")
         reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
+        assert scout.metadata is not None
+        assert scout.metadata["spend_accounting_failed_stages"] == ["scout"]
+        self._settle(task_run, "scout-late", 1)
+        reconcile_signal_spend()
+        scout.refresh_from_db()
+        assert scout.total_spend == Decimal("16.3457")
+        assert scout.metadata is not None
+        assert scout.metadata["spend_accounting_failed_stages"] == []
+
+    @parameterized.expand([("generation",), ("task",)])
+    def test_accounting_database_failure_does_not_abort_pipeline_transaction(self, source: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+
+        def fail_spend_insert(
+            execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+        ) -> object:
+            if sql.startswith('INSERT INTO "signals_signalspend"'):
+                return execute("SELECT 1 / 0", (), False, context)
+            return execute(sql, params, many, context)
+
+        with capture_logs() as logs, connection.execute_wrapper(fail_spend_insert):
+            if source == "task":
+                run = self._run(report=report)
+                assert TaskRun.objects.filter(id=run.id).exists()
+            else:
+                with signal_spend_scope(self.team.id, driver, stage="actionability"):
+                    record_gateway_response(
+                        httpx.Response(
+                            200,
+                            headers={"x-request-id": "example-request"},
+                            request=httpx.Request("POST", "https://gateway.example.com/v1/messages"),
+                        )
+                    )
+        assert SignalReport.objects.filter(id=report.id).exists()
+        assert any(
+            log["event"] == "signals.spend.accounting_failed"
+            and log["stage"] == ("research" if source == "task" else "actionability")
+            for log in logs
+        )

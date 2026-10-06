@@ -14,6 +14,7 @@ function makeSignal(extra: Record<string, unknown>): SignalNode {
     return {
         signal_id: 'signal-1',
         total_spend: null,
+        spend_accounting_failed_stages: [],
         content: 'The upload progress bar reaches 100% but the file never appears.',
         source_product: 'conversations',
         source_type: 'ticket',

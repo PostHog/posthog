@@ -3445,6 +3445,8 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
     task_id = models.UUIDField(null=True, blank=True, db_index=True)
     source_id = models.CharField(max_length=255)
+    stage = models.CharField(max_length=100, default="unknown")
+    accounting_failed = models.BooleanField(default=False)
     is_task = models.BooleanField(default=False)
     token_cost_microusd = models.BigIntegerField(null=True, blank=True)
     needs_refresh = models.BooleanField(default=True)

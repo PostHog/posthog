@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import signal_spend_totals, track_signal_spend
+from products.signals.backend.spend import signal_spend_summaries, track_signal_spend
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -925,15 +925,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 extra=input.extra,
             )
 
+            spend = signal_spend_summaries(team_id=input.team_id, signal_ids=[input.signal_id]).get(input.signal_id)
             metadata = {
                 "source_product": input.source_product,
                 "source_type": input.source_type,
                 "source_id": input.source_id,
                 "weight": input.weight,
                 "report_id": report_id,
-                "total_spend": signal_spend_totals(team_id=input.team_id, signal_ids=[input.signal_id]).get(
-                    input.signal_id, 0
-                ),
+                "total_spend": spend.total_spend if spend else 0,
+                "spend_accounting_failed_stages": spend.failed_stages if spend else [],
                 "extra": input.extra,
                 "remediation": input.remediation,
             }

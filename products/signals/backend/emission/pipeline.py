@@ -200,7 +200,7 @@ async def _summarize_description(
     threshold: int,
     gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
-    with signal_spend_scope(team_id, output.signal_id):
+    with signal_spend_scope(team_id, output.signal_id, stage="summarization"):
         messages: list[MessageParam] = [
             {
                 "role": "user",
@@ -345,7 +345,7 @@ async def check_actionability(
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
-    with signal_spend_scope(team_id, output.signal_id):
+    with signal_spend_scope(team_id, output.signal_id, stage="actionability"):
         description = output.description
         # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
         # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only

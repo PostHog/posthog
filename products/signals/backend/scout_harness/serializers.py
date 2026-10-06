@@ -181,7 +181,7 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
     total_spend = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        help_text="Customer spend in USD cents, including fractional cents. Null while cost is unavailable or pending.",
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.",
     )
     run_id = serializers.CharField(help_text="UUID of the bridge row.")
     skill_name = serializers.CharField(
