@@ -117,6 +117,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases': ['Canvases', 'canvases'],
     '/canvases/new': ['CanvasNew', 'canvasNew'],
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
@@ -689,6 +690,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'business_knowledge',
     },
     CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
+    Canvases: { name: 'Canvases', projectBased: true },
     CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
@@ -1300,6 +1302,7 @@ export const productUrls = {
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvases: (): string => '/canvases',
     canvasNew: (spaceId?: string | null): string =>
         spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
     canvasDetail: (id: string): string => `/canvases/${id}`,
