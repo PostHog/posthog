@@ -30,7 +30,7 @@ COMPUTERS_INVENTORY_SECTIONS = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class JamfProEndpointConfig:
     name: str
     path: str

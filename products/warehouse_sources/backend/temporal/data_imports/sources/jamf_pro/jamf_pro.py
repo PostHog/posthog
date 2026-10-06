@@ -136,7 +136,7 @@ def _read_body_preview(response: requests.Response) -> str:
     return b"".join(chunks)[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JamfProResumeConfig:
     # Zero-based page index to fetch next. Query params are rebuilt deterministically from the
     # schema inputs on resume, so the page number is the only state we need.
@@ -415,7 +415,17 @@ def _iter_endpoint_pages(
     resumable_source_manager: ResumableSourceManager[JamfProResumeConfig],
     resume_state: Callable[[int], JamfProResumeConfig],
     parent_id: str | None = None,
+    request_budget: list[int] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
+    def fetch_bounded(page_url: str) -> Any:
+        if request_budget is not None:
+            if request_budget[0] >= MAX_PAGES:
+                raise JamfProPaginationLimitError(
+                    f"Jamf Pro pagination for {config.name} exceeded {MAX_PAGES} requests without terminating"
+                )
+            request_budget[0] += 1
+        return fetch_page(page_url)
+
     def shape(row: dict[str, Any]) -> dict[str, Any]:
         row = _hoist_cursor(config, row)
         if parent_id is not None and config.parent_id_field:
@@ -423,7 +433,7 @@ def _iter_endpoint_pages(
         return row
 
     if not config.paginated:
-        data = fetch_page(_build_url(host, config, params, parent_id))
+        data = fetch_bounded(_build_url(host, config, params, parent_id))
         if isinstance(data, list):
             rows = data
         elif "results" in data:
@@ -444,7 +454,7 @@ def _iter_endpoint_pages(
                 f"Jamf Pro pagination for {config.name} exceeded {MAX_PAGES} pages without terminating"
             )
 
-        data = fetch_page(_build_url(host, config, {**params, "page": page}, parent_id))
+        data = fetch_bounded(_build_url(host, config, {**params, "page": page}, parent_id))
 
         results = data.get("results", [])
         if not results:
@@ -553,6 +563,7 @@ def get_rows(
         parent_ids = [pid for pid in parent_ids if _parent_sort_key(pid) >= resume_key]
         logger.debug(f"Jamf Pro: resuming {endpoint} from parent {resume_config.parent_id} page {resume_config.page}")
 
+    request_budget = [0]
     for index, parent_id in enumerate(parent_ids):
         start_page = (
             resume_config.page
@@ -569,6 +580,7 @@ def get_rows(
                 resumable_source_manager,
                 partial(JamfProResumeConfig, parent_id=parent_id),
                 parent_id=parent_id,
+                request_budget=request_budget,
             )
         except requests.HTTPError as e:
             # A title deleted between listing the parents and fetching its children 404s.

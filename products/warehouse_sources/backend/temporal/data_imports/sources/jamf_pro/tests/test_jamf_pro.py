@@ -481,6 +481,33 @@ class TestGetRows:
             mock.call(JamfProResumeConfig(page=0, parent_id="10")),
         ]
 
+    def test_fan_out_has_one_request_budget_across_all_parents(self):
+        manager = self._manager()
+        parents = _response(json_data=[{"id": str(parent_id)} for parent_id in range(4)])
+        child_page = _response(json_data={"totalCount": 1, "results": [{"deviceId": "a"}]})
+        session = _session(
+            post_responses=[_response(json_data=TOKEN_JSON)],
+            get_responses=[parents, child_page, child_page, child_page],
+        )
+        with (
+            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
+            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
+        ):
+            with pytest.raises(JamfProPaginationLimitError):
+                list(
+                    get_rows(
+                        host="example.jamfcloud.com",
+                        credentials=CLIENT_CREDENTIALS,
+                        endpoint="patch_reports",
+                        logger=mock.MagicMock(),
+                        resumable_source_manager=manager,
+                        team_id=1,
+                    )
+                )
+
+        # The parent-list request is outside the child-page budget; only three children are fetched.
+        assert session.get.call_count == 4
+
     def test_fan_out_resumes_from_saved_parent_and_page(self):
         manager = self._manager(resume=JamfProResumeConfig(page=3, parent_id="7"))
         parents = _response(json_data=[{"id": "2"}, {"id": "7"}, {"id": "10"}])
