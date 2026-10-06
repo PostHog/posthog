@@ -24,7 +24,6 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TABULAR_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     FeatureSet,
 )
@@ -175,7 +174,7 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("booster_on_other_features", {"booster_feature_names": TABULAR_FEATURE_SET.feature_names}, "booster"),
+            ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
         ]
@@ -187,7 +186,7 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("booster_on_other_features", {"booster_feature_names": TABULAR_FEATURE_SET.feature_names}, "booster"),
+            ("booster_on_other_features", {"booster_feature_names": ("age_hours",)}, "booster"),
             ("missing_head_file", {"missing_heads": ["thumbs_up"]}, "thumbs_up.ubj"),
             ("unknown_model_kind", {"model_kind": "torch"}, "torch"),
         ]
@@ -387,11 +386,10 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
 
         assert sorted(fake_vectors.calls) == sorted([EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE])
 
-    def test_challengers_without_a_vector_or_a_served_feature_set_are_skipped_results(self) -> None:
+    def test_a_challenger_without_a_vector_is_a_skipped_result(self) -> None:
         served = self._served(thresholds={"open": 0.25})
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
-        tabular = self._challenger("tabular_xgb", TABULAR_FEATURE_SET)
-        manifest = self.store.publish_manifest([served, title, tabular])
+        manifest = self.store.publish_manifest([served, title])
 
         (outcome,), _, captured = self._score(
             ["r1"],
@@ -406,10 +404,6 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert results[served.key].lifts == {"open": results[served.key].scores["open"] / 0.25}
         assert results[title.key].lifts == {}
         assert (results[title.key].status, results[title.key].skip_reason) == ("skipped", NO_VECTOR)
-        assert (results[tabular.key].status, results[tabular.key].skip_reason) == (
-            "skipped",
-            "feature set tabular is not served yet",
-        )
         assert outcome.score.served_key == manifest.served.key
         assert outcome.score.embedding_inserted_at == LANDED
         assert captured.events == []
