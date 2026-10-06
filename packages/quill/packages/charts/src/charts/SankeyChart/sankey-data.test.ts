@@ -1,4 +1,4 @@
-import { computeSankeyLayout, sankeyHitAt } from './sankey-data'
+import { bezierX, bezierY, computeSankeyLayout, sankeyHitAt } from './sankey-data'
 import type { ComputeSankeyLayoutOptions, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
 
 const PLOT = { plotLeft: 0, plotTop: 0, plotWidth: 600, plotHeight: 300 }
@@ -105,6 +105,24 @@ describe('sankeyHitAt', () => {
         expect(linkHit).toEqual({ kind: 'link', index: aToDone })
 
         expect(sankeyHitAt(layout, { x: -50, y: -50 })).toBeNull()
+    })
+
+    it('hits a long, thin ribbon between coarse curve samples', () => {
+        const thin = layoutOf({
+            nodes: [{ id: 'start' }, { id: 'a' }, { id: 'b' }],
+            links: [
+                { source: 'start', target: 'a', value: 1000 },
+                { source: 'start', target: 'b', value: 1 },
+            ],
+        })
+        const index = thin.links.findIndex((l) => l.target.id === 'b')
+        const link = thin.links[index]
+        expect(link.width).toBeLessThan(1)
+
+        // Halfway between two of 24 evenly spaced samples, where a fixed sample count misses by ~18px.
+        const t = 0.5 + 1 / 48
+        const cursor = { x: bezierX(link.source.x1, link.target.x0, t), y: bezierY(link.y0, link.y1, t) }
+        expect(sankeyHitAt(thin, cursor)).toEqual({ kind: 'link', index })
     })
 
     it('hits a zero-value node across the 1px the draw code floors it to', () => {

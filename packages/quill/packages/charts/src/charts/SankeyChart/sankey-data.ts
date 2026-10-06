@@ -225,10 +225,9 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     })
 
     const columnCount = Math.max(0, ...graph.nodes.map((node) => node.layer + 1))
-    const columnX: number[] = []
-    for (const node of graph.nodes) {
-        columnX[node.layer] = Math.min(columnX[node.layer] ?? Infinity, node.x0)
-    }
+    // Mirrors the engine's column spacing, so a column with no node still gets a position.
+    const columnStep = columnCount <= 1 ? 0 : (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1)
+    const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)
 
     const total = graph.nodes.filter((node) => node.targetLinks.length === 0).reduce((sum, node) => sum + node.value, 0)
 
@@ -278,10 +277,19 @@ export function sankeyHitAt(
     return best ? { kind: 'link', index: best.index } : null
 }
 
+const MIN_CURVE_SAMPLES = 24
+const MAX_CURVE_SAMPLES = 4096
+
 function bezierDistance(x0: number, x1: number, y0: number, y1: number, cursor: { x: number; y: number }): number {
+    // Each coordinate moves at most 1.5x its span per unit of t, so this count keeps adjacent
+    // samples within 1px and a thin ribbon cannot fall between them.
+    const samples = Math.min(
+        MAX_CURVE_SAMPLES,
+        Math.max(MIN_CURVE_SAMPLES, Math.ceil(1.5 * (Math.abs(x1 - x0) + Math.abs(y1 - y0))))
+    )
     let best = Infinity
-    for (let step = 0; step <= 24; step++) {
-        const t = step / 24
+    for (let step = 0; step <= samples; step++) {
+        const t = step / samples
         const distance = Math.hypot(bezierX(x0, x1, t) - cursor.x, bezierY(y0, y1, t) - cursor.y)
         best = Math.min(best, distance)
     }
@@ -289,7 +297,7 @@ function bezierDistance(x0: number, x1: number, y0: number, y1: number, cursor: 
 }
 
 /** x(t) of the ribbon centerline, with both control points at the horizontal midpoint. */
-function bezierX(x0: number, x1: number, t: number): number {
+export function bezierX(x0: number, x1: number, t: number): number {
     const xm = (x0 + x1) / 2
     const u = 1 - t
     return u * u * u * x0 + 3 * u * u * t * xm + 3 * u * t * t * xm + t * t * t * x1
