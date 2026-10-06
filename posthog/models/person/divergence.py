@@ -118,9 +118,6 @@ class RepairSummary:
     undelivered: int
 
 
-# ── ClickHouse and personhog access ──────────────────────────────────
-
-
 def _ch(sql: str, args: dict[str, Any], settings: dict[str, int]) -> list[Any]:
     return sync_execute(sql, args, settings=settings, workload=Workload.OFFLINE, readonly=True)
 
@@ -150,9 +147,6 @@ def _resolve_max_team_id(max_team_id: int | None) -> int:
 
 def _chunks(items: Sequence[_T], size: int) -> list[Sequence[_T]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
-
-
-# ── Scans over team ranges ───────────────────────────────────────────
 
 
 def _scan_team_ranges(
@@ -417,7 +411,8 @@ def _person_kind(pg_version: int, state: _ChPersonState | None) -> PersonDiverge
 
 
 def _target_version(pg_version: int, ch_max_version: int | None) -> int:
-    # One above ClickHouse, not 100: a later Postgres write or tombstone takes the next version and must outrank this row.
+    # One above ClickHouse, not 100 above: a later Postgres write or tombstone takes the next version
+    # and must outrank this row.
     return pg_version if ch_max_version is None else max(pg_version, ch_max_version + 1)
 
 

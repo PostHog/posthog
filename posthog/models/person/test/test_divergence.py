@@ -174,8 +174,6 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             outcome=outcome,
         )
 
-    # ── Scans ────────────────────────────────────────────────────────
-
     def _team_scan_range(self) -> dict[str, int]:
         return {"min_team_id": self.team.pk, "max_team_id": self.team.pk + 1}
 
