@@ -11,7 +11,6 @@ from parameterized import parameterized
 from posthog.tasks import usage_report
 from posthog.usage_counters import (
     COUNTER_FLAG_NAMES,
-    RECORD_UNDERCOUNTS,
     SHADOW_FAILURES,
     UsageCounter,
     UsageCounterCaller,
@@ -31,6 +30,13 @@ SANDBOX_COMPUTE_RESOURCE_KEYS = (
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
+# Removing a counter from RECORD_UNDERCOUNTS must fail these tests, so this set lists the counters by name.
+REALTIME_GUARDED_COUNTERS = {
+    UsageCounter.RECORDINGS,
+    UsageCounter.MOBILE_RECORDINGS,
+    UsageCounter.MOBILE_BILLABLE_RECORDINGS,
+    UsageCounter.WORKFLOW_INVOCATIONS,
+}
 
 
 class TestUsageRecordQuery(SimpleTestCase):
@@ -332,7 +338,7 @@ class TestUsageCounterReport(SimpleTestCase):
                     UsageCounterMode.LEGACY
                     if counter not in COUNTER_FLAG_NAMES
                     else UsageCounterMode.BOTH
-                    if counter in RECORD_UNDERCOUNTS
+                    if counter in REALTIME_GUARDED_COUNTERS
                     else UsageCounterMode.REALTIME
                 )
                 for counter in UsageCounter
@@ -405,6 +411,7 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.EXCEPTIONS: ("exceptions", 107),
             UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
             UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: ("feature_flag_local_evaluation_requests", 109),
+            UsageCounter.WORKFLOW_INVOCATIONS: ("workflow_billable_invocations", 110),
         }
         flag_counters = {UsageCounter.FEATURE_FLAG_REQUESTS, UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS}
         for index, counter in enumerate(counter_keys):
@@ -422,7 +429,7 @@ class TestUsageCounterReport(SimpleTestCase):
 
         for index, (counter, (_, quantity)) in enumerate(counter_keys.items()):
             reads_records = plan.modes[counter] == UsageCounterMode.REALTIME
-            assert reads_records == (mode == UsageCounterMode.REALTIME and counter not in RECORD_UNDERCOUNTS)
+            assert reads_records == (mode == UsageCounterMode.REALTIME and counter not in REALTIME_GUARDED_COUNTERS)
             assert report.counts[counter] == [(1, quantity if reads_records else index + 1)]
         assert report.counts["teams_with_web_exceptions_captured_in_period"] == [(1, 3)]
         assert report.counts["teams_with_js_lite_exceptions_captured_in_period"] == [(1, 5)]
