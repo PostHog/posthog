@@ -313,6 +313,8 @@ def is_insight_query(query: dict) -> bool:
     if kind == "DataTableNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
             return True
+    if kind == "BIVisualizationNode":
+        return isinstance(source, dict) and is_insight_query(source)
     if kind == "DataVisualizationNode":
         if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
             return True
@@ -339,7 +341,7 @@ def is_async_query(query: dict) -> bool:
 
     if kind in _EXTRA_ASYNC_KINDS:
         return True
-    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+    if kind in ("DataTableNode", "DataVisualizationNode", "BIVisualizationNode", "InsightVizNode"):
         source_kind = source.get("kind") if source and isinstance(source, dict) else getattr(source, "kind", None)
         if source_kind in _EXTRA_ASYNC_KINDS:
             return True

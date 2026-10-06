@@ -156,6 +156,33 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_bi_worksheet_round_trip_preserves_wrapper_and_plain_source(self) -> None:
+        config = {
+            "source": {"table": "events"},
+            "chartType": "ActionsBar",
+            "rows": [],
+            "columns": [],
+            "values": [],
+            "filters": [],
+            "limit": 1000,
+        }
+        query = {
+            "kind": "BIVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+            "config": config,
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/?basic=true", {"name": "BI worksheet", "query": query}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        insight_id = response.json()["id"]
+        self.assertEqual(Insight.objects.get(pk=insight_id).query, query)
+        config["chartType"] = "ActionsLineGraph"
+        updated = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true", {"query": query})
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        fetched = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?basic=true")
+        self.assertEqual(fetched.json()["query"], query)
+
     def test_get_insight_items(self) -> None:
         Insight.objects.create(
             query=browser_filtered_pageview_query(),
