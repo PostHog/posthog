@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
+from products.customer_analytics.backend.logic.account_property_coordination import get_source_mapping_key
 from products.customer_analytics.backend.logic.custom_property_source_health import (
     record_sync_failure,
     record_sync_success,
@@ -149,6 +150,7 @@ def _update_source_status_for_terminal_runs(
     team_id: int,
     job_id: str,
     transitioned_source_ids: set[UUID],
+    source_mapping_keys: dict[str, str] | None = None,
 ) -> None:
     if not transitioned_source_ids:
         return
@@ -164,7 +166,8 @@ def _update_source_status_for_terminal_runs(
     sources_by_id = {
         source.id: source
         for source in CustomPropertySource.objects.for_team(team_id)
-        .select_for_update()
+        .select_for_update(of=("self",))
+        .select_related("definition")
         .filter(id__in=transitioned_source_ids)
     }
     for source_id, runs in runs_by_source_id.items():
@@ -175,6 +178,10 @@ def _update_source_status_for_terminal_runs(
 
         source = sources_by_id.get(source_id)
         if source is None:
+            continue
+        if source_mapping_keys is not None and source_mapping_keys.get(str(source_id)) != get_source_mapping_key(
+            source
+        ):
             continue
 
         failed_runs = [run for run in runs if run.status == SyncStatus.FAILED.value]
@@ -199,6 +206,7 @@ def finalize_account_property_sync_runs(
     phase: SyncPhase,
     error: str | None = None,
     segment: SyncSegment | None = None,
+    source_mapping_keys: dict[str, str] | None = None,
 ) -> None:
     with transaction.atomic():
         runs = (
@@ -219,7 +227,9 @@ def finalize_account_property_sync_runs(
             finished_at=timezone.now(),
             error=error,
         )
-        _update_source_status_for_terminal_runs(context.team_id, context.job_id, transitioned_source_ids)
+        _update_source_status_for_terminal_runs(
+            context.team_id, context.job_id, transitioned_source_ids, source_mapping_keys
+        )
 
 
 def finish_account_property_sync_runs(
@@ -228,6 +238,7 @@ def finish_account_property_sync_runs(
     outcomes: list[AccountPropertySyncRunOutcome],
     *,
     finished_at: datetime | None = None,
+    source_mapping_keys: dict[str, str] | None = None,
 ) -> None:
     if not outcomes:
         return
@@ -273,4 +284,6 @@ def finish_account_property_sync_runs(
                     "error",
                 ]
             )
-        _update_source_status_for_terminal_runs(context.team_id, context.job_id, transitioned_source_ids)
+        _update_source_status_for_terminal_runs(
+            context.team_id, context.job_id, transitioned_source_ids, source_mapping_keys
+        )

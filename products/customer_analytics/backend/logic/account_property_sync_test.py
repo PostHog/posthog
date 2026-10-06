@@ -5,16 +5,25 @@ from typing import Any, Generic, TypeVar
 from uuid import uuid4
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.test import override_settings
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.customer_analytics.backend.logic import account_property_sync as aps
+from products.customer_analytics.backend.logic.account_property_coordination import (
+    begin_account_property_sync_attempt,
+    get_next_account_property_sync,
+    request_account_property_sync,
+)
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
     start_account_property_sync_runs,
@@ -34,8 +43,14 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     _write_snapshot_hashes,
     run_account_property_segment_sync,
 )
-from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
+from products.customer_analytics.backend.models import (
+    AccountPropertySyncRequest,
+    CustomPropertySource,
+    CustomPropertySyncRun,
+    CustomPropertyValue,
+)
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
+from products.customer_analytics.backend.temporal.account_property_sync import finish_account_property_sync_activity
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.temporal import (
@@ -455,15 +470,99 @@ class _FakeS3:
         self.times[key] = self._clock
 
     async def _rm(self, paths: str | list[str], *, recursive: bool = False) -> None:
-        del recursive
         for path in [paths] if isinstance(paths, str) else paths:
             key = aps._s3_key(path)
-            self.store.pop(key, None)
-            self.times.pop(key, None)
+            keys = [stored for stored in self.store if stored.startswith(key)] if recursive else [key]
+            for stored in keys:
+                self.store.pop(stored, None)
+                self.times.pop(stored, None)
 
 
 def _fake_s3_patch(fake: _FakeS3) -> AbstractContextManager[object]:
     return patch(f"{_MODULE}.aget_s3_client", lambda: _S3ClientContext(fake))
+
+
+@override_settings(ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED=True)
+class CoordinatedAccountPropertySegmentTest(TeamScopedTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([("project", False), ("environment", True)])
+    def test_segments_keep_staged_rows_until_both_settle_and_the_coordinator_finishes(
+        self, _name: str, environment: bool
+    ) -> None:
+        binding_team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team) if environment else self.team
+        )
+        view = DataWarehouseSavedQuery.objects.create(team=binding_team, name="coordinated_accounts", columns={})
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        source = CustomPropertySource.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            definition=definition,
+            saved_query=view,
+            key_column="external_id",
+            source_column="plan",
+        )
+        tracked = create_account(team_id=self.team.id, external_id="tracked")
+        ignored = create_account(team_id=self.team.id, external_id="ignored", ignored_at=datetime.now(UTC))
+        create_account(team_id=self.team.id, external_id="churned", churned_at=datetime.now(UTC))
+        request_id = request_account_property_sync(team_id=binding_team.id, saved_query_id=str(view.id), job_id="job-1")
+        work = get_next_account_property_sync(team_id=self.team.id, saved_query_id=str(view.id))
+        assert work is not None
+        assert work.team_id == binding_team.id
+        start_account_property_sync_runs(
+            AccountPropertySyncRunContext(team_id=self.team.id, saved_query_id=str(view.id), job_id="job-1"),
+            workflow_id="coordinator",
+            workflow_run_id=None,
+        )
+        binding = saved_query_binding(str(view.id))
+        path = f"{account_property_job_staged_prefix(binding_team.id, binding, 'job-1')}/chunk.parquet"
+        fake = _FakeS3()
+        table = pa.Table.from_pylist(
+            [
+                {"external_id": "tracked", "plan": "tracked plan"},
+                {"external_id": "ignored", "plan": "ignored plan"},
+                {"external_id": "churned", "plan": "churned plan"},
+            ]
+        )
+        buffer = pa.BufferOutputStream()
+        pq.write_table(table, buffer)
+        async_to_sync(fake._pipe_file)(path, buffer.getvalue().to_pybytes())
+        with (
+            _fake_s3_patch(fake),
+            patch(
+                "products.customer_analytics.backend.logic.custom_property_values.emit_account_custom_property_changed"
+            ),
+        ):
+            for segment in AccountPropertySyncSegment:
+                read = begin_account_property_sync_attempt(
+                    team_id=work.team_id,
+                    saved_query_id=str(view.id),
+                    request_id=request_id,
+                    segment=segment.value,
+                )
+                result = async_to_sync(run_account_property_segment_sync)(
+                    team_id=work.team_id,
+                    binding=binding,
+                    job_id="job-1",
+                    segment=segment,
+                    sync_read=read,
+                )
+                assert result["written"] == 1
+                assert path in fake.store
+            assert dict(
+                CustomPropertyValue.objects.for_team(self.team.id)
+                .filter(definition=definition, is_deleted=False)
+                .values_list("account_id", "value_str")
+            ) == {tracked.id: "tracked plan", ignored.id: "ignored plan"}
+            async_to_sync(finish_account_property_sync_activity)(work, None)
+        assert path not in fake.store
+        assert AccountPropertySyncRequest.objects.for_team(self.team.id).get(id=request_id).status == "completed"
+        assert (
+            CustomPropertySyncRun.objects.for_team(self.team.id).filter(source=source, status="completed").count() == 2
+        )
+        source.refresh_from_db()
+        assert source.last_synced_at is not None
+        assert source.consecutive_failures == 0
 
 
 _SNAPSHOT_BINDING = saved_query_binding("019f0000-0000-7000-8000-000000000002")

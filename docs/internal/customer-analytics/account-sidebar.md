@@ -47,6 +47,42 @@ null for that property. The sidebar then displays "Not set". The clear preserves
 and emits a property-change event. Repeated nulls do not emit another change event.
 Missing source rows or columns leave saved values unchanged.
 
+## Concurrent property writes
+
+Sets, clears, and current-value checks share a PostgreSQL transaction lock for each team, account, and property.
+The lock also covers absent values and lasts through the outer transaction's commit or rollback.
+A contended write waits at most one second, or the caller's shorter lock timeout, before returning a retryable conflict.
+Different account/property keys remain independent.
+
+`ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED` defaults to false.
+When enabled, a durable database request queue and one Temporal coordinator serialize bulk syncs for each team and saved view.
+Source edits coalesce into one pending full-view refresh. An edit during a run creates a follow-up.
+A scheduled recovery task delivers requests that missed their initial queue notification.
+Tracked and ignored segments run concurrently within each bulk sync.
+Workflow account creation still enriches one account synchronously and best effort, without waiting for the bulk coordinator.
+
+Publication revisions commit with the materialized view's serving pointer.
+A live-view read retries if the serving revision changes while it reads.
+Each account/property stores the last accepted publication revision and observation generation, including clears and unchanged values.
+Older snapshots cannot overwrite newer accepted inputs. Changed mappings invalidate the old mapping's snapshot cache.
+Segment-attempt tokens fence value writes, terminal run records, and immutable snapshot pointers against timed-out workers.
+Pending and running jobs retain their staged files.
+
+### Enable coordination
+
+1. Apply the additive migration and deploy the guard-capable web, Celery, and Temporal workers with coordination disabled.
+2. Drain pre-upgrade bulk tasks, staging workflows, and segment activities before enabling coordination.
+3. Enable `ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED` on all participating processes.
+4. Confirm that pending requests drain and terminal failures remain visible in source run history.
+
+### Roll back coordination
+
+Keep the coordinator workflow, request recovery, and guarded writers deployed while existing requests drain.
+Pause new source edits and materializations before disabling coordination or deploying older workers.
+Do not run unfenced workers alongside coordinated requests.
+Retain the migration, publication revisions, requests, and accepted-value stamps.
+A code rollback must not unapply the additive migration or discard pending work.
+
 Relationship editors support single and multiple holders. Removing a holder ends the
 assignment without deleting its history. Multi-holder changes retain unchanged holders.
 Relationship saves apply the edits relative to the assignments shown when editing began.

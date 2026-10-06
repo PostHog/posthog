@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.conf import settings
 from django.db import OperationalError
+from django.test import override_settings
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -305,7 +306,10 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_full_re
 
 
 @pytest.mark.asyncio
-async def test_retry_clears_its_staged_files_and_sweeps_abandoned_jobs() -> None:
+@pytest.mark.parametrize("coordinated,protected", [(False, False), (True, False), (True, True)])
+async def test_retry_clears_its_staged_files_and_sweeps_only_unprotected_abandoned_jobs(
+    coordinated: bool, protected: bool
+) -> None:
     sink = _sink()
     stale_file = f"{sink._get_binding_prefix()}/job-old/chunk.parquet"
     client = MagicMock()
@@ -314,9 +318,16 @@ async def test_retry_clears_its_staged_files_and_sweeps_abandoned_jobs() -> None
     )
     client._rm = AsyncMock()
 
-    with patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)):
+    with (
+        override_settings(ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED=coordinated),
+        patch(f"{_MODULE}.aget_s3_client", return_value=_S3ClientContext(client)),
+        patch(
+            f"{_MODULE}.get_protected_account_property_jobs",
+            return_value=frozenset({"job-old"}) if protected else frozenset(),
+        ),
+    ):
         await sink.clear()
 
     removed = [call.args[0] for call in client._rm.await_args_list]
     assert f"s3://{sink._get_path_prefix()}/" in removed
-    assert [f"s3://{stale_file}"] in removed
+    assert ([f"s3://{stale_file}"] in removed) is (not protected)

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from posthog.dataclasses import frozen
 
 
@@ -33,3 +35,21 @@ class AccountPropertySyncInput:
     saved_query_id: str
     job_id: str
     segment: str
+    request_id: str | None = None
+
+
+@frozen
+class AccountPropertySyncCoordinatorInput:
+    team_id: int
+    saved_query_id: str
+
+
+@frozen
+class AccountPropertySyncWork:
+    team_id: int
+    saved_query_id: str
+    request_id: str
+    job_id: str
+    kind: Literal["live", "staged"]
+    generation: int
+    started_at: str

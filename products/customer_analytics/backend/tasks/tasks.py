@@ -124,12 +124,58 @@ def process_feature_request_github_issue(
 
 
 @shared_task(name="customer_analytics.process_custom_property_sync", ignore_result=True)
-def process_custom_property_sync(team_id: int, saved_query_id: str) -> None:
+def process_custom_property_sync(team_id: int, saved_query_id: str, request_id: str | None = None) -> None:
+    from asgiref.sync import async_to_sync
+
+    from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncCoordinatorInput
+    from products.customer_analytics.backend.logic.account_property_coordination import (
+        account_property_coordination_enabled,
+        request_account_property_sync,
+    )
+
     try:
+        if account_property_coordination_enabled():
+            from products.customer_analytics.backend.temporal.account_property_sync import (
+                wake_account_property_sync_coordinator,
+            )
+
+            if request_id is None:
+                request_account_property_sync(team_id=team_id, saved_query_id=saved_query_id)
+            async_to_sync(wake_account_property_sync_coordinator)(
+                AccountPropertySyncCoordinatorInput(team_id=team_id, saved_query_id=saved_query_id)
+            )
+            return
         sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
     except Exception as error:
         capture_exception(error)
         raise
+
+
+@shared_task(name="customer_analytics.recover_pending_account_property_syncs", ignore_result=True)
+def recover_pending_account_property_syncs() -> None:
+    from asgiref.sync import async_to_sync
+
+    from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncCoordinatorInput
+    from products.customer_analytics.backend.logic.account_property_coordination import (
+        account_property_coordination_enabled,
+        list_pending_account_property_syncs,
+    )
+
+    if not account_property_coordination_enabled():
+        return
+
+    from products.customer_analytics.backend.temporal.account_property_sync import (
+        wake_account_property_sync_coordinator,
+    )
+
+    for team_id, saved_query_id in list_pending_account_property_syncs():
+        try:
+            async_to_sync(wake_account_property_sync_coordinator)(
+                AccountPropertySyncCoordinatorInput(team_id=team_id, saved_query_id=saved_query_id)
+            )
+        except Exception as error:
+            logger.exception("Account-property sync recovery failed", team_id=team_id, saved_query_id=saved_query_id)
+            capture_exception(error)
 
 
 @shared_task(

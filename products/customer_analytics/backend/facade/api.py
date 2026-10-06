@@ -124,6 +124,10 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.account_property_coordination import (
+    account_property_coordination_enabled,
+    request_account_property_sync,
+)
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -146,6 +150,7 @@ from products.customer_analytics.backend.models import (
     CANONICAL_DISPLAY_TYPE_BY_NAME,
     Account,
     AccountChannelSummary,
+    AccountPropertySyncRequest,
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
@@ -2099,12 +2104,12 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
-def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
+def _send_initial_account_property_sync(team_id: int, saved_query_id: str, request_id: str | None = None) -> None:
+    kwargs = {"team_id": team_id, "saved_query_id": saved_query_id}
+    if request_id is not None:
+        kwargs["request_id"] = request_id
     try:
-        current_app.send_task(
-            "customer_analytics.process_custom_property_sync",
-            kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
-        )
+        current_app.send_task("customer_analytics.process_custom_property_sync", kwargs=kwargs)
     except Exception as error:
         capture_exception(error)
 
@@ -2117,7 +2122,11 @@ def _enqueue_initial_account_property_sync(source: CustomPropertySource) -> None
     ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
-    transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
+    if account_property_coordination_enabled():
+        request_id = request_account_property_sync(team_id=team_id, saved_query_id=saved_query_id)
+        transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id, request_id))
+    else:
+        transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
 
 
 # Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
@@ -2150,6 +2159,15 @@ def _expire_stale_running_runs(team_id: int, runs: "Iterable[CustomPropertySyncR
     ]
     if not stale:
         return
+    if account_property_coordination_enabled():
+        protected = set(
+            AccountPropertySyncRequest.objects.for_team(team_id)
+            .filter(job_id__in=[run.job_id for run in stale], status__in=["pending", "running"])
+            .values_list("saved_query_id", "job_id")
+        )
+        stale = [run for run in stale if (run.saved_query_id, run.job_id) not in protected]
+        if not stale:
+            return
     finished_at = timezone.now()
     CustomPropertySyncRun.objects.for_team(team_id).filter(id__in=[run.id for run in stale]).update(
         status=SyncStatus.FAILED.value, finished_at=finished_at, error=STALE_RUNNING_RUN_ERROR
@@ -2552,14 +2570,15 @@ def create_custom_property_source(
         create_kwargs["source_column"] = source_column
 
     try:
-        source = CustomPropertySource.objects.for_team(team_id).create(**create_kwargs)
+        with transaction.atomic():
+            source = CustomPropertySource.objects.for_team(team_id).create(**create_kwargs)
+            _enqueue_initial_account_property_sync(source)
     except IntegrityError as exc:
         # Both FKs are team-validated above, so the only expected violation is the definition's
         # one-to-one uniqueness; re-raise anything else instead of mislabeling it as a duplicate.
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
-    _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 

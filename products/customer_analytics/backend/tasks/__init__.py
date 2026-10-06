@@ -6,6 +6,7 @@ from products.customer_analytics.backend.tasks.tasks import (  # noqa: F401
     process_feature_request_github_issue,
     recalculate_email_thread_account_links,
     recalculate_email_thread_account_links_for_threads,
+    recover_pending_account_property_syncs,
     rematch_account_meetings,
     send_announcement,
 )

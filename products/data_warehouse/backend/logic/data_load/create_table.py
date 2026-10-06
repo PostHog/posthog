@@ -12,13 +12,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
+from products.customer_analytics.backend.facade.account_property_sync import record_account_property_publication
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
     aget_saved_query_by_id,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
@@ -60,6 +61,18 @@ def _get_or_create_table_for_saved_query(
         saved_query.table = table
         saved_query.save(update_fields=["table", "updated_at"])
         return table
+
+
+@database_sync_to_async_pool
+def _publish_table_for_saved_query(
+    table: DataWarehouseTable, *, team_id: int, saved_query_id: str, job_id: str
+) -> None:
+    with transaction.atomic():
+        DataWarehouseTable.objects.select_for_update(of=("self",)).get(id=table.id, team_id=team_id)
+        if record_account_property_publication(team_id=team_id, saved_query_id=saved_query_id, job_id=job_id):
+            table.save()
+        else:
+            table.refresh_from_db()
 
 
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
@@ -154,7 +167,9 @@ async def create_table_from_saved_query(
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
-        await asave_datawarehousetable(table_created)
+        await _publish_table_for_saved_query(
+            table_created, team_id=team_id, saved_query_id=saved_query_id_converted, job_id=job_id
+        )
 
         return CreateTableResult(
             table=table_created,

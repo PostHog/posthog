@@ -16,8 +16,17 @@ import pyarrow.parquet as pq
 from structlog.typing import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
+from products.customer_analytics.backend.logic.account_property_coordination import (
+    AccountPropertySyncRead,
+    get_account_property_snapshot_path,
+    get_source_mapping_key,
+    guard_account_property_sync_attempt,
+    set_account_property_snapshot_path,
+    set_coordinated_source_value,
+)
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
     AccountPropertySyncRunOutcome,
@@ -25,6 +34,7 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     finish_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
+    CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     set_synced_custom_property_value,
 )
@@ -72,6 +82,7 @@ class AppliedSourceValues:
     written: int
     hashes: dict[str, str]
     failed: bool
+    deferred: int = 0
 
 
 class _SnapshotS3Client(Protocol):
@@ -264,6 +275,67 @@ async def _write_snapshot_hashes(
                         continue
 
 
+async def _read_coordinated_snapshot_hashes(
+    read: AccountPropertySyncRead, source: CustomPropertySource
+) -> dict[str, str]:
+    path = await database_sync_to_async(get_account_property_snapshot_path, thread_sensitive=False)(read, source)
+    if path is None:
+        return {}
+    async with aget_s3_client() as s3_client:
+        merge = await _merge_snapshot_files(s3_client, [path])
+    return merge.hashes if merge.complete else {}
+
+
+async def _write_coordinated_snapshot_hashes(
+    read: AccountPropertySyncRead,
+    binding: WarehouseBinding,
+    source: CustomPropertySource,
+    segment: AccountPropertySyncSegment,
+    hashes: dict[str, str],
+) -> None:
+    prefix = account_property_snapshot_prefix(read.team_id, binding, str(source.id), segment.value)
+    path = f"{prefix}/coordinated/{get_source_mapping_key(source)}/{read.generation}/{read.token}.parquet"
+    snapshot = await asyncio.to_thread(_encode_snapshot, hashes)
+    async with aget_s3_client() as s3_client:
+        await s3_client._pipe_file(_s3_uri(path), snapshot)
+    previous = await database_sync_to_async(set_account_property_snapshot_path, thread_sensitive=False)(
+        read, source, path
+    )
+    if previous is not None:
+        try:
+            async with aget_s3_client() as s3_client:
+                await s3_client._rm(_s3_uri(previous))
+        except FileNotFoundError:
+            pass
+        except Exception as error:
+            logger.exception("Account-property snapshot cleanup failed")
+            capture_exception(error)
+
+
+def _finish_segment_runs(
+    read: AccountPropertySyncRead | None,
+    context: AccountPropertySyncRunContext,
+    segment: AccountPropertySyncSegment,
+    outcomes: list[AccountPropertySyncRunOutcome],
+    *,
+    error: str | None = None,
+    source_mapping_keys: dict[str, str] | None = None,
+) -> None:
+    if read is not None:
+        with guard_account_property_sync_attempt(read, exclusive=True):
+            _finish_segment_runs(None, context, segment, outcomes, error=error, source_mapping_keys=source_mapping_keys)
+        return
+    finish_account_property_sync_runs(context, segment, outcomes, source_mapping_keys=source_mapping_keys)
+    finalize_account_property_sync_runs(
+        context,
+        status=SyncStatus.FAILED if error else SyncStatus.COMPLETED,
+        phase=SyncPhase.SYNCING if error else SyncPhase.COMPLETED,
+        error=error,
+        segment=segment,
+        source_mapping_keys=source_mapping_keys,
+    )
+
+
 def _matching_account_ids(
     team_id: int, segment: AccountPropertySyncSegment, external_ids: list[str]
 ) -> dict[str, UUID]:
@@ -292,19 +364,31 @@ def _apply_source_values(
     account_ids: dict[str, UUID],
     changed: dict[str, Any],
     segment: AccountPropertySyncSegment,
+    sync_read: AccountPropertySyncRead | None = None,
 ) -> AppliedSourceValues:
     written = 0
+    deferred = 0
     applied_hashes: dict[str, str] = {}
     source_failed = False
     for external_id, account_id in account_ids.items():
         value = changed[external_id]
         try:
-            did_write = set_synced_custom_property_value(
-                team_id=team_id,
-                account_id=account_id,
-                definition=source.definition,
-                value=value,
-            )
+            if sync_read is not None:
+                did_write = set_coordinated_source_value(
+                    read=sync_read, source=source, account_id=account_id, value=value
+                )
+                if did_write is None:
+                    continue
+            else:
+                did_write = set_synced_custom_property_value(
+                    team_id=team_id,
+                    account_id=account_id,
+                    definition=source.definition,
+                    value=value,
+                )
+        except CustomPropertyValueConflict:
+            deferred += 1
+            continue
         except InvalidCustomPropertyValue as error:
             source_failed = True
             logger.warning(
@@ -318,7 +402,7 @@ def _apply_source_values(
         if did_write:
             written += 1
         applied_hashes[external_id] = _value_hash(value)
-    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed)
+    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed, deferred=deferred)
 
 
 def _enabled_sources(team_id: int, binding: WarehouseBinding) -> list[CustomPropertySource]:
@@ -377,6 +461,7 @@ async def run_account_property_segment_sync(
     job_id: str,
     segment: AccountPropertySyncSegment,
     final_attempt: bool = False,
+    sync_read: AccountPropertySyncRead | None = None,
 ) -> dict[str, int]:
     log = logger.bind(
         team_id=team_id,
@@ -387,6 +472,7 @@ async def run_account_property_segment_sync(
     counts = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
     states: list[SourceSyncState] = []
+    source_mapping_keys: dict[str, str] | None = None
     run_context = AccountPropertySyncRunContext(
         team_id=team_id,
         saved_query_id=binding.id,
@@ -394,16 +480,22 @@ async def run_account_property_segment_sync(
     )
 
     try:
-        if await _segment_already_completed(team_id, binding, job_id, segment):
+        if sync_read is None and await _segment_already_completed(team_id, binding, job_id, segment):
             return {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0}
 
         sources = await database_sync_to_async(_enabled_sources, thread_sensitive=False)(team_id, binding)
         states = [
             SourceSyncState(source=source, prior_hashes={}) for source in sources if source.source_column is not None
         ]
+        if sync_read is not None:
+            source_mapping_keys = {str(state.source.id): get_source_mapping_key(state.source) for state in states}
         phase_started_at = asyncio.get_running_loop().time()
         for state in states:
-            state.prior_hashes.update(await _read_snapshot_hashes(team_id, binding, str(state.source.id), segment))
+            state.prior_hashes.update(
+                await _read_coordinated_snapshot_hashes(sync_read, state.source)
+                if sync_read is not None
+                else await _read_snapshot_hashes(team_id, binding, str(state.source.id), segment)
+            )
         _record_phase_duration(
             log,
             segment,
@@ -457,15 +549,17 @@ async def run_account_property_segment_sync(
                     phase_started_at,
                     phase_details,
                 )
-                if not changed:
+                candidate_values = values_by_external_id if sync_read is not None else changed
+                if not candidate_values:
                     continue
 
                 phase_started_at = asyncio.get_running_loop().time()
                 account_ids = await database_sync_to_async(_matching_account_ids, thread_sensitive=False)(
-                    team_id, segment, list(changed)
+                    team_id, segment, list(candidate_values)
                 )
-                state.matched += len(account_ids)
-                counts["matched"] += len(account_ids)
+                changed_matches = sum(external_id in changed for external_id in account_ids)
+                state.matched += changed_matches
+                counts["matched"] += changed_matches
                 _record_phase_duration(
                     log,
                     segment,
@@ -475,9 +569,16 @@ async def run_account_property_segment_sync(
                 )
 
                 phase_started_at = asyncio.get_running_loop().time()
-                applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
-                    team_id, source, account_ids, changed, segment
-                )
+                if sync_read is None:
+                    applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
+                        team_id, source, account_ids, candidate_values, segment
+                    )
+                else:
+                    applied = await database_sync_to_async(_apply_source_values, thread_sensitive=False)(
+                        team_id, source, account_ids, candidate_values, segment, sync_read
+                    )
+                if sync_read is not None and applied.deferred:
+                    counts["deferred"] = counts.get("deferred", 0) + applied.deferred
                 state.written += applied.written
                 counts["written"] += applied.written
                 if applied.failed:
@@ -503,14 +604,17 @@ async def run_account_property_segment_sync(
         for state in states:
             if state.error is not None:
                 counts["source_errors"] += 1
-            await _write_snapshot_hashes(
-                team_id,
-                binding,
-                str(state.source.id),
-                segment,
-                job_id,
-                state.applied_hashes,
-            )
+            if sync_read is not None:
+                await _write_coordinated_snapshot_hashes(sync_read, binding, state.source, segment, state.prior_hashes)
+            else:
+                await _write_snapshot_hashes(
+                    team_id,
+                    binding,
+                    str(state.source.id),
+                    segment,
+                    job_id,
+                    state.applied_hashes,
+                )
             persisted_hashes += len(state.applied_hashes)
         _record_phase_duration(
             log,
@@ -521,7 +625,8 @@ async def run_account_property_segment_sync(
         )
     except Exception:
         if final_attempt:
-            await database_sync_to_async(finish_account_property_sync_runs)(
+            await database_sync_to_async(_finish_segment_runs)(
+                sync_read,
                 run_context,
                 segment,
                 [
@@ -535,17 +640,16 @@ async def run_account_property_segment_sync(
                     )
                     for state in states
                 ],
-            )
-            await database_sync_to_async(finalize_account_property_sync_runs)(
-                run_context,
-                status=SyncStatus.FAILED,
-                phase=SyncPhase.SYNCING,
                 error=_RUN_FAILED_ERROR,
-                segment=segment,
+                source_mapping_keys=source_mapping_keys,
             )
         raise
 
-    await database_sync_to_async(finish_account_property_sync_runs)(
+    if counts.get("deferred"):
+        return counts
+
+    await database_sync_to_async(_finish_segment_runs)(
+        sync_read,
         run_context,
         segment,
         [
@@ -559,12 +663,7 @@ async def run_account_property_segment_sync(
             )
             for state in states
         ],
-    )
-    await database_sync_to_async(finalize_account_property_sync_runs)(
-        run_context,
-        status=SyncStatus.COMPLETED,
-        phase=SyncPhase.COMPLETED,
-        segment=segment,
+        source_mapping_keys=source_mapping_keys,
     )
 
     if counts["source_errors"]:
@@ -572,5 +671,6 @@ async def run_account_property_segment_sync(
             f"{counts['source_errors']} account-property source(s) contained invalid values"
         )
 
-    await _mark_completed_and_maybe_cleanup(team_id, binding, job_id, segment)
+    if sync_read is None:
+        await _mark_completed_and_maybe_cleanup(team_id, binding, job_id, segment)
     return counts

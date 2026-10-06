@@ -89,7 +89,10 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
-from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.customer_analytics.backend.facade.tasks import (
+    recover_pending_account_property_syncs,
+    schedule_task_digests,
+)
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -1228,4 +1231,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         schedule_task_digests.s(),
         name="schedule customer task digests",
         expires_seconds=300,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        60.0,
+        recover_pending_account_property_syncs.s(),
+        name="recover pending account-property syncs",
+        expires_seconds=60,
     )

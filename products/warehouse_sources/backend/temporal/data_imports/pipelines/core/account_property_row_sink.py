@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
+from products.customer_analytics.backend.facade.account_property_sync import get_protected_account_property_jobs
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     AccountPropertySourceProjection,
@@ -248,10 +249,18 @@ class AccountPropertyRowSink:
                 if current is None or last_modified > current:
                     newest_by_job[job_segment] = last_modified
 
+        protected_jobs = (
+            await database_sync_to_async_pool(get_protected_account_property_jobs)(
+                team_id=self.team_id, saved_query_id=self.binding.id
+            )
+            if settings.ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED
+            else frozenset()
+        )
         cutoff = datetime.now(UTC) - ABANDONED_STAGED_PREFIX_TTL
         stale_files = [
             key
             for job_segment, keys in files_by_job.items()
+            if job_segment not in protected_jobs
             # A prefix with no LastModified at all holds only directory markers — safe to sweep.
             if (newest := newest_by_job.get(job_segment)) is None or newest < cutoff
             for key in keys

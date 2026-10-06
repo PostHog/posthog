@@ -33,6 +33,10 @@ USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED = get_from_env(
+    "ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED", False, type_cast=str_to_bool
+)
+
 # Load the full warehouse source catalog (every vendor SDK) at web-worker startup, before
 # the worker starts serving, so its first warehouse query doesn't pay the multi-second
 # catalog import at request time. WSGI workers load while importing posthog.wsgi, ASGI

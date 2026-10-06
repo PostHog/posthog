@@ -16,9 +16,21 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.scoping.manager import resolve_effective_team_id
 
+from products.customer_analytics.backend.logic.account_property_coordination import (
+    AccountPropertySyncRead,
+    AccountPropertySyncReadChanged,
+    account_property_coordination_enabled,
+    assert_account_property_sync_read_current,
+    begin_account_property_sync_read,
+    get_source_mapping_key,
+    request_account_property_sync,
+    set_coordinated_source_value,
+)
 from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
@@ -33,7 +45,7 @@ _WRITE_CONFLICT_RETRIES = 3
 _SYNC_KEYS_PER_QUERY = 1000
 
 
-@dataclasses.dataclass
+@frozen(frozen=False)
 class SyncResult:
     view_found: bool
     written: int = 0
@@ -41,11 +53,22 @@ class SyncResult:
     accounts_total: int = 0
     rows_fetched: int = 0
     source_errors: dict[str, str] = dataclasses.field(default_factory=dict)
+    deferred: int = 0
+    source_mapping_keys: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def sync_custom_property_values(
-    *, team_id: int, saved_query_id: str | UUID, external_id: str | None = None
+    *,
+    team_id: int,
+    saved_query_id: str | UUID,
+    external_id: str | None = None,
+    sync_read: AccountPropertySyncRead | None = None,
 ) -> SyncResult:
+    if account_property_coordination_enabled() and sync_read is None:
+        if external_id is None:
+            request_account_property_sync(team_id=team_id, saved_query_id=str(saved_query_id))
+            return SyncResult(view_found=True)
+        sync_read = begin_account_property_sync_read(team_id=team_id, saved_query_id=str(saved_query_id))
     sources = list(
         CustomPropertySource.objects.for_team(team_id)
         .filter(saved_query_id=saved_query_id, is_enabled=True)
@@ -57,9 +80,13 @@ def sync_custom_property_values(
     saved_query = sources[0].saved_query  # every source for this view points at the same one
     if saved_query is None or saved_query.deleted:
         return SyncResult(view_found=False)
+    if resolve_effective_team_id(saved_query.team_id) != resolve_effective_team_id(team_id):
+        raise ValueError("The source view does not belong to this project.")
 
     available_columns = set((saved_query.columns or {}).keys())
-    result = SyncResult(view_found=True)
+    result = SyncResult(
+        view_found=True, source_mapping_keys={str(source.id): get_source_mapping_key(source) for source in sources}
+    )
     usable: list[CustomPropertySource] = []
     selected_columns: set[str] = set()
     for source in sources:
@@ -79,11 +106,19 @@ def sync_custom_property_values(
     column_index = {column: position for position, column in enumerate(ordered)}
     account_ids_by_external_id = _get_account_ids_by_external_id(team_id, external_id=external_id)
     external_ids = sorted(account_ids_by_external_id)
-    team = Team.objects.get(id=team_id)
-    rows_by_key_column = {
-        key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
-        for key_column in sorted({source.key_column for source in usable})
-    }
+    team = Team.objects.get(id=saved_query.team_id)
+    try:
+        if sync_read is not None:
+            assert_account_property_sync_read_current(sync_read)
+        rows_by_key_column = {
+            key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
+            for key_column in sorted({source.key_column for source in usable})
+        }
+        if sync_read is not None:
+            assert_account_property_sync_read_current(sync_read)
+    except AccountPropertySyncReadChanged:
+        result.deferred = 1
+        return result
     result.accounts_total = len(account_ids_by_external_id)
     result.rows_fetched = sum(len(rows) for rows in rows_by_key_column.values())
 
@@ -101,7 +136,14 @@ def sync_custom_property_values(
             if account_id is None:
                 unmatched.add(key)
                 continue
-            if _write(team_id=team_id, account_id=account_id, source=source, value=row[value_index], result=result):
+            if _write(
+                team_id=team_id,
+                account_id=account_id,
+                source=source,
+                value=row[value_index],
+                result=result,
+                sync_read=sync_read,
+            ):
                 result.written += 1
     result.unmatched_keys = len(unmatched)
     return result
@@ -116,10 +158,22 @@ def _get_account_ids_by_external_id(team_id: int, external_id: str | None = None
     }
 
 
-def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value: Any, result: SyncResult) -> bool:
+def _write(
+    *,
+    team_id: int,
+    account_id: Any,
+    source: CustomPropertySource,
+    value: Any,
+    result: SyncResult,
+    sync_read: AccountPropertySyncRead | None = None,
+) -> bool:
     last_conflict: CustomPropertyValueConflict | None = None
     for _ in range(_WRITE_CONFLICT_RETRIES):
         try:
+            if sync_read is not None:
+                return bool(
+                    set_coordinated_source_value(read=sync_read, source=source, account_id=account_id, value=value)
+                )
             if value is None:
                 return set_synced_custom_property_value(
                     team_id=team_id, account_id=account_id, definition=source.definition, value=None
@@ -138,7 +192,10 @@ def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value
     # recorded as a source error (that would auto-disable a healthy source over an environmental
     # race), but captured so the exhausted-retry case stays visible.
     if last_conflict is not None:
-        capture_exception(last_conflict)
+        if sync_read is not None:
+            result.deferred += 1
+        else:
+            capture_exception(last_conflict)
     return False
 
 

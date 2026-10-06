@@ -2,28 +2,38 @@
 Business logic for per-account custom property values.
 
 ORM queries, type validation/coercion, the soft-delete + insert transaction, append-only history.
-Called by facade/api.py. Do not call from outside this module.
+Called by facade/api.py and the account property sync coordinator.
 """
 
 import math
-from collections.abc import Callable
+import hashlib
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, connections, router, transaction
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 
 from products.customer_analytics.backend.events import emit_account_custom_property_changed
+from products.customer_analytics.backend.logic.account_property_sync_generation import (
+    get_account_property_sync_generation,
+)
 from products.customer_analytics.backend.models import (
     CANONICAL_LAST_SLACK_MESSAGE_AT,
     Account,
+    AccountPropertySyncState,
+    AccountPropertySyncValueState,
     CustomPropertyDefinition,
+    CustomPropertySource,
     CustomPropertyValue,
     DataType,
     DisplayType,
@@ -57,12 +67,45 @@ class CustomPropertyDefinitionNotFound(Exception):
 
 
 class CustomPropertyValueConflict(Exception):
-    """Raised when a concurrent write already set an active value for this (account, definition).
+    """Raised for per-value lock contention or an active-value uniqueness race. Retry the write."""
 
-    Only the active-value uniqueness race maps to this — retrying succeeds, since the retry
-    soft-deletes the now-existing active row before inserting. Any other integrity error is a real
-    fault and is left to surface.
+
+_CUSTOM_PROPERTY_VALUE_LOCK_TIMEOUT_MS = 1000
+
+
+@contextmanager
+def guard_custom_property_value(*, team_id: int, account_id: str | UUID, definition_id: str | UUID) -> Iterator[str]:
+    """Guard current-value checks and writes, including when no value row exists.
+
+    Yields the writer database alias. The lock lasts until the outer transaction commits or
+    rolls back, not just until this context exits. Callers that guard several keys in one
+    transaction must acquire them in a consistent order to avoid deadlocks.
     """
+    using = router.db_for_write(CustomPropertyValue)
+    team_id = resolve_effective_team_id(team_id)
+    key = f"customer_analytics:custom_property_value:{team_id}:{UUID(str(account_id))}:{UUID(str(definition_id))}"
+    lock_id = int.from_bytes(hashlib.blake2b(key.encode(), digest_size=8).digest(), signed=True)
+    with transaction.atomic(using=using):
+        try:
+            # A savepoint restores the caller's timeout and keeps its transaction usable on contention.
+            with transaction.atomic(using=using), connections[using].cursor() as cursor:
+                cursor.execute(
+                    "SELECT current_setting('lock_timeout'), setting::bigint FROM pg_settings WHERE name = 'lock_timeout'"
+                )
+                previous_timeout, previous_timeout_ms = cursor.fetchone()
+                timeout_ms = min(
+                    previous_timeout_ms or _CUSTOM_PROPERTY_VALUE_LOCK_TIMEOUT_MS,
+                    _CUSTOM_PROPERTY_VALUE_LOCK_TIMEOUT_MS,
+                )
+                cursor.execute("SELECT set_config('lock_timeout', %s, true)", [f"{timeout_ms}ms"])
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
+                cursor.execute("SELECT set_config('lock_timeout', %s, true)", [previous_timeout])
+        except OperationalError as exc:
+            cause = exc.__cause__
+            if getattr(cause, "sqlstate", None) == "55P03" or getattr(cause, "pgcode", None) == "55P03":
+                raise CustomPropertyValueConflict("This property is being updated. Retry the change.") from exc
+            raise
+        yield using
 
 
 def set_custom_property_value(
@@ -83,7 +126,7 @@ def set_custom_property_value(
 
     Raises `CustomPropertyDefinitionNotFound` (unknown definition), `Account.DoesNotExist`
     (account not in team), `InvalidCustomPropertyValue` (value doesn't match the data type), or
-    `CustomPropertyValueConflict` (a concurrent write won the active-value race — retry).
+    `CustomPropertyValueConflict` (per-value lock contention or an active-value race; retry).
     """
     try:
         definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
@@ -99,6 +142,13 @@ def set_custom_property_value(
         actor=actor,
         workflow_id=workflow_id,
     )
+
+
+def _get_definition_lock_order(identifier: str) -> str:
+    try:
+        return str(UUID(identifier))
+    except ValueError:
+        return identifier
 
 
 def set_account_custom_properties_by_id(
@@ -122,7 +172,7 @@ def set_account_custom_properties_by_id(
     """
     _assert_account_in_team(team_id=team_id, account_id=account_id)
     rows: list[CustomPropertyValue] = []
-    for definition_id, value in properties.items():
+    for definition_id, value in sorted(properties.items(), key=lambda item: _get_definition_lock_order(item[0])):
         try:
             definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
         except (CustomPropertyDefinition.DoesNotExist, ValidationError) as exc:
@@ -174,22 +224,26 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
         defaults={"display_type": DisplayType.DATETIME},
     )
     for _attempt in range(_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS):
-        current = (
-            CustomPropertyValue.objects.for_team(team_id)
-            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
-            .values_list("value_datetime", flat=True)
-            .first()
-        )
-        if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
-            return False
         try:
-            _set_value(
-                team_id=team_id,
-                account_id=account_id,
-                definition=definition,
-                value=timestamp,
-                created_by_id=None,
-            )
+            with guard_custom_property_value(
+                team_id=team_id, account_id=account_id, definition_id=definition.id
+            ) as using:
+                current = (
+                    CustomPropertyValue.objects.for_team(team_id)
+                    .using(using)
+                    .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+                    .values_list("value_datetime", flat=True)
+                    .first()
+                )
+                if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
+                    return False
+                _set_value(
+                    team_id=team_id,
+                    account_id=account_id,
+                    definition=definition,
+                    value=timestamp,
+                    created_by_id=None,
+                )
         except CustomPropertyValueConflict:
             continue
         return True
@@ -200,26 +254,60 @@ def set_synced_custom_property_value(
     *, team_id: int, account_id: str | UUID, definition: CustomPropertyDefinition, value: Any
 ) -> bool:
     """Set or clear a warehouse value for an account already resolved inside this team."""
-    if value is None:
-        return _clear_value(team_id=team_id, account_id=account_id, definition=definition)
-    _, coerced = _coerce_to_column(definition, value)
-    current = (
-        CustomPropertyValue.objects.for_team(team_id)
-        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+    with guard_custom_property_value(team_id=team_id, account_id=account_id, definition_id=definition.id) as using:
+        if value is None:
+            return _clear_value(team_id=team_id, account_id=account_id, definition=definition)
+        _, coerced = _coerce_to_column(definition, value)
+        current = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .using(using)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+            .first()
+        )
+        if current is not None:
+            current.definition = definition
+            if value_of(current) == coerced:
+                return False
+        _set_value(
+            team_id=team_id,
+            account_id=account_id,
+            definition=definition,
+            value=value,
+            created_by_id=None,
+        )
+        return True
+
+
+def _record_property_write(*, team_id: int, account_id: str | UUID, definition_id: UUID) -> None:
+    if not settings.ACCOUNT_PROPERTY_SYNC_COORDINATION_ENABLED:
+        return
+    team_id = resolve_effective_team_id(team_id)
+    source = (
+        CustomPropertySource.objects.for_team(team_id)
+        .using(router.db_for_write(CustomPropertySource))
+        .filter(definition_id=definition_id, saved_query_id__isnull=False)
         .first()
     )
-    if current is not None:
-        current.definition = definition
-        if value_of(current) == coerced:
-            return False
-    _set_value(
+    revision = (
+        AccountPropertySyncState.objects.for_team(team_id)
+        .using(router.db_for_write(AccountPropertySyncState))
+        .filter(saved_query_id=source.saved_query_id)
+        .values_list("publication_revision", flat=True)
+        .first()
+        if source is not None and source.saved_query_id is not None
+        else 0
+    )
+    AccountPropertySyncValueState.objects.for_team(team_id).update_or_create(
         team_id=team_id,
         account_id=account_id,
-        definition=definition,
-        value=value,
-        created_by_id=None,
+        definition_id=definition_id,
+        defaults={
+            "source_id": source.id if source is not None else None,
+            "snapshot_revision": revision or 0,
+            "is_direct_write": True,
+            "generation": get_account_property_sync_generation(),
+        },
     )
-    return True
 
 
 def _set_value(
@@ -235,9 +323,11 @@ def _set_value(
     """Coerce `value` and atomically supersede the account's active row for `definition`."""
     column, coerced = _coerce_to_column(definition, value)
     try:
-        with transaction.atomic():
-            active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
-                account_id=account_id, definition_id=definition.id, is_deleted=False
+        with guard_custom_property_value(team_id=team_id, account_id=account_id, definition_id=definition.id) as using:
+            active_rows = (
+                CustomPropertyValue.objects.for_team(team_id)
+                .using(using)
+                .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
             )
             previous_row = active_rows.first()
             active_rows.update(is_deleted=True)
@@ -248,6 +338,7 @@ def _set_value(
                 created_by_id=created_by_id,
                 **{column: coerced},
             )
+            _record_property_write(team_id=team_id, account_id=account_id, definition_id=definition.id)
             _schedule_value_changed_event(
                 team_id=team_id,
                 account_id=account_id,
@@ -275,18 +366,22 @@ def _clear_value(
     actor: User | None = None,
     workflow_id: str | None = None,
 ) -> bool:
-    with transaction.atomic():
-        active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=account_id, definition_id=definition.id, is_deleted=False
+    with guard_custom_property_value(team_id=team_id, account_id=account_id, definition_id=definition.id) as using:
+        active_rows = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .using(using)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
         )
         previous_row = active_rows.first()
         if previous_row is None:
+            _record_property_write(team_id=team_id, account_id=account_id, definition_id=definition.id)
             return False
         cleared_rows = active_rows.filter(id=previous_row.id).update(is_deleted=True)
         if cleared_rows == 0:
             raise CustomPropertyValueConflict(
                 f"An active value for custom property '{definition.name}' was changed concurrently."
             )
+        _record_property_write(team_id=team_id, account_id=account_id, definition_id=definition.id)
         _schedule_value_changed_event(
             team_id=team_id,
             account_id=account_id,
@@ -336,7 +431,7 @@ def _schedule_value_changed_event(
         except Exception as e:
             capture_exception(e)
 
-    transaction.on_commit(emit)
+    transaction.on_commit(emit, using=router.db_for_write(CustomPropertyValue))
 
 
 def _is_active_value_conflict(exc: IntegrityError) -> bool:
