@@ -86,7 +86,7 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
                 "Diagnose the bias warning on the 'bias-warning-demo-uneven-split' experiment. "
                 "Explain what in this experiment is causing the warning and what should be checked next."
             ),
-            skill="diagnosing-experiment-results",
+            skill="diagnosing-experiment-health",
             # The support front door wraps the diagnostic skill and also answers this prompt.
             alternate_skills=["debugging-experiments"],
             downstream_tools=["experiment-get", "experiment-results-get", "execute-sql"],
