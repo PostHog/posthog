@@ -217,7 +217,11 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
-from products.signals.backend.signal_metadata import ReportSignalMeta, fetch_source_products_for_reports
+from products.signals.backend.signal_metadata import (
+    ReportSignalMeta,
+    fetch_signals_for_report_sync,
+    fetch_source_products_for_reports,
+)
 from products.signals.backend.slack_notification_targets import (
     is_slack_member_target,
     resolve_own_direct_message_target,
@@ -239,7 +243,6 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
-    fetch_signals_for_report_sync,
 )
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,

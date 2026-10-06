@@ -24,7 +24,6 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.filters.filter import Filter
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -130,11 +129,6 @@ class TestExports(APIBaseTest):
             mock_exporter_task.assert_called_once()
         else:
             mock_exporter_task.assert_not_called()
-
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
 
     @classmethod
     def setUpTestData(cls):
@@ -617,7 +611,7 @@ class TestExports(APIBaseTest):
             ],
         )
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=other_team,
             created_by=self.user,
         )
