@@ -17,7 +17,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.utils import UUIDTModel, sane_repr
+from posthog.models.utils import CreatedMetaFields, UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -56,7 +56,7 @@ class InviteExpiredException(exceptions.ValidationError):
         super().__init__(message, code="expired")
 
 
-class OrganizationInvite(ModelActivityMixin, UUIDTModel):
+class OrganizationInvite(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -65,15 +65,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     )
     target_email = models.EmailField(null=True, db_index=True)
     first_name = models.CharField(max_length=30, blank=True, default="")
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        related_name="organization_invites",
-        related_query_name="organization_invite",
-        null=True,
-    )
     emailing_attempt_made = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     message = models.TextField(blank=True, null=True)
     level = models.PositiveSmallIntegerField(

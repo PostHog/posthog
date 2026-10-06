@@ -10,7 +10,7 @@ disallow reverse relations with related_name='+'.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.wizard.backend.facade.enums import (
     WizardRunArtifactType,
@@ -24,18 +24,8 @@ from products.wizard.backend.facade.enums import (
 )
 
 
-class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
+class WizardSession(UUIDModel, TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-
-    # db_constraint=False because posthog_user is a hot table (a constrained FK would lock it).
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        db_constraint=False,
-    )
 
     session_id = models.CharField(max_length=255)
     workflow_id = models.CharField(max_length=255)
@@ -74,17 +64,8 @@ class WizardSession(UUIDModel, TeamScopedRootMixin, CreatedMetaFields):
         ]
 
 
-class WizardRun(UUIDModel, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields):
+class WizardRun(UUIDModel, TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        db_constraint=False,
-    )
 
     environment = models.CharField(
         max_length=20,

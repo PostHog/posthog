@@ -12,7 +12,7 @@ from PIL import Image
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDTModel
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
@@ -99,11 +99,9 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
     return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
 
 
-class UploadedMedia(UUIDTModel, RootTeamMixin):
+class UploadedMedia(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     # path in object storage or some other location identifier for the asset
     # 1000 characters would hold a 20 UUID forward slash separated path with space to spare

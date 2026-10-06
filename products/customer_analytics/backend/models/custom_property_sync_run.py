@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class SyncTrigger(models.TextChoices):
@@ -35,13 +35,10 @@ class SyncPhase(models.TextChoices):
     COMPLETED = "completed", "completed"
 
 
-class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
+class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields):
     """One warehouse sync run for a single custom property source."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     source = models.ForeignKey(
         "customer_analytics.CustomPropertySource", on_delete=models.CASCADE, related_name="sync_runs"

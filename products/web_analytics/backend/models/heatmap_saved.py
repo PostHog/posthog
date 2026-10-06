@@ -1,10 +1,10 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel, UUIDTModel
 from posthog.utils import generate_short_id
 
 
-class SavedHeatmap(UUIDTModel):
+class SavedHeatmap(CreatedMetaFields, UUIDTModel):
     class Status(models.TextChoices):
         PROCESSING = "processing", "Processing"
         COMPLETED = "completed", "Completed"
@@ -35,9 +35,7 @@ class SavedHeatmap(UUIDTModel):
     # Content moved to HeatmapSnapshot per width
 
     # Metadata
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     # Error handling
     exception = models.TextField(null=True, blank=True)

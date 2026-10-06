@@ -30,7 +30,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.parse import parse_property_group_data
-from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.models.utils import CreatedMetaFields, RootTeamManager, RootTeamMixin, sane_repr
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
@@ -184,7 +184,7 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
     return update_fields is not None and COHORT_RECALCULATION_FIELDS.issuperset(update_fields)
 
 
-class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
+class Cohort(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
     # Not sealed: the feature flag list endpoint prefetches team__cohort_set
@@ -260,8 +260,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     pending_version = models.IntegerField(blank=True, null=True)
     count = models.IntegerField(blank=True, null=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True, related_name="+")
-    created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now, blank=True, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
 
     is_calculating = models.BooleanField(default=False)
     last_calculation = models.DateTimeField(blank=True, null=True)

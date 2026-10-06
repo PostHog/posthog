@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from .event_definition import EventDefinition
 
@@ -16,7 +16,7 @@ class SchemaPropertyType(models.TextChoices):
     Object = "Object", "Object"
 
 
-class SchemaPropertyGroup(UUIDTModel):
+class SchemaPropertyGroup(CreatedMetaFields, UUIDTModel):
     """
     A reusable group of properties that defines a schema.
     Can be attached to multiple events via EventSchema.
@@ -33,13 +33,6 @@ class SchemaPropertyGroup(UUIDTModel):
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_schema_property_groups",
-    )
 
     class Meta:
         db_table = "posthog_schemapropertygroup"

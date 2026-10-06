@@ -22,7 +22,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
@@ -71,7 +71,7 @@ def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalSourceConfig.SourceType.choices)
 
 
-class SignalSourceConfig(UUIDModel):
+class SignalSourceConfig(CreatedMetaFields, UUIDModel):
     # Source-product taxonomy is owned by products.signals.backend.enums (the same StrEnum the payload
     # contracts and frontend codegen use). Aliased here so `SignalSourceConfig.SourceProduct.X` keeps
     # working; choices are frozen-equivalent to the prior nested TextChoices, so no migration is needed.
@@ -108,9 +108,7 @@ class SignalSourceConfig(UUIDModel):
     source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     @classmethod
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
@@ -1232,7 +1230,7 @@ class LatestActionability:
         return cls(actionability=None, already_addressed=None)
 
 
-class SignalReportArtefact(UUIDModel):
+class SignalReportArtefact(CreatedMetaFields, UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
         SAFETY_JUDGMENT = "safety_judgment"
@@ -1333,7 +1331,6 @@ class SignalReportArtefact(UUIDModel):
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=signal_report_artefact_type_choices)
     content = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
     # Nullable so the migration is a fast, rolling-deploy-safe `ADD COLUMN ... NULL`; `auto_now`
     # populates it on every subsequent save, so existing rows fill in the next time they change.
     updated_at = models.DateTimeField(auto_now=True, null=True)
@@ -1344,7 +1341,6 @@ class SignalReportArtefact(UUIDModel):
     # destroying the report's work log.
     actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
     actor_agent = models.CharField(max_length=200, null=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     claim = models.ForeignKey(
         "self",
@@ -1992,7 +1988,7 @@ class SignalReportTask(UUIDModel):
         ]
 
 
-class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
+class SignalReportRefund(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """One refund per report, ever — the user-facing "Refund" on a billed implementation PR.
 
     The row freezes everything billing-relevant at refund time: the `billing_path` (decided once
@@ -2031,9 +2027,6 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     # RESTRICT: hard-deleting a report must never silently destroy this financial record (it drives
     # the quota offset and refund audit). Team deletion still cascades in via the team FK above.
     report = models.OneToOneField(SignalReport, on_delete=models.RESTRICT, related_name="refund")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     # Required — the future step-2 refund judge consumes these.
     reason = models.CharField(max_length=20, choices=Reason)
     note = models.TextField(blank=True)
@@ -2054,7 +2047,6 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
     credit_amount_usd = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     billing_synced_at = models.DateTimeField(null=True, blank=True)
     billing_sync_error = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Signal report refund"
@@ -2170,7 +2162,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
             row.update(**updates)
 
 
-class SignalReportCheck(UUIDModel):
+class SignalReportCheck(IsolatedProductCreatedMetaFields, UUIDModel):
     """A forward-looking claim attached to a report: at time T, evaluate this and record the verdict.
 
     A report and its artefacts are backward-looking — every row says what was already observed.
@@ -2284,14 +2276,10 @@ class SignalReportCheck(UUIDModel):
     # Attribution, same columns and meaning as the artefact log's.
     actor_kind = models.CharField(max_length=10, choices=SignalActorKind, null=True, blank=True)
     actor_agent = models.CharField(max_length=200, null=True, blank=True)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
-    )
     task = models.ForeignKey(
         "tasks.Task", on_delete=models.SET_NULL, db_constraint=False, null=True, blank=True, related_name="+"
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -2329,7 +2317,7 @@ class SignalReportCheck(UUIDModel):
 #   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
-class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UUIDModel):
     """One row per (team, scout skill): schedule + emit posture for a scout skill.
 
     This row is what makes a skill a scout, so a scout may carry any valid skill name.
@@ -2661,15 +2649,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # interval to produce nothing. Written on every run, so it is excluded from activity
     # logging like `last_run_at`; the pause itself logs through `status` like any other.
     consecutive_failure_count = models.PositiveIntegerField(default=0, db_default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-    )
     # Who last flipped `enabled` on. Tracked because enablement drives spend.
     enabled_by = models.ForeignKey(
         "posthog.User",
@@ -3163,7 +3143,7 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
+class SignalScoutNote(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """Steering notes humans (or other agents) leave for the scout fleet — read at run time.
 
     The inbound complement to `SignalScratchpad`: scratchpad is what the fleet *learned*
@@ -3247,15 +3227,6 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
     # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
     content = models.TextField()
-    # Who left the note. SET_NULL so removing a user keeps the note (its content still steers).
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        related_name="+",
-    )
     # Optional TTL — expired notes drop out of the default list view, so time-boxed steering
     # ("watch checkout closely this week") retires itself without a delete.
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -3264,7 +3235,6 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     # a `db_default` because the nodejs/rust test schema is built straight from model definitions
     # with migrations disabled, where a Python-only `default` is invisible.
     origin = models.CharField(max_length=32, choices=Origin, default=Origin.HUMAN, db_default=Origin.HUMAN)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Signal scout note"

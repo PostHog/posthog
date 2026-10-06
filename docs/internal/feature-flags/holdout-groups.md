@@ -24,12 +24,11 @@ Example use case: An e-commerce site runs dozens of checkout optimization experi
 The `ExperimentHoldout` model stores the holdout definition:
 
 ```python
-class ExperimentHoldout(models.Model):
+class ExperimentHoldout(CreatedMetaFields, models.Model):  # CreatedMetaFields adds created_by and created_at
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters = models.JSONField(default=list)  # List of filter groups
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
 ```
 
 The `Experiment` model links to a holdout via foreign key:

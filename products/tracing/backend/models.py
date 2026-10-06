@@ -10,7 +10,7 @@ from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
@@ -149,7 +149,7 @@ class TeamTracingConfig(models.Model):
     retention_last_updated = models.DateTimeField(null=True, blank=True)
 
 
-class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class TracesRetentionRule(ModelActivityMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """User-defined rules that override how long matching spans are retained (evaluated in ingestion
     when enabled). First matching rule by (priority, created_at) wins; spans matching no rule keep
     the environment's default retention (`TeamTracingConfig.retention_days`)."""
@@ -159,9 +159,6 @@ class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFiel
     # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
     # lock-free. Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=False)
     priority = models.PositiveIntegerField(
@@ -186,7 +183,7 @@ class TracesRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFiel
         return f"{self.name} (team={self.team_id})"
 
 
-class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class TracingView(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields, UpdatedMetaFields):
     """A saved set of tracing filters (date range, services, attribute filters, sort, view mode).
 
     Content-only storage — `filters` mirrors the frontend `TracingFilters` shape; restoring a view
@@ -197,9 +194,6 @@ class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
     # table takes no lock on those parents; the real constraints are added lock-free via
     # AddForeignKeyNotValid in the migration. created_by overrides CreatedMetaFields for the same reason.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     # Human-friendly id used in the API/URL instead of exposing the UUID primary key.
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)

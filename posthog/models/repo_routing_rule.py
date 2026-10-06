@@ -1,10 +1,9 @@
-from django.conf import settings
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
-class RepoRoutingRule(UUIDModel):
+class RepoRoutingRule(CreatedMetaFields, UUIDModel):
     # Every add path rejects longer text, so the stored rule always equals what `prompt_text`
     # renders into agent prompts. `rule_text` stays a TextField because a DB-level cap would
     # turn an over-long rule into an opaque error instead of a Slack reply.
@@ -17,8 +16,6 @@ class RepoRoutingRule(UUIDModel):
     rule_text = models.TextField()
     repository = models.CharField(max_length=255)
     priority = models.PositiveIntegerField(default=0)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @property

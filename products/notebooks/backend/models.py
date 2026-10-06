@@ -9,6 +9,8 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team import Team
 from posthog.models.utils import (
+    CreatedMetaFields,
+    IsolatedProductCreatedMetaFields,
     RootTeamMixin,
     UUIDModel,
     UUIDTModel,
@@ -19,7 +21,7 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+class Notebook(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
@@ -32,8 +34,6 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     deleted = models.BooleanField(default=False)
     visibility = models.CharField(choices=Visibility, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",
@@ -363,7 +363,7 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+class GeneratedWidget(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     class PublicationStatus(models.TextChoices):
         PRIVATE = "private", "private"
         PUBLISHED = "published", "published"
@@ -386,13 +386,9 @@ class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
     pending_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     published_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
-    created_at = models.DateTimeField(auto_now_add=True)
     published_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
 
@@ -400,7 +396,7 @@ class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_generated_widget"
 
 
-class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
+class GeneratedWidgetVersion(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     class Operation(models.TextChoices):
         INITIAL = "initial", "initial"
         REGENERATE = "regenerate", "regenerate"
@@ -442,10 +438,6 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     security_review_model = models.CharField(max_length=64, null=True, blank=True)
     security_review_version = models.CharField(max_length=32, null=True, blank=True)
     security_reviewed_at = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "posthog_generated_widget_version"
@@ -463,7 +455,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
 MAX_WIDGET_NODE_ID_LENGTH = 128
 
 
-class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
+class NotebookWidgetInstance(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
     node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
@@ -476,10 +468,6 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         related_name="pinned_instances",
     )
     input_bindings: JSONField = JSONField(default=dict, db_default={})
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "posthog_notebook_widget_instance"

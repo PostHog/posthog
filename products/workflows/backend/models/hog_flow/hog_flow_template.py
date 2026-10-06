@@ -5,7 +5,7 @@ from django.db import models
 
 import structlog
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from products.workflows.backend.facade.enums import HogFlowTemplateExitCondition, HogFlowTemplateScope
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class HogFlowTemplate(UUIDTModel):
+class HogFlowTemplate(CreatedMetaFields, UUIDTModel):
     """
     Stores workflow templates that can be used to create new workflows.
     """
@@ -36,8 +36,6 @@ class HogFlowTemplate(UUIDTModel):
     scope = models.CharField(max_length=24, choices=Scope.choices)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)

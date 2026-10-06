@@ -3,11 +3,11 @@ from __future__ import annotations
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 
-class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Announcement(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields, UpdatedMetaFields):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         SENDING = "sending", "Sending"
@@ -22,9 +22,6 @@ class Announcement(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMet
     all_teams = models.Manager()  # noqa: DJ012
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     message = models.TextField()

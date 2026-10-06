@@ -5,6 +5,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
 from posthog.models.user import User
+from posthog.models.utils import CreatedMetaFields
 
 
 def generate_default_password() -> str:
@@ -12,7 +13,7 @@ def generate_default_password() -> str:
     return secrets.token_urlsafe(16)
 
 
-class SharePassword(models.Model):
+class SharePassword(CreatedMetaFields, models.Model):
     """
     Individual password entries for sharing configurations.
     Each share can have multiple passwords with different creators and notes.
@@ -23,11 +24,6 @@ class SharePassword(models.Model):
     )
 
     password_hash = models.CharField(max_length=128)
-
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, related_name="created_share_passwords"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     # Optional note for the creator to identify this password
     note = models.CharField(max_length=100, blank=True, null=True)

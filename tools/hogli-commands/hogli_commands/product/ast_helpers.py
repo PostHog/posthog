@@ -49,6 +49,7 @@ _DJANGO_MODEL_BASES: frozenset[str] = frozenset(
         "BytecodeModelMixin",
         "CreatedMetaFields",
         "DeletedMetaFields",
+        "IsolatedProductCreatedMetaFields",
         "Model",
         "ProductTeamModel",
         "RootTeamMixin",

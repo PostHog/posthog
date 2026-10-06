@@ -3,6 +3,8 @@ import uuid
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.utils import CreatedMetaFields
+
 
 class ProductTourManager(models.Manager):
     """Default manager that excludes archived tours."""
@@ -11,7 +13,7 @@ class ProductTourManager(models.Manager):
         return super().get_queryset().filter(archived=False)
 
 
-class ProductTour(models.Model):
+class ProductTour(CreatedMetaFields, models.Model):
     """A product tour guides users through application features."""
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
@@ -61,14 +63,6 @@ class ProductTour(models.Model):
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="product_tours_created",
-    )
     updated_at = models.DateTimeField(auto_now=True)
 
     archived = models.BooleanField(default=False)

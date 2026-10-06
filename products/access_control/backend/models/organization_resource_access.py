@@ -1,10 +1,11 @@
 from django.db import models
 
 from posthog.models.organization import Organization
+from posthog.models.utils import CreatedMetaFields
 
 
 # DEPRECATED - do not use
-class OrganizationResourceAccess(models.Model):
+class OrganizationResourceAccess(CreatedMetaFields, models.Model):
     class AccessLevel(models.IntegerChoices):
         """Level for which a role or user can edit or view resources"""
 
@@ -23,12 +24,6 @@ class OrganizationResourceAccess(models.Model):
     resource = models.CharField(max_length=32, choices=Resources)
     access_level = models.PositiveSmallIntegerField(default=AccessLevel.CAN_ALWAYS_EDIT, choices=AccessLevel)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="resource_access")
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

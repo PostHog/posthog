@@ -9,7 +9,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.models.utils import CreatedMetaFields, RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.facade import enums
@@ -41,7 +41,7 @@ class DashboardManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -66,8 +66,6 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     description = models.TextField(blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     pinned = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
     last_refresh = models.DateTimeField(blank=True, null=True)

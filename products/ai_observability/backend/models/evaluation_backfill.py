@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class EvaluationBackfillStatus(models.TextChoices):
@@ -13,7 +13,7 @@ class EvaluationBackfillStatus(models.TextChoices):
 ACTIVE_BACKFILL_STATUSES = (EvaluationBackfillStatus.RUNNING,)
 
 
-class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
+class EvaluationBackfill(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """One historical run of an evaluation over a date window.
 
     The row is the source of truth for progress: the Temporal workflow reads the cursor at every
@@ -68,10 +68,6 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
         ),
     )
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     finished_at = models.DateTimeField(null=True, blank=True)
 

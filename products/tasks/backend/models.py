@@ -13,6 +13,8 @@ from django.utils.functional import Promise
 
 from pydantic import BaseModel, JsonValue
 
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields
+
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.logic.services.sandbox import SandboxResources
@@ -177,7 +179,7 @@ class InvalidTaskOriginError(ValueError):
     pass
 
 
-class Channel(TeamScopedRootMixin):
+class Channel(TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
@@ -227,9 +229,6 @@ class Channel(TeamScopedRootMixin):
     # the general channel by its fixed name, so task_channel_team_name_public_unique (team, name)
     # remains the race guard; task_channel_team_user_personal_unique guards the personal role likewise.
     system_role = models.CharField(max_length=16, null=True, blank=True, choices=SystemRole.choices)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     github_integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.SET_NULL,
@@ -2059,7 +2058,7 @@ class ChannelFeedMessage(TeamScopedRootMixin):
         return f"Feed message {self.id} on channel {self.channel_id}"
 
 
-class ChannelInstructions(TeamScopedRootMixin):
+class ChannelInstructions(TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     """A versioned markdown instructions blob (CONTEXT.md) attached to a channel.
 
     Each edit publishes a new row (incrementing ``version``, flipping the previous
@@ -2079,9 +2078,6 @@ class ChannelInstructions(TeamScopedRootMixin):
     is_latest = models.BooleanField(default=True)
     deleted = models.BooleanField(default=False)
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -2141,7 +2137,7 @@ class ChannelStar(TeamScopedRootMixin):
         ]
 
 
-class Loop(ModelActivityMixin, TeamScopedRootMixin):
+class Loop(ModelActivityMixin, TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     """A named, cloud-executed agent automation: instructions plus model config,
     fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
     that runs on the standard tasks pipeline as the loop's owner (created_by).
@@ -2164,9 +2160,6 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # locks them and stalls deploys; Django still enforces the relation and on_delete at the
     # app level (see safe-django-migrations.md).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     # The original creator, immutable. `created_by` doubles as the current owner and is reassigned by
     # ownership takeover; `creator` is not, so it stays the authority for the destructive/visibility
     # operations (delete, un-share) that takeover must not confer on whoever grabbed the loop.
@@ -3625,7 +3618,7 @@ class AgentPeerMessage(TeamScopedRootMixin):
         return f"Peer message {self.id}: run {self.sender_run_id} → run {self.target_run_id} ({self.outcome})"
 
 
-class TaskArtifact(TeamScopedRootMixin, UUIDModel):
+class TaskArtifact(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     class ArtifactType(models.TextChoices):
         SLACK_MESSAGE = "slack_message", "Slack message"
         SLACK_CANVAS = "slack_canvas", "Slack canvas"
@@ -3650,9 +3643,6 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     name = models.CharField(max_length=255)
     artifact_type = models.CharField(max_length=32, choices=ArtifactType)
     adapter = models.CharField(max_length=32, choices=Adapter)
@@ -3944,7 +3934,7 @@ class SandboxSnapshot(UUIDModel):
         super().delete(*args, **kwargs)
 
 
-class SandboxEnvironment(UUIDModel):
+class SandboxEnvironment(CreatedMetaFields, UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
 
     class NetworkAccessLevel(models.TextChoices):
@@ -3953,7 +3943,6 @@ class SandboxEnvironment(UUIDModel):
         CUSTOM = "custom", "Custom"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     name = models.CharField(max_length=255)
 
@@ -4008,7 +3997,6 @@ class SandboxEnvironment(UUIDModel):
         help_text="If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users.",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -4068,7 +4056,7 @@ class SandboxEnvironment(UUIDModel):
         return []
 
 
-class SandboxCustomImage(TeamScopedRootMixin):
+class SandboxCustomImage(TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     """User-defined custom base image for cloud task sandboxes, layered on the VM sandbox base."""
 
     class Status(models.TextChoices):
@@ -4083,9 +4071,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
@@ -4134,7 +4119,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
         help_text="The image-builder agent task whose conversation produced this image's spec.",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

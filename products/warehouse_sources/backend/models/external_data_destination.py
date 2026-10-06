@@ -1,10 +1,18 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import (
+    DeletedMetaFields,
+    IsolatedProductCreatedMetaFields,
+    UpdatedMetaFields,
+    UUIDTModel,
+    sane_repr,
+)
 
 
-class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
+class ExternalDataDestination(
+    TeamScopedRootMixin, UpdatedMetaFields, DeletedMetaFields, IsolatedProductCreatedMetaFields, UUIDTModel
+):
     """Somewhere a warehouse source writes its synced rows.
 
     The PostHog warehouse is one of these, not a special case: a schema's destination set
@@ -48,11 +56,6 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         related_name="+",
         help_text="Credentials for this destination. Null for the PostHog warehouse.",
     )
-    # `db_constraint=False`: `posthog_user` is a hot table, same reasoning as `team`.
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     __repr__ = sane_repr("id", "team_id", "type", "name")
 

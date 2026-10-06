@@ -7,7 +7,7 @@ from django.db.models.deletion import Collector
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import DeletedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import (
     CheckRunStatus,
@@ -56,7 +56,12 @@ orphan_check_on_subject_delete.lazy_sub_objs = True  # type: ignore[attr-defined
 
 
 class DataQualityCheck(
-    ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDModel
+    ModelActivityMixin,
+    TeamScopedRootMixin,
+    IsolatedProductCreatedMetaFields,
+    UpdatedMetaFields,
+    DeletedMetaFields,
+    UUIDModel,
 ):
     """An assertion about a warehouse table, view, or data catalog metric.
 
@@ -84,9 +89,6 @@ class DataQualityCheck(
     # takes SHARE ROW EXCLUSIVE on the parent, stalling writes under traffic. Scoping/integrity is
     # enforced at the app layer.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     definition_author = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

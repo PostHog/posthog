@@ -2,10 +2,10 @@ import json
 
 from django.db import models
 
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin
 
 
-class ScheduledChange(RootTeamMixin, models.Model):
+class ScheduledChange(RootTeamMixin, CreatedMetaFields, models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
 
@@ -63,8 +63,6 @@ class ScheduledChange(RootTeamMixin, models.Model):
         blank=True,
         related_name="scheduled_changes",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

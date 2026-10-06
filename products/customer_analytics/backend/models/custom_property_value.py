@@ -2,18 +2,15 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 # Partial-unique "one active value per (team, account, definition)" constraint. Shared so the write
 # service can tell this (retriable) race apart from other integrity errors by name.
 ACTIVE_VALUE_CONSTRAINT_NAME = "unique_active_custom_property_value"
 
 
-class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
+class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     definition = models.ForeignKey(
         "customer_analytics.CustomPropertyDefinition", on_delete=models.CASCADE, related_name="values"
     )

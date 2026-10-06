@@ -10,7 +10,7 @@ from django.db.models import Value
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
@@ -412,7 +412,9 @@ METRIC_RULE_GROUP_BY_TOP_LEVEL_KEYS = ("service_name", "severity_text", "event_n
 METRIC_RULE_GROUP_BY_SPAN_TOP_LEVEL_KEYS = ("service_name", "name", "status_code", "kind")
 
 
-class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class LogsMetricRule(
+    ModelActivityMixin, TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
+):
     """Generates a metric from ingested logs or spans: records matching `filter_group` are
     tallied at ingest time (before drop rules) and emitted into the Metrics product under
     `metric_name`. With `value_attribute` unset the rule counts matching records; when set,
@@ -426,9 +428,6 @@ class LogsMetricRule(ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields,
     # and creating an FK constraint against them locks the parent — see the hot-table section
     # of safe-django-migrations.md. Enforcement is app-level (Django still cascades in the ORM).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     name = models.CharField(max_length=255)
     # Emitted OTLP metric name. Immutable after create (changing it would start a brand-new
     # series and orphan the old one) — enforced in the serializer.
@@ -494,7 +493,7 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         return f"{self.name} (team={self.team_id})"
 
 
-class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class LogsRetentionRule(ModelActivityMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
     when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
     team's default retention (`Team.logs_settings.retention_days`)."""
@@ -507,9 +506,6 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
     # lock-free — creating a real FK constraint would take a SHARE ROW EXCLUSIVE lock on the parent.
     # Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=False)
     priority = models.PositiveIntegerField(

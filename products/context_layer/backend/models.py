@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import uuid7
+from posthog.models.utils import IsolatedProductCreatedMetaFields, uuid7
 
 
-class ContextLayerConfig(models.Model):
+class ContextLayerConfig(IsolatedProductCreatedMetaFields, models.Model):
     """One row per organization with the context layer enabled.
 
     `head_sha` is the compare-and-swap pointer to the current repo bundle in
@@ -20,15 +20,6 @@ class ContextLayerConfig(models.Model):
         db_constraint=False,
     )
     head_sha = models.CharField(max_length=64)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        db_constraint=False,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     # Nightly dreaming lane state: skip-overlap bookkeeping and a per-org

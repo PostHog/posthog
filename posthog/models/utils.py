@@ -36,7 +36,23 @@ SHA256_HASH_PREFIX = "sha256$"
 
 
 class CreatedMetaFields(models.Model):
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        abstract = True
+
+
+class IsolatedProductCreatedMetaFields(models.Model):
+    """`CreatedMetaFields` for models without a database foreign key to `posthog_user`.
+
+    Use it for models in a product database, where a foreign key cannot cross databases,
+    and for new tables in the main database, where creating the constraint locks the hot `posthog_user` table.
+    """
+
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

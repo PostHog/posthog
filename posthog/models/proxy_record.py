@@ -5,7 +5,7 @@ from django.conf import settings
 from django.db import models
 
 from posthog.models import Organization
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 MAX_PROXY_DOMAIN_LENGTH = 253
 MAX_PROXY_DOMAIN_LABEL_LENGTH = 63
@@ -120,7 +120,7 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     return str(organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
 
 
-class ProxyRecord(UUIDTModel):
+class ProxyRecord(CreatedMetaFields, UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)
     target_cname = models.CharField(max_length=256, null=False)
@@ -141,10 +141,4 @@ class ProxyRecord(UUIDTModel):
         default=Status.WAITING,
     )
 
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

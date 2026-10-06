@@ -6,13 +6,13 @@ from django.db.models import QuerySet
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
+from posthog.models.utils import IsolatedProductCreatedMetaFields, RootTeamMixin, UUIDTModel, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "posthog_earlyaccessfeature"
         managed = True
@@ -43,21 +43,11 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="features",
         related_query_name="feature",
     )
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="early_access_features",
-        # db_constraint disabled to avoid locking the hot posthog_user table when adding this FK.
-        db_constraint=False,
-    )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     stage = models.CharField(max_length=40, choices=Stage)
     documentation_url = models.URLField(max_length=800, blank=True)
     payload = models.JSONField(default=dict, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     # Exactly one of assigned_user/assigned_role may be set (same convention as ErrorTrackingIssueAssignment).
     # Defaults to the creator on creation.
     assigned_user = models.ForeignKey(

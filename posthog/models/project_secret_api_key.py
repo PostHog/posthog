@@ -7,11 +7,12 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.utils import CreatedMetaFields
 
 from .utils import generate_random_token, hash_key_value
 
 
-class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
+class ProjectSecretAPIKey(ModelActivityMixin, CreatedMetaFields, models.Model):
     """
     API key tied to a project. Behaves in the same way as a PersonalAPIKey,
     but isn't tied to a single user.
@@ -43,9 +44,6 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
     )
 
     created_at = models.DateTimeField(default=timezone.now)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, related_name="created_project_secret_api_keys", null=True
-    )
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
 

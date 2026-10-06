@@ -3,10 +3,10 @@ from typing import Any
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDTModel
 
 
-class HogFlowRevision(TeamScopedRootMixin, UUIDTModel):
+class HogFlowRevision(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """Append-only snapshot of a workflow's live content, written whenever the live config
     changes. Rollback copies a snapshot back into the draft; workers never read this table."""
 
@@ -23,10 +23,6 @@ class HogFlowRevision(TeamScopedRootMixin, UUIDTModel):
     content = models.JSONField(
         help_text="Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version."
     )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # A revision's tenant scope always mirrors its workflow's. A mismatched (team, hog_flow)

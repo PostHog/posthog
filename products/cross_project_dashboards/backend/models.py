@@ -12,19 +12,16 @@ Keep models thin — business logic belongs in logic/.
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
 
 
-class CrossProjectDashboard(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class CrossProjectDashboard(ModelActivityMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A dashboard the organization owns, holding insights from several projects."""
 
     # Keys to hot parent tables carry no database constraint, so creating this table takes no lock
     # on them, and no reverse accessor, so this product adds nothing to the parent classes.
     organization = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
-    )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
@@ -40,7 +37,7 @@ class CrossProjectDashboard(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFi
         return self.name
 
 
-class CrossProjectDashboardTile(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class CrossProjectDashboardTile(IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """One insight from one project, placed on a cross-project dashboard.
 
     `project_id` and `insight_id` are plain integers, not foreign keys. A foreign key cascades,
@@ -55,9 +52,6 @@ class CrossProjectDashboardTile(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
     # Denormalized from the dashboard so this table classifies as org-scoped on its own.
     organization = models.ForeignKey(
         "posthog.Organization", on_delete=models.CASCADE, related_name="+", db_constraint=False
-    )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
     project_id = models.BigIntegerField()
     insight_id = models.BigIntegerField()

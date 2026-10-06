@@ -5,7 +5,7 @@ from django.db.models import Count, DateTimeField, IntegerField, OuterRef, Q, Qu
 from django.utils import timezone
 
 from posthog.models.scoping.manager import TeamScopedManager
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ..marketplace.packaging import SkillExport, SkillFileExport, render_skill_md, utf8_digest
 
@@ -43,7 +43,7 @@ class SkillDigestManager(models.Manager):
         return super().bulk_create(objs, *args, **kwargs)
 
 
-class LLMSkill(UUIDModel):
+class LLMSkill(CreatedMetaFields, UUIDModel):
     class Meta:
         db_table = "llm_analytics_llmskill"
         constraints = [
@@ -91,7 +91,6 @@ class LLMSkill(UUIDModel):
     deleted = models.BooleanField(default=False)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

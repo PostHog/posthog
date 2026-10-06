@@ -9,11 +9,10 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
-from posthog.models.user import User
-from posthog.models.utils import uuid7
+from posthog.models.utils import CreatedMetaFields, uuid7
 
 
-class FileSystem(models.Model):
+class FileSystem(CreatedMetaFields, models.Model):
     """
     A model representing a "file" (or folder) in our hierarchical system.
     """
@@ -28,7 +27,6 @@ class FileSystem(models.Model):
     shortcut = models.BooleanField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     # Product surface this row belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
     surface = models.CharField(max_length=100, null=True, blank=True)
 

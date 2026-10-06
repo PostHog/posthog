@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class AccountTrackRuleRunTrigger(models.TextChoices):
@@ -17,11 +17,8 @@ class AccountTrackRuleRunStatus(models.TextChoices):
     STALE = "stale", "stale"
 
 
-class AccountTrackRuleRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
+class AccountTrackRuleRun(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     config_version = models.PositiveIntegerField()
     trigger = models.CharField(

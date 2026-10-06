@@ -2,12 +2,12 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import RelationshipStatus
 
 
-class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class RelationshipProposal(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A reviewed join fact between two warehouse tables.
 
     Table identity is name-based, mirroring ``DataWarehouseJoin`` itself; keys are HogQL expressions
@@ -17,9 +17,6 @@ class RelationshipProposal(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     source_table_name = models.CharField(max_length=400, help_text="Name of the table the join starts from.")
     source_table_key = models.CharField(max_length=400, help_text="HogQL key expression on the source table.")

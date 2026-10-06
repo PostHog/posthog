@@ -2,7 +2,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q, UniqueConstraint
 
-from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, RootTeamManager, RootTeamMixin, UUIDTModel
 
 
 class DashboardTemplateManager(RootTeamManager):
@@ -10,7 +10,7 @@ class DashboardTemplateManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class DashboardTemplate(UUIDTModel, RootTeamMixin):
+class DashboardTemplate(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     objects = DashboardTemplateManager()  # type: ignore
     objects_including_soft_deleted = RootTeamManager()
 
@@ -29,8 +29,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
     tiles = models.JSONField(blank=True, null=True)
     variables = models.JSONField(null=True, blank=True)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
     deleted = models.BooleanField(blank=True, null=True)
     image_url = models.CharField(max_length=8201, null=True, blank=True)
     scope = models.CharField(max_length=24, choices=Scope, null=True, blank=True)

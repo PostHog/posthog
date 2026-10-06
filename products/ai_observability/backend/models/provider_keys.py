@@ -6,7 +6,7 @@ from django.dispatch import receiver
 from django.utils.functional import Promise
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.plugins.plugin_server_api import reload_provider_keys_on_workers
 
 
@@ -36,7 +36,7 @@ def llm_completion_provider_choices() -> list[tuple[str, str | Promise]]:
 
 
 # nosemgrep: prefer-uuid7-django-pk -- This existing table's ID default needs a separate UUIDv7 migration.
-class LLMProviderKey(UUIDTModel):
+class LLMProviderKey(CreatedMetaFields, UUIDTModel):
     class State(models.TextChoices):
         UNKNOWN = "unknown"
         OK = "ok"
@@ -49,8 +49,6 @@ class LLMProviderKey(UUIDTModel):
     state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_used_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

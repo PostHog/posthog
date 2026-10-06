@@ -8,13 +8,14 @@ from django.utils import timezone
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import CreatedMetaFields
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
+class SessionRecordingPlaylist(FileSystemSyncMixin, CreatedMetaFields, models.Model):
     class PlaylistType(models.TextChoices):
         COLLECTION = "collection", "Collection"
         FILTERS = "filters", "Filters"
@@ -28,8 +29,6 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(default=dict)
     type = models.CharField(max_length=50, choices=PlaylistType, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "User",

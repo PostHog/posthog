@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class BackfillStatus(models.TextChoices):
@@ -15,7 +15,7 @@ class BackfillStatus(models.TextChoices):
 ACTIVE_BACKFILL_STATUSES = (BackfillStatus.RUNNING, BackfillStatus.PAUSED_QUOTA)
 
 
-class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
+class ReplayScannerBackfill(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """One historical scan of a scanner over a closed time window (see README).
 
     The scanner's config is frozen into `scanner_snapshot` at creation, so the enumerated candidate
@@ -55,10 +55,6 @@ class ReplayScannerBackfill(TeamScopedRootMixin, UUIDModel):
         ),
     )
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     finished_at = models.DateTimeField(
         null=True, blank=True, help_text="When the backfill reached a terminal status (completed or cancelled)."

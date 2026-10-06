@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
-class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class AEOPrompt(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
     One candidate question we run against answer engines to check whether the
     team's domain gets cited (AEO citation-tracking POC).
@@ -28,9 +28,6 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
     # constraint blocks writes on tables read on nearly every request, so the
     # relations are enforced in the ORM instead.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
 
     prompt = models.TextField(help_text="The question to ask the answer engines, as a user would phrase it.")
     prompt_hash = models.CharField(
@@ -63,7 +60,7 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         return f"[{self.prompt_source}] {self.prompt[:60]}"
 
 
-class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
+class AEOCitationCheck(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """
     One prompt run against one answer engine, and whether the team's domain was
     cited (AEO citation-tracking POC).
@@ -80,9 +77,6 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
 
     # db_constraint=False on the core relations, for the same reason as AEOPrompt.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
     prompt = models.ForeignKey(AEOPrompt, on_delete=models.CASCADE, related_name="checks")
 
     run_id = models.UUIDField(help_text="Groups every check captured by one runner pass.")

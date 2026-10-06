@@ -1,12 +1,12 @@
 from django.db import models
 
 from posthog.models.scoping.manager import EnvironmentScopedManager
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import CertificationStatus
 
 
-class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class TableCertification(IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """A human-vouched trust mark on a warehouse table or view.
 
     Exactly one target (table XOR saved_query). Revocation is a hard delete (activity-logged in the
@@ -17,9 +17,6 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     objects = EnvironmentScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable",
         on_delete=models.CASCADE,

@@ -3,7 +3,7 @@ from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import DeletedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import CreatedSource, MetricStatus
 
@@ -20,7 +20,12 @@ validate_metric_name = RegexValidator(
 
 
 class Metric(
-    ModelActivityMixin, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDModel
+    ModelActivityMixin,
+    TeamScopedRootMixin,
+    IsolatedProductCreatedMetaFields,
+    UpdatedMetaFields,
+    DeletedMetaFields,
+    UUIDModel,
 ):
     """A canonical business metric: name + description, optionally a machine-readable definition.
 
@@ -36,9 +41,6 @@ class Metric(
     # takes SHARE ROW EXCLUSIVE on the parent, stalling writes under traffic. Scoping/integrity is
     # enforced at the app layer.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     name = models.CharField(
         max_length=METRIC_NAME_MAX_LENGTH,

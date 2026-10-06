@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class SuppressionSource(models.TextChoices):
@@ -16,7 +16,7 @@ class SuppressionSource(models.TextChoices):
     COMPLAINT = "COMPLAINT"
 
 
-class MessageSuppression(TeamScopedRootMixin, UUIDModel):
+class MessageSuppression(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """
     Per-team list of email addresses we should not send to because they can't (or shouldn't)
     receive mail. Three ways an address lands here:
@@ -37,11 +37,7 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     # db_constraint=False on these hot-table FKs so CreateModel takes no lock on
     # posthog_team / posthog_user (see HotTableAlterPolicy / safe-django-migrations).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
     deleted = models.BooleanField(default=False)
 
     # Lower-cased recipient email address.

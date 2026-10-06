@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -38,13 +38,10 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         ]
 
 
-class EventStreamMember(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
+class EventStreamMember(TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields):
     """An account included in the team's event stream."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     stream = models.ForeignKey(EventStream, on_delete=models.CASCADE, related_name="members")
     account = models.ForeignKey(

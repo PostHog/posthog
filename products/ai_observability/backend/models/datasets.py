@@ -7,7 +7,7 @@ from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
 
 from posthog.models.scoping.manager import TeamScopedManager
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 def _json_type_is(field_name: str, json_type: str) -> Exact:
@@ -21,13 +21,10 @@ def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
     return NegatedExpression(_json_type_is(field_name, json_type))
 
 
-class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Dataset(UUIDModel, IsolatedProductCreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
@@ -69,13 +66,10 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         ]
 
 
-class DatasetRevision(UUIDModel, CreatedMetaFields):
+class DatasetRevision(UUIDModel, IsolatedProductCreatedMetaFields):
     objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
@@ -99,13 +93,10 @@ class DatasetRevision(UUIDModel, CreatedMetaFields):
         ]
 
 
-class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class DatasetItem(UUIDModel, IsolatedProductCreatedMetaFields, UpdatedMetaFields):
     objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
     client_item_id = models.CharField(db_column="external_id", max_length=255, null=True, blank=True)
@@ -139,13 +130,10 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         ]
 
 
-class DatasetItemVersion(UUIDModel, CreatedMetaFields):
+class DatasetItemVersion(UUIDModel, IsolatedProductCreatedMetaFields):
     objects = TeamScopedManager()
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="item_versions")
     dataset_item = models.ForeignKey(DatasetItem, on_delete=models.CASCADE, related_name="versions")

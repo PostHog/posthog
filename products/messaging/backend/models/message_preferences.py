@@ -2,7 +2,7 @@ from typing import Optional
 
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
 
@@ -18,11 +18,9 @@ class PreferenceStatus(models.TextChoices):
     NO_PREFERENCE = "NO_PREFERENCE"
 
 
-class MessageRecipientPreference(UUIDTModel):
+class MessageRecipientPreference(CreatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
     preferences = models.JSONField(default=dict)

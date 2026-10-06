@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 def default_period() -> dict:
@@ -51,7 +51,7 @@ def build_action(summary: str) -> dict:
     }
 
 
-class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class PulseModel(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """Abstract base for pulse models: fail-closed team scoping + lock-free hot-table FKs."""
 
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
@@ -63,9 +63,6 @@ class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUID
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating the
     # tables takes no lock on those parents. created_by overrides CreatedMetaFields for the same reason.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
 
     class Meta:
         abstract = True

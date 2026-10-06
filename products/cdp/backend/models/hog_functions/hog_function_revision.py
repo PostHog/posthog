@@ -3,10 +3,10 @@ from typing import Any
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
-class HogFunctionRevision(TeamScopedRootMixin, UUIDModel):
+class HogFunctionRevision(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """Append-only snapshot of a function's live config, written whenever that config changes.
     Rollback copies a snapshot back into the draft; workers never read this table."""
 
@@ -23,10 +23,6 @@ class HogFunctionRevision(TeamScopedRootMixin, UUIDModel):
     content = models.JSONField(
         help_text="Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version."
     )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Fail loudly, not with an AttributeError, when the required FK was never set.

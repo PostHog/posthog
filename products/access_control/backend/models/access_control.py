@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 
-class AccessControl(UUIDTModel):
+class AccessControl(CreatedMetaFields, UUIDTModel):
     class Meta:
         app_label = "ee"
         constraints = [
@@ -43,12 +43,6 @@ class AccessControl(UUIDTModel):
         null=True,
     )
 
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-    )
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     # TODO: add model validation for access_level and resource

@@ -1,5 +1,7 @@
 from django.db import models
 
+from posthog.models.utils import CreatedMetaFields
+
 
 class DeletionType(models.IntegerChoices):
     Team = 0
@@ -12,7 +14,7 @@ class DeletionType(models.IntegerChoices):
 
 
 # This model represents deletions that should delete (other, unrelated) data async
-class AsyncDeletion(models.Model):
+class AsyncDeletion(CreatedMetaFields, models.Model):
     id = models.BigAutoField(primary_key=True)
     # Should be one of the DeletionType enum
     deletion_type = models.PositiveSmallIntegerField(null=False, blank=False, choices=DeletionType)
@@ -25,9 +27,6 @@ class AsyncDeletion(models.Model):
     key = models.CharField(max_length=400, null=False, blank=False)
     # Only populated for group deletions
     group_type_index = models.IntegerField(null=True, blank=False)
-
-    created_by = models.ForeignKey("User", null=True, on_delete=models.SET_NULL)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     # When was the data verified to be deleted - we can skip it in the next round
     delete_verified_at = models.DateTimeField(null=True, blank=True)

@@ -2,7 +2,7 @@ from django.db import models
 
 from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from products.event_definitions.backend.models import PropertyDefinition
 
@@ -25,9 +25,7 @@ class MaterializedColumnSlotState(models.TextChoices):
     ERROR = "ERROR", "Error"
 
 
-class MaterializedColumnSlot(UUIDTModel):
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+class MaterializedColumnSlot(CreatedMetaFields, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     team = models.ForeignKey(
         Team,

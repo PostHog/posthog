@@ -30,6 +30,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.user import User
 from posthog.models.utils import (
     UUIDT,
+    CreatedMetaFields,
     generate_random_oauth_access_token,
     generate_random_token,
     hash_key_value,
@@ -996,7 +997,7 @@ def normalize_cimd_url(url: str) -> str:
     return f"{parsed.scheme.lower()}://{host}{path}"
 
 
-class CIMDVerificationToken(models.Model):
+class CIMDVerificationToken(CreatedMetaFields, models.Model):
     """Token that links a CIMD partner app to a PostHog organization.
 
     A partner embeds the plaintext token in their CIMD metadata document under
@@ -1026,9 +1027,6 @@ class CIMDVerificationToken(models.Model):
     cimd_url: models.URLField = models.URLField(max_length=2048, null=True, blank=True)
     mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(unique=True, max_length=300, editable=False)
-    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     last_used_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 

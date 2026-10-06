@@ -6,13 +6,13 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
 
-from posthog.models.utils import UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.scoring_rules import validate_scoring_rules
 
 
-class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
+class ProductPushCampaign(UUIDModel, UpdatedMetaFields, IsolatedProductCreatedMetaFields):
     """One product pushed to a whole organization for a bounded window.
 
     A single table holds the queue (SCHEDULED), the current push (ACTIVE), and the
@@ -40,9 +40,6 @@ class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
         on_delete=models.CASCADE,
         related_name="product_push_campaigns",
         db_constraint=False,
-    )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     # A ProductKey value. Plain CharField (like ProductIntent.product_type) so the
@@ -79,8 +76,6 @@ class ProductPushCampaign(UUIDModel, UpdatedMetaFields):
 
     # Outcome details, e.g. {"adoption_signal": "intent_activated", "team_id": 123}.
     metadata = models.JSONField(default=dict, blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Product push campaign"
@@ -150,7 +145,7 @@ class OrganizationEnrichmentFetch(UUIDModel):
         ]
 
 
-class EnrichmentPromptConfig(UUIDModel):
+class EnrichmentPromptConfig(IsolatedProductCreatedMetaFields, UUIDModel):
     """A versioned LLM classifier definition for one AI enrichment label.
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
@@ -179,10 +174,6 @@ class EnrichmentPromptConfig(UUIDModel):
     output_fields = models.JSONField(default=list)
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
@@ -272,7 +263,7 @@ class EnrichmentLabelResult(UUIDModel):
         return f"{self.organization_id} {self.label_name} {self.prompt_version}"
 
 
-class IcpScoringConfig(UUIDModel):
+class IcpScoringConfig(IsolatedProductCreatedMetaFields, UUIDModel):
     """An immutable scoring policy and curated lists, activated as one version."""
 
     # Human-readable list version, e.g. "2026-08-13".
@@ -286,10 +277,6 @@ class IcpScoringConfig(UUIDModel):
     scoring_rules = models.JSONField(default=dict, db_default={}, blank=True, validators=[validate_scoring_rules])
     # The row the scorer loads; at most one active row (enforced below).
     is_active = models.BooleanField(default=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [

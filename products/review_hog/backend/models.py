@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -166,7 +166,7 @@ def review_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(ReviewReportArtefact.ArtefactType.choices)
 
 
-class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
+class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin, IsolatedProductCreatedMetaFields):
     """Work log for a `ReviewReport`, with append-only completed turns.
 
     Mirrors Signals' `SignalReportArtefact` funnel — the row's type is derived from the content
@@ -223,15 +223,10 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
     # parsing every historical row. Null when the content model carries no head_sha.
     head_sha = models.CharField(max_length=64, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     # Attribution: exactly one of (created_by, task) is set on new rows, enforced at the write
     # helpers via `ArtefactAttribution`. SET_NULL so deleting a user/task degrades attribution to
-    # "system/unknown" rather than destroying the report's work log. db_constraint=False keeps the
-    # migration lock-free on hot posthog_user.
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
+    # "system/unknown" rather than destroying the report's work log.
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:

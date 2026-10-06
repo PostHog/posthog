@@ -3,7 +3,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 from products.canvas.backend.facade.enums import (
     CANVAS_BUILD_STATUS_FAILED,
@@ -18,7 +18,7 @@ from products.canvas.backend.facade.enums import (
 )
 
 
-class Canvas(TeamScopedRootMixin, UUIDModel):
+class Canvas(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
 
     The document's source lives in append-only ``CanvasSourceVersion`` rows
@@ -81,9 +81,6 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     # real version and this field stops mattering.
     legacy_code = models.TextField(null=True, blank=True)
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     deleted = models.BooleanField(default=False)
@@ -102,7 +99,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
+class CanvasSourceVersion(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """One immutable published source project of a canvas.
 
     The project content itself lives in object storage (private, content
@@ -143,9 +140,6 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     # clears the flag; after that the version is indistinguishable from a publish.
     draft = models.BooleanField(default=False)
 
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:

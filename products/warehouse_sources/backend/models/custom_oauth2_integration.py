@@ -13,7 +13,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
@@ -35,7 +35,7 @@ custom_oauth2_refresh_counter = Counter(
 _TOKEN_EXPIRY_BUFFER = timedelta(seconds=60)
 
 
-class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class CustomOAuth2Integration(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Encrypted token store for a Custom REST source's customer-owned OAuth2 client.
 
     The customer brings their own OAuth2 client (`client_id` / `client_secret` / `token_url`); this row
@@ -59,9 +59,6 @@ class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMet
     # scoping is enforced at the app level by TeamScopedRootMixin. The external_data_source FK targets a
     # non-hot table, so it keeps its constraint (and its cascade cleans the row up when the source is deleted).
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     external_data_source = models.ForeignKey(
         "warehouse_sources.ExternalDataSource",
         on_delete=models.CASCADE,

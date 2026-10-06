@@ -16,7 +16,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
 
 from products.actions.backend.models.action import Action
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+class Survey(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
         WIDGET = "widget", "widget"
@@ -220,14 +220,6 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         """,
     )
     appearance = models.JSONField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        related_name="surveys",
-        related_query_name="survey",
-        null=True,
-    )
     start_date = models.DateTimeField(null=True)
     end_date = models.DateTimeField(null=True)
     updated_at = models.DateTimeField(auto_now=True)

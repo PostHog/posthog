@@ -7,7 +7,7 @@ from django.dispatch import receiver
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from products.managed_warehouse.backend.model_observability import DuckgresServerManager, record_duckgres_server_access
 
@@ -104,7 +104,7 @@ def _observe_duckgres_server_delete(**kwargs: object) -> None:
     record_duckgres_server_access("delete")
 
 
-class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ManagedWarehouseSourceJob(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class WorkflowType(models.TextChoices):
         COPY = "copy", "Copy"
         REGISTER = "register", "Register"
@@ -123,9 +123,6 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         on_delete=models.CASCADE,
         related_name="managed_warehouse_source_jobs",
         db_constraint=False,
-    )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     environment_id = models.BigIntegerField()
     schema_id = models.UUIDField()
@@ -156,7 +153,7 @@ class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
         ]
 
 
-class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ManagedWarehouseViewTranslationJob(IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class TriggerSource(models.TextChoices):
         ADMIN = "admin", "Django admin"
         PROVISIONING = "provisioning", "Provisioning"
@@ -176,14 +173,6 @@ class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, U
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
-        related_name="+",
-        db_constraint=False,
-    )
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
         related_name="+",
         db_constraint=False,
     )

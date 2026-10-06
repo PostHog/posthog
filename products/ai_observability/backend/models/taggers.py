@@ -8,7 +8,7 @@ from django.dispatch import receiver
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 logger = structlog.get_logger(__name__)
 
@@ -102,7 +102,7 @@ def validate_tagger_config(tagger_type: str, tagger_config: dict) -> dict:
     return validated.model_dump(exclude_none=True)
 
 
-class Tagger(UUIDTModel):
+class Tagger(CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_tagger"
         ordering = ["-created_at", "id"]
@@ -138,9 +138,7 @@ class Tagger(UUIDTModel):
     )
 
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __str__(self):

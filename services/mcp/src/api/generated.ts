@@ -23313,11 +23313,11 @@ export namespace Schemas {
       readonly completed_by: UserBasic | null;
       /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
       readonly slack_thread: CommentSlackThreadRef | null;
+      readonly created_at: string;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown;
       readonly version: number;
-      readonly created_at: string;
       /**
          * @maxLength 72
          * @nullable
@@ -75566,11 +75566,11 @@ export namespace Schemas {
       readonly completed_by?: UserBasic | null;
       /** The Slack thread this comment's discussion is mirrored to, or null. Set only on a tracked thread-root comment; used to surface an 'Open in Slack' link and hide re-sending. */
       readonly slack_thread?: CommentSlackThreadRef | null;
+      readonly created_at?: string;
       /** @nullable */
       content?: string | null;
       rich_content?: unknown;
       readonly version?: number;
-      readonly created_at?: string;
       /**
          * @maxLength 72
          * @nullable

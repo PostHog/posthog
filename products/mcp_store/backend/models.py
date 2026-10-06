@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .oauth_credentials import oauth_credentials_source_is_allowed
 
@@ -322,7 +322,7 @@ class TeamMCPGatewayConfig(TeamScopedRootMixin, UUIDModel):
         db_table = "mcp_store_teammcpgatewayconfig"
 
 
-class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
+class MCPGatewayServer(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """A team-level registration of one MCP server URL in the gateway.
 
     Everything the gateway controls hangs off this row: enablement, per-scope
@@ -348,10 +348,6 @@ class MCPGatewayServer(TeamScopedRootMixin, UUIDModel):
     # each member to guess. Templates carry their own auth_type. Blank on rows
     # that predate the column; members then choose.
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, blank=True, default="", db_default="")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -379,7 +375,7 @@ class MCPMemberServerRevocation(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class MCPOrgRule(TeamScopedRootMixin, UUIDModel):
+class MCPOrgRule(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """A team guardrail evaluated before any scope policy. A matching enabled
     rule locks the tool's state for its audience — no scope can loosen it."""
 
@@ -393,17 +389,13 @@ class MCPOrgRule(TeamScopedRootMixin, UUIDModel):
     # see policy.is_destructive_tool.
     tool_pattern = models.CharField(max_length=400, blank=True, default="")
     enabled = models.BooleanField(default=True)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "mcp_store_mcporgrule"
 
 
-class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
+class MCPServiceAccount(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """A fixed PostHog agent identity with independent MCP access policies."""
 
     team = models.ForeignKey(
@@ -419,10 +411,6 @@ class MCPServiceAccount(TeamScopedRootMixin, UUIDModel):
     token_hash = models.CharField(max_length=128, unique=True)
     token_mask = models.CharField(max_length=64, blank=True, default="")
     last_active_at = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

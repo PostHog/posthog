@@ -9,7 +9,7 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, IsolatedProductCreatedMetaFields, UUIDModel
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
@@ -25,7 +25,7 @@ def get_prompt_outline(value: Any) -> list[dict[str, Any]]:
     return get_markdown_outline(text)
 
 
-class LLMPrompt(UUIDModel):
+class LLMPrompt(CreatedMetaFields, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -57,7 +57,6 @@ class LLMPrompt(UUIDModel):
     version_description = models.CharField(max_length=400, null=True, blank=True)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -65,7 +64,7 @@ class LLMPrompt(UUIDModel):
     deleted = models.BooleanField(default=False)
 
 
-class LLMPromptLabel(ModelActivityMixin, UUIDModel):
+class LLMPromptLabel(ModelActivityMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     """A movable pointer from a name (e.g. "production") to exactly one version of a prompt.
 
     Version rows are immutable; releasing a version means pointing a label at it and
@@ -98,9 +97,6 @@ class LLMPromptLabel(ModelActivityMixin, UUIDModel):
     # db_constraint=False: posthog_team / posthog_user are hot tables — adding a real FK
     # constraint locks the parent table during migration.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

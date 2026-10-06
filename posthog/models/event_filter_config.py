@@ -1,9 +1,8 @@
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 ALLOWED_FIELDS = {"event_name", "distinct_id"}
 ALLOWED_OPERATORS = {"exact", "contains"}
@@ -21,7 +20,7 @@ class EventFilterMode(models.TextChoices):
     LIVE = "live"
 
 
-class EventFilterConfig(UUIDTModel):
+class EventFilterConfig(CreatedMetaFields, UUIDTModel):
     """
     Per-team event filter configuration evaluated at ingestion time.
     One filter per team. Uses a boolean expression tree with AND, OR, NOT
@@ -52,14 +51,7 @@ class EventFilterConfig(UUIDTModel):
             '"expected_result": "drop"|"ingest"}'
         ),
     )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-    )
 
     def __str__(self) -> str:
         return f"EventFilterConfig(team={self.team_id}, mode={self.mode})"

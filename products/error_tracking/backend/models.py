@@ -22,7 +22,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel, UUIDTModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import (
@@ -890,7 +890,7 @@ class ErrorTrackingRecommendation(UUIDTModel):
         ]
 
 
-class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
+class ErrorTrackingAlert(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """Alert configuration for issue lifecycle notifications.
 
     Triggers are opt-in thread openers: they decide which lifecycle transitions start
@@ -918,15 +918,6 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     # Minimum seconds between thread-opening notifications per (alert, issue).
     # Replies into an existing thread are never throttled. 0 disables the throttle.
     throttle_seconds = models.PositiveIntegerField(default=0)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        related_name="+",
-        null=True,
-        blank=True,
-        db_constraint=False,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

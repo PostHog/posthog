@@ -3,7 +3,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):
@@ -33,7 +33,7 @@ class MCPIntentClusterSnapshot(TeamScopedRootMixin):
         db_table = "posthog_mcp_analytics_intent_cluster_snapshot"
 
 
-class MCPAnalyticsSubmission(UUIDModel):
+class MCPAnalyticsSubmission(CreatedMetaFields, UUIDModel):
     class Kind(models.TextChoices):
         FEEDBACK = "feedback", "Feedback"
         MISSING_CAPABILITY = "missing_capability", "Missing capability"
@@ -46,7 +46,6 @@ class MCPAnalyticsSubmission(UUIDModel):
         OTHER = "other", "Other"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     kind = models.CharField(max_length=32, choices=Kind)
     goal = models.TextField()
@@ -62,7 +61,6 @@ class MCPAnalyticsSubmission(UUIDModel):
     mcp_session_id = models.CharField(max_length=200, blank=True, default="")
     mcp_trace_id = models.CharField(max_length=200, blank=True, default="")
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

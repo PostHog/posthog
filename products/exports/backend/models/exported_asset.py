@@ -18,7 +18,7 @@ from rest_framework.exceptions import NotFound
 
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, CreatedMetaFields
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
@@ -61,7 +61,7 @@ class ExportedAssetManager(models.Manager):
         return super().get_queryset().filter(Q(expires_after__gte=now()) | Q(expires_after__isnull=True))
 
 
-class ExportedAsset(models.Model):
+class ExportedAsset(CreatedMetaFields, models.Model):
     class SourceAuthentication(models.TextChoices):
         SESSION = "session"
         PERSONAL_API_KEY = "personal_api_key", "Personal API key"
@@ -109,13 +109,11 @@ class ExportedAsset(models.Model):
     # Content related fields
     export_format = models.CharField(max_length=100, choices=ExportFormat)
     content = models.BinaryField(null=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted
     # ExportedAssets are *not* deleted immediately after the TTL period has passed
     # the object manager has been altered to exclude these assets
     # to allow for lazy deletes
     expires_after = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     source_authentication = models.CharField(max_length=32, choices=SourceAuthentication.choices, null=True, blank=True)
     source_credential_id = models.CharField(max_length=50, null=True, blank=True)
     # for example holds filters for CSV exports

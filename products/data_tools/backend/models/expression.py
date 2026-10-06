@@ -1,13 +1,14 @@
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import DeletedMetaFields, UUIDTModel
+from posthog.models.utils import DeletedMetaFields, IsolatedProductCreatedMetaFields, UUIDTModel
 
 
-class DataWarehouseExpression(ModelActivityMixin, TeamScopedRootMixin, UUIDTModel, DeletedMetaFields):
+class DataWarehouseExpression(
+    ModelActivityMixin, TeamScopedRootMixin, UUIDTModel, DeletedMetaFields, IsolatedProductCreatedMetaFields
+):
     """A saved HogQL expression exposed as a virtual field on a table.
 
     The expression is injected into the team's HogQL database on every build, so the
@@ -18,15 +19,6 @@ class DataWarehouseExpression(ModelActivityMixin, TeamScopedRootMixin, UUIDTMode
     # db_constraint=False on the hot-table FKs (team, created_by) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        related_name="+",
-    )
     table_name = models.CharField(max_length=400)
     field_name = models.CharField(max_length=400)
     expression = models.TextField()

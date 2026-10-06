@@ -15,7 +15,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
 
 if TYPE_CHECKING:
@@ -40,13 +40,11 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Action(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     events = models.ManyToManyField("posthog.Event", blank=True, related_name="+")  # type: models.ManyToManyField
     post_to_slack = models.BooleanField(default=False)

@@ -3,6 +3,7 @@ import uuid
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import CreatedMetaFields
 from posthog.utils import generate_short_id
 
 MIN_CPU_CORES = 0.25
@@ -11,7 +12,7 @@ MIN_MEMORY_GB = 0.5
 MAX_MEMORY_GB = 16.0
 
 
-class StreamlitApp(TeamScopedRootMixin):
+class StreamlitApp(TeamScopedRootMixin, CreatedMetaFields):
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin is fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
     # (related-object access, prefetch_related, DRF class-body querysets) — Meta's
@@ -43,8 +44,6 @@ class StreamlitApp(TeamScopedRootMixin):
     deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -61,7 +60,7 @@ class StreamlitApp(TeamScopedRootMixin):
         return self.name
 
 
-class StreamlitAppVersion(models.Model):
+class StreamlitAppVersion(CreatedMetaFields, models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app = models.ForeignKey(StreamlitApp, on_delete=models.CASCADE, related_name="versions")
@@ -72,9 +71,6 @@ class StreamlitAppVersion(models.Model):
 
     snapshot_id = models.CharField(max_length=255, null=True, blank=True)
     snapshot_created_at = models.DateTimeField(null=True, blank=True)
-
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("app", "version_number")

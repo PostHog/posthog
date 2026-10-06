@@ -5,9 +5,10 @@ from django.utils import timezone
 
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.utils import CreatedMetaFields
 
 
-class Annotation(ModelActivityMixin, models.Model):
+class Annotation(ModelActivityMixin, CreatedMetaFields, models.Model):
     class Scope(models.TextChoices):
         INSIGHT = "dashboard_item", "insight"
         DASHBOARD = "dashboard", "dashboard"
@@ -20,7 +21,7 @@ class Annotation(ModelActivityMixin, models.Model):
         GITHUB = "GIT", "GitHub"
 
     content = models.CharField(max_length=8192, null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now, null=True)
+    created_at = models.DateTimeField(default=timezone.now, null=True)  # type: ignore[assignment]  # this column is nullable, unlike the CreatedMetaFields one
     updated_at = models.DateTimeField(auto_now=True)
     dashboard_item = models.ForeignKey(
         "product_analytics.Insight", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
@@ -30,7 +31,6 @@ class Annotation(ModelActivityMixin, models.Model):
     )
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     scope = models.CharField(max_length=24, choices=Scope, default=Scope.INSIGHT)
     # Optional emoji shown in place of the default badge when surfacing the annotation.
     # Long enough to hold a single multi-codepoint grapheme (ZWJ sequences, skin-tone modifiers).

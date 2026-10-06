@@ -1,1 +1,1 @@
-0012_move_platform_models_to_alerts_platform
+0013_alter_alertconfiguration_created_by_and_more

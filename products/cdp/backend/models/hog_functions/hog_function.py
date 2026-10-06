@@ -18,7 +18,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.plugins.plugin_server_api import (
     get_hog_function_status,
     patch_hog_function_status,
@@ -107,7 +107,7 @@ def _raw_filters(filters: dict | None) -> dict:
     return {key: value for key, value in (filters or {}).items() if key not in DERIVED_FILTER_KEYS}
 
 
-class HogFunction(FileSystemSyncMixin, UUIDTModel):
+class HogFunction(FileSystemSyncMixin, CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "posthog_hogfunction"
         indexes = [
@@ -117,8 +117,6 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)

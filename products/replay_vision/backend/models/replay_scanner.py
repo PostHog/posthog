@@ -9,7 +9,7 @@ from django.utils.functional import Promise
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
 # models) is runtime-imported in the accessor that materializes the typed query.
@@ -122,7 +122,7 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
         return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
 
 
-class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
+class ReplayScanner(Taggable, ModelActivityMixin, CreatedMetaFields, UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
 
     # A scanner sends recordings to an LLM, so its removal stays visible after the row is gone.
@@ -345,8 +345,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="Credits admitted since the last admission-budget refresh. Every refresh resets this to the admitting cost, or to zero on a refusal.",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

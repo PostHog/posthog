@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
-class PropertyAccessControl(UUIDModel):
+class PropertyAccessControl(CreatedMetaFields, UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -48,6 +48,4 @@ class PropertyAccessControl(UUIDModel):
     )
 
     # metadata
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)

@@ -18,7 +18,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet
+from posthog.models.utils import CreatedMetaFields, RootTeamManager, RootTeamMixin, RootTeamQuerySet
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
@@ -145,7 +145,7 @@ class FeatureFlagManager(RootTeamManager):
         return FeatureFlagQuerySet(self.model, using=self._db).exclude(deleted=True)
 
 
-class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     # Reverse relation from FeatureFlagEvaluationContext.feature_flag (related_name="flag_evaluation_contexts").
     if TYPE_CHECKING:
         flag_evaluation_contexts: RelatedManager[FeatureFlagEvaluationContext]
@@ -166,7 +166,6 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)

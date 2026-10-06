@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 
-class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class WarehouseColumnStatistics(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Per-column data profile for a synced warehouse table, surfaced to the AI agent.
 
     One row per (table, column). Stats are derived from the Delta transaction log's per-file statistics
@@ -24,9 +24,6 @@ class WarehouseColumnStatistics(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     # scoping is enforced at the app level by TeamScopedRootMixin, and these are derived rows, so we don't
     # need DB-level referential integrity here. The table FK targets a non-hot table, so it keeps its constraint.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_statistics"
     )

@@ -12,7 +12,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
@@ -47,7 +47,7 @@ ExposureFreezeBlocker = (
 )
 
 
-class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     class ExperimentType(models.TextChoices):
         WEB = "web", "web"
         PRODUCT = "product", "product"
@@ -75,7 +75,6 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     # A list of filters for secondary metrics
     secondary_metrics = models.JSONField(default=list, null=True, blank=True)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
     feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
     exposure_cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
@@ -381,7 +380,7 @@ def saved_metric_has_legacy_query(saved_metric: "ExperimentSavedMetric") -> bool
     return saved_metric.query.get("kind") in LEGACY_METRIC_KINDS if saved_metric.query else False
 
 
-class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
+class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -390,7 +389,6 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
     # This is then replicated across flags for experiments in the holdout
     filters = models.JSONField(default=list)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -411,7 +409,7 @@ class ExperimentHoldout(ModelActivityMixin, RootTeamMixin, models.Model):
         return self.filters[0]["rollout_percentage"] if self.filters else None
 
 
-class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, models.Model):
+class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, CreatedMetaFields, models.Model):
     name = models.CharField(max_length=400)
     description = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -422,7 +420,6 @@ class ExperimentSavedMetric(Taggable, ModelActivityMixin, RootTeamMixin, models.
     # has things like if this metric was migrated from a legacy metric
     metadata = models.JSONField(null=True, blank=True, default=dict)
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -515,7 +512,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"
 
 
-class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
+class ExperimentMetricsRecalculation(TeamScopedRootMixin, CreatedMetaFields, UUIDModel):
     """Tracks batch recalculation of all metrics for an experiment.
 
     The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the recalculation workflow.
@@ -588,10 +585,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)
 
-    created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
         indexes = [

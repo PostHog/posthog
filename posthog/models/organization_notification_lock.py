@@ -5,7 +5,7 @@ from uuid import UUID
 from django.db import models
 
 from posthog.dataclasses import frozen
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 # What an organization may enforce, mapped to what a rule's scope ID means. An allowlist, so
 # security alerts, the in-app map, and the master switches stay out of reach. A member who turns
@@ -47,7 +47,7 @@ class GovernedSetting:
     scope_id: str
 
 
-class OrganizationMemberNotificationLock(UUIDModel):
+class OrganizationMemberNotificationLock(IsolatedProductCreatedMetaFields, UUIDModel):
     """An email notification setting an organization enforces on one of its members.
 
     The rule carries the value and the member's stored preference is left untouched, so removing a
@@ -71,15 +71,6 @@ class OrganizationMemberNotificationLock(UUIDModel):
     # A team ID, an organization ID, or empty for a single switch. See the allowlist above.
     scope_id = models.CharField(max_length=160, default="", db_default="", blank=True)
     locked_value = models.BooleanField()
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="+",
-        db_constraint=False,
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

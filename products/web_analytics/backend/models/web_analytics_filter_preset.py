@@ -1,11 +1,11 @@
 from django.db import models
 from django.utils import timezone
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 
-class WebAnalyticsFilterPreset(UUIDModel):
+class WebAnalyticsFilterPreset(CreatedMetaFields, UUIDModel):
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True)
@@ -13,8 +13,6 @@ class WebAnalyticsFilterPreset(UUIDModel):
     pinned = models.BooleanField(default=False)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(default=dict)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "posthog.User",

@@ -3,10 +3,10 @@ from __future__ import annotations
 from django.db import models
 from django.db.models.functions import Lower
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
-class RoleExternalReference(UUIDModel):
+class RoleExternalReference(CreatedMetaFields, UUIDModel):
     """Maps an external provider role/group to a PostHog role.
 
     Organization-scoped: one external reference maps to exactly one role per org.
@@ -45,9 +45,7 @@ class RoleExternalReference(UUIDModel):
     # Display name
     provider_role_name = models.CharField(max_length=255)
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         app_label = "posthog"

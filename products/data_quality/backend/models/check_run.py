@@ -1,7 +1,7 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from ..facade.enums import (
     CheckRunStatus,
@@ -12,7 +12,7 @@ from ..facade.enums import (
 )
 
 
-class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataQualitySuiteRun(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """One batch of check executions, and the handle an API caller polls for a report.
 
     A suite is scoped to whatever the trigger asked for -- a single subject, an explicit set of
@@ -21,9 +21,6 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
 
     trigger = models.CharField(
         max_length=32,
@@ -71,7 +68,7 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
         return f"suite run {self.id} ({self.status})"
 
 
-class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataQualityCheckRun(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """One execution of one check.
 
     Deliberately stores counts and the compiled query, never failing rows -- warehouse data can be
@@ -83,9 +80,6 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     # Named quality_check, never check: Django reserves Model.check() and a field called `check`
     # shadows it (models.E020).
     quality_check = models.ForeignKey(

@@ -1,12 +1,14 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 
-class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class DataWarehouseSavedQueryColumnAnnotation(
+    TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel
+):
     """Semantic description of a data warehouse saved query (view) or one of its columns, surfaced to the AI agent.
 
     One row per (saved_query, column). An empty `column_name` is the view-level annotation. Mirrors
@@ -22,9 +24,6 @@ class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFi
     # scoping is enforced at the app level by TeamScopedRootMixin. The saved_query FK targets a non-hot
     # table, so it keeps its constraint.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
-    )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE, related_name="column_annotations"
     )

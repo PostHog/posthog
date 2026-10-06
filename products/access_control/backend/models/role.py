@@ -1,12 +1,12 @@
 from django.db import models
 from django.db.models import F, Q
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from products.access_control.backend.models.organization_resource_access import OrganizationResourceAccess
 
 
-class Role(UUIDTModel):
+class Role(CreatedMetaFields, UUIDTModel):
     class Meta:
         app_label = "ee"
         constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
@@ -17,15 +17,6 @@ class Role(UUIDTModel):
         on_delete=models.CASCADE,
         related_name="roles",
         related_query_name="role",
-    )
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        related_name="roles",
-        related_query_name="role",
-        null=True,
     )
 
     # DEPRECATED - do not use

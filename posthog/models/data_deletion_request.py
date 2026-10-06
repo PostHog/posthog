@@ -8,7 +8,7 @@ from django.db import models
 from django.db.models import F
 from django.utils import timezone
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
 def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
@@ -243,7 +243,7 @@ class ExecutionMode(models.TextChoices):
     DEFERRED = "deferred"
 
 
-class DataDeletionRequest(UUIDModel):
+class DataDeletionRequest(CreatedMetaFields, UUIDModel):
     # Request config
     team_id = models.IntegerField()
     request_type = models.CharField(
@@ -350,12 +350,6 @@ class DataDeletionRequest(UUIDModel):
 
     # Metadata
     notes = models.TextField(blank=True, default="")
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="data_deletion_requests_created",
-    )
     created_by_staff = models.BooleanField(null=True, blank=True, help_text="Was this created by instance operator.")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

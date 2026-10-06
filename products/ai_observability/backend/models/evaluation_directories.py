@@ -3,22 +3,16 @@ from django.db.models.functions import Lower
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
-class EvaluationDirectory(ModelActivityMixin, TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class EvaluationDirectory(
+    ModelActivityMixin, TeamScopedRootMixin, UUIDModel, IsolatedProductCreatedMetaFields, UpdatedMetaFields
+):
     activity_logging_on_delete = True
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        related_name="+",
-    )
 
     class Meta:
         db_table = "llm_analytics_evaluationdirectory"

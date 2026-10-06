@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from dateutil.rrule import rrulestr
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from products.workflows.backend.facade.api import compute_next_occurrences, validate_rrule
 
@@ -40,7 +40,7 @@ class EvaluationReportQuerySet(models.QuerySet):
         )
 
 
-class EvaluationReport(UUIDTModel):
+class EvaluationReport(CreatedMetaFields, UUIDTModel):
     objects = EvaluationReportQuerySet.as_manager()
 
     class Frequency(models.TextChoices):
@@ -122,9 +122,6 @@ class EvaluationReport(UUIDTModel):
     # Optional per-report custom guidance appended to the agent's system prompt.
     # Lets users steer focus/scope/section choices without touching the base prompt.
     report_prompt_guidance = models.TextField(blank=True, default="")
-
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    created_at = models.DateTimeField(auto_now_add=True)
 
     @property
     def is_count_triggered(self) -> bool:

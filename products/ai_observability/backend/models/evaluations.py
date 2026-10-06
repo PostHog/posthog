@@ -10,7 +10,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 from .evaluation_configs import (
     EVALUATION_CONFIG_MODELS,
@@ -60,7 +60,7 @@ class EvaluationTarget(models.TextChoices):
     SESSION = "session", "Session"
 
 
-class Evaluation(ModelActivityMixin, UUIDTModel):
+class Evaluation(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_evaluation"
         ordering = ["-created_at", "id"]
@@ -134,9 +134,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     )
 
     # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     def __init__(self, *args, **kwargs) -> None:

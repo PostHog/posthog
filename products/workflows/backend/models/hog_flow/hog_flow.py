@@ -9,7 +9,7 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
@@ -107,7 +107,7 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.OriginProduct.choices)
 
 
-class HogFlow(UUIDTModel):
+class HogFlow(CreatedMetaFields, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """
@@ -149,8 +149,6 @@ class HogFlow(UUIDTModel):
         max_length=40, choices=hog_flow_origin_product_choices, null=True, blank=True, db_index=False
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)

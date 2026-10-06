@@ -21,7 +21,7 @@ from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.signals import model_activity_signal, mutable_receiver
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -108,7 +108,7 @@ class AIQueryPlanStatus(models.TextChoices):
     PLANNER_UPDATED = "planner_updated", "Planner updated"
 
 
-class Subscription(ModelActivityMixin, models.Model):
+class Subscription(ModelActivityMixin, CreatedMetaFields, models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
     https://dateutil.readthedocs.io/en/stable/rrule.html
@@ -213,8 +213,6 @@ class Subscription(ModelActivityMixin, models.Model):
     next_delivery_date = models.DateTimeField(null=True, blank=True)
 
     # Meta
-    created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
 
     # False when paused or auto-disabled because the delivery prerequisite is
