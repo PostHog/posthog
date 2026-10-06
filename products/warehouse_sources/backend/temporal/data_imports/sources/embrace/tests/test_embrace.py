@@ -1,5 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -66,10 +68,12 @@ def matrix(series: list[dict[str, object]]) -> dict[str, object]:
         ("eu", "api-eu1.embrace.io", "network_5xx", "hourly_network5xx_total"),
     ],
 )
-def test_query_request_and_series_identity(region: str, host: str, endpoint: str, metric: str) -> None:
+def test_query_request_and_series_identity(
+    region: Literal["default", "us", "eu"], host: str, endpoint: str, metric: str
+) -> None:
     config = EmbraceSourceConfig(api_token="test-token", app_id='app"\\name', region=region)
     labels = {"__name__": metric, "app_id": config.app_id, "device_model": "example-device"}
-    series = [
+    series: list[dict[str, object]] = [
         {"metric": labels, "values": [[END - 3600, "1"], [END, "2"]]},
         {"metric": dict(reversed(list(labels.items()))), "values": [[END - 7200, "3"]]},
         {"metric": {**labels, "device_model": "another-device"}, "values": [[END, "4"]]},
@@ -124,7 +128,7 @@ def test_windows_full_refresh_and_incremental(
 
     with patch("requests.sessions.Session.send", side_effect=send_page) as send:
         resource = EmbraceSource().source_for_pipeline(config, manager, inputs)
-        batches = list(resource.items())
+        batches = list(cast(Iterable[Any], resource.items()))
     assert resource.sort_mode == "desc"
     assert send.call_count == (2 if incremental else 30)
     params = [parse_qs(urlparse(call.args[0].url).query) for call in send.call_args_list]
@@ -150,7 +154,7 @@ def test_resume_keeps_original_bounds_and_checks_empty_windows(config: EmbraceSo
         "requests.sessions.Session.send", side_effect=lambda request, **kwargs: response(request, matrix([]))
     ) as send:
         resource = embrace_source(config, "sessions", 1, "test-job", manager, None, "v1")
-        assert list(resource.items()) == []
+        assert list(cast(Iterable[Any], resource.items())) == []
     assert send.call_count == 2
     params = [parse_qs(urlparse(call.args[0].url).query) for call in send.call_args_list]
     assert params[0]["end"] == [str(END - 3600)]
@@ -167,7 +171,7 @@ def test_old_watermark_is_bounded(config: EmbraceSourceConfig, manager: MagicMoc
         "requests.sessions.Session.send", side_effect=lambda request, **kwargs: response(request, matrix([]))
     ) as send:
         resource = embrace_source(config, "sessions", 1, "test-job", manager, last_value, "v1")
-        assert list(resource.items()) == []
+        assert list(cast(Iterable[Any], resource.items())) == []
     assert send.call_count == 30
     assert manager.save_state.call_args.args[0].start == END - 719 * 3600
 
@@ -184,7 +188,7 @@ def test_checkpoint_does_not_skip_failed_window(config: EmbraceSourceConfig, man
     with patch("requests.sessions.Session.send", side_effect=send_page):
         resource = embrace_source(config, "sessions", 1, "test-job", manager, None, "v1")
         with pytest.raises(HTTPError):
-            list(resource.items())
+            list(cast(Iterable[Any], resource.items()))
     manager.save_state.assert_called_once_with(EmbraceResumeConfig(start=END - 719 * 3600, end=END - 24 * 3600))
     manager.clear_state.assert_not_called()
 
@@ -219,7 +223,7 @@ def test_validation_accepts_no_samples_and_uses_one_point(config: EmbraceSourceC
 def test_transient_statuses_remain_retryable(config: EmbraceSourceConfig, status: int) -> None:
     with (
         patch("requests.sessions.Session.send", side_effect=lambda request, **kwargs: response(request, {}, status)),
-        patch.object(RESTClient, "_send_request", RESTClient._send_request.__wrapped__),
+        patch.object(RESTClient, "_send_request", cast(Any, RESTClient._send_request).__wrapped__),
         pytest.raises(RESTClientRetryableError),
     ):
         validate_credentials(config, 1, "sessions", "v1")
@@ -253,7 +257,7 @@ def test_query_errors_do_not_become_empty_success(
 def test_invalid_config_does_not_send_credentials(
     region: str, app_id: str, endpoint: str, version: str, message: str
 ) -> None:
-    config = EmbraceSourceConfig(api_token="test-token", app_id=app_id, region=region)
+    config = EmbraceSourceConfig(api_token="test-token", app_id=app_id, region=cast(Any, region))
     with patch("requests.sessions.Session.send") as send:
         valid, error = validate_credentials(config, 1, endpoint, version)
     assert not valid
