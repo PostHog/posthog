@@ -201,7 +201,12 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
+            // A click or tap meant for an overlay control must not act on the node behind it.
             if (originatesInInteractiveOverlay(e)) {
+                if (lastPointerTypeRef.current === 'touch') {
+                    clearTooltip()
+                    reportHover(null)
+                }
                 return
             }
             const current = layoutRef.current

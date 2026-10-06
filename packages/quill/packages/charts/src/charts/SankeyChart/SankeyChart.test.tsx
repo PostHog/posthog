@@ -131,6 +131,29 @@ describe('SankeyChart', () => {
         expect(onHoverChange).toHaveBeenLastCalledWith(null)
     })
 
+    it('ignores a tap on an interactive overlay over a node', () => {
+        const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
+        const { chart, getByRole } = renderHogChart(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+                config={{ tooltip: { enabled: false } }}
+            >
+                <button data-hog-charts-interactive-overlay="">card</button>
+            </SankeyChart>
+        )
+        const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+        fireEvent(chart.element, down)
+        fireEvent.click(getByRole('button'), nodeCenter('a'))
+
+        expect(onNodeClick).not.toHaveBeenCalled()
+        expect(onHoverChange).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'node' }))
+    })
+
     it('fires the click on the first tap when the tooltip is disabled', () => {
         const onNodeClick = jest.fn()
         const { chart } = renderHogChart(
