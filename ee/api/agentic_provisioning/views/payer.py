@@ -12,7 +12,6 @@ from collections.abc import Collection, Iterator
 from contextlib import contextmanager
 from typing import Any, cast
 
-import requests
 from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -26,10 +25,11 @@ from posthog.utils import get_trusted_client_ip
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import PayerAuthentication
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, rate_limited
+from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, rate_limited, record_outbound_call
 from ee.api.agentic_provisioning.serializers import first_error_message
 from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 from ee.api.partner_billing import (
+    PARTNER_BILLING_CALL_ERRORS,
     PartnerPayerInvoiceListSerializer,
     PartnerPayerInvoicesQuerySerializer,
     PartnerPayerOrganizationLimitsSerializer,
@@ -44,8 +44,14 @@ from ee.api.partner_billing import (
     PartnerPayerWebhookSecretSerializer,
     billing_json,
     classify_partner_billing_error,
+    serialize_billing_response,
 )
-from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
+from ee.billing.billing_manager import BillingManager
+
+DEFAULT_LIMITS_REFUSED_MESSAGE = (
+    "default_limits_usd: This route cannot change default limits. An admin of your PostHog organization can "
+    "change them in organization settings, under Partner billing."
+)
 
 
 class PayerAPIView(ProvisioningAPIView):
@@ -70,9 +76,10 @@ class PayerAPIView(ProvisioningAPIView):
 
     @contextmanager
     def billing_call(self, partner: OAuthApplication, action: str, fields: Collection[str] = ()) -> Iterator[None]:
+        record_outbound_call(self.request)
         try:
             yield
-        except (BillingServiceResponseError, requests.RequestException) as error:
+        except PARTNER_BILLING_CALL_ERRORS as error:
             refusal = classify_partner_billing_error(error, fields)
             capture_exception(error, {"partner_application_id": str(partner.id), "refusal_code": refusal.code})
             capture_provisioning_event("payer", "error", partner=partner, action=action, error_code=refusal.code)
@@ -89,16 +96,22 @@ class PayerView(PayerAPIView):
     def get(self, request: Request) -> Response:
         partner = self.payer(request)
         with self.billing_call(partner, "status"):
-            payer = self.billing_manager(request).get_payer(partner)
-        return Response(PartnerPayerStatusSerializer(payer).data)
+            payer = serialize_billing_response(
+                PartnerPayerStatusSerializer, self.billing_manager(request).get_payer(partner)
+            )
+        return Response(payer)
 
     @rate_limited("payer_writes")
     def patch(self, request: Request) -> Response:
         partner = self.payer(request)
+        if "default_limits_usd" in request.data:
+            raise ProvisioningError("invalid_request", DEFAULT_LIMITS_REFUSED_MESSAGE)
         changes = self.validated_body(PartnerPayerUpdateSerializer, request)
         with self.billing_call(partner, "update", fields=changes.keys()):
-            payer = self.billing_manager(request).update_payer(partner, billing_json(changes))
-        return Response(PartnerPayerStatusSerializer(payer).data)
+            payer = serialize_billing_response(
+                PartnerPayerStatusSerializer, self.billing_manager(request).update_payer(partner, billing_json(changes))
+            )
+        return Response(payer)
 
 
 class PayerWebhookSecretView(PayerAPIView):
@@ -106,8 +119,10 @@ class PayerWebhookSecretView(PayerAPIView):
     def post(self, request: Request) -> Response:
         partner = self.payer(request)
         with self.billing_call(partner, "webhook_secret"):
-            secret = self.billing_manager(request).rotate_payer_webhook_secret(partner)
-        return Response(PartnerPayerWebhookSecretSerializer(secret).data, headers={"Cache-Control": "no-store"})
+            secret = serialize_billing_response(
+                PartnerPayerWebhookSecretSerializer, self.billing_manager(request).rotate_payer_webhook_secret(partner)
+            )
+        return Response(secret, headers={"Cache-Control": "no-store"})
 
 
 class PayerTestEventView(PayerAPIView):
@@ -117,8 +132,10 @@ class PayerTestEventView(PayerAPIView):
     def post(self, request: Request) -> Response:
         partner = self.payer(request)
         with self.billing_call(partner, "test_event"):
-            event = self.billing_manager(request).send_payer_test_event(partner)
-        return Response(PartnerPayerTestEventSerializer(event).data)
+            event = serialize_billing_response(
+                PartnerPayerTestEventSerializer, self.billing_manager(request).send_payer_test_event(partner)
+            )
+        return Response(event)
 
 
 class PayerOrganizationsView(PayerAPIView):
@@ -127,8 +144,11 @@ class PayerOrganizationsView(PayerAPIView):
         partner = self.payer(request)
         page = self.validated_query(PartnerPayerPageQuerySerializer, request)
         with self.billing_call(partner, "organizations"):
-            organizations = self.billing_manager(request).list_payer_organizations(partner, **page)
-        return Response(PartnerPayerOrganizationListSerializer(organizations).data)
+            organizations = serialize_billing_response(
+                PartnerPayerOrganizationListSerializer,
+                self.billing_manager(request).list_payer_organizations(partner, **page),
+            )
+        return Response(organizations)
 
 
 class PayerOrganizationLimitsView(PayerAPIView):
@@ -137,10 +157,13 @@ class PayerOrganizationLimitsView(PayerAPIView):
         partner = self.payer(request)
         body = self.validated_body(PartnerPayerOrganizationLimitsSerializer, request)
         with self.billing_call(partner, "organization_limits", fields=body.keys()):
-            organization = self.billing_manager(request).update_payer_organization_limits(
-                partner, str(organization_id), body["custom_limits_usd"]
+            organization = serialize_billing_response(
+                PartnerPayerOrganizationSerializer,
+                self.billing_manager(request).update_payer_organization_limits(
+                    partner, str(organization_id), body["custom_limits_usd"]
+                ),
             )
-        return Response(PartnerPayerOrganizationSerializer(organization).data)
+        return Response(organization)
 
 
 class PayerInvoicesView(PayerAPIView):
@@ -149,8 +172,10 @@ class PayerInvoicesView(PayerAPIView):
         partner = self.payer(request)
         filters = self.validated_query(PartnerPayerInvoicesQuerySerializer, request)
         with self.billing_call(partner, "invoices"):
-            invoices = self.billing_manager(request).list_payer_invoices(partner, **filters)
-        return Response(PartnerPayerInvoiceListSerializer(invoices).data)
+            invoices = serialize_billing_response(
+                PartnerPayerInvoiceListSerializer, self.billing_manager(request).list_payer_invoices(partner, **filters)
+            )
+        return Response(invoices)
 
 
 class PayerSettlementsView(PayerAPIView):
@@ -159,8 +184,11 @@ class PayerSettlementsView(PayerAPIView):
         partner = self.payer(request)
         page = self.validated_query(PartnerPayerPageQuerySerializer, request)
         with self.billing_call(partner, "settlements"):
-            settlements = self.billing_manager(request).list_payer_settlements(partner, **page)
-        return Response(PartnerPayerSettlementListSerializer(settlements).data)
+            settlements = serialize_billing_response(
+                PartnerPayerSettlementListSerializer,
+                self.billing_manager(request).list_payer_settlements(partner, **page),
+            )
+        return Response(settlements)
 
 
 class PayerSettlementDetailView(PayerAPIView):
@@ -168,5 +196,8 @@ class PayerSettlementDetailView(PayerAPIView):
     def get(self, request: Request, settlement_id: str) -> Response:
         partner = self.payer(request)
         with self.billing_call(partner, "settlement"):
-            settlement = self.billing_manager(request).get_payer_settlement(partner, settlement_id)
-        return Response(PartnerPayerSettlementDetailSerializer(settlement).data)
+            settlement = serialize_billing_response(
+                PartnerPayerSettlementDetailSerializer,
+                self.billing_manager(request).get_payer_settlement(partner, settlement_id),
+            )
+        return Response(settlement)

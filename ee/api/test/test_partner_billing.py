@@ -1,17 +1,22 @@
+from datetime import timedelta
 from typing import Any
 
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership
-from posthog.models.oauth import OAuthApplication
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import BillingReadBurstRateThrottle
 
 from ee.api.partner_billing import PartnerPayerPortalRequestSerializer, classify_partner_billing_error
 from ee.api.test.base import APILicensedTest
@@ -58,17 +63,21 @@ INVOICE: dict[str, Any] = {
     "period_start": "2026-09-01T00:00:00Z",
     "period_end": "2026-10-01T00:00:00Z",
     "amount_cents": 125000,
-    "currency": "usd",
+    "currency": "USD",
     "status": "paid",
     "settlement_id": "stl_example1",
     "pdf_url": "https://files.example.com/in_example1.pdf",
 }
+SETTLEMENT_INVOICES: list[dict[str, Any]] = [
+    {**INVOICE, "charged_cents": 125000},
+    {**INVOICE, "invoice_id": "in_example2", "amount_cents": None, "charged_cents": 0},
+]
 SETTLEMENT: dict[str, Any] = {
     "settlement_id": "stl_example1",
     "period_start": "2026-09-01T00:00:00Z",
     "period_end": "2026-10-01T00:00:00Z",
     "amount_cents": 125000,
-    "currency": "usd",
+    "currency": "USD",
     "status": "paid",
     "attempt_count": 1,
     "next_attempt_at": None,
@@ -192,6 +201,79 @@ class TestPartnerBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         request.assert_not_called()
 
+    def _bearer_token(self, credential: str) -> str:
+        if credential == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="Every scope", secure_value=hash_key_value(token), scopes=["*"]
+            )
+            return token
+        client = OAuthApplication.objects.create(
+            name="Example OAuth client",
+            client_id="example-oauth-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://client.example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            user=self.user,
+            application=client,
+            token="pha_example_partner_billing_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+        ).token
+
+    @parameterized.expand(
+        [
+            (f"{credential} {route}", credential, method, path)
+            for credential in ("personal_api_key", "oauth_access_token")
+            for route, method, path in (("update", "patch", ""), ("webhook secret", "post", "webhook_secret/"))
+        ]
+    )
+    def test_refuses_tokens_because_only_a_signed_in_admin_may_change_billing(self, _name, credential, method, path):
+        token = self._bearer_token(credential)
+        self.client.logout()
+
+        with patch("ee.billing.billing_manager.http_session.request") as request:
+            response = getattr(self.client, method)(
+                self._url(path),
+                {"webhook_url": "https://hooks.example.com/posthog"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        request.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("every route shares the billing budget", "get", "", PAYER_STATUS, "1/minute", 1),
+            (
+                "a test event, which reaches the partner's webhook, has its own smaller budget",
+                "post",
+                "test_event/",
+                {"event_id": "evt_example1"},
+                BillingReadBurstRateThrottle.rate,
+                5,
+            ),
+        ]
+    )
+    def test_throttles_each_signed_in_admin(self, _name, method, path, billing_payload, billing_burst_rate, allowed):
+        cache.clear()
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(BillingReadBurstRateThrottle, "rate", billing_burst_rate),
+            patch(
+                "ee.billing.billing_manager.http_session.request", return_value=billing_response(billing_payload)
+            ) as request,
+        ):
+            statuses = [getattr(self.client, method)(self._url(path)).status_code for _ in range(allowed + 1)]
+
+        assert statuses == [status.HTTP_200_OK] * allowed + [status.HTTP_429_TOO_MANY_REQUESTS]
+        assert request.call_count == allowed
+
     @parameterized.expand([("owned by another organization", True), ("not paying for customers", False)])
     def test_refuses_partners_this_organization_does_not_manage(self, _name, owned_elsewhere):
         if owned_elsewhere:
@@ -300,9 +382,9 @@ class TestPartnerBillingAPI(APILicensedTest):
                 "get",
                 "settlements/stl_example1/",
                 None,
-                {**SETTLEMENT, "invoices": [INVOICE]},
+                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
                 ("GET", "/api/payer/settlements/stl_example1", None, None),
-                {**SETTLEMENT, "invoices": [INVOICE]},
+                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
             ),
             (
                 "settlement retry",
@@ -334,29 +416,45 @@ class TestPartnerBillingAPI(APILicensedTest):
         [
             (
                 "billing rejects a field the caller sent",
+                "patch",
+                "",
                 billing_response({"type": "validation_error", "attr": "webhook_url", "detail": BILLING_DETAIL}, 400),
                 status.HTTP_400_BAD_REQUEST,
                 {"code": "invalid_input", "attr": "webhook_url"},
             ),
             (
                 "another organization manages the payer",
+                "patch",
+                "",
                 billing_response({"detail": BILLING_DETAIL}, 403),
                 status.HTTP_403_FORBIDDEN,
                 {"code": "forbidden", "attr": None},
             ),
             (
                 "billing unreachable",
+                "patch",
+                "",
                 requests.ConnectionError(BILLING_DETAIL),
+                status.HTTP_502_BAD_GATEWAY,
+                {"code": "billing_unavailable", "attr": None},
+            ),
+            (
+                "billing answers without a key the contract requires",
+                "post",
+                "webhook_secret/",
+                billing_response({"secret": "whsec_ZXhhbXBsZQ=="}),
                 status.HTTP_502_BAD_GATEWAY,
                 {"code": "billing_unavailable", "attr": None},
             ),
         ]
     )
-    def test_answers_billing_refusals_in_posthog_terms(self, _name, outcome, expected_status, expected_error):
+    def test_answers_billing_refusals_in_posthog_terms(
+        self, _name, method, path, outcome, expected_status, expected_error
+    ):
         side_effect = outcome if isinstance(outcome, Exception) else [outcome]
         with patch("ee.billing.billing_manager.http_session.request", side_effect=side_effect):
-            response = self.client.patch(
-                self._url(), {"webhook_url": "https://hooks.example.com/posthog"}, format="json"
+            response = getattr(self.client, method)(
+                self._url(path), {"webhook_url": "https://hooks.example.com/posthog"}, format="json"
             )
 
         assert response.status_code == expected_status

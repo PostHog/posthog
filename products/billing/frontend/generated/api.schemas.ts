@@ -1262,7 +1262,7 @@ export interface PartnerPayerApplicationApi {
 }
 
 /**
- * Monthly spend limit in whole US dollars per product key, applied to each new organization.
+ * Default monthly spend limit in whole US dollars per product key. A default applies to every organization the partner pays for that has no limit of its own for that product.
  */
 export type PartnerPayerStatusApiDefaultLimitsUsd = { [key: string]: number | null }
 
@@ -1327,8 +1327,11 @@ export interface PartnerPayerWebhookApi {
 }
 
 export interface PartnerPayerSpendApi {
-    /** Spend this month across the partner's organizations, as a decimal string in US dollars. */
-    month_to_date_usd?: string
+    /**
+     * Spend this month across the partner's organizations as of billing's last daily count, as a decimal string in US dollars. Null until billing has counted this month.
+     * @nullable
+     */
+    month_to_date_usd?: string | null
     /**
      * Spend alert threshold, as a decimal string in US dollars, or null.
      * @nullable
@@ -1360,12 +1363,12 @@ export interface PartnerPayerStatusApi {
     past_due?: boolean
     /** This month's spend, and its alert and cap. */
     spend?: PartnerPayerSpendApi
-    /** Monthly spend limit in whole US dollars per product key, applied to each new organization. */
+    /** Default monthly spend limit in whole US dollars per product key. A default applies to every organization the partner pays for that has no limit of its own for that product. */
     default_limits_usd?: PartnerPayerStatusApiDefaultLimitsUsd
 }
 
 /**
- * Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default.
+ * Default monthly spend limit in whole US dollars per product key. A default applies to every organization the partner pays for that has no limit of its own for that product, including organizations that are already linked. Null for a product removes its default. Products left out keep their default.
  */
 export type PatchedPartnerPayerAdminUpdateApiDefaultLimitsUsd = { [key: string]: number | null }
 
@@ -1388,7 +1391,7 @@ export interface PatchedPartnerPayerAdminUpdateApi {
      * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
      */
     spend_cap_usd?: string | null
-    /** Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default. */
+    /** Default monthly spend limit in whole US dollars per product key. A default applies to every organization the partner pays for that has no limit of its own for that product, including organizations that are already linked. Null for a product removes its default. Products left out keep their default. */
     default_limits_usd?: PatchedPartnerPayerAdminUpdateApiDefaultLimitsUsd
 }
 
@@ -1407,9 +1410,9 @@ export interface PartnerPayerInvoiceApi {
      * @nullable
      */
     period_end?: string | null
-    /** Invoice total in the currency's minor unit. */
+    /** What the payer owes for this invoice, after credits, in the currency's minor unit. */
     amount_cents?: number
-    /** Three-letter ISO currency code, for example `usd`. */
+    /** Three-letter ISO currency code in upper case, for example `USD`. */
     currency?: string
     /** Invoice status, for example `open` or `paid`. */
     status?: string
@@ -1433,7 +1436,7 @@ export interface PartnerPayerInvoiceListApi {
 }
 
 /**
- * Monthly spend limit in whole US dollars per product key for this organization.
+ * This organization's own monthly spend limits in whole US dollars per product key. Null means no limit. A product that is not listed follows the partner's default limits.
  */
 export type PartnerPayerOrganizationApiCustomLimitsUsd = { [key: string]: number | null }
 
@@ -1452,7 +1455,7 @@ export interface PartnerPayerOrganizationApi {
      * @nullable
      */
     detached_at?: string | null
-    /** Monthly spend limit in whole US dollars per product key for this organization. */
+    /** This organization's own monthly spend limits in whole US dollars per product key. Null means no limit. A product that is not listed follows the partner's default limits. */
     custom_limits_usd?: PartnerPayerOrganizationApiCustomLimitsUsd
 }
 
@@ -1464,12 +1467,12 @@ export interface PartnerPayerOrganizationListApi {
 }
 
 /**
- * Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it.
+ * Monthly spend limit in whole US dollars per product key for this organization. It replaces the partner's default for that product. Null for a product means no limit, even when the partner has a default for it. Products left out keep their limit.
  */
 export type PatchedPartnerPayerOrganizationLimitsApiCustomLimitsUsd = { [key: string]: number | null }
 
 export interface PatchedPartnerPayerOrganizationLimitsApi {
-    /** Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it. */
+    /** Monthly spend limit in whole US dollars per product key for this organization. It replaces the partner's default for that product. Null for a product means no limit, even when the partner has a default for it. Products left out keep their limit. */
     custom_limits_usd?: PatchedPartnerPayerOrganizationLimitsApiCustomLimitsUsd
 }
 
@@ -1501,7 +1504,7 @@ export interface PartnerPayerSettlementApi {
     period_end?: string | null
     /** Settlement total in the currency's minor unit. */
     amount_cents?: number
-    /** Three-letter ISO currency code, for example `usd`. */
+    /** Three-letter ISO currency code in upper case, for example `USD`. */
     currency?: string
     /** Settlement status, for example `paid` or `failed`. */
     status?: string
@@ -1526,6 +1529,44 @@ export interface PartnerPayerSettlementListApi {
     results: PartnerPayerSettlementApi[]
 }
 
+export interface PartnerPayerSettlementInvoiceApi {
+    /** ID of the invoice. */
+    invoice_id: string
+    /** ID of the organization the invoice is for. */
+    organization_id?: string
+    /**
+     * Start of the billing period.
+     * @nullable
+     */
+    period_start?: string | null
+    /**
+     * End of the billing period.
+     * @nullable
+     */
+    period_end?: string | null
+    /**
+     * What the payer owes for this invoice, after credits, in the currency's minor unit, or null when billing has not recorded the invoice yet.
+     * @nullable
+     */
+    amount_cents?: number | null
+    /** Three-letter ISO currency code in upper case, for example `USD`. */
+    currency?: string
+    /** Invoice status, for example `open` or `paid`. */
+    status?: string
+    /**
+     * ID of the settlement that pays this invoice, or null.
+     * @nullable
+     */
+    settlement_id?: string | null
+    /**
+     * URL of the invoice PDF, or null.
+     * @nullable
+     */
+    pdf_url?: string | null
+    /** What the settlement charged for this invoice, in the currency's minor unit. */
+    charged_cents?: number
+}
+
 export interface PartnerPayerSettlementDetailApi {
     /** ID of the settlement. */
     settlement_id: string
@@ -1541,7 +1582,7 @@ export interface PartnerPayerSettlementDetailApi {
     period_end?: string | null
     /** Settlement total in the currency's minor unit. */
     amount_cents?: number
-    /** Three-letter ISO currency code, for example `usd`. */
+    /** Three-letter ISO currency code in upper case, for example `USD`. */
     currency?: string
     /** Settlement status, for example `paid` or `failed`. */
     status?: string
@@ -1558,7 +1599,7 @@ export interface PartnerPayerSettlementDetailApi {
      */
     paid_at?: string | null
     /** The organization invoices that the settlement pays. */
-    invoices?: PartnerPayerInvoiceApi[]
+    invoices?: PartnerPayerSettlementInvoiceApi[]
 }
 
 export interface PartnerPayerTestEventApi {
@@ -2049,12 +2090,26 @@ export type PartnerBillingInvoicesListParams = {
      */
     organization_id?: string
     /**
-     * Only return invoices in this status, for example `open` or `paid`.
+     * Only return invoices in this status.
+     *
+     * * `open` - Open
+     * * `paid` - Paid
+     * * `uncollectible` - Uncollectible
+     * * `void` - Void
      * @minLength 1
-     * @maxLength 32
      */
-    status?: string
+    status?: PartnerBillingInvoicesListStatus
 }
+
+export type PartnerBillingInvoicesListStatus =
+    (typeof PartnerBillingInvoicesListStatus)[keyof typeof PartnerBillingInvoicesListStatus]
+
+export const PartnerBillingInvoicesListStatus = {
+    Open: 'open',
+    Paid: 'paid',
+    Uncollectible: 'uncollectible',
+    Void: 'void',
+} as const
 
 export type PartnerBillingOrganizationListParams = {
     /**
