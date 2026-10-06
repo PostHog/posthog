@@ -109,4 +109,9 @@ def application(environ, start_response):
         # when the server calls the app off it. Inert unless the env flag is set.
         install_memory_probe_handler()
         _prewarmed = True
+    from products.tasks.backend.facade.streams import handle_task_run_event_ingest_wsgi  # noqa: PLC0415
+
+    response = handle_task_run_event_ingest_wsgi(environ, start_response)
+    if response is not None:
+        return response
     return _django_application(environ, start_response)

@@ -103,7 +103,7 @@ def test_parse_custom_reports_empty_input_returns_no_reports():
         ("not json", "valid JSON"),
         ('{"name": "x"}', "JSON array"),
         ('[{"dimensions": ["a"], "metrics": ["sessions"]}]', "non-empty 'name'"),
-        ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "built-in report name"),
+        ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "already a built-in report"),
         (
             '[{"name": "dup", "metrics": ["sessions"]}, {"name": "dup", "metrics": ["sessions"]}]',
             "Duplicate custom report name",
