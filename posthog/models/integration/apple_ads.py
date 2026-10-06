@@ -54,12 +54,19 @@ def build_client_secret(
 
 def service_provider_client_secret() -> str:
     """Sign a client secret for PostHog's own Apple Ads service provider registration."""
-    if not settings.APPLE_ADS_APP_CLIENT_ID or not settings.APPLE_ADS_APP_PRIVATE_KEY:
+    if not all(
+        (
+            settings.APPLE_ADS_APP_CLIENT_ID,
+            settings.APPLE_ADS_APP_TEAM_ID,
+            settings.APPLE_ADS_APP_KEY_ID,
+            settings.APPLE_ADS_APP_PRIVATE_KEY,
+        )
+    ):
         raise AppleAdsOauthNotConfigured("Apple Ads service provider app not configured")
 
     return build_client_secret(
         client_id=settings.APPLE_ADS_APP_CLIENT_ID,
-        team_id=settings.APPLE_ADS_APP_TEAM_ID or settings.APPLE_ADS_APP_CLIENT_ID,
+        team_id=settings.APPLE_ADS_APP_TEAM_ID,
         key_id=settings.APPLE_ADS_APP_KEY_ID,
         private_key=settings.APPLE_ADS_APP_PRIVATE_KEY,
     )

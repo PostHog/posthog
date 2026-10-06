@@ -1726,10 +1726,13 @@ class TestAppleAdsIntegrationModel(BaseTest):
         assert claims["sub"] == "SEARCHADS.posthog"
         assert jwt.get_unverified_header(config.client_secret)["kid"] == "key-1"
 
-    @override_settings(APPLE_ADS_APP_CLIENT_ID="", APPLE_ADS_APP_PRIVATE_KEY="")
-    def test_oauth_config_unconfigured_raises(self):
-        with pytest.raises(NotImplementedError, match="Apple Ads service provider app not configured"):
-            OauthIntegration.oauth_config_for_kind("apple-ads")
+    @parameterized.expand(
+        ["APPLE_ADS_APP_CLIENT_ID", "APPLE_ADS_APP_TEAM_ID", "APPLE_ADS_APP_KEY_ID", "APPLE_ADS_APP_PRIVATE_KEY"]
+    )
+    def test_oauth_config_unconfigured_raises(self, missing_setting: str):
+        with override_settings(**{missing_setting: ""}):
+            with pytest.raises(NotImplementedError, match="Apple Ads service provider app not configured"):
+                OauthIntegration.oauth_config_for_kind("apple-ads")
 
     @patch("posthog.models.integration.oauth.requests.get")
     @patch("posthog.models.integration.oauth.requests.post")
@@ -1749,10 +1752,30 @@ class TestAppleAdsIntegrationModel(BaseTest):
             "apple-ads", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
         )
 
-        assert integration.integration_id == "555"
+        assert integration.integration_id == f"grant:{hashlib.sha256(b'rt_1').hexdigest()}"
         assert integration.config["apple_ads_account_name"] == "Hedgebox Inc"
         assert integration.config["apple_ads_org_ids"] == ["555"]
         assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_grants_for_the_same_organization_remain_separate(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.side_effect = [
+            {"access_token": "at_1", "refresh_token": "rt_1", "expires_in": 3600},
+            {"access_token": "at_2", "refresh_token": "rt_2", "expires_in": 3600},
+        ]
+        self._mock_acl(mock_get)
+
+        first = OauthIntegration.integration_from_oauth_response(
+            "apple-ads", self.team.id, self.user, {"code": "code-1", "state": "token=state_token"}
+        )
+        second = OauthIntegration.integration_from_oauth_response(
+            "apple-ads", self.team.id, self.user, {"code": "code-2", "state": "token=state_token"}
+        )
+
+        assert first.id != second.id
+        assert first.integration_id != second.integration_id
 
     @parameterized.expand([("rejected", 403, None), ("no_readable_account", 200, {"result": {"acls": []}})])
     @patch("posthog.models.integration.oauth.requests.get")

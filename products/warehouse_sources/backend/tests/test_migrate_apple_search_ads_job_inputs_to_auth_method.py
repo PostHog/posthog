@@ -39,10 +39,14 @@ def test_a_migrated_source_still_reaches_its_key_pair_and_its_ad_account():
     assert (config.ad_account_id, config.start_date, config.org_id) == ("123456789", "2026-06-01", "555")
 
 
-def test_the_migration_moves_the_key_pair_and_nothing_else():
+def test_the_migration_nests_the_key_pair_without_breaking_old_workers():
     migrated = migration.nest_key_pair_under_auth_method({**_KEY_PAIR, "ad_account_id": "123456789"})
 
-    assert migrated == {"ad_account_id": "123456789", "auth_method": {"selection": "key_pair", **_KEY_PAIR}}
+    assert migrated == {
+        **_KEY_PAIR,
+        "ad_account_id": "123456789",
+        "auth_method": {"selection": "key_pair", **_KEY_PAIR},
+    }
 
 
 @pytest.mark.parametrize(
@@ -62,7 +66,7 @@ def test_reverse_restores_the_shape_the_previous_release_reads():
     """A rollback runs the previous release against these rows, and that code reads the four key
     pair fields from the top level."""
     flattened = migration.flatten_auth_method_to_key_pair(
-        {"auth_method": {"selection": "key_pair", **_KEY_PAIR}, "ad_account_id": "123456789"}
+        {**_KEY_PAIR, "auth_method": {"selection": "key_pair", **_KEY_PAIR}, "ad_account_id": "123456789"}
     )
 
     assert flattened == {**_KEY_PAIR, "ad_account_id": "123456789"}

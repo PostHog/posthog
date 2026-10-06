@@ -2,8 +2,9 @@ from typing import Any, Optional
 
 from django.db import migrations
 
-# The key pair fields, which moved from the top level into the `auth_method` branch when the
-# source gained the Sign in with Apple option. Everything else on an Apple Ads source
+# The key pair fields, which are copied from the top level into the `auth_method` branch when the
+# source gained the Sign in with Apple option. They remain flat for old workers during rollout.
+# Everything else on an Apple Ads source
 # (`ad_account_id`, `org_id`, `start_date`) stays at the top level and must not move.
 KEY_PAIR_FIELDS = ("client_id", "apple_team_id", "key_id", "private_key")
 
@@ -14,6 +15,7 @@ def nest_key_pair_under_auth_method(job_inputs: dict[str, Any]) -> Optional[dict
     Every Apple Ads source that exists today authenticates with its own key pair, because that
     was the only option. Naming the branch explicitly keeps the edit form on it: the branch
     defaults to the sign-in option, so a source left flat renders with its key fields hidden.
+    Keeping the flat fields lets workers from the previous release continue syncing during rollout.
     """
     if "auth_method" in job_inputs:
         return None
@@ -21,7 +23,7 @@ def nest_key_pair_under_auth_method(job_inputs: dict[str, Any]) -> Optional[dict
     migrated = dict(job_inputs)
     auth_method: dict[str, Any] = {"selection": "key_pair"}
     for field in KEY_PAIR_FIELDS:
-        auth_method[field] = migrated.pop(field, "")
+        auth_method[field] = migrated.get(field, "")
     migrated["auth_method"] = auth_method
     return migrated
 
@@ -55,8 +57,7 @@ def _rewrite_job_inputs(apps, rewrite) -> None:
         if rewritten is None:
             continue
 
-        source.job_inputs = rewritten
-        source.save(update_fields=["job_inputs"])
+        ExternalDataSource.objects.filter(pk=source.pk, job_inputs=source.job_inputs).update(job_inputs=rewritten)
 
 
 def migrate_apple_search_ads_job_inputs(apps, schema_editor):

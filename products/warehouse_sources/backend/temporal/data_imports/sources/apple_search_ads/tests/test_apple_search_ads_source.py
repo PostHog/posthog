@@ -275,6 +275,7 @@ class TestAppleSearchAdsSource:
         inputs.api_version = None
         inputs.team_id = self.team_id
         integration = mock.MagicMock()
+        integration.kind = "apple-ads"
 
         with (
             mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration),
@@ -292,6 +293,7 @@ class TestAppleSearchAdsSource:
         # The picker is the only place an ad account id comes from, and a signed-in source has no
         # key pair to sign an assertion with, so it has to reach Apple with the grant's own token.
         integration = mock.MagicMock()
+        integration.kind = "apple-ads"
         with (
             mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration),
             mock.patch(f"{SOURCE_MODULE}.apple_ads_access_token", return_value="bearer-1"),
@@ -304,6 +306,28 @@ class TestAppleSearchAdsSource:
             assert mock_client.call_args.kwargs["token_provider"]() == "bearer-1"
 
         assert [(account.value, account.display_name) for account in accounts] == [("1111111", "Example Retail")]
+
+    def test_token_provider_rejects_an_integration_from_another_provider(self) -> None:
+        integration = mock.MagicMock(kind="slack")
+        with mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration):
+            with pytest.raises(ValueError, match="not an Apple Ads integration"):
+                self.source._token_provider(oauth_config(), self.team_id)
+
+    def test_flat_key_pair_config_remains_readable_during_migration(self) -> None:
+        job_inputs = {
+            "client_id": "SEARCHADS.client",
+            "apple_team_id": "SEARCHADS.team",
+            "key_id": "key-1",
+            "private_key": "pem",
+            "ad_account_id": "123456789",
+        }
+
+        valid, errors = self.source.validate_config(job_inputs)
+        config = self.source.parse_config(job_inputs)
+
+        assert valid, errors
+        assert config.auth_method.selection == "key_pair"
+        assert config.auth_method.private_key == "pem"
 
     def test_validate_credentials_rejects_a_grant_against_the_retired_api_version(self) -> None:
         # Apple issues a service provider grant for the Platform API only. A v5-pinned source has

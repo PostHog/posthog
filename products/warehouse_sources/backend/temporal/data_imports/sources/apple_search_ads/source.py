@@ -308,6 +308,28 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
 
         return schemas
 
+    @staticmethod
+    def _normalize_job_inputs(job_inputs: dict) -> dict:
+        """Make pre-auth-selector key-pair rows readable during a rolling deployment."""
+        if "auth_method" in job_inputs:
+            return job_inputs
+
+        normalized = dict(job_inputs)
+        normalized["auth_method"] = {
+            "selection": "key_pair",
+            "client_id": job_inputs.get("client_id"),
+            "apple_team_id": job_inputs.get("apple_team_id"),
+            "key_id": job_inputs.get("key_id"),
+            "private_key": job_inputs.get("private_key"),
+        }
+        return normalized
+
+    def parse_config(self, job_inputs: dict) -> AppleSearchAdsSourceConfig:
+        return self._config_class.from_dict(self._normalize_job_inputs(job_inputs))
+
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        return self._config_class.validate_dict(self._normalize_job_inputs(job_inputs))
+
     def validate_credentials(
         self,
         config: AppleSearchAdsSourceConfig,
@@ -419,6 +441,8 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
         integration_id = config.auth_method.apple_ads_integration_id
         assert integration_id is not None
         integration = self.get_oauth_integration(integration_id, team_id)
+        if integration.kind != "apple-ads":
+            raise ValueError(f"Integration {integration_id} is not an Apple Ads integration")
         # Resolved per call, not once: Apple's access tokens live an hour, which a backfill
         # routinely outlives, and the client re-authenticates on a 401.
         return lambda: apple_ads_access_token(integration)

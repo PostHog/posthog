@@ -856,7 +856,14 @@ class OauthIntegration:
             )
 
         elif kind == "apple-ads":
-            if not settings.APPLE_ADS_APP_CLIENT_ID or not settings.APPLE_ADS_APP_PRIVATE_KEY:
+            if not all(
+                (
+                    settings.APPLE_ADS_APP_CLIENT_ID,
+                    settings.APPLE_ADS_APP_TEAM_ID,
+                    settings.APPLE_ADS_APP_KEY_ID,
+                    settings.APPLE_ADS_APP_PRIVATE_KEY,
+                )
+            ):
                 raise NotImplementedError("Apple Ads service provider app not configured")
 
             # Apple's service provider flow, where a PostHog registration acts on behalf of an
@@ -1233,10 +1240,10 @@ class OauthIntegration:
                 logger.exception("Failed to decode Resend JWT")
 
         # Apple's token response carries no account identifier. Apple documents the ACL endpoint as
-        # the call to make once per access token, so it is both the identity lookup and a check that
-        # the grant can actually read something. The granting user may reach several ad accounts
-        # across organizations; the integration is keyed on the organization, which is what a grant
-        # is scoped to, and the ad account is picked per source afterwards.
+        # the call to make once per access token, so it names the grant and checks that it can read
+        # something. The granting user may reach several ad accounts across organizations. A hash
+        # of the opaque grant token keeps separate grants from overwriting one another, while the
+        # account is picked per source afterwards.
         if kind == "apple-ads" and not integration_id:
             accounts = _apple_ads_acl_accounts(config["access_token"])
             if not accounts:
@@ -1245,10 +1252,10 @@ class OauthIntegration:
                     "access in Apple Ads, then connect again."
                 )
             org_ids = sorted({str(account["orgId"]) for account in accounts if account.get("orgId") is not None})
-            config["apple_ads_account_id"] = org_ids[0] if org_ids else str(accounts[0]["id"])
             config["apple_ads_account_name"] = _apple_ads_account_name(accounts)
             config["apple_ads_org_ids"] = org_ids
-            integration_id = config["apple_ads_account_id"]
+            grant_token = config.get("refresh_token") or config["access_token"]
+            integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
