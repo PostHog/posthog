@@ -52,8 +52,11 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
-        // The response names the ranker, which picks the card layout.
+        // The response names the ranker, which picks the card layout. The jev arm's tiles only come as a
+        // grid, so a saved list choice is ignored.
         expect(logic.values.feedRanker).toBe('jev')
+        expect(logic.values.view).toBe('list')
+        expect(logic.values.displayView).toBe('grid')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
