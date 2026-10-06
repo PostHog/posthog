@@ -74,7 +74,9 @@ describe('computeSankeyLayout', () => {
 
     it('returns an empty layout without links and throws on a link to a missing node', () => {
         expect(layoutOf({ links: [] }).nodes).toHaveLength(0)
-        expect(() => layoutOf({ links: [{ source: 'start', target: 'nope', value: 1 }] })).toThrow('missing node: start -> nope')
+        expect(() => layoutOf({ links: [{ source: 'start', target: 'nope', value: 1 }] })).toThrow(
+            'missing node: start -> nope'
+        )
     })
 
     it('returns an empty layout when all link values are zero', () => {

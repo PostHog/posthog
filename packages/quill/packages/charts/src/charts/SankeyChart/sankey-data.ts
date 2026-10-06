@@ -152,7 +152,9 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const nodeIds = new Set<string>()
     for (const node of nodes) {
-        if (nodeIds.has(node.id)) throw new Error(`duplicate Sankey node id: ${node.id}`)
+        if (nodeIds.has(node.id)) {
+            throw new Error(`duplicate Sankey node id: ${node.id}`)
+        }
         nodeIds.add(node.id)
     }
     for (const link of links) {
