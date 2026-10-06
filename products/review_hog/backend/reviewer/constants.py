@@ -69,8 +69,8 @@ REVIEW_MODE_FLASH = "flash"
 # Bump a mode's (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
 # change the turn fingerprint (`reviewer/fingerprint.py`) instead.
 REVIEWHOG_VERSIONS: dict[str, tuple[int, int]] = {
-    REVIEW_MODE_FULL: (1, 0),
-    REVIEW_MODE_FLASH: (1, 0),
+    REVIEW_MODE_FULL: (1, 1),
+    REVIEW_MODE_FLASH: (1, 1),
 }
 
 
@@ -88,8 +88,8 @@ FLASH_ARM = ReviewArm(
     initial_permission_mode="full-access",
 )
 
-# Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
-# starts with this, so a reader can tell a flash review from a full one at a glance.
+# The status comment of a flash turn starts with this, so a reader can tell a flash review from a
+# full one. Only the status comment carries it, because one label per review is enough.
 FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
