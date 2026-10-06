@@ -8,15 +8,15 @@ class PipelineResult(TypedDict):
     writes the terminal job status, releases the v3 sync lock, and starts the post-import
     workflow:
 
-    - False / absent (a zero-batch run, and every failure path — an activity that raises returns
-      no result): the workflow finalizes in its `finally` block.
+    - False / absent (a fresh zero-batch run, and every failure path — an activity that raises
+      returns no result): the workflow finalizes in its `finally` block.
     - True: the v3 load consumer finalizes after loading the final batch, and the workflow must
       keep its hands off all three.
 
     It is a runtime value, not a pure property of `ExternalDataJob.pipeline_version`, for one
-    reason: a v3 extraction that produced zero batches never notifies the load consumer, so the
-    consumer cannot finalize a run it will never hear about — the workflow must. PipelineV3
-    therefore reports True iff at least one batch reached the queue. The other producer of True,
+    reason: a fresh v3 extraction that produced zero batches never notifies the load consumer, so
+    the consumer cannot finalize a run it will never hear about — the workflow must. A zero-batch
+    continuation instead appends a final marker to the earlier attempt's queued batches. The other producer of True,
     `import_data_sync`'s terminal-retry skip, is a run some other party already finalized, where
     True likewise means "workflow: hands off".
     Making this a pure version property requires an empty-final-batch queue message so the

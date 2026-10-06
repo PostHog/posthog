@@ -1388,13 +1388,8 @@ def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[st
     return dropped
 
 
-def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | None) -> Any:
-    """The value the newest attempt of `workflow_run_id` recorded with `stage_handoff_resume_value`.
-
-    Only the newest attempt counts. An attempt that restarted from the stored watermark can replace
-    the queue rows of the attempts before it, so their values no longer describe what the loader
-    will load.
-    """
+def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | None) -> tuple[str, Any] | None:
+    """The run and value recorded by the newest attempt of `workflow_run_id`."""
     if not workflow_run_id:
         return None
     prefix = f"{workflow_run_id}-a"
@@ -1407,7 +1402,20 @@ def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | N
         attempt = run_uuid.removeprefix(prefix)
         if attempt.isdigit() and int(attempt) > newest_attempt:
             newest, newest_attempt = staged, int(attempt)
-    return None if newest is None else newest.get(STAGED_RESUME_VALUE_KEY)
+    if newest is None:
+        return None
+    return newest["run_uuid"], newest.get(STAGED_RESUME_VALUE_KEY)
+
+
+def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | None) -> Any:
+    """The value the newest attempt of `workflow_run_id` recorded with `stage_handoff_resume_value`.
+
+    Only the newest attempt counts. An attempt that restarted from the stored watermark can replace
+    the queue rows of the attempts before it, so their values no longer describe what the loader
+    will load.
+    """
+    point = staged_handoff_resume_point(config, workflow_run_id)
+    return None if point is None else point[1]
 
 
 def _advance_promoted_cursor(

@@ -1620,6 +1620,9 @@ async def test_an_interrupted_incremental_import_continues_after_its_last_queued
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     # The pipeline queues the attempt as a resume exactly when it reads after the earlier rows.
     assert run_mock.await_args.kwargs["resumed_incremental_value"] == expected_resumed
+    assert run_mock.await_args.kwargs["resumed_incremental_run_uuid"] == (
+        "wfrun-1-a1" if expected_resumed is not None else None
+    )
     # The stored watermark moves only when the loader completes the whole run.
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
 

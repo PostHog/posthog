@@ -150,6 +150,8 @@ class PipelineV3(Generic[ResumableData]):
     _staged_handoff_resume_value: Any = None
     # True when this attempt reads the source after a value an earlier attempt of the run recorded.
     _continues_incremental_handoff: bool = False
+    _resumed_incremental_run_uuid: str | None = None
+    _sent_resumed_run_finalization: bool = False
 
     def __init__(
         self,
@@ -163,6 +165,7 @@ class PipelineV3(Generic[ResumableData]):
         models: "ImportJobModels",
         source_cursor_manager: SourceCursorManager[Any] | None = None,
         incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
     ) -> None:
         self._resource = source_response
@@ -241,6 +244,8 @@ class PipelineV3(Generic[ResumableData]):
         # and this attempt does not extract those rows again. The queue must therefore treat it as a
         # resume: a fresh run replaces the queue rows of earlier attempts and overwrites on batch 0.
         self._continues_incremental_handoff = resumed_incremental_value is not None
+        self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
+        self._sent_resumed_run_finalization = False
         is_resume = self._continues_incremental_handoff or (
             self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
         )
@@ -304,7 +309,7 @@ class PipelineV3(Generic[ResumableData]):
         A run that writes several tables keeps one queue per table, which one value cannot cover.
         """
         return (
-            (self._schema.is_incremental or self._schema.is_append)
+            self._schema.is_incremental
             and bool(self._schema.incremental_field)
             and source_response.sort_mode == "asc"
             and not reset_pipeline
@@ -369,7 +374,7 @@ class PipelineV3(Generic[ResumableData]):
 
     def _consumer_finalizes_this_run(self) -> bool:
         """Whether the load consumer will finalize THIS job, so the workflow must not."""
-        return self._total_batches() > 0
+        return self._total_batches() > 0 or self._sent_resumed_run_finalization
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
@@ -795,6 +800,15 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = self._total_batches()
 
         if total_batches == 0:
+            if self._continues_incremental_handoff:
+                if self._resumed_incremental_run_uuid is None:
+                    raise RuntimeError("A resumed incremental import has no queue run to finalize")
+                await asyncio.to_thread(
+                    self._pg_producer.send_final_batch_for_resumed_run, self._resumed_incremental_run_uuid
+                )
+                self._sent_resumed_run_finalization = True
+                return
+
             # A zero-batch run still ran the full extraction, which is what the fast-return
             # valve counts. Post-load stamps this on every other path but never runs here: with
             # no batches the load consumer is never notified. Without this a v3 schema whose

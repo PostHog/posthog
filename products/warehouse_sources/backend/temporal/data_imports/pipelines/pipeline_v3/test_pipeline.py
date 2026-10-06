@@ -98,6 +98,9 @@ def _make_pipeline() -> PipelineV3:
     pipeline._attempt = 1
     pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
+    pipeline._continues_incremental_handoff = False
+    pipeline._resumed_incremental_run_uuid = None
+    pipeline._sent_resumed_run_finalization = False
 
     return pipeline
 
@@ -1151,6 +1154,17 @@ class TestFinalMarkerIsTheLastDataRow:
             stack.enter_context(patch(f"{_PRODUCER}.BatchQueue.supersede_other_runs", return_value=0))
             stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
             await pipeline.run()
+
+    @pytest.mark.asyncio
+    async def test_a_zero_batch_continuation_finalizes_the_earlier_queue_run(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._continues_incremental_handoff = True
+        pipeline._resumed_incremental_run_uuid = "workflow-run-a1"
+
+        await pipeline._finalize(row_count=0)
+
+        pipeline._pg_producer.send_final_batch_for_resumed_run.assert_called_once_with("workflow-run-a1")
+        assert pipeline._consumer_finalizes_this_run() is True
 
     @pytest.mark.parametrize(
         "ids,expected_rows",

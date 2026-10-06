@@ -327,6 +327,23 @@ class TestPostgresProducerHeldBatch:
 
         assert _inserted_rows(producer) == [(0, False), (0, True)]
 
+    def test_a_zero_batch_continuation_finalizes_the_previous_queue_run(self) -> None:
+        producer = _make_producer()
+        _mock_conn(producer).execute.return_value.rowcount = 1
+
+        producer.send_final_batch_for_resumed_run("workflow-run-a1")
+
+        query, params = _mock_conn(producer).execute.call_args.args
+        assert "batch_index + 1, cumulative_row_count" in query
+        assert params == {"job_id": "job-1", "run_uuid": "workflow-run-a1"}
+
+    def test_a_zero_batch_continuation_fails_if_the_previous_queue_run_is_missing(self) -> None:
+        producer = _make_producer()
+        _mock_conn(producer).execute.return_value.rowcount = 0
+
+        with pytest.raises(RuntimeError, match="Could not finalize resumed queue run"):
+            producer.send_final_batch_for_resumed_run("workflow-run-a1")
+
     def test_superseding_fires_when_batch_zero_is_staged_not_when_it_is_inserted(self) -> None:
         # Holding the row back must not delay retiring the previous attempt's stalled batches, or
         # they stay claimable for one extra batch of extraction time.
