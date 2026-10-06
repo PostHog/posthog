@@ -19,9 +19,7 @@ class TestPersonaGetSchemas:
             ("transactions", True, True),
             # Events are an immutable audit log — append only, never merged.
             ("events", False, True),
-            # Inquiry templates are config data with no created-at window — full refresh only.
             ("inquiry_templates", False, False),
-            # Template versions take no created-at window either.
             ("inquiry_template_versions", False, False),
         ]
     )
@@ -36,8 +34,6 @@ class TestPersonaGetSchemas:
         assert [s.name for s in schemas] == ["cases"]
 
     def test_only_opt_in_endpoints_are_not_preselected(self) -> None:
-        # Verifications cost one extra request per inquiry, and Persona refuses template versions to
-        # sandbox keys, so both are opt-in while everything else stays pre-selected.
         schemas = PersonaSource().get_schemas(MagicMock(), team_id=1)
         assert {s.name for s in schemas if not s.should_sync_default} == {"verifications", "inquiry_template_versions"}
 

@@ -225,8 +225,7 @@ def _child_list_rows(
             data = _fetch_page(session, url, headers, logger)
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 404:
-                # The parent can be deleted between the list page and this call. Skip it so that the
-                # sync and the checkpoint move on to the next parent.
+                # The parent can be deleted between the list page and this call.
                 logger.warning(f"Persona: {child_list.path} for {parent_id} returned 404, skipping")
                 return rows
             raise

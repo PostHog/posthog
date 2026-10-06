@@ -50,8 +50,6 @@ class PersonaChildList:
 
     path: str
     parent_filter: str
-    # Copied onto every child row so the table joins back to its parent without unpacking
-    # `relationships`.
     parent_key: str
 
 
@@ -72,7 +70,6 @@ class PersonaEndpointConfig:
     should_sync_default: bool = True
     # Set when the rows come from hydrating each parent rather than from the list response itself.
     fanout: Optional[PersonaFanout] = None
-    # Set when the rows come from a per-parent list endpoint rather than from the list response itself.
     child_list: Optional[PersonaChildList] = None
 
 
