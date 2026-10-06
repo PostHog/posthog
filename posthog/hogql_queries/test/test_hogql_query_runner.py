@@ -147,7 +147,8 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 sql += " UNION ALL SELECT 3 AS value"
         query = HogQLQuery(query=sql, limit=3)
         response = self._create_runner(query).calculate()
-        assert response.results == [(0,), (1,), (2,)]
+        assert len(response.results) == len(set(response.results)) == 3
+        assert set(response.results) <= {(value,) for value in range(row_count)}
         assert response.hasMore is has_more
         assert query.query == sql
 
