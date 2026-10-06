@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.
     _build_url,
     _extract_rows,
     _get_headers,
+    _list_ids,
     _month_windows,
     _parse_retry_after,
     _retry_wait,
@@ -67,6 +68,12 @@ class TestExtractRows:
 
     def test_missing_data_key_falls_back_to_autodetection(self) -> None:
         assert _extract_rows({"items": [{"id": 1}]}, data_key="deliverables") == [{"id": 1}]
+
+    def test_missing_parent_ids_are_logged(self) -> None:
+        logger = MagicMock()
+
+        assert _list_ids([{"name": "No identifier"}], "engineers", logger) == []
+        logger.error.assert_called_once_with("Jellyfish: could not find an id field in engineers rows: keys=['name']")
 
 
 class _FakeResumableManager:
