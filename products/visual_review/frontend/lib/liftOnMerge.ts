@@ -41,7 +41,7 @@ export interface CleanQuarantinedGroups {
     notRequested: CleanQuarantinedStory[]
 }
 
-/** Splits the quarantined stories that rendered clean by whether a pending lift request covers them. */
+/** Splits the still quarantined stories that rendered clean by whether a pending lift request covers them. */
 export function groupCleanQuarantinedStories(
     snapshots: SnapshotApi[],
     liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>,
@@ -49,13 +49,18 @@ export function groupCleanQuarantinedStories(
 ): CleanQuarantinedGroups {
     const groups: CleanQuarantinedGroups = { liftRequested: [], notRequested: [] }
     for (const snapshot of snapshots) {
+        // The snapshot list loads once per run, so a story unquarantined since then drops out here.
+        const quarantine = quarantinedIdentifiers.find((q) => q.identifier === snapshot.identifier)
+        if (!quarantine) {
+            continue
+        }
         const liftRequest = liftRequestByIdentifier[snapshot.identifier] ?? null
         const pendingRequest = liftRequest?.state === 'pending' ? liftRequest : null
         const renderedHash = snapshot.current_artifact?.content_hash
         const story: CleanQuarantinedStory = {
             snapshot,
             liftRequest,
-            quarantineReason: quarantinedIdentifiers.find((q) => q.identifier === snapshot.identifier)?.reason ?? null,
+            quarantineReason: quarantine.reason,
             // Without a linked artifact the rendered hash is unknown, which is not a mismatch.
             expectsOtherPicture: !!pendingRequest && !!renderedHash && pendingRequest.expected_hash !== renderedHash,
         }
