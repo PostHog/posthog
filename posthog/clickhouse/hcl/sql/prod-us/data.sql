@@ -1558,7 +1558,7 @@ CREATE TABLE posthog.warehouse_object_reads_daily (
   duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
   read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
   max_event_time SimpleAggregateFunction(max, DateTime)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily', '{replica}-{shard}') ORDER BY (team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone) PARTITION BY toYYYYMMDD(day) TTL day + toIntervalDay(60) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = Distributed('aux', 'posthog', 'sharded_warehouse_object_reads_daily');
 CREATE TABLE posthog.web_bot_definition (
   id UInt64,
   parent_id UInt64,

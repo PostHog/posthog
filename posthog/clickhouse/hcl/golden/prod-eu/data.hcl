@@ -6826,13 +6826,6 @@ database "posthog" {
   }
 
   table "warehouse_object_reads_daily" {
-    order_by     = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
-    partition_by = "toYYYYMMDD(day)"
-    ttl          = "day + toIntervalDay(60)"
-    settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
-    }
     column "team_id" {
       type = "Int64"
     }
@@ -6899,9 +6892,10 @@ database "posthog" {
     column "max_event_time" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily"
-      replica_name = "{replica}-{shard}"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_warehouse_object_reads_daily"
     }
   }
 

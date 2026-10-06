@@ -1,9 +1,12 @@
 from enum import StrEnum
 
-from posthog.clickhouse.table_engines import AggregatingMergeTree
+from django.conf import settings
+
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed
 
 WAREHOUSE_OBJECT_READS_DAILY_TABLE = "warehouse_object_reads_daily"
-WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE = "warehouse_object_reads_daily_staging"
+SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE = f"sharded_{WAREHOUSE_OBJECT_READS_DAILY_TABLE}"
+SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE = f"{SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE}_staging"
 WAREHOUSE_OBJECT_READS_RETENTION_DAYS = 60
 
 
@@ -61,11 +64,11 @@ _COLUMNS = f"""
     max_event_time SimpleAggregateFunction(max, DateTime)"""
 
 
-def _warehouse_object_reads_table_sql(create_clause: str, table_name: str, force_unique_zk_path: bool = False) -> str:
+def _storage_table_sql(create_clause: str, table_name: str, engine: AggregatingMergeTree) -> str:
     return f"""
 {create_clause} {table_name}
 ({_COLUMNS}
-) ENGINE = {AggregatingMergeTree(table_name, force_unique_zk_path=force_unique_zk_path)}
+) ENGINE = {engine}
 PARTITION BY toYYYYMMDD(day)
 ORDER BY ({", ".join(SORT_KEY_COLUMNS)})
 TTL day + INTERVAL {WAREHOUSE_OBJECT_READS_RETENTION_DAYS} DAY
@@ -73,22 +76,44 @@ SETTINGS ttl_only_drop_parts = 1
 """
 
 
-def WAREHOUSE_OBJECT_READS_DAILY_TABLE_SQL() -> str:
-    return _warehouse_object_reads_table_sql("CREATE TABLE IF NOT EXISTS", WAREHOUSE_OBJECT_READS_DAILY_TABLE)
-
-
-def WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
-    return _warehouse_object_reads_table_sql("CREATE TABLE IF NOT EXISTS", WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
-
-
-def REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
-    return _warehouse_object_reads_table_sql(
-        "CREATE OR REPLACE TABLE", WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, force_unique_zk_path=True
+def SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE_SQL() -> str:
+    return _storage_table_sql(
+        "CREATE TABLE IF NOT EXISTS",
+        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
+        AggregatingMergeTree(WAREHOUSE_OBJECT_READS_DAILY_TABLE),
     )
+
+
+def SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
+    return _storage_table_sql(
+        "CREATE TABLE IF NOT EXISTS",
+        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        AggregatingMergeTree(SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE),
+    )
+
+
+def REPLACE_SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
+    return _storage_table_sql(
+        "CREATE OR REPLACE TABLE",
+        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        AggregatingMergeTree(SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, force_unique_zk_path=True),
+    )
+
+
+def DISTRIBUTED_WAREHOUSE_OBJECT_READS_DAILY_TABLE_SQL() -> str:
+    engine = Distributed(data_table=SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE, cluster=settings.CLICKHOUSE_AUX_CLUSTER)
+    return f"""
+CREATE TABLE IF NOT EXISTS {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+({_COLUMNS}
+) ENGINE = {engine}
+"""
 
 
 def TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL() -> list[str]:
     return [
         f"TRUNCATE TABLE IF EXISTS {table_name}"
-        for table_name in (WAREHOUSE_OBJECT_READS_DAILY_TABLE, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
+        for table_name in (
+            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
+            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        )
     ]
