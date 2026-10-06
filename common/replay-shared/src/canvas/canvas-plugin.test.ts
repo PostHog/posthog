@@ -562,18 +562,7 @@ describe('CanvasReplayerPlugin', () => {
     })
 
     describe('canvas mutation error reporting', () => {
-        it.each([
-            {
-                name: 'reports the error rrweb passes, not the mutation',
-                thrown: new TypeError('drawImage failed'),
-                expected: new TypeError('drawImage failed'),
-            },
-            {
-                name: 'wraps a non-Error value with the canvas context',
-                thrown: 'context lost',
-                expected: new CanvasMutationError('Canvas mutation failed in WebGL context: context lost'),
-            },
-        ])('$name', async ({ thrown, expected }) => {
+        const reportCanvasMutationFailure = (thrown: unknown): jest.Mock => {
             const canvas = document.createElement('canvas')
             const event = {
                 type: EventType.IncrementalSnapshot as const,
@@ -594,12 +583,26 @@ describe('CanvasReplayerPlugin', () => {
             const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }) }
             plugin.onBuild?.(canvas, { id: 7, replayer } as any)
             plugin.handler!(event, false, { replayer } as any)
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            return onError
+        }
+
+        it('reports the error rrweb passes, not the mutation', () => {
+            const thrown = new TypeError('drawImage failed')
+
+            const onError = reportCanvasMutationFailure(thrown)
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            expect(onError).toHaveBeenCalledWith(thrown, { canvas_node_id: 7, canvas_context: 'WebGL' })
+            expect(onError.mock.calls[0][0]).toBe(thrown)
+        })
+
+        it('wraps a non-Error value with the canvas context', () => {
+            const onError = reportCanvasMutationFailure('context lost')
 
             expect(onError).toHaveBeenCalledTimes(1)
             const [reported, context] = onError.mock.calls[0]
-            expect(reported).toEqual(expected)
-            expect(reported.constructor).toBe(expected.constructor)
+            expect(reported).toBeInstanceOf(CanvasMutationError)
+            expect(reported.message).toBe('Canvas mutation failed in WebGL context: context lost')
             expect(context).toEqual({ canvas_node_id: 7, canvas_context: 'WebGL' })
         })
     })
