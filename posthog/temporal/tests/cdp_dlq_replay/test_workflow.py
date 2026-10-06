@@ -6,7 +6,7 @@ import pytest
 import temporalio.worker
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -70,4 +70,6 @@ async def test_a_record_that_cannot_be_replayed_fails_the_run_with_its_offset():
     with pytest.raises(WorkflowFailureError) as failure:
         await _run(replay)
 
-    assert "offset 7" in str(failure.value.cause.cause)
+    activity_error = failure.value.cause
+    assert isinstance(activity_error, ActivityError)
+    assert "offset 7" in str(activity_error.cause)
