@@ -76,6 +76,7 @@ interface OpenApiSchema {
     readOnly?: boolean
     writeOnly?: boolean
     items?: OpenApiSchema | { $ref: string }
+    additionalProperties?: OpenApiSchema | { $ref: string } | boolean
     properties?: Record<string, OpenApiSchema>
     required?: string[]
     $ref?: string
@@ -500,6 +501,44 @@ interface SchemaComposition {
     paramAliases: Record<string, string[]>
 }
 
+function assertExclusionsNameRealFields(config: ToolConfig, resolved: ResolvedOperation, spec: OpenApiSpec): void {
+    const parameterNames = new Set((resolved.operation.parameters ?? []).map((p) => p.name))
+    const bodySchema = resolved.operation.requestBody?.content?.['application/json']?.schema
+    for (const entry of config.exclude_params ?? []) {
+        if (!parameterNames.has(entry) && !schemaHasPath(spec, bodySchema, entry.split('.'))) {
+            throw new Error(
+                `${config.operation}: exclude_params entry "${entry}" names no parameter or body field, ` +
+                    'so it hides nothing. Fix the name or remove the entry.'
+            )
+        }
+    }
+}
+
+function schemaHasPath(
+    spec: OpenApiSpec,
+    schemaOrRef: OpenApiSchema | { $ref: string } | undefined,
+    segments: string[]
+): boolean {
+    const schema = schemaOrRef && resolveSchema(spec, schemaOrRef)
+    const [head, ...tail] = segments
+    if (!schema || head === undefined) {
+        return false
+    }
+    const variants = [...(schema.oneOf ?? []), ...(schema.anyOf ?? []), ...(schema.allOf ?? [])]
+    if (variants.some((variant) => schemaHasPath(spec, variant, segments))) {
+        return true
+    }
+    if (tail.length === 0) {
+        return head !== '*' && !!schema.properties?.[head]
+    }
+    if (head === '*') {
+        return [schema.items, schema.additionalProperties].some(
+            (child) => typeof child === 'object' && schemaHasPath(spec, child, tail)
+        )
+    }
+    return schemaHasPath(spec, schema.properties?.[head], tail)
+}
+
 function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
@@ -523,6 +562,7 @@ function composeToolSchema(
      */
     const optionalParamNames = new Set<string>()
 
+    assertExclusionsNameRealFields(config, resolved, spec)
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
     // original → alias mapping from rename_params config

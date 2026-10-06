@@ -2305,6 +2305,70 @@ describe('optional param with state fallback', () => {
     })
 })
 
+describe('composeToolSchema exclude_params', () => {
+    const resolvedWithBody = makeResolved({
+        method: 'POST',
+        path: '/api/projects/{project_id}/things/',
+        operation: {
+            operationId: 'things_create',
+            parameters: [
+                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
+            ],
+            requestBody: {
+                content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } },
+            },
+        },
+    })
+    const spec = makeSpec({
+        components: {
+            schemas: {
+                Thing: {
+                    properties: {
+                        secret: { type: 'string' },
+                        steps: { type: 'array', items: { $ref: '#/components/schemas/Step' } },
+                        inputs: { type: 'object', additionalProperties: { $ref: '#/components/schemas/Input' } },
+                    },
+                },
+                Input: { properties: { bytecode: { type: 'array' } } },
+                Step: {
+                    oneOf: [
+                        { properties: { selector_regex: { type: 'string' } } },
+                        { properties: { url: { type: 'string' } } },
+                    ],
+                },
+            },
+        },
+    })
+    const withExclusions = (exclude_params: string[]): ToolConfig => ({
+        operation: 'things_create',
+        enabled: true,
+        exclude_params,
+    })
+
+    it.each([['dry_run'], ['secret'], ['steps.*.selector_regex'], ['steps.*.url'], ['inputs.*.bytecode']])(
+        'accepts %s, which names a real field',
+        (entry) => {
+            expect(() =>
+                composeToolSchema(withExclusions([entry]), resolvedWithBody, spec, stubGetQuerySchema)
+            ).not.toThrow()
+        }
+    )
+
+    it.each([
+        ['secrte'],
+        ['dryrun'],
+        ['steps.*.selector_regx'],
+        ['stepz.*.selector_regex'],
+        ['steps.*'],
+        ['inputs.*.bytecod'],
+    ])('rejects %s, which names no field and would leave the intended one exposed', (entry) => {
+        expect(() =>
+            composeToolSchema(withExclusions(['secret', entry]), resolvedWithBody, spec, stubGetQuerySchema)
+        ).toThrow(`things_create: exclude_params entry "${entry}" names no parameter or body field`)
+    })
+})
+
 describe('composeToolSchema param aliases', () => {
     const resolvedWithIdAndQuery = makeResolved({
         path: '/api/projects/{project_id}/things/{id}/',
