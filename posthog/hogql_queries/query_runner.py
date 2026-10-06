@@ -624,7 +624,7 @@ def get_query_runner(
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
-    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+    if kind in ("DataTableNode", "DataVisualizationNode", "BIVisualizationNode", "InsightVizNode"):
         source = get_from_dict_or_attr(query, "source")
         return get_query_runner(
             query=source,

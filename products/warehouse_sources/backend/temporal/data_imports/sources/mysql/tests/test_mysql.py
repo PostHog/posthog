@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _MAX_CONNECT_ATTEMPTS,
     _MYSQL_SAFE_CONVERSIONS,
     _SSH_HANDSHAKE_EOF_ERROR,
+    METADATA_READ_TIMEOUT_SECONDS,
     STATEMENT_TIMEOUT_SECONDS,
     UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLColumn,
@@ -1035,6 +1036,11 @@ class TestStreamingConnectionTimeouts:
         _drain_source()
         streaming_kwargs = mock_connect.call_args_list[1].kwargs
         assert streaming_kwargs["read_timeout"] == STATEMENT_TIMEOUT_SECONDS
+
+    def test_metadata_connection_has_a_read_timeout(self, build_pipeline_mocks):
+        mock_connect, _, _ = build_pipeline_mocks
+        _drain_source()
+        assert mock_connect.call_args_list[0].kwargs["read_timeout"] == METADATA_READ_TIMEOUT_SECONDS
 
     def test_set_session_timeouts_are_executed(self, build_pipeline_mocks):
         _, setup_cursor, _ = build_pipeline_mocks

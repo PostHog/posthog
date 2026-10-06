@@ -1,7 +1,9 @@
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+import { BIDataSource } from '~/queries/schema/schema-business-intelligence'
+
 import { buildBIDataSourceTree, searchBIDataSourceTree } from 'products/business_intelligence/frontend/biDataSourceTree'
-import { BIDataSource, getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
+import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
 
 const tree: TreeDataItem[] = [
     {

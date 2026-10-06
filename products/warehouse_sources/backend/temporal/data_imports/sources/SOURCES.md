@@ -194,9 +194,12 @@ the row lists both.
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
 | chatwoot                         | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| checkly                          | HTTP                        | requests                                                        | ✅                          |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
+| cisco_meraki                     | HTTP                        | requests                                                        | ✅                          |
+| clarifai                         | HTTP                        | requests                                                        | ✅                          |
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clip                             | HTTP                        | requests                                                        | ✅                          |
@@ -1033,12 +1036,13 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - cashfree
 - castor_edc
+- chargebackstop
+- chargeflow
 - checkly
 - chift
 - chorus
 - cin7
 - circle_so
-- cisco_meraki
 - clarifai
 - classy
 - clazar
@@ -1086,6 +1090,7 @@ doesn't conflict with concurrent PRs.
 - dragonboat
 - drata
 - drchrono
+- dreamdata
 - dremio
 - dropbox
 - dubsado
@@ -1167,6 +1172,7 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_adsense
 - google_analytics
+- google_business_profile
 - google_calendar
 - google_chat
 - google_classroom
@@ -1226,6 +1232,7 @@ doesn't conflict with concurrent PRs.
 - lambda_labs
 - lawmatics
 - learnworlds
+- ledyer
 - lemon_squeezy
 - lettrlabs
 - lever
@@ -1434,6 +1441,7 @@ doesn't conflict with concurrent PRs.
 - streamlabs
 - substack
 - sumsub
+- supermetrics
 - superwall
 - surveymonkey
 - svix
@@ -1447,6 +1455,7 @@ doesn't conflict with concurrent PRs.
 - tenjin
 - terabox
 - ternary
+- tessitura
 - terra_api
 - thinkific_courses
 - thoughtspot
@@ -1495,6 +1504,7 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - windsor_ai
 - wisprflow
+- wistia
 - wiz
 - wompi
 - workato

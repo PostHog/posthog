@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 
-import { type BIConfig, type BIEditorState, BIEditorView } from 'products/business_intelligence/frontend/biEditorTypes'
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
+
+import { type BIEditorState, BIEditorView } from 'products/business_intelligence/frontend/biEditorTypes'
 
 export const BI_EDITOR_EVENTS = {
     MODE_SELECTED: 'sql-editor-bi-mode-selected',

@@ -13,8 +13,10 @@ import {
 } from 'kea'
 
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
-import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
+import { BIConfig, BIDataSource } from '~/queries/schema/schema-business-intelligence'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import {
     buildBIDataSourceTree,
@@ -23,7 +25,7 @@ import {
 } from 'products/business_intelligence/frontend/biDataSourceTree'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
-import type { BIConfig, BIDataSource } from 'products/business_intelligence/frontend/biEditorTypes'
+import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 export interface BIDataSourcePickerLogicProps {
@@ -35,15 +37,17 @@ export interface biDataSourcePickerLogicValues {
     config: BIConfig // biEditorLogic
     databaseLoading: boolean // biEditorLogic
     selectableDataSources: BIDataSource[] // biEditorLogic
-    connectionId: string | null // queryDatabaseLogic
-    databaseLoadError: string | null // queryDatabaseLogic
-    selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined // queryDatabaseLogic
-    treeData: TreeDataItem[] // queryDatabaseLogic
+    connectionOptions: ExternalDataSourceConnectionOptionApi[] | null // connectionSelectorLogic
+    allTables: DatabaseSchemaTable[] // databaseTableListLogic
+    connectionId: string | null // databaseTableListLogic
+    databaseLoadError: string | null // databaseTableListLogic
     expandedIds: string[] | null
     filteredTree: TreeDataItem[]
     open: boolean
     search: string
+    selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     sourceTree: TreeDataItem[]
+    treeData: TreeDataItem[]
     visibleExpandedIds: string[]
 }
 
@@ -54,7 +58,7 @@ export interface biDataSourcePickerLogicActions {
     } // biEditorLogic
     refreshDatabaseSchema: () => {
         value: true
-    } // queryDatabaseLogic
+    } // databaseTableListLogic
     selectSource: (id: string) => {
         id: string
     }
@@ -73,6 +77,11 @@ export interface biDataSourcePickerLogicActions {
 export interface biDataSourcePickerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        selectedDirectSource: (
+            connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
+            connectionId: string | null
+        ) => ExternalDataSourceConnectionOptionApi | undefined
+        treeData: (allTables: DatabaseSchemaTable[]) => TreeDataItem[]
         sourceTree: (
             treeData: TreeDataItem[],
             selectableDataSources: BIDataSource[],
@@ -99,13 +108,15 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
         values: [
             biEditorLogic({ tabId: props.tabId }),
             ['selectableDataSources', 'config', 'databaseLoading'],
-            queryDatabaseLogic,
-            ['treeData', 'connectionId', 'selectedDirectSource', 'databaseLoadError'],
+            databaseTableListLogic,
+            ['allTables', 'connectionId', 'databaseLoadError'],
+            connectionSelectorLogic,
+            ['connectionOptions'],
         ],
         actions: [
             biEditorLogic({ tabId: props.tabId }),
             ['setDataSource'],
-            queryDatabaseLogic,
+            databaseTableListLogic,
             ['refreshDatabaseSchema'],
         ],
     })),
@@ -121,6 +132,35 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
         expandedIds: [null as string[] | null, { setExpandedIds: (_, { ids }) => ids, setOpen: () => null }],
     }),
     selectors({
+        selectedDirectSource: [
+            (s) => [s.connectionOptions, s.connectionId],
+            (options: ExternalDataSourceConnectionOptionApi[] | null, id: string | null) =>
+                options?.find((source) => source.id === id),
+        ],
+        treeData: [
+            (s) => [s.allTables],
+            (tables: DatabaseSchemaTable[]): TreeDataItem[] => {
+                const groups = new Map<string, TreeDataItem[]>()
+                for (const table of tables) {
+                    const group =
+                        table.type === 'posthog'
+                            ? 'PostHog'
+                            : table.type === 'view'
+                              ? 'Views'
+                              : table.type === 'system'
+                                ? 'System'
+                                : 'Warehouse'
+                    const children = groups.get(group) ?? []
+                    children.push({
+                        id: table.name,
+                        name: table.name,
+                        record: { type: table.type === 'view' ? 'view' : 'table' },
+                    })
+                    groups.set(group, children)
+                }
+                return Array.from(groups, ([name, children]) => ({ id: name, name, children }))
+            },
+        ],
         sourceTree: [
             (s) => [s.treeData, s.selectableDataSources, s.connectionId, s.selectedDirectSource],
             (
@@ -128,14 +168,7 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
                 sources: BIDataSource[],
                 connectionId: string | null,
                 selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
-            ) =>
-                buildBIDataSourceTree(
-                    tree,
-                    sources,
-                    !!connectionId && connectionId !== POSTHOG_WAREHOUSE,
-                    selectedDirectSource?.schema_name,
-                    connectionId
-                ),
+            ) => buildBIDataSourceTree(tree, sources, !!connectionId, selectedDirectSource?.schema_name, connectionId),
         ],
         filteredTree: [
             (s) => [s.sourceTree, s.search],

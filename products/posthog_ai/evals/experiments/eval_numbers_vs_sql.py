@@ -1,7 +1,7 @@
 """Eval: agent handles PostHog-vs-SQL divergence in three shapes — scope mismatch, anti-routing and population mismatch.
 
 Carrier scenarios for diagnostic group D from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Three cases:
 

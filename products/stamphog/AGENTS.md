@@ -251,6 +251,8 @@ Inputs `review_pr.py` fetches over the network reach the sandbox through the con
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
 tells the reviewer that every author owns the code they touched.
+The same set decides a deny category's `exempt_author_teams`, and there an unset key fails closed: every author is denied, the owning team included.
+Never fill the set from anything the PR controls: it is the only thing that lets stamphog approve an owner-only path.
 
 The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
 Without those keys (a manual `review_pr.py` run) the engine reads git history instead.

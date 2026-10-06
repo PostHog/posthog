@@ -5,7 +5,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLFilters,
     ProductKey,
     SharingConfigurationSettings,
@@ -86,7 +86,7 @@ export const urls = {
         metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
-        query?: string | DataVisualizationNode | DataTableNode
+        query?: string | VisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string

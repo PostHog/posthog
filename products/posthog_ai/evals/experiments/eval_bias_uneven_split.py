@@ -1,7 +1,7 @@
 """Eval: agent diagnoses Group A bias mechanisms and surfaces co-occurring findings independently.
 
 Carrier scenarios for diagnostic group A from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Two cases:
 

@@ -32,6 +32,7 @@ import {
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -39,12 +40,12 @@ import { ExpressionModal } from 'products/data_warehouse/frontend/shared/compone
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
+import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from '../saved_queries/materializationJobsLogic'
-import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
@@ -225,7 +226,12 @@ export function SQLEditor({
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
-        setQuery: (setter) => applyDataVisualizationQueryUpdate(sourceQueryRef, setter, setSourceQuery),
+        setQuery: (setter) =>
+            applyDataVisualizationQueryUpdate(sourceQueryRef, setter, (query) => {
+                if (query.kind === NodeKind.DataVisualizationNode) {
+                    setSourceQuery(query)
+                }
+            }),
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -263,7 +269,11 @@ export function SQLEditor({
         key: dataVisualizationLogicProps.key,
         readOnly: false,
         sourceQuery,
-        setQuery: setSourceQuery,
+        setQuery: (query) => {
+            if (query.kind === NodeKind.DataVisualizationNode) {
+                setSourceQuery(query)
+            }
+        },
         onUpdate: (query) => {
             loadData('force_async', undefined, query.source)
         },

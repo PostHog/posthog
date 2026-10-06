@@ -782,7 +782,6 @@ export function sanitizeQuery(query: Node | null): SanitizedQuery {
             metrics_clause_count: query.clauses.length,
             metrics_has_formula: !!query.formula,
             metrics_interval: query.interval ?? 'auto',
-            metrics_min_interval: query.minInterval,
             metrics_display_type: query.display?.type ?? 'line',
         })
     }
