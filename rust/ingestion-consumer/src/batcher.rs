@@ -155,9 +155,18 @@ impl Batcher {
         let (flush_queue, flush_rx) = mpsc::unbounded_channel();
         let parked_retry_pump = (inner.dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| {
+                // The pump also fires the pack deadline, so its cadence must
+                // not exceed the pack budget: a held request then waits at
+                // most one budget plus one tick.
+                let pack_budget = inner.dispatcher.pack_targets().latency_budget;
+                let interval = if pack_budget.is_zero() {
+                    parked_retry_interval
+                } else {
+                    parked_retry_interval.min(pack_budget)
+                };
                 tokio::spawn(run_parked_retry_pump(
                     Arc::clone(&inner),
-                    parked_retry_interval,
+                    interval,
                     deferred_flush_timeout,
                 ))
             });
@@ -186,9 +195,16 @@ impl Batcher {
         self.inner.dispatcher.key_order_sentinel()
     }
 
-    /// The dispatcher, for the consumer's revocation hook.
     pub fn dispatcher(&self) -> Arc<Dispatcher> {
         Arc::clone(&self.inner.dispatcher)
+    }
+
+    /// The batcher's half of the consumer's revocation hook.
+    pub fn revoker(&self) -> Revoker {
+        Revoker {
+            inner: Arc::clone(&self.inner),
+            runtime: tokio::runtime::Handle::current(),
+        }
     }
 
     /// Submit one poll's demuxed groups. Call on the consumer loop, in poll
@@ -242,6 +258,37 @@ impl Drop for Batcher {
     fn drop(&mut self) {
         if let Some(pump) = self.parked_retry_pump.take() {
             pump.abort();
+        }
+    }
+}
+
+/// Purges revoked partitions from the scheduler and sends what the packer
+/// flushed. Runs on the rebalance callback's thread, which is not a runtime
+/// task, so the awaiters spawn through a runtime handle.
+#[derive(Clone)]
+pub struct Revoker {
+    inner: Arc<BatcherInner>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl Revoker {
+    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+        let flush_id = make_batch_id();
+        let pending = self
+            .inner
+            .dispatcher
+            .purge_revoked_and_send(partitions, |sub_batch| {
+                begin_send(&self.inner.transport, &flush_id, sub_batch, false)
+            });
+        let epoch = self.inner.assignment_epoch.current();
+        for sub_batch in pending {
+            drop(self.runtime.spawn(await_settled(
+                Arc::clone(&self.inner),
+                flush_id.clone(),
+                sub_batch,
+                false,
+                epoch,
+            )));
         }
     }
 }
@@ -429,9 +476,10 @@ fn spawn_followups(
     }
 }
 
-/// The key table's retry driver: fire the parked-retry deadline on an
-/// interval. Parked keys are the ones no settlement can release, so the
-/// pump is their only retry path. Its stall watchdog matches the flush
+/// The key table's timer driver: fire the parked-retry deadline and the
+/// pack deadline on an interval. Parked keys are the ones no settlement can
+/// release, so the pump is their only retry path; a short packed request
+/// leaves the packer only here. Its stall watchdog matches the flush
 /// driver's: acceptance resets the deadline, and pending work with zero
 /// acceptance for a full window fails the process, so a wedged key table
 /// restarts loudly instead of growing lag silently.
@@ -453,15 +501,16 @@ async fn run_parked_retry_pump(
         // outstanding; then report the stall. An already in-flight send may
         // still be healthy but slow, so let it settle: acceptance resets the
         // deadline, while failure leaves queued work with nothing outstanding
-        // and trips the watchdog on the next tick.
+        // and trips the watchdog on the next tick. Work the packer holds is
+        // pending, not in flight: it counts toward the stall like queued work.
         let accepted = inner.accepted_messages.load(Ordering::Relaxed);
-        let (queued, outstanding) = inner.dispatcher.key_work().unwrap_or((0, 0));
+        let work = inner.dispatcher.key_work().unwrap_or_default();
         let now = Instant::now();
-        if accepted != seen_accepted || (queued == 0 && outstanding == 0) {
+        if accepted != seen_accepted || (work.pending_messages() == 0 && work.in_flight_keys == 0) {
             seen_accepted = accepted;
             stall_deadline = now + stall_timeout;
         } else if now >= stall_deadline {
-            if queued > 0 && outstanding == 0 {
+            if work.pending_messages() > 0 && work.in_flight_keys == 0 {
                 inner.report_error(
                     "key-table work made no progress within the stall timeout".to_string(),
                 );
@@ -477,15 +526,32 @@ async fn run_parked_retry_pump(
             begin_send(&inner.transport, &settle_id, sub_batch, true)
         });
         let epoch = inner.assignment_epoch.current();
-        for sub_batch in pending {
-            drop(tokio::spawn(await_settled(
-                Arc::clone(&inner),
-                settle_id.clone(),
-                sub_batch,
-                false,
-                epoch,
-            )));
-        }
+        spawn_detached_awaiters(&inner, &settle_id, pending, epoch);
+
+        // A packed request whose budget expired is a fresh send: it was
+        // never on the wire.
+        let pack_id = make_batch_id();
+        let pending = inner.dispatcher.pack_deadline_and_send(|sub_batch| {
+            begin_send(&inner.transport, &pack_id, sub_batch, false)
+        });
+        spawn_detached_awaiters(&inner, &pack_id, pending, epoch);
+    }
+}
+
+fn spawn_detached_awaiters(
+    inner: &Arc<BatcherInner>,
+    batch_id: &str,
+    pending: Vec<PendingSubBatch>,
+    epoch: u64,
+) {
+    for sub_batch in pending {
+        drop(tokio::spawn(await_settled(
+            Arc::clone(inner),
+            batch_id.to_string(),
+            sub_batch,
+            false,
+            epoch,
+        )));
     }
 }
 
