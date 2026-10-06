@@ -169,6 +169,7 @@ the row lists both.
 | buy_me_a_coffee                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | buzzsprout                       | HTTP                        | requests                                                        | ✅                          |
 | cal_com                          | HTTP                        | requests                                                        | ✅                          |
+| calendarific                     | HTTP                        | requests                                                        | ✅                          |
 | calendly                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | callrail                         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor                 | HTTP                        | requests                                                        | ✅                          |
@@ -1005,7 +1006,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - buffer
 - cal_com
-- calendarific
 - calibre
 - campaign_manager_360
 - captain_data
