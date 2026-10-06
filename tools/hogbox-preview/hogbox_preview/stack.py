@@ -180,6 +180,10 @@ class PostHogPreviewStack:
         self.migrate()
         self.start_cdp_service()
         self.sync_hog_function_templates()
+        try:
+            self.sync_feature_flags()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] feature flag sync skipped (preview still usable): {e}\n")
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -657,6 +661,14 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py sync_hog_function_templates"),
             name="sync-templates",
             timeout=900,
+        )
+
+    def sync_feature_flags(self) -> None:
+        timing.stage("sync feature flags")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_feature_flags"),
+            name="sync-flags",
+            timeout=600,
         )
 
     def generate_demo_data(self) -> None:

@@ -8398,6 +8398,9 @@ export interface BIValueApi {
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
     columns: BIFieldApi[]
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIFieldApi | null
+    dateRange?: DateRangeApi | null
     filters: BIFilterApi[]
     limit: BIQueryLimitApi
     rows: BIFieldApi[]
