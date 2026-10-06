@@ -111,6 +111,7 @@ HTTP_SOURCES_WITHOUT_THE_HOST_MIXIN = {
     "Metabase",
     "OctopusDeploy",
     "Omni",
+    "Scalr",
     "SigNoz",
     "Sourcegraph",
     "Teamcity",
