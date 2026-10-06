@@ -116,11 +116,7 @@ export interface accountsViewsLogicActions {
     syncViewStateToUrl: () => {
         value: true
     } // accountsLogic
-    applyView: (
-        view: ColumnConfigurationApi,
-        passive?: boolean
-    ) => {
-        passive: boolean
+    applyView: (view: ColumnConfigurationApi) => {
         view: ColumnConfigurationApi
     }
     clearView: () => {
@@ -316,7 +312,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
     })),
     actions(({ values }) => ({
         selectView: (id: string) => ({ id }),
-        applyView: (view: ColumnConfigurationApi, passive: boolean = false) => ({ view, passive }),
+        applyView: (view: ColumnConfigurationApi) => ({ view }),
         setCurrentViewId: (id: string | null, remember: boolean = true, name: string | null = null) => ({
             id,
             remember,
@@ -531,7 +527,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 actions.applyView(view)
             }
         },
-        applyView: ({ view, passive }) => {
+        applyView: ({ view }) => {
             const session = getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null)
             session.currentViewId = view.id
             session.initialized = true
@@ -539,9 +535,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.applyViewState(deserializeAccountsView(view), { source: 'saved_view', columns: 'restore' })
             actions.setAwaitingSavedView(false)
             actions.syncViewStateToUrl()
-            if (!passive) {
-                posthog.capture(AccountsEvents.ViewSelected, { visibility: view.visibility }) // [PostHog] Event: dynamic event name
-            }
+            posthog.capture(AccountsEvents.ViewSelected, { visibility: view.visibility }) // [PostHog] Event: dynamic event name
         },
         setCurrentViewId: ({ id, remember, name }) => {
             const session = getAccountsViewSession(values.currentTeamId, values.user?.uuid ?? null)
@@ -653,7 +647,11 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     actions.clearView()
                 } else {
                     const saved = values.views.find((view) => view.id === session.currentViewId)
-                    actions.setCurrentViewId(session.currentViewId, true, saved?.name ?? values.currentViewName)
+                    actions.setCurrentViewId(
+                        session.currentViewId,
+                        !!session.currentViewId,
+                        saved?.name ?? values.currentViewName
+                    )
                 }
                 actions.setAwaitingSavedView(false)
                 if (session.currentViewId && router.values.searchParams.view !== session.currentViewId) {
@@ -668,7 +666,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             const view = id ? values.views.find((candidate) => candidate.id === id) : null
             session.initialized = true
             if (view) {
-                actions.applyView(view, true)
+                actions.applyView(view)
             } else {
                 actions.clearView()
             }

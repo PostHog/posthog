@@ -139,7 +139,7 @@ describe('accountsViewsLogic', () => {
             expect(router.values.hashParams.view).toBeUndefined()
             expect(JSON.parse(localStorage.getItem(scopedKey)!)).toEqual({ id: 'view-1', name: 'Enterprise' })
             expect(localStorage.getItem(legacyKey)).toBeNull()
-            expect(capture).not.toHaveBeenCalledWith(AccountsEvents.ViewSelected, expect.anything())
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.ViewSelected, { visibility: 'shared' })
 
             accountsLogic.actions.setSearchQuery('unsaved')
             accountsLogic.actions.setTagsFilter(['draft'])
@@ -236,6 +236,8 @@ describe('accountsViewsLogic', () => {
     })
 
     it('consumes a legacy snapshot without saving it or letting it override later selections', async () => {
+        const remembered = { id: 'view-1', name: 'Enterprise' }
+        localStorage.setItem(scopedKey, JSON.stringify(remembered))
         router.actions.push(
             urls.customerAnalyticsAccounts(),
             {},
@@ -248,6 +250,7 @@ describe('accountsViewsLogic', () => {
         expect(router.values.hashParams.view).toBeUndefined()
         expect(mockUpdate).not.toHaveBeenCalled()
         expect(mockCreate).not.toHaveBeenCalled()
+        expect(JSON.parse(localStorage.getItem(scopedKey)!)).toEqual(remembered)
         logic.actions.selectView('view-1')
         await settle()
         router.actions.push(urls.customerAnalyticsAccount(accountId), router.values.searchParams)
