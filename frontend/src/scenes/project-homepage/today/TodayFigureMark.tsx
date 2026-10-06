@@ -6,7 +6,7 @@ import { TodayFigureCardContent } from './todayFigureSources'
 import { TodayHoverMark } from './TodayHoverMark'
 import { TodayPenMark } from './TodayPenMark'
 import { circlePath } from './todayPenPaths'
-import { todayReportLogic } from './todayReportLogic'
+import { type TodayMarkKind, todayReportLogic } from './todayReportLogic'
 
 const PEN_DELAY_MS = 250
 const PEN_STAGGER_MS = 160
@@ -17,19 +17,21 @@ export function TodayFigureMark({
     content,
     reportId,
     order,
+    kind,
 }: {
     children: ReactNode
     figure: string
     content: TodayFigureCardContent
     reportId: string
     order: number
+    kind: TodayMarkKind
 }): JSX.Element {
     const { markOpened } = useActions(todayReportLogic({ reportId }))
     return (
         <TodayHoverMark
             className="TodayFigureMark"
             dataAttr="today-report-figure"
-            onOpen={() => markOpened('impact')}
+            onOpen={() => markOpened(kind)}
             card={<TodayFigureCard content={content} figure={figure} reportId={reportId} />}
         >
             <TodayPenMark seed={figure} delayMs={PEN_DELAY_MS + order * PEN_STAGGER_MS}>

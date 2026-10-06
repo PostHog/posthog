@@ -41816,6 +41816,29 @@ export namespace Schemas {
       readonly docs_url: string;
     }
 
+    export interface ExcerptChoice {
+      /**
+         * The excerpt that shows what the finding describes, or null when unsure.
+         * @nullable
+         */
+      index: number | null;
+    }
+
+    export interface ExcerptChoiceRequest {
+      /**
+         * The finding the code excerpts should show.
+         * @maxLength 6000
+         */
+      finding: string;
+      /**
+         * Candidate code excerpts, best scored first.
+         * @minItems 2
+         * @maxItems 5
+         * @items.maxLength 2000
+         */
+      excerpts: string[];
+    }
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -50223,6 +50246,162 @@ export namespace Schemas {
     }
 
     /**
+     * * `lead` - Lead
+     * * `impact` - Impact
+     */
+    export type FigureTextEnum = typeof FigureTextEnum[keyof typeof FigureTextEnum];
+
+
+    export const FigureTextEnum = {
+      Lead: 'lead',
+      Impact: 'impact',
+    } as const;
+
+    /**
+     * * `signal` - Signal
+     * * `research` - Agent's research
+     */
+    export type FigureSourceKindEnum = typeof FigureSourceKindEnum[keyof typeof FigureSourceKindEnum];
+
+
+    export const FigureSourceKindEnum = {
+      Signal: 'signal',
+      Research: 'research',
+    } as const;
+
+    export interface RecordingTarget {
+      /** The recording's session id. */
+      session_id: string;
+      /**
+         * Where the player starts, a few seconds before the finding.
+         * @nullable
+         */
+      start_at: string | null;
+      /**
+         * The finding's time in the recording, as MM:SS.
+         * @nullable
+         */
+      offset: string | null;
+      /**
+         * Where the player starts, in seconds from the recording start. Null without an offset.
+         * @nullable
+         */
+      seek_seconds: number | null;
+    }
+
+    export interface PageLink {
+      /** Where the link goes, outside PostHog. */
+      url: string;
+      /** The link text. */
+      text: string;
+    }
+
+    export interface PreviewLine {
+      /** One line of the preview block. */
+      text: string;
+      /** Whether the line is secondary, such as a stack frame. */
+      quiet: boolean;
+    }
+
+    export interface SignalPreview {
+      /** What expanding the signal shows, such as 'Show the stack trace'. */
+      hint: string;
+      /** Repository files to quote, the finding's own file first. */
+      code: CodeFile[];
+      /** A preformatted block, such as a stack trace or a query. */
+      block: PreviewLine[];
+      /** The finding's text beyond its first sentence. */
+      text: string;
+      /** Short facts about the source. */
+      facts: string[];
+      /** A link that replaces the signal's own destination. */
+      link: PageLink | null;
+      /**
+         * A label that replaces the label of the signal's own destination.
+         * @nullable
+         */
+      link_label: string | null;
+    }
+
+    /**
+     * The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.
+     */
+    export type SignalViewExtra = { [key: string]: unknown };
+
+    export interface SignalView {
+      /** The signal's id. */
+      signal_id: string;
+      /** The product that emitted the signal. */
+      source_product: string;
+      /** The kind of signal within its product. */
+      source_type: string;
+      /** The id of the source object, such as an issue or a ticket. */
+      source_id: string;
+      /** The signal's text as emitted. */
+      content: string;
+      /** When the signal happened. */
+      timestamp: string;
+      /** The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON. */
+      extra: SignalViewExtra;
+      /** The signal as one short line. */
+      headline: string;
+      /** The signal's first sentence. */
+      lead: string;
+      /** Identifiers such as a pull request or ticket number, joined by dots. */
+      meta: string;
+      /** What a scout finding cites: code or a Slack thread.
+       *
+       * * `code` - Code
+       * * `slack` - Slack */
+      cited: CitedSourceEnum | null;
+      /** The recording the signal plays, if any. */
+      recording: RecordingTarget | null;
+      /** Where a scout finding links outside PostHog, if anywhere. */
+      link: PageLink | null;
+      /** What expanding the signal shows, if anything. */
+      preview: SignalPreview | null;
+    }
+
+    export interface FigureQuote {
+      /** Where the number comes from: a signal or the agent's research.
+       *
+       * * `signal` - Signal
+       * * `research` - Agent's research */
+      kind: FigureSourceKindEnum;
+      /** The signal that states the number. Null when the agent's research states it. */
+      signal: SignalView | null;
+      /** When the source was written. */
+      at: string;
+      /** The source sentence that states the number. */
+      sentence: string;
+      /** Where the number starts in the sentence. */
+      start: number;
+      /** Where the number ends in the sentence. */
+      end: number;
+    }
+
+    export interface FigureMark {
+      /** The page text the number is in: the lead or the impact sentence.
+       *
+       * * `lead` - Lead
+       * * `impact` - Impact */
+      text: FigureTextEnum;
+      /** Where the number starts in that text, as the reader sees it. */
+      start: number;
+      /** Where the number ends in that text. */
+      end: number;
+      /** The number as the page shows it. */
+      figure: string;
+      /** The sentence that states the same result. */
+      quote: FigureQuote;
+    }
+
+    export interface FigureMarks {
+      /** The numbers to mark, at most 4, each with its source. */
+      marks: FigureMark[];
+    }
+
+    /**
      * * `hogql` - hogql
      */
     export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
@@ -57045,99 +57224,6 @@ export namespace Schemas {
       QueryHours: 'query-hours',
     } as const;
 
-    export interface RecordingTarget {
-      /** The recording's session id. */
-      session_id: string;
-      /**
-         * Where the player starts, a few seconds before the finding.
-         * @nullable
-         */
-      start_at: string | null;
-      /**
-         * The finding's time in the recording, as MM:SS.
-         * @nullable
-         */
-      offset: string | null;
-      /**
-         * Where the player starts, in seconds from the recording start. Null without an offset.
-         * @nullable
-         */
-      seek_seconds: number | null;
-    }
-
-    export interface PageLink {
-      /** Where the link goes, outside PostHog. */
-      url: string;
-      /** The link text. */
-      text: string;
-    }
-
-    export interface PreviewLine {
-      /** One line of the preview block. */
-      text: string;
-      /** Whether the line is secondary, such as a stack frame. */
-      quiet: boolean;
-    }
-
-    export interface SignalPreview {
-      /** What expanding the signal shows, such as 'Show the stack trace'. */
-      hint: string;
-      /** Repository files to quote, the finding's own file first. */
-      code: CodeFile[];
-      /** A preformatted block, such as a stack trace or a query. */
-      block: PreviewLine[];
-      /** The finding's text beyond its first sentence. */
-      text: string;
-      /** Short facts about the source. */
-      facts: string[];
-      /** A link that replaces the signal's own destination. */
-      link: PageLink | null;
-      /**
-         * A label that replaces the label of the signal's own destination.
-         * @nullable
-         */
-      link_label: string | null;
-    }
-
-    /**
-     * The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.
-     */
-    export type SignalViewExtra = { [key: string]: unknown };
-
-    export interface SignalView {
-      /** The signal's id. */
-      signal_id: string;
-      /** The product that emitted the signal. */
-      source_product: string;
-      /** The kind of signal within its product. */
-      source_type: string;
-      /** The id of the source object, such as an issue or a ticket. */
-      source_id: string;
-      /** The signal's text as emitted. */
-      content: string;
-      /** When the signal happened. */
-      timestamp: string;
-      /** The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON. */
-      extra: SignalViewExtra;
-      /** The signal as one short line. */
-      headline: string;
-      /** The signal's first sentence. */
-      lead: string;
-      /** Identifiers such as a pull request or ticket number, joined by dots. */
-      meta: string;
-      /** What a scout finding cites: code or a Slack thread.
-       *
-       * * `code` - Code
-       * * `slack` - Slack */
-      cited: CitedSourceEnum | null;
-      /** The recording the signal plays, if any. */
-      recording: RecordingTarget | null;
-      /** Where a scout finding links outside PostHog, if anywhere. */
-      link: PageLink | null;
-      /** What expanding the signal shows, if anything. */
-      preview: SignalPreview | null;
-    }
-
     export interface ImpactWorking {
       /** How the number is worked out, such as '120 ms × 30,000 calls'. */
       expression: string;
@@ -58155,6 +58241,35 @@ export namespace Schemas {
       product_title: string | null;
       verified: string | null;
       created_at: string | null;
+    }
+
+    /**
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix
+     */
+    export type KeyClauseRoleEnum = typeof KeyClauseRoleEnum[keyof typeof KeyClauseRoleEnum];
+
+
+    export const KeyClauseRoleEnum = {
+      Problem: 'problem',
+      Cause: 'cause',
+      Fix: 'fix',
+    } as const;
+
+    export interface KeyClause {
+      /** Where the clause starts in its text, as the reader sees it. */
+      start: number;
+      /** Where the clause ends in its text. */
+      end: number;
+      /** What the clause tells the reader.
+       *
+       * * `problem` - Problem
+       * * `cause` - Cause
+       * * `fix` - Fix */
+      role: KeyClauseRoleEnum;
+      /** Sentences from the report that explain the clause further. */
+      expansion: string[];
     }
 
     /**
@@ -90503,6 +90618,15 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface ReportKeyClauses {
+      /** The clauses that state the problem or its cause in the lead. */
+      lead: KeyClause[];
+      /** The clauses that state the problem or its cause in the impact sentence. */
+      impact: KeyClause[];
+      /** The clause that states the fix in the proposal. */
+      proposal: KeyClause[];
     }
 
     /**
@@ -124209,6 +124333,13 @@ export namespace Schemas {
      * @maxLength 64
      */
     timezone?: string;
+    };
+
+    export type TodayReportsKeyClausesRetrieveParams = {
+    /**
+     * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
+     */
+    include_impact?: boolean;
     };
 
     export type TracingRetentionRulesListParams = {

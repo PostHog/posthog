@@ -5,14 +5,16 @@ import { Text } from '@posthog/quill'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TodayFigureMark } from './TodayFigureMark'
-import { TodayInlineMarkdown } from './TodayInlineMarkdown'
 import { TodayInlineTrend } from './TodayInlineTrend'
+import { TodayMarkedText } from './TodayMarkedText'
 import { todayReportLogic } from './todayReportLogic'
 
 export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.Element | null {
     const {
         impactNumbers: numbers,
         impactText,
+        impactMarks,
+        shownKeyClauses,
         leadStatesNumber,
     } = useValues(todayReportLogic({ reportId: report.id }))
 
@@ -29,9 +31,16 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
 
     if (numbers.length === 0) {
         return (
-            <Text size="sm" render={<p />} className="leading-relaxed text-pretty" data-attr="today-report-abstract">
-                <TodayInlineMarkdown markdown={impactText} />
-            </Text>
+            <div data-attr="today-report-abstract" data-today-figures>
+                <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
+                    <TodayMarkedText
+                        markdown={impactText}
+                        marked={impactMarks}
+                        keyClauses={shownKeyClauses?.impact ?? []}
+                        reportId={report.id}
+                    />
+                </Text>
+            </div>
         )
     }
 
@@ -45,6 +54,7 @@ export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.E
                             content={number.content}
                             reportId={report.id}
                             order={index}
+                            kind="impact"
                         >
                             <span translate="no" className="tabular-nums">
                                 {number.value}

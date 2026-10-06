@@ -58,5 +58,13 @@ export function highlightSegments(text: string, values: string[]): TodayQuoteSeg
 }
 
 export function quoteSegments(quote: TodayQuotedText, figure: string): TodayQuoteSegment[] {
-    return highlightSegments(quote.excerpt, quote.values ?? [figure])
+    const { excerpt, highlight } = quote
+    if (!highlight) {
+        return highlightSegments(excerpt, quote.values ?? [figure])
+    }
+    return [
+        { text: excerpt.slice(0, highlight.start), marked: false },
+        { text: excerpt.slice(highlight.start, highlight.end), marked: true },
+        { text: excerpt.slice(highlight.end), marked: false },
+    ].filter((segment) => segment.text)
 }
