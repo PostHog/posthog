@@ -182,7 +182,9 @@ tools:
 
 When `scopes` is omitted, the generator uses the scopes the API requires, so the tool cannot drift from the endpoint.
 Set `scopes` by hand only when the API computes them per request (the generator fails and says so) or to gate a tool more tightly.
-A `scopes` list that misses a scope the API requires prints a warning, and a GitHub annotation on CI.
+A `scopes` list that misses a scope the API requires fails codegen, with a GitHub annotation on CI.
+When the API picks the scopes per request, list the action in the viewset's `request_dependent_scope_actions`.
+The spec then marks the operation with `x-request-dependent-scopes`, codegen skips the check for it, and its tools must declare `scopes`.
 `annotations` default to the HTTP method for GET (read-only) and DELETE (destructive).
 PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempotent), so declare `annotations` for them.
 
