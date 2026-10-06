@@ -19,10 +19,11 @@ const MAX_DEPTH: usize = 12;
 const SECRET_MIN_LENGTH: usize = 16;
 const SECRET_MIN_ENTROPY_BITS: f64 = 3.8;
 const SECRET_MIN_CHAR_CLASSES: u8 = 3;
-// Shorter values are prose, such as "the bearer of", and so is a lowercase word of up to
-// 15 letters, such as "bearer transportation". A random lowercase token is longer than
-// that. A `Basic` credential of any length is still redacted when it decodes to
-// `user:password`, e.g. `YTpi` for `a:b`.
+// Shorter values are prose, such as "the bearer of", and so is a word of up to 15 letters
+// that is lowercase or starts with a capital, such as "bearer transportation" or
+// "basic: Configuration". A random token mixes case or is longer than that. A `Basic`
+// credential of any length is still redacted when it decodes to `user:password`, e.g.
+// `YTpi` for `a:b`.
 const AUTH_CREDENTIAL_MIN_LENGTH: usize = 8;
 const AUTH_PROSE_WORD_MAX_LENGTH: usize = 15;
 const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
@@ -221,7 +222,11 @@ fn redact_auth_credential(caps: &Captures) -> String {
     let credential = &caps[3];
     let is_basic_pair = caps[1].eq_ignore_ascii_case("basic") && is_basic_credential(credential);
     let is_prose_word = credential.len() <= AUTH_PROSE_WORD_MAX_LENGTH
-        && credential.bytes().all(|b| b.is_ascii_lowercase());
+        && credential
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic())
+        && credential.bytes().skip(1).all(|b| b.is_ascii_lowercase());
     if !is_basic_pair && (credential.len() < AUTH_CREDENTIAL_MIN_LENGTH || is_prose_word) {
         return caps[0].to_string();
     }
@@ -465,6 +470,8 @@ mod tests {
             "the bearer of bad news",
             "bearer transportation",
             "basic: configuration",
+            "basic: Configuration",
+            "Basic Configuration loaded",
             "basicConfig(level=10)",
             "550e8400-e29b-41d4-a716-446655440000",
             "da39a3ee5e6b4b0d3255bfef95601890afd80709",
