@@ -6,6 +6,9 @@ import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import {
     buildClaudeCodeDeepLink,
+    buildClaudeCodeVSCodeDeepLink,
+    buildClaudeCodeWebLink,
+    buildClaudeDesktopDeepLink,
     buildCodexDeepLink,
     buildCursorDeepLink,
     buildPostHogCodeDeepLink,
@@ -33,6 +36,7 @@ const IMPLEMENTATION_AGENTS: {
     name: string
     icon: JSX.Element
     buildDeepLink: (prompt: string) => string
+    windowFeatures?: string
 }[] = [
     {
         key: 'posthog-code',
@@ -42,9 +46,28 @@ const IMPLEMENTATION_AGENTS: {
     },
     {
         key: 'claude-code',
-        name: 'Claude Code',
+        name: 'Claude Code CLI',
         icon: <AgentLogo logo={claudeLogo} />,
         buildDeepLink: buildClaudeCodeDeepLink,
+    },
+    {
+        key: 'claude-desktop',
+        name: 'Claude Desktop',
+        icon: <AgentLogo logo={claudeLogo} />,
+        buildDeepLink: buildClaudeDesktopDeepLink,
+    },
+    {
+        key: 'claude-code-vscode',
+        name: 'Claude Code in VS Code',
+        icon: <AgentLogo logo={claudeLogo} />,
+        buildDeepLink: buildClaudeCodeVSCodeDeepLink,
+    },
+    {
+        key: 'claude-code-web',
+        name: 'Claude Code on the web',
+        icon: <AgentLogo logo={claudeLogo} />,
+        buildDeepLink: buildClaudeCodeWebLink,
+        windowFeatures: 'noopener,noreferrer',
     },
     {
         key: 'cursor',
@@ -184,7 +207,11 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                                         icon: agent.icon,
                                                         onClick: () =>
                                                             runImplementationPrompt(agent.key, (prompt) => {
-                                                                window.open(agent.buildDeepLink(prompt), '_blank')
+                                                                window.open(
+                                                                    agent.buildDeepLink(prompt),
+                                                                    '_blank',
+                                                                    agent.windowFeatures
+                                                                )
                                                             }),
                                                     }))}
                                                 />
