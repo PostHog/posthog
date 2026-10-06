@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -23,6 +24,20 @@ export function SelfManagedSourcesTable(): JSX.Element {
                 loading={databaseLoading}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
+                emptyState={
+                    <div className="flex flex-col items-center gap-2 py-2">
+                        <span>{searchTerm ? 'No sources matching your search' : 'No self-managed sources'}</span>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            to={urls.dataWarehouseSourceNew()}
+                            size="small"
+                            data-attr="self-managed-sources-empty-new-source"
+                        >
+                            New source
+                        </LemonButton>
+                    </div>
+                }
                 columns={[
                     {
                         width: 0,

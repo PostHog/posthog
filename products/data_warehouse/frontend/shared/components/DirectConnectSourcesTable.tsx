@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -29,6 +30,22 @@ export function DirectConnectSourcesTable(): JSX.Element {
                 loading={dataWarehouseSourcesLoading}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
+                emptyState={
+                    <div className="flex flex-col items-center gap-2 py-2">
+                        <span>
+                            {directSearchTerm ? 'No sources matching your search' : 'No direct connect sources'}
+                        </span>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlusSmall />}
+                            to={urls.dataWarehouseSourceNew()}
+                            size="small"
+                            data-attr="direct-connect-sources-empty-new-source"
+                        >
+                            New source
+                        </LemonButton>
+                    </div>
+                }
                 columns={[
                     {
                         width: 0,
