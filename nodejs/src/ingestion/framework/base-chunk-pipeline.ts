@@ -37,9 +37,8 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
     items: PipelineResultWithContext<TIn, C, RPrev>[],
     builderContext?: PipelineBuilderContext<D>
 ): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
-    const successfulValues = items
-        .filter(isSuccessResultWithContext)
-        .map((resultWithContext) => resultWithContext.result.value)
+    const successfulItems = items.filter(isSuccessResultWithContext)
+    const successfulValues = successfulItems.map((resultWithContext) => resultWithContext.result.value)
 
     let stepResults: PipelineResult<TOut, RStep>[] = []
     if (successfulValues.length > 0) {
@@ -51,6 +50,8 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
                     sendException: false,
                     measureTime: false,
                     attributes: { chunk_size: successfulValues.length },
+                    // With concurrent batches a chunk can mix batches; the span goes under the first item's.
+                    parentContext: successfulItems[0].context.traceContext,
                 },
                 () => step(successfulValues)
             )

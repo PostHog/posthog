@@ -1,3 +1,5 @@
+import { context, propagation, trace } from '@opentelemetry/api'
+import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
 import { Message } from 'node-rdkafka'
 
 import { BatchingPipeline } from './batching-pipeline'
@@ -428,6 +430,59 @@ describe('BatchingPipeline', () => {
             await drainAll(collector)
 
             expect((await collector.feed(makeBatch([4]), {})).ok).toBe(true)
+        })
+    })
+
+    describe('tracing', () => {
+        let exporter: InMemorySpanExporter
+        let provider: NodeTracerProvider
+
+        beforeEach(() => {
+            exporter = new InMemorySpanExporter()
+            provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+            provider.register()
+        })
+
+        afterEach(async () => {
+            await provider.shutdown()
+            trace.disable()
+            context.disable()
+            propagation.disable()
+        })
+
+        it('parents every step span on one span per batch', async () => {
+            function markStep(value: any): Promise<ReturnType<typeof ok>> {
+                return Promise.resolve(ok(value))
+            }
+            const collector = newBatchingPipeline<any, any, MsgCtx>(
+                (builder) => builder.pipe(beforeBatchStep),
+                (builder) => builder.concurrently((b) => b.pipe(markStep)),
+                (builder) => builder.pipe(afterBatchStep),
+                { concurrentBatches: Infinity }
+            )
+
+            const withTeam = (batch: OkResultWithContext<any, MsgCtx>[]): OkResultWithContext<any, MsgCtx>[] =>
+                batch.map((element) => ({ ...element, result: ok({ ...element.result.value, teamId: 7 }) }))
+            await collector.feed(withTeam(makeBatch([1, 2])), {})
+            await collector.feed(withTeam(makeBatch([3])), {})
+            await drainAll(collector)
+
+            const spans = exporter.getFinishedSpans()
+            const batchSpans = spans.filter((span) => span.name === 'batchingPipeline.batch')
+            expect(batchSpans).toHaveLength(2)
+            expect(batchSpans.map((span) => span.parentSpanContext)).toEqual([undefined, undefined])
+            expect(batchSpans.map((span) => span.attributes.batch_size)).toEqual([2, 1])
+
+            const parentOf = (span: { parentSpanContext?: { spanId: string } }): string | undefined =>
+                span.parentSpanContext?.spanId
+            const batchSpanIds = batchSpans.map((span) => span.spanContext().spanId)
+            const stepSpans = spans.filter((span) => span.name === 'markStep')
+            expect(stepSpans.map(parentOf)).toEqual([batchSpanIds[0], batchSpanIds[0], batchSpanIds[1]])
+            expect(stepSpans.map((span) => span.attributes.team_id)).toEqual([7, 7, 7])
+
+            const hookSpans = spans.filter((span) => span.name !== 'batchingPipeline.batch' && span.name !== 'markStep')
+            expect(hookSpans).toHaveLength(4)
+            expect(hookSpans.map(parentOf).sort()).toEqual([...batchSpanIds, ...batchSpanIds].sort())
         })
     })
 })

@@ -1,3 +1,4 @@
+import { Context } from '@opentelemetry/api'
 import { Message } from 'node-rdkafka'
 
 import { IngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -57,6 +58,11 @@ export type PipelineContext<C = { message: Message }> = C & {
      * `C` narrows the type via its own `debugContext` declaration.
      */
     debugContext?: unknown
+    /**
+     * Trace context of the batch this item belongs to. Steps parent their spans on it, because
+     * the pump that runs them is a shared loop and not the batch's own async context.
+     */
+    traceContext?: Context
     /**
      * Work that outlives the step, drained with the batch. A side effect must
      * not reject. What a rejection does depends on the host: consumer-v2
