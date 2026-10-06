@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
@@ -149,6 +151,7 @@ describe('createExperimentLogic', () => {
         })
 
         it('creates a scanner scoped to enrolled experiment sessions when selected', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
