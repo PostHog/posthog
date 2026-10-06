@@ -96,6 +96,7 @@ There is no `series` or `labels`.
   On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
 - Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
 - The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
+  It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
 
 ## Sparkline
 

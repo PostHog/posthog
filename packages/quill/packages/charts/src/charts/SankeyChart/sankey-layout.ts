@@ -192,7 +192,9 @@ function computeLinkBreadths<N extends SankeyExtraProperties, L extends SankeyEx
 
 export function sankeyLayout<
     N extends SankeyExtraProperties = { id: string },
-    L extends SankeyExtraProperties = { source: string; target: string; value: number },
+    // Laid-out links replace `source`/`target` with node objects, so the default must not type them
+    // as strings.
+    L extends SankeyExtraProperties = SankeyExtraProperties,
 >(): SankeyLayout<N, L> {
     let x0 = 0,
         y0 = 0,

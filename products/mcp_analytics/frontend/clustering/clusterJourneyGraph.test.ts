@@ -1,5 +1,5 @@
 import type { MCPIntentClusterJourneyPathApi } from '../generated/api.schemas'
-import { buildJourneyGraph } from './clusterJourneyGraph'
+import { buildJourneyGraph, describeJourneyPath } from './clusterJourneyGraph'
 
 const PATHS: MCPIntentClusterJourneyPathApi[] = [
     { steps: ['schema', 'sql', null], outcome: 'completed', count: 20 },
@@ -43,5 +43,10 @@ describe('buildJourneyGraph', () => {
         ])
         expect(graph.links.filter((link) => link.target === '1::tool::Ended').map((link) => link.value)).toEqual([2])
         expect(graph.links.filter((link) => link.target === '1::ended::Ended').map((link) => link.value)).toEqual([3])
+    })
+
+    it('describes a leak path with one Ended for its padding and keeps a tool named Ended', () => {
+        expect(describeJourneyPath({ steps: ['sql', null, null], outcome: 'error', count: 1 })).toBe('sql → Ended')
+        expect(describeJourneyPath({ steps: ['Ended', null, null], outcome: 'error', count: 1 })).toBe('Ended → Ended')
     })
 })

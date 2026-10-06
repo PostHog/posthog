@@ -67,7 +67,11 @@ export function buildJourneyGraph(paths: readonly MCPIntentClusterJourneyPathApi
     return { nodes: Array.from(nodes.values()), links: Array.from(links.values()) }
 }
 
+/** The tools a path ran, then one `Ended` for the missing steps that pad it. A tool that happens
+ *  to be named `Ended` still shows. */
 export function describeJourneyPath(path: MCPIntentClusterJourneyPathApi): string {
-    const labels = path.steps.map((step) => step ?? ENDED_LABEL)
-    return labels.filter((label, idx) => label !== ENDED_LABEL || idx === labels.indexOf(ENDED_LABEL)).join(' → ')
+    const firstMissing = path.steps.findIndex((step) => step == null)
+    return path.steps
+        .flatMap((step, idx) => (step != null ? [step] : idx === firstMissing ? [ENDED_LABEL] : []))
+        .join(' → ')
 }
