@@ -25,6 +25,7 @@ from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
     Priority,
+    RecipientsResolver,
     TargetType,
     create_notification,
 )
@@ -102,6 +103,19 @@ def _achievements_flag_enabled(distinct_id: str, org_id: str) -> bool:
 
 def _user_opted_out(team: Team, user: User) -> bool:
     return WebAnalyticsUserConfig.objects.for_team(team.id).filter(user_id=user.id, achievements_opt_out=True).exists()
+
+
+class _OptedOutExcludingResolver(RecipientsResolver):
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
+        user_ids = super().resolve(target_type, target_id, team_id)
+        if team_id is None or not user_ids:
+            return user_ids
+        opted_out = set(
+            WebAnalyticsUserConfig.objects.for_team(team_id)
+            .filter(user_id__in=user_ids, achievements_opt_out=True)
+            .values_list("user_id", flat=True)
+        )
+        return [user_id for user_id in user_ids if user_id not in opted_out]
 
 
 def recompute_web_analytics_achievements_sync(
@@ -295,9 +309,9 @@ def _send_unlock_notifications(ctx: EvalContext, track: TrackDefinition, stages:
 def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: int) -> None:
     stage_name = track.stages[stage - 1].name
     if track.scope == AchievementScope.USER and ctx.user is not None:
-        target_type, target_id = TargetType.USER, str(ctx.user.id)
+        target_type, target_id, resolver = TargetType.USER, str(ctx.user.id), None
     else:
-        target_type, target_id = TargetType.TEAM, str(ctx.team.id)
+        target_type, target_id, resolver = TargetType.TEAM, str(ctx.team.id), _OptedOutExcludingResolver()
     try:
         create_notification(
             NotificationData(
@@ -313,6 +327,7 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
                 resource_id=str(track.key),
                 priority=Priority.NORMAL,
                 source_url=f"/project/{ctx.team.id}/web?openAchievements={track.key.value}",
+                resolver=resolver,
             )
         )
     except Exception as e:

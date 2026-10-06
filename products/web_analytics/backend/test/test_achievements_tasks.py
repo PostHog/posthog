@@ -11,7 +11,9 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext, PriorProgress, TrackEvaluation
 from products.web_analytics.backend.models import (
@@ -177,6 +179,15 @@ class TestRecomputeTask(BaseTest):
                 with self.captureOnCommitCallbacks(execute=True):
                     self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         mock_notify.assert_not_called()
+
+    def test_team_unlock_notification_skips_opted_out_members(self) -> None:
+        opted_out = User.objects.create_and_join(self.organization, "opted-out@example.com", "password")
+        WebAnalyticsUserConfig(team=self.team, user=opted_out, achievements_opt_out=True).save()
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                self._run_team(make_incremental_evaluators(cumulative_pageviews=10_000))
+        stored = stored_notification_for_resource(resource_type="web_analytics", resource_id="traffic")
+        self.assertEqual(stored.resolved_user_ids, [self.user.id])
 
     def test_duplicate_recompute_is_idempotent(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):
