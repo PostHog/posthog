@@ -88,3 +88,4 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - No analytics or error tracking yet. The plan is the desktop app's PostHog project, with an `app: "tui"` property, and no message content.
 - No auto, manual or plan modes: pi has none, and the harness adds none. The desktop app's embedded chat view shows Claude's mode picker on pi chats, and it does nothing there.
 - A cloud sandbox stops when idle, and its background shells stop with it.
+- Long cloud pi chats stop taking messages. Before a follow-up, the backend rebinds the sandbox's MCP credentials once its binding marker expires (half the token lifetime), and the pi agent server has no `refresh_session` command, so the backend fails the delivery closed. The TUI shows the failed `followup_delivery` step and puts the message back (`deliveryFailure` in `runs.ts`); the fix is `refresh_session` in the pi agent server.

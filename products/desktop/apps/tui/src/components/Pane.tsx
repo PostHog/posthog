@@ -9,6 +9,7 @@ import { faint } from "../faint";
 import type { LocalSession } from "../local";
 import {
   type CloudRuns,
+  deliveryFailure,
   emptyRunView,
   type RunSubscription,
   type RunView,
@@ -109,6 +110,7 @@ export function Pane({
   chat,
   composer,
   pending,
+  onUndelivered,
   pendingShells,
   onLines,
   onOffer,
@@ -140,6 +142,8 @@ export function Pane({
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
   pending: string | null;
+  // The backend could not deliver this chat's pending message, logged at `at` (epoch ms).
+  onUndelivered: (at: number) => void;
   // ! commands run in this chat that its run has not logged yet.
   pendingShells: PendingShell[];
   // The transcript as drawn, so the app can tell a new run of a command from logged ones.
@@ -198,6 +202,14 @@ export function Pane({
   useEffect(() => {
     onLines(lines);
   });
+  const delivery = useMemo(
+    () => (local ? null : deliveryFailure(view.entries)),
+    [view.entries, local],
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires once per failure, while a message is pending
+  useEffect(() => {
+    if (delivery && pending) onUndelivered(delivery.at);
+  }, [delivery?.at, pending]);
   const setupRunId = task?.latest_run?.id;
   const setup = useMemo(
     () => (setupRunId ? setupProgress(view.entries, setupRunId) : null),
@@ -211,7 +223,7 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
-        { setup, reopening },
+        { setup, reopening, delivery },
       )
     : local
       ? runNotice(

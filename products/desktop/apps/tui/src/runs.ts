@@ -210,6 +210,49 @@ export function setupProgress(
   };
 }
 
+export interface DeliveryFailure {
+  // When the backend gave up on the message (epoch ms).
+  at: number;
+  text: string;
+}
+
+// The backend hands a cloud chat's message to its agent as a follow-up, and logs one it could not deliver as a failed
+// `followup_delivery` step. Until the chat moves on, the last message went nowhere.
+export function deliveryFailure(
+  entries: StoredLogEntry[],
+): DeliveryFailure | null {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (entry.type === "pi_event") {
+      const kind = (entry.event as { type?: string } | undefined)?.type;
+      if (
+        kind === "user_message" ||
+        kind === "turn_completed" ||
+        kind === "assistant_message_chunk"
+      )
+        return null;
+      continue;
+    }
+    const notification = (
+      entry as { notification?: { method?: string; params?: unknown } }
+    ).notification;
+    if (notification?.method !== "_posthog/progress") continue;
+    const params = notification.params as Partial<SetupStep> | undefined;
+    if (params?.step !== "followup_delivery") continue;
+    if (params.status !== "failed") return null;
+    const label = params.label || "Couldn't deliver your message";
+    // The detail carries the backend's exception prefix, which says nothing to the reader.
+    const detail = params.detail
+      ?.replace(/^\w*Error: /, "")
+      .replace(/^send_followup failed: /, "");
+    return {
+      at: Date.parse(entry.timestamp ?? "") || 0,
+      text: detail ? `${label}: ${detail}` : label,
+    };
+  }
+  return null;
+}
+
 export function runNotice(
   view: RunView,
   lines: TranscriptLine[],
@@ -219,8 +262,11 @@ export function runNotice(
   {
     setup = null,
     reopening = false,
+    delivery = null,
   }: {
     setup?: SetupProgress | null;
+    // The backend could not hand the last message to the agent.
+    delivery?: DeliveryFailure | null;
     // A reply is bringing the chat's stopped run back, until its agent takes the message.
     reopening?: boolean;
   } = {},
@@ -257,6 +303,9 @@ export function runNotice(
   const waiting =
     lines.at(-1)?.kind === "user" &&
     (turnOpen || lines.at(-1)?.id === PENDING_ID);
+  if (running && delivery && !turnOpen && !waiting) {
+    return { text: delivery.text, tone: "error" };
+  }
   // A local agent is up before its view exists, so only a cloud run has a start-up wait.
   if (!view.local && running && !lines.some((line) => line.kind !== "user")) {
     return { text: "Starting cloud run…", tone: "working" };
