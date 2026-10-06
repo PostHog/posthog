@@ -56,6 +56,7 @@ import type {
     PatchedTeamLogsConfigApi,
     TeamLogsConfigApi,
     _LogsAttributesResponseApi,
+    _LogsBackfillStatusResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
@@ -422,6 +423,20 @@ export const logsAttributesRetrieve = async (
     options?: RequestInit
 ): Promise<_LogsAttributesResponseApi> => {
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsBackfillStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/backfill_status/`
+}
+
+export const logsBackfillStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_LogsBackfillStatusResponseApi> => {
+    return apiMutator<_LogsBackfillStatusResponseApi>(getLogsBackfillStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

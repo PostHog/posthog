@@ -40,6 +40,7 @@ use std::io::IsTerminal;
 use anyhow::{bail, Result};
 use inquire::InquireError;
 
+use super::backfill::{check_backfill_allowed, project_backfill_enabled};
 use super::config::LokiImportConfig;
 use super::loki::{LokiAuth, LokiClient};
 use super::mapping::Mapper;
@@ -80,10 +81,21 @@ impl ImportSource {
                     chrono::Utc::now(),
                 );
 
+                let backfill = check_backfill_allowed(project_backfill_enabled());
+
                 if *dry_run {
-                    return dry_run_report(&parsed, &expiry);
+                    dry_run_report(&parsed, &expiry)?;
+                    match backfill {
+                        Err(refusal) => println!("\n{refusal}"),
+                        Ok(Some(warning)) => println!("\n{warning}"),
+                        Ok(None) => {}
+                    }
+                    return Ok(());
                 }
 
+                if let Some(warning) = backfill? {
+                    eprintln!("{warning}");
+                }
                 confirm_expiry(&expiry, *skip_expired)?;
                 run_import(&parsed, checkpoint, retention_days)
             }

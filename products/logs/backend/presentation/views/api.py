@@ -32,6 +32,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.tasks.exporter import export_asset
 
@@ -84,6 +85,8 @@ __all__ = [
 ]
 
 tracer = trace.get_tracer(__name__)
+
+LOGS_BACKFILL_FLAG = "logs-backfill-enabled"
 LOGS_MAX_EXPORT_ROWS = 10_000
 MAX_ATTRIBUTE_KEYS = 100
 
@@ -1302,6 +1305,12 @@ class _LogAttributeValueSerializer(serializers.Serializer):
     )
 
 
+class _LogsBackfillStatusResponseSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether this project may send logs with backdated timestamps through `backfill_days`. Intake drops backdated logs from a project that may not."
+    )
+
+
 class _LogsValuesResponseSerializer(serializers.Serializer):
     results = _LogAttributeValueSerializer(many=True, help_text="Distinct values observed for the requested attribute.")
     refreshing = serializers.BooleanField(
@@ -2032,6 +2041,18 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: _LogsBackfillStatusResponseSerializer})
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"], url_path="backfill_status")
+    def backfill_status(self, request: Request, *args, **kwargs) -> Response:
+        # The logs ingestion consumer evaluates the same flag with the same group key and drops backdated logs on false.
+        enabled = feature_enabled_or_false(
+            LOGS_BACKFILL_FLAG,
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            send_feature_flag_events=False,
+        )
+        return Response({"enabled": enabled}, status=status.HTTP_200_OK)
 
     @extend_schema(responses={201: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])

@@ -1,3 +1,4 @@
+pub mod backfill;
 pub mod checkpoint;
 pub mod command;
 pub mod config;

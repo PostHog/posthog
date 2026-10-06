@@ -1560,6 +1560,11 @@ export interface _LogsAttributesResponseApi {
     count: number
 }
 
+export interface _LogsBackfillStatusResponseApi {
+    /** Whether this project may send logs with backdated timestamps through `backfill_days`. Intake drops backdated logs from a project that may not. */
+    enabled: boolean
+}
+
 /**
  * * `trace` - trace
  * * `debug` - debug
