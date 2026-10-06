@@ -89,6 +89,7 @@ tools:
     engineering-analytics-dora:
         operation: engineering_analytics_dora
         enabled: false
+        disabled_reason: Shipped off until codegen ran for the new endpoint, then never enabled; enable after review
         scopes:
             - engineering_analytics:read
         annotations:

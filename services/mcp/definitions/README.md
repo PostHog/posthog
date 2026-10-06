@@ -15,7 +15,7 @@ attribution in the OpenAPI spec — auto-derived from the ViewSet module path
 OpenAPI schema (Django)
         │
         ▼
-  scaffold-yaml          ← discovers operations by x-product, writes YAML stubs
+  scaffold-yaml          ← lists operations by x-product (--candidates), adds tool entries (--add)
         │
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
@@ -30,14 +30,18 @@ Run the full pipeline: `hogli build:openapi`
 
 ## Adding tools for a new product
 
-1. **Scaffold** — generate a starter YAML with all operations disabled:
+1. **Add** — tools are opt-in. Create the YAML file once, list the operations that have
+   no entry, and add the ones agents need:
 
    ```sh
-   pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
-   # or for a product folder:
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
        --output ../../products/your_product/mcp/tools.yaml
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
    ```
+
+   `--add` writes an enabled entry with the title and description from the spec.
+   Pass `--file <path>` to write to a YAML file other than the product's `tools.yaml`.
 
    `--product` matches endpoints by their **`x-product`** attribution
    (hyphens are normalized to underscores before matching).
@@ -45,8 +49,8 @@ Run the full pipeline: `hogli build:openapi`
    ViewSets elsewhere need `@extend_schema(extensions={"x-product": "<name>"})`.
    URL paths are never used for discovery.
 
-2. **Configure** — edit the YAML to enable the tools you want. Each enabled tool needs
-   `scopes`, `annotations`, and ideally a `description`:
+2. **Configure** — review each added entry. PATCH, POST and PUT tools need `annotations`,
+   and every tool should have a good `description`:
 
    ```yaml
    your-tool-name:
@@ -71,16 +75,17 @@ Run the full pipeline: `hogli build:openapi`
 
 ## Keeping definitions in sync
 
-When backend API endpoints are added or removed, YAML definitions need updating.
+When backend API endpoints are renamed or removed, YAML definitions need updating.
 The scaffold script handles this automatically:
 
 ```sh
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 ```
 
-This is idempotent and non-destructive — it only adds newly discovered operations
-(with `enabled: false`) and removes stale ones. All hand-authored configuration
-(descriptions, scopes, annotations, etc.) is preserved.
+This is idempotent and never adds entries, so a new endpoint does not change any YAML file.
+It preserves all hand-authored configuration (descriptions, scopes, annotations, etc.),
+updates renumbered `_N` operation IDs, removes a disabled entry whose operation is gone,
+and fails on an enabled tool whose operation is gone.
 
 CI runs this as a drift check.
 
@@ -95,7 +100,8 @@ url_prefix: /path # base URL for enrich_url links
 tools:
   tool-name:
     operation: operation_id # must match an OpenAPI operationId
-    enabled: false # set to true to expose as MCP tool
+    enabled: true # false keeps the tool off on purpose
+    # disabled_reason: Superseded by other-tool # required with enabled: false, rejected with enabled: true
     # --- required when enabled: ---
     scopes: [product:read]
     annotations:

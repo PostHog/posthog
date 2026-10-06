@@ -825,6 +825,7 @@ tools:
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
+        disabled_reason: Its prepare step, tasks-runs-artifacts-prepare-upload-create, is not exposed
         description: >
             Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
             read its latest version because an interactive user may have edited it since the agent's last upload.

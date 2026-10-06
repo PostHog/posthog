@@ -1532,6 +1532,20 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(false)
     })
 
+    it.each([
+        { name: 'rejects enabled: false without disabled_reason', extra: { enabled: false }, valid: false },
+        { name: 'rejects a blank disabled_reason', extra: { enabled: false, disabled_reason: '  ' }, valid: false },
+        { name: 'rejects disabled_reason on an enabled tool', extra: { disabled_reason: 'Old' }, valid: false },
+        {
+            name: 'accepts enabled: false with disabled_reason',
+            extra: { enabled: false, disabled_reason: 'Superseded by things-list' },
+            valid: true,
+        },
+    ])('$name', ({ extra, valid }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_list', enabled: true, ...extra })
+        expect(result.success).toBe(valid)
+    })
+
     it('allows input_schema without include_params, exclude_params, or param_overrides', () => {
         const result = ToolConfigSchema.safeParse(validBase)
         expect(result.success).toBe(true)

@@ -281,6 +281,7 @@ tools:
     error-tracking-issues-list:
         operation: error_tracking_issues_list
         enabled: false
+        disabled_reason: Superseded by query-error-tracking-issues-list
         scopes:
             - error_tracking:read
         annotations:
@@ -332,6 +333,7 @@ tools:
     error-tracking-issues-retrieve:
         operation: error_tracking_issues_retrieve
         enabled: false
+        disabled_reason: Superseded by query-error-tracking-issue
         scopes:
             - error_tracking:read
         annotations:

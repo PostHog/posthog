@@ -237,9 +237,10 @@ They live in **`products/<product>/mcp/*.yaml`**, keeping config close to the ow
 The build pipeline discovers YAML files from both paths.
 Product teams own their definitions and control which operations are exposed as MCP tools.
 
-**Workflow: scaffold, configure, generate.**
+**Workflow: add, configure, generate.**
 
-1. **Scaffold** a starter YAML with all operations disabled.
+1. **Add** the tools agents need.
+   Tools are opt-in: an operation is exposed only when a YAML file has an entry for it.
    `--product` discovers endpoints by their **`x-product`** attribution —
    it matches endpoints whose product attribution equals the product name.
    ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
@@ -254,13 +255,21 @@ Product teams own their definitions and control which operations are exposed as 
    the scaffold can find them.
 
    ```sh
-   pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product
-   # or output directly into a product folder:
+   # Only for a product with no YAML yet: create one with no tools
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
        --output ../../products/your_product/mcp/tools.yaml
+   # List the product's operations that have no YAML entry
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+   # Add one as an enabled tool, with the title and description from the spec
+   # (--file <path> writes to a YAML file other than the product's tools.yaml)
+   pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
    ```
 
-2. **Configure** the YAML – enable tools and add descriptions.
+   To keep an operation off on purpose, for example when another tool supersedes it,
+   give its entry `enabled: false` and `disabled_reason: <why>`.
+   Codegen rejects `enabled: false` without a `disabled_reason`, and a `disabled_reason` on an enabled tool.
+
+2. **Configure** each entry – review the title and description.
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
@@ -295,7 +304,7 @@ Product teams own their definitions and control which operations are exposed as 
    tools:
      domain-action: # e.g. feature-flags-list, experiments-create
        operation: your_product_endpoint_list # must match an OpenAPI operationId
-       enabled: true # false excludes from generation
+       enabled: true # false keeps the tool off and needs disabled_reason
        # --- optional: ---
        scopes: # defaults to the scopes the API requires; a list that misses one fails codegen
          - your_product:read
@@ -446,9 +455,9 @@ When backend API endpoints change, sync the YAML definitions:
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 ```
 
-This is idempotent and non-destructive –
-it only adds newly discovered operations (with `enabled: false`) and removes stale ones.
-All hand-authored configuration is preserved.
+This is idempotent and never adds entries, so a new endpoint does not change any YAML file.
+It keeps all hand-authored configuration, updates renumbered `_N` operation IDs,
+removes a disabled entry whose operation is gone, and fails on an enabled tool whose operation is gone.
 CI runs this as a drift check.
 
 See [`services/mcp/definitions/README.md`](https://github.com/PostHog/posthog/blob/master/services/mcp/definitions/README.md) for the full YAML schema reference (note: YAML definitions themselves now live in product folders)

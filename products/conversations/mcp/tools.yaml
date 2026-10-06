@@ -96,6 +96,7 @@ tools:
     conversations-tickets-notes-create:
         operation: conversations_tickets_notes_create
         enabled: false
+        disabled_reason: Enable in a follow-up after the notes route deploys, so clients never call a missing route
         scopes:
             - ticket:write
         annotations:

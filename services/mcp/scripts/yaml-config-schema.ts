@@ -11,6 +11,11 @@ export const ToolConfigSchema = z
     .object({
         operation: z.string(),
         enabled: z.boolean(),
+        /**
+         * Why the tool stays off. Required with `enabled: false` and rejected otherwise, so every
+         * disabled entry records a decision. An operation nobody decided on has no entry at all.
+         */
+        disabled_reason: z.string().trim().min(1).optional(),
         scopes: z.array(z.string()).optional(),
         annotations: z
             .object({
@@ -326,6 +331,15 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
+    })
+    .refine((data) => data.enabled || data.disabled_reason !== undefined, {
+        message:
+            '`enabled: false` requires `disabled_reason`. Remove the entry, or add disabled_reason to keep it disabled on purpose.',
+        path: ['disabled_reason'],
+    })
+    .refine((data) => !(data.enabled && data.disabled_reason !== undefined), {
+        message: '`disabled_reason` applies only to `enabled: false`. Remove it from the enabled tool.',
+        path: ['disabled_reason'],
     })
     // A list response encodes as a TOON table: one header of shared keys, then one row per
     // item. Dropping a `null` that only some rows carry breaks that uniformity and forces the

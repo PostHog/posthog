@@ -30,6 +30,7 @@ tools:
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
         enabled: false
+        disabled_reason: stamphog-digest-runs-list returns the same serializer fields for every run
         feature_flag: stamphog
     stamphog-pull-requests-get:
         operation: stamphog_pull_requests_retrieve

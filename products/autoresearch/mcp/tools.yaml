@@ -12,6 +12,7 @@ tools:
     autoresearch-archive-create:
         operation: autoresearch_archive_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -179,6 +180,7 @@ tools:
     autoresearch-pause-create:
         operation: autoresearch_pause_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -224,6 +226,7 @@ tools:
     autoresearch-resume-create:
         operation: autoresearch_resume_create
         enabled: false
+        disabled_reason: Pipeline lifecycle stays in the UI; see products/autoresearch/mcp/AGENTS.md
         scopes:
             - autoresearch:write
         annotations:
@@ -389,6 +392,7 @@ tools:
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: false
+        disabled_reason: Duplicates autoresearch-suggestions-list; the family stays at or below 25 tools
         scopes:
             - autoresearch:read
         annotations:
@@ -402,6 +406,7 @@ tools:
     autoresearch-templates-list:
         operation: autoresearch_templates_list
         enabled: false
+        disabled_reason: Replaced by autoresearch-resolve-template-create, which names every template key
         scopes:
             - autoresearch:read
         annotations:
@@ -446,6 +451,7 @@ tools:
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
         enabled: false
+        disabled_reason: Duplicative for the training agent; the family stays at or below 25 tools
         scopes:
             - autoresearch:write
         annotations:
@@ -678,6 +684,7 @@ tools:
     autoresearch-validate-online-create:
         operation: autoresearch_validate_online_create
         enabled: false
+        disabled_reason: The daily validation workflow runs it; autoresearch-online-performance-retrieve reads results
         scopes:
             - autoresearch:write
             - query:read

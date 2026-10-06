@@ -331,6 +331,7 @@ tools:
     notebooks-run-cell:
         operation: notebooks_sql_v2_run_create
         enabled: false
+        disabled_reason: Code sent in the request can diverge from the saved notebook; notebooks-add-cell runs cells
         scopes:
             - notebook:write
             - query:read
