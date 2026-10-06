@@ -413,6 +413,7 @@ the row lists both.
 | hookdeck                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hoorayhr                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | housecall_pro                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| humanitec                        | HTTP                        | requests                                                        | ✅                          |
 | humanitix                        | HTTP                        | requests                                                        | ✅                          |
 | hubplanner                       | HTTP                        | requests                                                        | ✅                          |
 | hubspot                          | HTTP                        | requests                                                        | ✅                          |
@@ -1186,7 +1187,6 @@ doesn't conflict with concurrent PRs.
 - hootsuite
 - hostaway
 - hubplanner
-- humanitec
 - humanitix
 - ikas
 - illumina_basespace
