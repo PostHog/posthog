@@ -25,6 +25,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
+import { BackfillGate } from './backfill/backfill-gate'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
@@ -215,7 +216,7 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer' | 'backfillGate'
             >
         > = {}
     ) => {
@@ -992,6 +993,63 @@ describe('LogsIngestionConsumer', () => {
             expect(getProducedKafkaMessages()).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(0)
             expect(recordsReceivedSpy).toHaveBeenCalledWith(0)
+        })
+    })
+
+    describe('backfill gate', () => {
+        it.each([
+            {
+                name: 'refuses a backfill request from a team without the flag',
+                header: true,
+                flag: false,
+                produced: 0,
+                checks: 1,
+            },
+            {
+                name: 'accepts a backfill request from a team with the flag',
+                header: true,
+                flag: true,
+                produced: 1,
+                checks: 1,
+            },
+            { name: 'never asks for live traffic', header: false, flag: false, produced: 1, checks: 0 },
+        ])('$name', async ({ header, flag, produced, checks }) => {
+            const check = jest.fn().mockResolvedValue(flag)
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {}, { backfillGate: new BackfillGate(check) })
+
+            // The row is recent on purpose: a backfill request can carry rows from the last day.
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                record_count: '1',
+                ...(header ? { backfill_days: '540' } : {}),
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(produced)
+            expect(check).toHaveBeenCalledTimes(checks)
+            if (produced === 0) {
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                    { reason: 'backfill_not_enabled', team_id: team.id.toString() },
+                    1
+                )
+            }
+        })
+
+        it('asks once per team across batches', async () => {
+            const check = jest.fn().mockResolvedValue(true)
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {}, { backfillGate: new BackfillGate(check) })
+            const backfillMessage = (): Promise<Message[]> =>
+                createKafkaMessages([createLogMessage()], { token: team.api_token, backfill_days: '540' })
+
+            await waitForBackgroundTasks(
+                consumer.processKafkaBatch([...(await backfillMessage()), ...(await backfillMessage())])
+            )
+            await waitForBackgroundTasks(consumer.processKafkaBatch(await backfillMessage()))
+
+            expect(check).toHaveBeenCalledTimes(1)
         })
     })
 

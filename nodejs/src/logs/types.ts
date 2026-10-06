@@ -11,4 +11,5 @@ export type LogsIngestionMessage = {
     recordCount: number
     /** Earliest row timestamp in epoch microseconds, from the `min_timestamp` header; absent from older producers. */
     minTimestampMicros?: number
+    backfillRequested?: boolean
 }

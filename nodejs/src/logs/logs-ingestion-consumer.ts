@@ -21,6 +21,7 @@ import { UUID7 } from '~/common/utils/utils'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
+import { BackfillGate } from './backfill/backfill-gate'
 import { LogsIngestionConsumerConfig } from './config'
 import {
     recordLogMessageDlq,
@@ -64,6 +65,7 @@ import { LogsIngestionMessage } from './types'
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
     quotaLimiting: QuotaLimiting
+    backfillGate?: BackfillGate
     /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
     samplingRulesCache?: SamplingRulesCache
     /** When set (with `metricsEmitter`), enabled teams generate metrics from matching log records. */
@@ -369,6 +371,7 @@ export class LogsIngestionConsumer {
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private backfillGate: BackfillGate
     private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
@@ -422,6 +425,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.backfillGate = deps.backfillGate ?? new BackfillGate()
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
@@ -675,11 +679,15 @@ export class LogsIngestionConsumer {
 
         this.trackIncomingTraffic(messages)
 
-        const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(messages)
+        const { backfillAllowedMessages, backfillDroppedMessages } =
+            await this.filterBackfillNotEnabledMessages(messages)
+        const { quotaAllowedMessages, quotaDroppedMessages } =
+            await this.filterQuotaLimitedMessages(backfillAllowedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
             await this.filterRateLimitedMessages(quotaAllowedMessages)
 
         const usageStats = this.trackOutgoingTrafficAndBuildUsageStats(rateLimiterAllowedMessages, [
+            ...backfillDroppedMessages,
             ...quotaDroppedMessages,
             ...rateLimiterDroppedMessages,
         ])
@@ -779,6 +787,51 @@ export class LogsIngestionConsumer {
         const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
         row.piiReplacements += delta.piiReplacements
         usage.set(teamId, row)
+    }
+
+    // Clamping these rows to the ingest time would write the import onto today, so the whole message is dropped.
+    private async filterBackfillNotEnabledMessages(messages: LogsIngestionMessage[]): Promise<{
+        backfillAllowedMessages: LogsIngestionMessage[]
+        backfillDroppedMessages: LogsIngestionMessage[]
+    }> {
+        const backfillTeamIds = [...new Set(messages.filter((m) => m.backfillRequested).map((m) => m.teamId))]
+        if (backfillTeamIds.length === 0) {
+            return { backfillAllowedMessages: messages, backfillDroppedMessages: [] }
+        }
+
+        const enabledByTeam = new Map(
+            await Promise.all(
+                backfillTeamIds.map(
+                    async (teamId) => [teamId, await this.backfillGate.isEnabledForTeam(teamId)] as const
+                )
+            )
+        )
+
+        const backfillAllowedMessages: LogsIngestionMessage[] = []
+        const backfillDroppedMessages: LogsIngestionMessage[] = []
+        const droppedRecordsByTeam = new Map<number, { messages: number; records: number }>()
+        for (const message of messages) {
+            if (message.backfillRequested && !enabledByTeam.get(message.teamId)) {
+                backfillDroppedMessages.push(message)
+                const dropped = droppedRecordsByTeam.get(message.teamId) ?? { messages: 0, records: 0 }
+                dropped.messages++
+                dropped.records += message.recordCount
+                droppedRecordsByTeam.set(message.teamId, dropped)
+            } else {
+                backfillAllowedMessages.push(message)
+            }
+        }
+
+        for (const [teamId, dropped] of droppedRecordsByTeam) {
+            logMessageDroppedCounter.inc(
+                { reason: 'backfill_not_enabled', team_id: teamId.toString() },
+                dropped.messages
+            )
+            recordLogMessageDropped('backfill_not_enabled', teamId.toString(), dropped.messages)
+            this.queueUsageMetric(teamId, 'records_dropped_backfill_not_enabled', dropped.records)
+        }
+
+        return { backfillAllowedMessages, backfillDroppedMessages }
     }
 
     private async filterQuotaLimitedMessages(
@@ -1424,6 +1477,7 @@ export class LogsIngestionConsumer {
                         bytesCompressed,
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
+                        backfillRequested: headers.backfill_days !== undefined,
                     })
                 } catch (e) {
                     // A message we cannot parse is message-scoped and will fail the same way on
