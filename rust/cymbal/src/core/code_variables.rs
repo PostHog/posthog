@@ -1,0 +1,405 @@
+//! Server-side masking of Python frame `code_variables`.
+//!
+//! The rules port the default masking of the posthog-python SDK
+//! (`posthog/exception_utils.py`). Older SDK versions send values that the current rules
+//! redact, so cymbal applies the current rules to every event it processes. Keep the
+//! pattern lists in step with the SDK.
+
+use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
+
+use regex::{Captures, Regex};
+use serde_json::{Map, Value};
+
+pub const REDACTED: &str = "$$_posthog_redacted_based_on_masking_rules_$$";
+pub const TOO_LONG: &str = "$$_posthog_value_too_long_$$";
+
+const MAX_LENGTH_FOR_PATTERN_MATCH: usize = 2_048;
+const MAX_DEPTH: usize = 12;
+const SECRET_MIN_LENGTH: usize = 16;
+const SECRET_MIN_ENTROPY_BITS: f64 = 3.8;
+const SECRET_MIN_CHAR_CLASSES: u8 = 3;
+// Shorter values, and lowercase words, are prose such as "the bearer of".
+const AUTH_CREDENTIAL_MIN_LENGTH: usize = 8;
+const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
+// Punctuation of reprs and structured strings. A bare token never holds it.
+const SECRET_REJECT_CHARS: &str = "()[]{}<>'\"`,;";
+
+// The SDK's `DEFAULT_CODE_VARIABLES_MASK_PATTERNS`. The SDK matches them against names and
+// string values alike, so a value that contains `token` is redacted whole.
+static MASK_PATTERNS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r"(?i)password|secret|passwd|pwd|api_key|apikey|auth|credentials|privatekey|",
+        r"private_key|token|aws_access_key_id|_pass|sk_|jwt|connection_string|",
+        r"connectionstring|conn_str|connstr|dsn|[?&]sig="
+    ))
+    .unwrap()
+});
+
+// The SDK's `_KNOWN_SECRET_PATTERNS`.
+static KNOWN_SECRET: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        &[
+            r"sk-ant-[A-Za-z0-9_-]{16,}",
+            r"sk-(?:proj-)?[A-Za-z0-9_-]{20,}",
+            r"hf_[A-Za-z0-9]{34}",
+            r"AKIA[0-9A-Z]{16}",
+            r"(?:ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ABIA|ACCA)[0-9A-Z]{16}",
+            r"AIza[A-Za-z0-9_-]{35}",
+            r"ya29\.[A-Za-z0-9_-]{20,}",
+            r"do[opr]_v1_[a-f0-9]{64}",
+            r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}",
+            r"sq0[a-z]{3}-[A-Za-z0-9_-]{22,43}",
+            r"gh[pousr]_[A-Za-z0-9]{36}",
+            r"github_pat_[A-Za-z0-9_]{20,}",
+            r"gl(?:pat|ptt|rt|soat)-[A-Za-z0-9_-]{20}",
+            r"glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}",
+            r"xox[abeoprs]-[A-Za-z0-9-]{10,}",
+            r"xapp-[0-9]-[A-Za-z0-9-]{10,}",
+            r"SK[0-9a-fA-F]{32}",
+            r"SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}",
+            r"key-[0-9a-f]{32}",
+            r"[0-9a-f]{32}-us[0-9]{1,2}",
+            r"npm_[A-Za-z0-9]{36}",
+            r"pypi-AgEI[A-Za-z0-9_-]{50,}",
+            r"dapi[0-9a-f]{32}",
+            r"dp\.pt\.[A-Za-z0-9]{40,}",
+            r"PMAK-[a-f0-9]{24}-[a-f0-9]{34}",
+            r"lin_api_[A-Za-z0-9]{40}",
+            r"ntn_[A-Za-z0-9]{40,}",
+            r"shp(?:at|ca|pa|ss)_[a-fA-F0-9]{32}",
+            r"NR(?:AK|JS|II|MA|RA)-[A-Za-z0-9]{27}",
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}",
+        ]
+        .join("|"),
+    )
+    .unwrap()
+});
+
+// The SDK uses a lookahead that the regex crate lacks, so `redact_url_credential` checks
+// for the `:` instead.
+static URL_CREDENTIALS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)([a-z][a-z0-9+.\-]{0,30}://)([^/\s]*)@").unwrap());
+
+// A header pair list or an ASGI scope holds an `Authorization` value apart from its header
+// name, so the name patterns never see it.
+static AUTH_HEADER_CREDENTIALS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(bearer|basic)(\s+)([A-Za-z0-9._~+/-]+=*)").unwrap());
+
+static UUID: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+        .unwrap()
+});
+
+static PATH_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z][a-z.]*$").unwrap());
+
+// A key that matches a mask pattern is kept only in this shape. Other text, such as
+// `password=hunter2`, can hold the value itself.
+static FIELD_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[\w.\-]+$").unwrap());
+
+pub fn mask_code_variables(code_variables: &mut Value) {
+    mask_value(code_variables, 0);
+}
+
+fn mask_value(value: &mut Value, depth: usize) {
+    if depth >= MAX_DEPTH && (value.is_object() || value.is_array()) {
+        *value = Value::String(TOO_LONG.to_string());
+        return;
+    }
+    match value {
+        Value::String(text) => {
+            if let Some(masked) = mask_string(text, depth) {
+                *text = masked;
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                mask_value(item, depth + 1);
+            }
+        }
+        Value::Object(map) => {
+            let entries = std::mem::take(map);
+            *map = mask_mapping(entries, depth);
+        }
+        _ => {}
+    }
+}
+
+fn mask_string(value: &str, depth: usize) -> Option<String> {
+    if value.chars().count() > MAX_LENGTH_FOR_PATTERN_MATCH {
+        return Some(TOO_LONG.to_string());
+    }
+    // The SDK serializes a dict or an object to a JSON string after it masks it. The string
+    // rules would redact all of it for any sensitive key name, so mask the structure instead.
+    if let Some(parsed) = parse_json_container(value) {
+        let mut masked = parsed.clone();
+        mask_value(&mut masked, depth + 1);
+        return (masked != parsed).then(|| masked.to_string());
+    }
+    if MASK_PATTERNS.is_match(value) || looks_like_secret(value) {
+        return Some(REDACTED.to_string());
+    }
+    match redact_embedded_credentials(value) {
+        Cow::Owned(redacted) => Some(redacted),
+        Cow::Borrowed(_) => None,
+    }
+}
+
+fn parse_json_container(value: &str) -> Option<Value> {
+    if !matches!(value.trim_start().as_bytes().first(), Some(b'{' | b'[')) {
+        return None;
+    }
+    serde_json::from_str(value).ok()
+}
+
+fn mask_mapping(entries: Map<String, Value>, depth: usize) -> Map<String, Value> {
+    let mut result = Map::new();
+    for (key, mut value) in entries {
+        if key.chars().count() > MAX_LENGTH_FOR_PATTERN_MATCH {
+            let placeholder = redacted_key(&result);
+            result.insert(placeholder, Value::String(TOO_LONG.to_string()));
+            continue;
+        }
+        let key_matches_mask = MASK_PATTERNS.is_match(&key);
+        let mut out_key =
+            if (key_matches_mask && !FIELD_NAME.is_match(&key)) || looks_like_secret(&key) {
+                redacted_key(&result)
+            } else {
+                redact_embedded_credentials(&key).into_owned()
+            };
+        // Two keys can mask to the same text, e.g. URLs that differ only in their credentials.
+        if result.contains_key(&out_key) {
+            out_key = redacted_key(&result);
+        }
+        if key_matches_mask {
+            value = Value::String(REDACTED.to_string());
+        } else {
+            mask_value(&mut value, depth + 1);
+        }
+        result.insert(out_key, value);
+    }
+    result
+}
+
+fn redacted_key(result: &Map<String, Value>) -> String {
+    (0..)
+        .map(|n| format!("$$_posthog_redacted_key_{n}_$$"))
+        .find(|candidate| !result.contains_key(candidate))
+        .expect("an unused placeholder exists")
+}
+
+fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
+    let value = AUTH_HEADER_CREDENTIALS.replace_all(value, redact_auth_credential);
+    if !value.contains("://") {
+        return value;
+    }
+    let redacted = match URL_CREDENTIALS.replace_all(&value, redact_url_credential) {
+        Cow::Owned(redacted) => Some(redacted),
+        Cow::Borrowed(_) => None,
+    };
+    redacted.map_or(value, Cow::Owned)
+}
+
+fn redact_auth_credential(caps: &Captures) -> String {
+    let credential = &caps[3];
+    if credential.len() < AUTH_CREDENTIAL_MIN_LENGTH
+        || credential.bytes().all(|b| b.is_ascii_lowercase())
+    {
+        return caps[0].to_string();
+    }
+    format!("{}{}{REDACTED}", &caps[1], &caps[2])
+}
+
+fn redact_url_credential(caps: &Captures) -> String {
+    // Only userinfo with a password is a credential: `ssh://git@host` keeps its username.
+    let userinfo = &caps[2];
+    if userinfo
+        .split('@')
+        .next()
+        .is_some_and(|user| user.contains(':'))
+    {
+        format!("{}{REDACTED}@", &caps[1])
+    } else {
+        caps[0].to_string()
+    }
+}
+
+fn looks_like_secret(value: &str) -> bool {
+    if value.contains(PEM_PRIVATE_KEY_MARKER) {
+        return true;
+    }
+    let length = value.chars().count();
+    if length < SECRET_MIN_LENGTH {
+        return false;
+    }
+    if is_high_entropy_secret(value, length) {
+        return true;
+    }
+    // Known formats that the entropy check misses, e.g. AWS key ids with two char classes.
+    length <= MAX_LENGTH_FOR_PATTERN_MATCH && KNOWN_SECRET.is_match(value)
+}
+
+fn is_high_entropy_secret(value: &str, length: usize) -> bool {
+    if value.contains(' ') || looks_like_path_or_url(value) || UUID.is_match(value) {
+        return false;
+    }
+    let mut counts: HashMap<char, usize> = HashMap::new();
+    for ch in value.chars() {
+        *counts.entry(ch).or_default() += 1;
+    }
+
+    let (mut lower, mut upper, mut digit, mut symbol) = (false, false, false, false);
+    let mut hex_only = true;
+    for &ch in counts.keys() {
+        if ch.is_whitespace() || SECRET_REJECT_CHARS.contains(ch) {
+            return false;
+        }
+        if ch.is_lowercase() {
+            lower = true;
+            hex_only &= ch.is_ascii_hexdigit();
+        } else if ch.is_uppercase() {
+            upper = true;
+            hex_only &= ch.is_ascii_hexdigit();
+        } else if ch.is_numeric() {
+            digit = true;
+        } else {
+            symbol = true;
+            hex_only = false;
+        }
+    }
+    // A hex string is an id or a digest, such as a SHA or an ObjectId.
+    let classes = [lower, upper, digit, symbol].iter().filter(|&&c| c).count() as u8;
+    if hex_only || classes < SECRET_MIN_CHAR_CLASSES {
+        return false;
+    }
+
+    let total = length as f64;
+    let entropy: f64 = counts
+        .values()
+        .map(|&n| {
+            let p = n as f64 / total;
+            -p * p.log2()
+        })
+        .sum();
+    entropy >= SECRET_MIN_ENTROPY_BITS
+}
+
+fn looks_like_path_or_url(value: &str) -> bool {
+    if value.contains("://") || value.contains('\\') {
+        return true;
+    }
+    value.contains('/')
+        && value
+            .split('/')
+            .filter(|segment| !segment.is_empty() && PATH_WORD.is_match(segment))
+            .nth(1)
+            .is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::*;
+
+    // Synthetic fakes, assembled at runtime so no complete credential literal sits in source.
+    fn fake(prefix: &str, body: &str) -> String {
+        format!("{prefix}{body}")
+    }
+
+    fn masked(value: &Value) -> Value {
+        let mut value = value.clone();
+        mask_code_variables(&mut value);
+        value
+    }
+
+    #[test]
+    fn masks_what_the_python_sdk_masks() {
+        let stripe_key = fake("sk_live_", "Zx81Qm7Lp2Vb9Nc4Rt6Yh3Kd");
+        let bearer_token = fake("tok_", "Zx81Qm7Lp2Vb9Nc4");
+        let basic_credential = fake("c3ZjOmZha2Ut", "cGFzcy0xMjM=");
+        let cases = [
+            (
+                "variable with a secret name",
+                json!({"api_key": "abc"}),
+                json!({"api_key": REDACTED}),
+            ),
+            (
+                "known format under a neutral name",
+                json!({"value": stripe_key}),
+                json!({"value": REDACTED}),
+            ),
+            (
+                "high-entropy value",
+                json!({"value": "Zx81Qm7Lp2Vb9Nc4Rt6Yh3Kd"}),
+                json!({"value": REDACTED}),
+            ),
+            (
+                "PEM private key",
+                json!({"value": "-----BEGIN PRIVATE KEY-----\nMIIEvQ"}),
+                json!({"value": REDACTED}),
+            ),
+            (
+                "URL credentials",
+                json!({"url": "postgresql://app:hunter22@db.example.com/app"}),
+                json!({"url": format!("postgresql://{REDACTED}@db.example.com/app")}),
+            ),
+            (
+                "Bearer value in a header pair list",
+                json!({"headers": [["authorization", format!("Bearer {bearer_token}")]]}),
+                json!({"headers": [[REDACTED, format!("Bearer {REDACTED}")]]}),
+            ),
+            (
+                "Basic value under a neutral name",
+                json!({"value": format!("Basic {basic_credential}")}),
+                json!({"value": format!("Basic {REDACTED}")}),
+            ),
+            (
+                "signed URL",
+                json!({"url": "https://acct.blob.core.windows.net/c/f?sv=2022-11-02&sig=q2VxT8fKz1aB3dE%3D"}),
+                json!({"url": REDACTED}),
+            ),
+            (
+                "object repr from an old SDK",
+                json!({"settings": "Settings(AWS_SECRET_ACCESS_KEY='abc')"}),
+                json!({"settings": REDACTED}),
+            ),
+            (
+                "JSON string from the current SDK keeps its safe fields",
+                json!({"user": "{\"name\": \"bob\", \"password\": \"hunter22\"}"}),
+                json!({"user": format!("{{\"name\":\"bob\",\"password\":\"{REDACTED}\"}}")}),
+            ),
+            (
+                "URL credentials in a key",
+                json!({"pools": {"postgresql://app:hunter22@db.example.com/app": 1}}),
+                json!({"pools": Map::from_iter([(
+                    format!("postgresql://{REDACTED}@db.example.com/app"),
+                    json!(1),
+                )])}),
+            ),
+        ];
+
+        for (name, input, expected) in cases {
+            let once = masked(&input);
+            assert_eq!(once, expected, "{name}");
+            // Processing masks a frame on arrival and again after resolution.
+            assert_eq!(masked(&once), once, "{name} is not idempotent");
+        }
+    }
+
+    #[test]
+    fn leaves_benign_values_alone() {
+        for value in [
+            "hello world",
+            "design",
+            "/signup?step=2",
+            "the bearer of bad news",
+            "550e8400-e29b-41d4-a716-446655440000",
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+            "/usr/local/lib/python3.12/site-packages/app/views.py",
+            "{\"name\": \"bob\"}",
+        ] {
+            let input = json!({"value": value});
+            assert_eq!(masked(&input), input, "{value}");
+        }
+    }
+}
