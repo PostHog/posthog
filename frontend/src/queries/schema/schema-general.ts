@@ -160,6 +160,7 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
+    MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -245,6 +246,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -363,6 +365,7 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -5004,8 +5007,10 @@ export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     clauses: MetricsQueryClause[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
-    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted */
+    /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
     interval?: string
+    /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
+    minInterval?: string
     /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
     formula?: string
     /** Chart presentation. A node without it renders as a line chart. */
@@ -8142,6 +8147,50 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
+
+export interface MarketingAnalyticsSearchSource {
+    sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    statsTable: string
+    keywordTable?: string
+    queryPageTable?: boolean
+}
+
+export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsSearchQuery
+    dateRange?: DateRange
+    sources: MarketingAnalyticsSearchSource[]
+    compareFilter?: CompareFilter
+    search?: string
+    breakdown?: 'keyword' | 'page'
+    keyword?: string
+    page?: string
+}
+
+export interface MarketingAnalyticsSearchMetrics {
+    clicks: number
+    impressions: number
+    cost: number | null
+    conversions: number | null
+    ctr: number | null
+    cpc: number | null
+    cpa: number | null
+    position?: number | null
+}
+
+export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
+    keyword: string | null
+    page?: string | null
+    platform: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    matchType: string | null
+    currency: string | null
+    previous?: MarketingAnalyticsSearchMetrics | null
+}
+
+export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsSearchRow[]
+}
+
+export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string

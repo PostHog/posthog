@@ -86,6 +86,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import get_
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
@@ -317,28 +318,24 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
     return targetable
 
 
-def resolve_exposure_linkage(
+@dataclass(frozen=True, kw_only=True)
+class _ValidatedScope:
+    experiment: Experiment
+    flag: FeatureFlag
+    # Every requestable variant of the experiment.
+    variant_keys: list[str]
+    # The caller's narrowing of `variant_keys`, or all of them when it asked for none.
+    requested_variants: list[str]
+
+
+def _validated_scope(
     team: Team,
     *,
     experiment_id: int,
-    variant: str | None = None,
-    variants: list[str] | None = None,
-    in_session: bool = False,
-) -> ExperimentExposureLinkage:
-    """Validate the experiment and resolve how its exposed population will be read.
-
-    ``variants`` narrows the population to any subset of the experiment's variants; ``variant``
-    is the single-variant form that predates it, kept for existing callers. Pass at most one of
-    the two. With neither, the population covers every requestable variant.
-
-    Raises ValidationError for experiments the linkage can't answer for: unknown or draft
-    experiments, group-aggregated ones (whose exposed entities are groups rather than
-    persons and so never match a recording's distinct id), unknown variants, and
-    experiments whose exposures can be resolved neither from the preaggregated table nor
-    with a live scan the team can afford. An `in_session` request is refused when the
-    exposure event was never captured with a session id and nothing stands in for it
-    (custom criteria get no stand-in), because every session would then read as unexposed.
-    """
+    variant: str | None,
+    variants: list[str] | None,
+    require_launched: bool,
+) -> _ValidatedScope:
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
     except Experiment.DoesNotExist:
@@ -347,7 +344,7 @@ def resolve_exposure_linkage(
     flag = getattr(experiment, "feature_flag", None)
     if flag is None:
         raise ValidationError(EXPERIMENT_HAS_NO_FLAG_MESSAGE)
-    if experiment.start_date is None:
+    if require_launched and experiment.start_date is None:
         raise ValidationError("This experiment hasn't launched, so it has no exposed sessions yet.")
     if (flag.filters or {}).get("aggregation_group_type_index") is not None:
         raise ValidationError(
@@ -370,6 +367,46 @@ def resolve_exposure_linkage(
                 raise ValidationError(f"'{requested_key}' is not a variant of this experiment.")
         # Keep the caller's order, drop duplicates, so the query's IN list stays minimal.
         requested_variants = list(dict.fromkeys(requested))
+    return _ValidatedScope(
+        experiment=experiment, flag=flag, variant_keys=variant_keys, requested_variants=requested_variants
+    )
+
+
+def validate_draft_experiment_scope(team: Team, *, experiment_id: int, variants: list[str] | None = None) -> None:
+    """Apply every `resolve_exposure_linkage` refusal that a draft experiment can already answer.
+
+    A draft has no exposures to read, so this skips the launch check and the exposure read. A
+    surface that waits for launch uses it to refuse a scope that would still fail after launch.
+    """
+    _validated_scope(team, experiment_id=experiment_id, variant=None, variants=variants, require_launched=False)
+
+
+def resolve_exposure_linkage(
+    team: Team,
+    *,
+    experiment_id: int,
+    variant: str | None = None,
+    variants: list[str] | None = None,
+    in_session: bool = False,
+) -> ExperimentExposureLinkage:
+    """Validate the experiment and resolve how its exposed population will be read.
+
+    ``variants`` narrows the population to any subset of the experiment's variants; ``variant``
+    is the single-variant form that predates it, kept for existing callers. Pass at most one of
+    the two. With neither, the population covers every requestable variant.
+
+    Raises ValidationError for experiments the linkage can't answer for: unknown or draft
+    experiments, group-aggregated ones (whose exposed entities are groups rather than
+    persons and so never match a recording's distinct id), unknown variants, and
+    experiments whose exposures can be resolved neither from the preaggregated table nor
+    with a live scan the team can afford. An `in_session` request is refused when the
+    exposure event was never captured with a session id and nothing stands in for it
+    (custom criteria get no stand-in), because every session would then read as unexposed.
+    """
+    scope = _validated_scope(
+        team, experiment_id=experiment_id, variant=variant, variants=variants, require_launched=True
+    )
+    experiment = scope.experiment
 
     session_exposure: SessionExposure | None = None
     if in_session:
@@ -387,14 +424,14 @@ def resolve_exposure_linkage(
     )
     context = ExperimentQueryContext(
         team=team,
-        feature_flag_key=flag.key_without_tombstone(),
+        feature_flag_key=scope.flag.key_without_tombstone(),
         exposure_config=exposure_params.exposure_config,
         filter_test_accounts=exposure_params.filter_test_accounts,
         multiple_variant_handling=exposure_params.multiple_variant_handling,
         # The full variant list, not the requested one: variant attribution and multiple-variant
         # detection must see every variant, or a person exposed to two variants would pass as
         # cleanly exposed to the requested one. Narrowing happens in the WHERE below instead.
-        variants=tuple(variant_keys),
+        variants=tuple(scope.variant_keys),
         date_range_query=date_range_query,
         entity_key=get_entity_key(None),
         breakdowns=(),
@@ -405,7 +442,7 @@ def resolve_exposure_linkage(
     read = _resolve_exposure_read(team, experiment, context)
     return ExperimentExposureLinkage(
         context=context,
-        requested_variants=requested_variants,
+        requested_variants=scope.requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
         # The evidence scan always runs live whatever path the population resolves through, so a
         # narrowed listing carries the ceiling even where the population read needs none. Activation

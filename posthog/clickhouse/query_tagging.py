@@ -284,6 +284,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
@@ -541,6 +542,9 @@ class QueryTags(BaseModel):
     table_id: Optional[uuid.UUID] = None
     warehouse_query: Optional[bool] = None
     saved_query_ids: Optional[list[str]] = None
+    warehouse_table_ids: Optional[list[str]] = None
+    directly_read_ids: Optional[list[str]] = None
+    materialized_saved_query_id: Optional[str] = None
 
     trend_volume_type: Optional[str] = None
 

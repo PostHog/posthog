@@ -9,7 +9,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { themeLogic } from 'lib/logic/themeLogic'
 import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -68,6 +67,21 @@ function remeasureFontsWhenReady(monaco: Monaco): void {
         return
     }
     void document.fonts.ready.then(() => monaco.editor.remeasureFonts())
+}
+
+/** Whether the page shows the dark theme, read from `body[theme]`, the attribute the surrounding CSS
+ *  follows. `themeLogic.isDarkModeOn` can lag behind it, which left the editor light on a dark page. */
+function useBodyIsDark(): boolean {
+    const [isDark, setIsDark] = useState(() => document.body.getAttribute('theme') === 'dark')
+    useEffect(() => {
+        const sync = (): void => setIsDark(document.body.getAttribute('theme') === 'dark')
+        // The attribute may already have changed between the first render and here.
+        sync()
+        const observer = new MutationObserver(sync)
+        observer.observe(document.body, { attributeFilter: ['theme'] })
+        return () => observer.disconnect()
+    }, [])
+    return isDark
 }
 
 function initEditor(
@@ -165,7 +179,7 @@ export function CodeEditor({
     enableVimMode,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
-    const { isDarkModeOn } = useValues(themeLogic)
+    const isDarkModeOn = useBodyIsDark()
     const scrollbarRendering = !inStorybookTestRunner() ? 'auto' : 'hidden'
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null

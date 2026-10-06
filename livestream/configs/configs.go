@@ -45,6 +45,11 @@ type ConsumerConfig struct {
 	GroupID          string `mapstructure:"group_id"`
 	ClientID         string `mapstructure:"client_id"`
 
+	// ClientRack sets librdkafka client.rack (KIP-392) so the consumer prefers a
+	// same-AZ replica when one is available (falling back to the leader otherwise),
+	// which cuts cross-AZ transfer. The broker's replica selector decides assignment.
+	ClientRack string `mapstructure:"client_rack"`
+
 	// Timeout overrides — zero means use librdkafka defaults.
 	SessionTimeoutMs    int `mapstructure:"session_timeout_ms"`
 	HeartbeatIntervalMs int `mapstructure:"heartbeat_interval_ms"`
@@ -106,6 +111,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("consumers.event.security_protocol")     // LIVESTREAM_CONSUMERS_EVENT_SECURITY_PROTOCOL
 	_ = viper.BindEnv("consumers.event.group_id")              // LIVESTREAM_CONSUMERS_EVENT_GROUP_ID
 	_ = viper.BindEnv("consumers.event.client_id")             // LIVESTREAM_CONSUMERS_EVENT_CLIENT_ID
+	_ = viper.BindEnv("consumers.event.client_rack")           // LIVESTREAM_CONSUMERS_EVENT_CLIENT_RACK
 	_ = viper.BindEnv("consumers.event.session_timeout_ms")    // LIVESTREAM_CONSUMERS_EVENT_SESSION_TIMEOUT_MS
 	_ = viper.BindEnv("consumers.event.heartbeat_interval_ms") // LIVESTREAM_CONSUMERS_EVENT_HEARTBEAT_INTERVAL_MS
 	_ = viper.BindEnv("consumers.event.max_poll_interval_ms")  // LIVESTREAM_CONSUMERS_EVENT_MAX_POLL_INTERVAL_MS

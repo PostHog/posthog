@@ -15,6 +15,7 @@ from requests.exceptions import (
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
     Timeout as RequestsTimeout,
+    TooManyRedirects,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
@@ -215,6 +216,10 @@ _RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], .
     # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
     # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
     ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
+    # X (Twitter) answers 429 with this UNIX epoch reset and no ``Retry-After``. Its windows are 15
+    # minutes wide and some endpoints allow only a handful of requests per window, so a backfill
+    # that falls back to exponential backoff spends its whole attempt budget inside one window.
+    ("x-rate-limit-reset", _seconds_from_epoch_reset),
     # The common ``X-RateLimit-*`` convention, spelled with a UNIX epoch reset and no
     # ``Retry-After`` — SendGrid answers every 429 this way, and its Email Activity endpoint is
     # capped at 6 requests/minute, so without honoring the reset a message-activity backfill
@@ -531,6 +536,15 @@ class RESTClient:
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
                 self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+        except TooManyRedirects as e:
+            # requests already followed its redirect cap (30) chasing a final response and never
+            # got one — a deterministic loop (e.g. an auth wall, or an http/https scheme mismatch)
+            # baked into how the remote host answers this URL, not a one-off network blip.
+            # Re-fetching replays the same chain, so fail fast and non-retryably instead of burning
+            # the retry budget on 30+ requests per attempt.
+            raise RESTClientNonRetryableError(
+                self._redact(f"Too many redirects for {_safe_url(prepared.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall

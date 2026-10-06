@@ -1375,7 +1375,7 @@ export const getVisionScannersVariantsListUrl = (projectId: string, scannerId: s
 }
 
 /**
- * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live.
+ * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.
  */
 export const visionScannersVariantsList = async (
     projectId: string,
