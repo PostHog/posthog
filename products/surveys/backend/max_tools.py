@@ -21,7 +21,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import SURVEY_NAME_UNIQUE_CONSTRAINT, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -103,7 +103,7 @@ async def _survey_name_taken(team: Team, name: str) -> bool:
 
 def _is_duplicate_survey_name_error(error: Exception) -> bool:
     # A concurrent request can create the same name after the pre-check passes.
-    return isinstance(error, IntegrityError) and "unique survey name for team" in str(error)
+    return isinstance(error, IntegrityError) and SURVEY_NAME_UNIQUE_CONSTRAINT in str(error)
 
 
 def _duplicate_survey_name_result() -> tuple[str, dict[str, Any]]:

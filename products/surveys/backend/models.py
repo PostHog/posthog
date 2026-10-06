@@ -30,6 +30,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+SURVEY_NAME_UNIQUE_CONSTRAINT = "unique survey name for team"
+
+
 class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
@@ -49,7 +52,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     class Meta:
         db_table = "posthog_survey"
-        constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name=SURVEY_NAME_UNIQUE_CONSTRAINT)]
 
     team = models.ForeignKey(
         "posthog.Team",
