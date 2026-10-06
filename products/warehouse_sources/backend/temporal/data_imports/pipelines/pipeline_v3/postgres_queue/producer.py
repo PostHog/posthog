@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import psycopg
@@ -21,6 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
+)
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    PostHogInternalDatabaseError,
+    is_transient_internal_db_error,
 )
 from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue
 
@@ -41,6 +47,19 @@ def _connect_with_retry(database_url: str) -> psycopg.Connection:
         except psycopg.OperationalError:
             time.sleep(_CONNECT_RETRY_BACKOFF_SECONDS)
     return psycopg.Connection.connect(database_url, autocommit=True)
+
+
+@contextmanager
+def _queue_db_errors() -> Iterator[None]:
+    # The queue lives in PostHog's own database, but a raw psycopg error from it reads exactly like
+    # one from a customer's Postgres source. The source's non-retryable errors would then match it
+    # and disable a healthy schema, telling the customer to fix a database that is working.
+    try:
+        yield
+    except psycopg.Error as e:
+        if is_transient_internal_db_error(e):
+            raise PostHogInternalDatabaseError("Failed to reach PostHog's sync queue database") from e
+        raise
 
 
 class PostgresProducer:
@@ -70,6 +89,7 @@ class PostgresProducer:
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
+        external_destination_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -92,8 +112,15 @@ class PostgresProducer:
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
         self._destination_ids: list[str] = list(destination_ids or [])
+        # Kept beside the whole set rather than derived from it: telling the warehouse from
+        # an external destination needs the destination rows, and the consumer reads this
+        # once per batch while deciding what may share a write.
+        self._external_destination_ids: list[str] | None = (
+            None if external_destination_ids is None else list(external_destination_ids)
+        )
 
-        self._conn = _connect_with_retry(database_url)
+        with _queue_db_errors():
+            self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
         # The most recent staged batch and its cumulative row count, kept out of the queue until the
         # next batch arrives or the run ends, so the run's last row can carry the final flag itself.
@@ -204,12 +231,13 @@ class PostgresProducer:
         # A full_refresh is the exception: this run's batch 0 overwrites the table, so
         # an older attempt's loaded rows are gone either way and sparing it only leaves
         # its batches clogging the serial per-(team, schema) gate.
-        superseded = BatchQueue.supersede_other_runs(
-            self._conn,
-            job_id=self._job_id,
-            current_run_uuid=self._run_uuid,
-            spare_runs_with_progress=self._sync_type != "full_refresh",
-        )
+        with _queue_db_errors():
+            superseded = BatchQueue.supersede_other_runs(
+                self._conn,
+                job_id=self._job_id,
+                current_run_uuid=self._run_uuid,
+                spare_runs_with_progress=self._sync_type != "full_refresh",
+            )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)
 
@@ -252,9 +280,12 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+        if self._external_destination_ids is not None:
+            metadata["external_destination_ids"] = self._external_destination_ids
 
-        self._conn.execute(
-            f"""
+        with _queue_db_errors():
+            self._conn.execute(
+                f"""
         INSERT INTO {BATCH_TABLE} (
             team_id, schema_id, source_id, job_id, run_uuid,
             batch_index, s3_path, row_count, byte_size, is_final_batch,
@@ -266,29 +297,29 @@ class PostgresProducer:
             %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
             %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, %(destination_ids)s, now()
         )
-            """,
-            {
-                "team_id": self._team_id,
-                "schema_id": self._schema_id,
-                "source_id": self._source_id,
-                "job_id": self._job_id,
-                "run_uuid": self._run_uuid,
-                "batch_index": batch_result.batch_index,
-                "s3_path": batch_result.s3_path,
-                "row_count": batch_result.row_count,
-                "byte_size": batch_result.byte_size,
-                "is_final_batch": is_final_batch,
-                "total_batches": total_batches,
-                "total_rows": total_rows,
-                "sync_type": self._sync_type,
-                "cumulative_row_count": cumulative_row_count,
-                "resource_name": self._resource_name,
-                "is_resume": self._is_resume,
-                "is_first_ever_sync": self._is_first_ever_sync,
-                "metadata": json.dumps(metadata),
-                "destination_ids": json.dumps(self._destination_ids),
-            },
-        )
+                """,
+                {
+                    "team_id": self._team_id,
+                    "schema_id": self._schema_id,
+                    "source_id": self._source_id,
+                    "job_id": self._job_id,
+                    "run_uuid": self._run_uuid,
+                    "batch_index": batch_result.batch_index,
+                    "s3_path": batch_result.s3_path,
+                    "row_count": batch_result.row_count,
+                    "byte_size": batch_result.byte_size,
+                    "is_final_batch": is_final_batch,
+                    "total_batches": total_batches,
+                    "total_rows": total_rows,
+                    "sync_type": self._sync_type,
+                    "cumulative_row_count": cumulative_row_count,
+                    "resource_name": self._resource_name,
+                    "is_resume": self._is_resume,
+                    "is_first_ever_sync": self._is_first_ever_sync,
+                    "metadata": json.dumps(metadata),
+                    "destination_ids": json.dumps(self._destination_ids),
+                },
+            )
 
         self._batches_sent += 1
         if is_final_batch:

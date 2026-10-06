@@ -225,7 +225,15 @@ function mergeWithExisting(
     tag: string,
     validOperationIds: Set<string>,
     subset = false
-): { content: string; added: number; removed: number; updated: number; matched: number; unmatchedTools: string[] } {
+): {
+    content: string
+    added: number
+    removed: number
+    updated: number
+    matched: number
+    unmatchedTools: string[]
+    lostEnabledTools: string[]
+} {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
     if (!result.success) {
@@ -245,6 +253,7 @@ function mergeWithExisting(
     let updated = 0
     let matched = 0
     const unmatchedTools: string[] = []
+    const lostEnabledTools: string[] = []
 
     // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
     // Tool order itself is normalized alphabetically below — see `sortedTools`.
@@ -267,6 +276,10 @@ function mergeWithExisting(
             // different tag/URL space) but warn so missing tags get noticed
             mergedTools[name] = { ...config }
             unmatchedTools.push(`${name} (${config.operation})`)
+        } else if (config.enabled) {
+            // Dropping an enabled tool would silently remove it from the MCP server.
+            mergedTools[name] = { ...config }
+            lostEnabledTools.push(`${name} (${config.operation})`)
         } else {
             unmatchedTools.push(`${name} (${config.operation})`)
             removed++
@@ -278,8 +291,10 @@ function mergeWithExisting(
         const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
         for (const op of ops) {
             const base = op.operationId.replace(/_\d+$/, '')
-            if (!existingBaseIds.has(base)) {
-                mergedTools[operationIdToToolName(op.operationId)] = {
+            const toolName = operationIdToToolName(op.operationId)
+            // A kept enabled tool with a lost operation can share this name. Do not overwrite it.
+            if (!existingBaseIds.has(base) && !Object.prototype.hasOwnProperty.call(mergedTools, toolName)) {
+                mergedTools[toolName] = {
                     operation: op.operationId,
                     enabled: false,
                 }
@@ -314,7 +329,26 @@ function mergeWithExisting(
         updated,
         matched,
         unmatchedTools,
+        lostEnabledTools,
     }
+}
+
+/**
+ * An enabled tool whose operation vanished stays in the YAML. Report it and
+ * fail the command so the author fixes it before codegen rejects the file.
+ */
+function reportLostEnabledTools(lostEnabledTools: string[]): void {
+    if (lostEnabledTools.length === 0) {
+        return
+    }
+    process.stderr.write(
+        `  ✗ ${lostEnabledTools.length} enabled tool(s) reference an operationId that no longer exists in OpenAPI. ` +
+            `Fix "operation:" or set "enabled: false" / remove the tool:\n`
+    )
+    for (const tool of lostEnabledTools) {
+        process.stderr.write(`    - ${tool}\n`)
+    }
+    process.exitCode = 1
 }
 
 // ------------------------------------------------------------------
@@ -404,7 +438,7 @@ function syncAll(spec: OpenApiSpec): void {
         }
         const label = path.relative(REPO_ROOT, filePath)
         const validIds = new Set(rawOps.map((op) => op.operationId))
-        const { content, added, removed, updated, matched, unmatchedTools } = mergeWithExisting(
+        const { content, added, removed, updated, matched, unmatchedTools, lostEnabledTools } = mergeWithExisting(
             filePath,
             ops,
             product,
@@ -438,6 +472,7 @@ function syncAll(spec: OpenApiSpec): void {
                 process.stderr.write(`    - ${tool}\n`)
             }
         }
+        reportLostEnabledTools(lostEnabledTools)
     }
 
     formatWithPrettier(writtenFiles)
@@ -500,7 +535,7 @@ function main(): void {
     const validIds = new Set(rawOps.map((op) => op.operationId))
 
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name, validIds)
+        const { content, added, removed, lostEnabledTools } = mergeWithExisting(resolvedOutput, ops, name, validIds)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {
@@ -513,6 +548,7 @@ function main(): void {
             parts.push('no changes')
         }
         process.stdout.write(`${parts.join(', ')} — ${resolvedOutput}\n`)
+        reportLostEnabledTools(lostEnabledTools)
     } else {
         fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true })
         fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, name))

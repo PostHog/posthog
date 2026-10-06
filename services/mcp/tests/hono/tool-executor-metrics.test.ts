@@ -120,6 +120,7 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: false, type: 'internal' },
         { tool: 'execute-sql', useSingleExec: true, type: 'internal' },
         { tool: 'execute-sql', useSingleExec: true, type: 'validation' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
@@ -143,6 +144,7 @@ describe('ToolExecutor metrics', () => {
                             success: false,
                             content,
                             error_type: type,
+                            error_code: type === 'validation' ? 'unknown_identifier' : undefined,
                         })
                     )
                 )
@@ -163,6 +165,11 @@ describe('ToolExecutor metrics', () => {
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
+            if (type === 'validation') {
+                expect(properties?.$mcp_error_code).toBe('unknown_identifier')
+            } else {
+                expect(properties).not.toHaveProperty('$mcp_error_code')
+            }
             expect(JSON.stringify(properties)).not.toContain('private caller query')
             const errorMetadata = {
                 isError: true,

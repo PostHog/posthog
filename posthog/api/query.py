@@ -51,7 +51,13 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_q
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import (
+    GENERIC_INTERNAL_CH_ERROR_MESSAGE,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -99,6 +105,12 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
+)
+
+QUERY_INTERNAL_CH_ERROR_TOTAL = Counter(
+    "posthog_query_internal_ch_error_total",
+    "Internal ClickHouse errors returned from the query API, by whether the user got an explanation.",
+    labelnames=["error_code", "explained"],
 )
 
 
@@ -409,7 +421,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            replacement = APIException("ClickHouse error while executing query.")
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
+            QUERY_INTERNAL_CH_ERROR_TOTAL.labels(
+                error_code=error_code,
+                explained=str(user_message is not None).lower(),
+            ).inc()
+            replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
             scan_extra = _scan_extra(e)
             if scan_extra:
                 replacement.extra = scan_extra  # type: ignore[attr-defined]

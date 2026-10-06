@@ -55,6 +55,7 @@ from posthog.errors import (
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    look_up_clickhouse_error_code_meta,
 )
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -480,11 +481,11 @@ class AssistantQueryExecutor:
                 # Check for query execution errors before using results
                 if query_status.get("error"):
                     error_code = query_status.get("error_code")
+                    if rejection := describe_clickhouse_rejection(error_code):
+                        raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
                     if error_message := query_status.get("error_message"):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
                         raise MaxToolRetryableError(error_message, error_type="internal", error_code=error_code)
-                    if rejection := describe_clickhouse_rejection(error_code):
-                        raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
                     raise Exception("Query failed")
 
                 # Use the completed query results
@@ -534,8 +535,10 @@ class AssistantQueryExecutor:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
             raise MaxToolRetryableError(err_message, error_type=error_type) from err
         except Exception as err:
-            if isinstance(err, InternalCHQueryError) and (rejection := describe_clickhouse_rejection(err.code_name)):
-                raise MaxToolRetryableError(rejection, error_type="validation", error_code=err.code_name) from err
+            if isinstance(err, InternalCHQueryError):
+                error_code = look_up_clickhouse_error_code_meta(err).name.lower()
+                if rejection := describe_clickhouse_rejection(error_code):
+                    raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code) from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —

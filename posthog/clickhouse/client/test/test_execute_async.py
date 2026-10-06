@@ -29,7 +29,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -427,34 +427,48 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     @parameterized.expand(
         [
             (
-                "query_caused_error_carries_its_name",
-                CHQueryErrorUnknownIdentifier(
-                    "Unknown identifier 'stored-secret'", code=47, code_name="unknown_identifier"
-                ),
                 "unknown_identifier",
+                47,
+                "unknown_identifier",
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
             ),
             (
-                "server_fault_carries_no_name",
-                InternalCHQueryError("Replica lost 'stored-secret'", code=999, code_name="keeper_exception"),
-                None,
+                "unsupported_method",
+                1,
+                "unsupported_method",
+                "ClickHouse rejected the query with error UNSUPPORTED_METHOD.",
             ),
+            ("syntax_error", 62, "syntax_error", "ClickHouse rejected the query with error SYNTAX_ERROR."),
+            (
+                "temporary_server_fault",
+                252,
+                None,
+                "The database had a temporary problem while it ran this query. Wait a few minutes, "
+                "then run the query again. If the problem continues, contact support.",
+            ),
+            ("unknown_server_fault", 999_999, None, None),
         ]
     )
-    def test_async_query_internal_error_hides_message_and_exposes_only_query_caused_names(
-        self, _name, error, expected_code
-    ):
+    def test_async_query_internal_ch_error_message(self, _name, code, expected_code, expected_message):
         query = build_query("SELECT * FROM events")
         query_id = uuid.uuid4().hex
+        # code_name can be lost when an internal error is re-raised from another thread.
+        error = InternalCHQueryError("DB::Exception: stored-secret", code=code)
 
-        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+        with (
+            patch("posthog.api.services.query.process_query_dict", side_effect=error),
+            patch("posthog.clickhouse.client.execute_async.capture_exception") as mock_capture,
+        ):
             client.enqueue_process_query_task(
                 self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
             )
 
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
-        self.assertIsNone(result.error_message)
+        self.assertEqual(result.error_message, expected_message)
         self.assertEqual(result.error_code, expected_code)
+        mock_capture.assert_called_once_with(error)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
