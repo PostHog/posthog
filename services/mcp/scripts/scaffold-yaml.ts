@@ -360,8 +360,13 @@ function collectClaims(): Claims {
         } | null
         const label = path.relative(REPO_ROOT, filePath)
         for (const [name, config] of Object.entries(parsed?.tools ?? {})) {
+            const entry = config as { operation?: unknown; enabled?: unknown; disabled_reason?: unknown } | null
+            // Sync removes a disabled entry without a reason, so it claims nothing.
+            if (entry?.enabled !== true && !entry?.disabled_reason) {
+                continue
+            }
             claims.fileByToolName.set(name, label)
-            const operation = (config as { operation?: unknown } | null)?.operation
+            const operation = entry.operation
             if (typeof operation === 'string') {
                 claims.baseIds.add(baseOperationId(operation))
             }
@@ -634,14 +639,24 @@ function main(): void {
     let filePath: string | undefined
 
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--product' && args[i + 1]) {
-            product = args[++i]
-        } else if (args[i] === '--output' && args[i + 1]) {
-            outputPath = args[++i]
-        } else if (args[i] === '--add' && args[i + 1]) {
-            addOperationId = args[++i]
-        } else if (args[i] === '--file' && args[i + 1]) {
-            filePath = args[++i]
+        const flag = args[i]
+        if (!['--product', '--output', '--add', '--file'].includes(flag)) {
+            continue
+        }
+        const value = args[i + 1]
+        if (!value || value.startsWith('--')) {
+            console.error(`${flag} needs a value.\n\n${USAGE}`)
+            process.exit(1)
+        }
+        i++
+        if (flag === '--product') {
+            product = value
+        } else if (flag === '--output') {
+            outputPath = value
+        } else if (flag === '--add') {
+            addOperationId = value
+        } else {
+            filePath = value
         }
     }
 
