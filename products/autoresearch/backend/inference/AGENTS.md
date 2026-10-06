@@ -12,6 +12,7 @@ The cardinal rule: **inference never refits a persisted model.** A bundle is fit
 - `sandbox.py`
   The current path. Runs the agent-authored bundle in a Tasks sandbox, split by run type because train and predict have genuinely different data contracts:
   - `fit_champion_model()` — **train run**, called once at training completion. Materializes the _labeled_ training population, runs the bundle's `train.py`, runs `predict.py` once against the holdout features as a smoke test, and only then persists the fitted `model.pkl` next to the bundle. A bundle whose two scripts disagree fails here, not on the first cadence.
+  - `check_scorability()` — called once after the champion fit. Runs the anchor count and the feature query of a scoring run against today's inference anchors under `BATCH_QUERY`, with no sandbox, and returns their `QueryCost` (`measure_queries()` in `../query.py`). Promotion rolls back a champion that fails it or runs over its time budget.
   - `score_via_sandbox()` — **predict run**, called every cadence. Loads the persisted `model.pkl`, materializes _only_ the inference population (cutoff at the start of the prediction date, no labels, no holdout, no fold), runs `predict.py`, and hands scores to the emitter. A missing `model.pkl` fails the run.
 
   Both entry points validate the bundle's `features.sql` with `validate_feature_sql()` (plus no trailing `LIMIT`/`OFFSET`/`SETTINGS`) before any query runs, and run every HogQL query as the pipeline's creator (`_resolve_acting_user()`, or the explicit `user` a management command passes), with `CALCULATE_BLOCKING_ALWAYS` so a cadence never reuses a cached population, and with `LABELER_QUERY_MODIFIERS`, so `person_id` resolves the same way in the anchors and the feature SQL, and a `person.*` column in feature SQL resolves through the persons table. The anchor SQL itself reads identity from `raw_persons`, not from `person.*`.
@@ -39,6 +40,7 @@ Every HogQL query goes through `run_hogql()` in `../query.py` with a `QueryConte
 | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------- |
 | Scoring from `activity_run_inference` (sweep and manual `/score`), both routes, with their anchor and population counts | `BATCH_QUERY`                     | `QUERY_ASYNC` (`HOGQL_INCREASED_MAX_EXECUTION_TIME`, 600 s), `OFFLINE` |
 | Online validation from `activity_run_validation`                                                                        | `BATCH_QUERY`                     | `QUERY_ASYNC`, `OFFLINE`                                               |
+| `check_scorability()` after the champion fit at training completion                                                     | `BATCH_QUERY`                     | `QUERY_ASYNC`, `OFFLINE`                                               |
 | `fit_champion_model()` at training completion, `materialize-features`, `/validate`, `/validate_online`                  | `INTERACTIVE_QUERY` (the default) | `QUERY` (60 s), `DEFAULT`                                              |
 | Management commands                                                                                                     | `INTERACTIVE_QUERY` (the default) | `QUERY`, `DEFAULT`                                                     |
 
@@ -72,7 +74,7 @@ The prediction event is itself an event on the person, so every live cadence add
 2. Resolve the inference population and build anchors at the cutoff, the start of the prediction date in UTC (`../dataset/labeling.py`).
 3. If the champion has an `artifact_prefix`, materialize features into a sandbox and run `predict.py`. Otherwise compile the recorded recipe and score in-process.
 4. Map `person_id` → `distinct_id` and emit one event each.
-5. Record an `AutoresearchRun` for the execution.
+5. Record an `AutoresearchRun` for the execution. A run the daily sweep starts has `scheduled` set. A failed run records `metrics["failure_kind"]` from `classify_failure()` in `failures.py`: `limit_exceeded`, `query_failed` and `model_load_failed` fail again with the same champion, and `other` (transport, capture, cluster capacity, anything unknown) can pass on a retry. Promotion reads the scheduled runs to decide that a champion cannot score.
 
 Both model shapes are live and must stay that way: bundle-backed champions take the sandbox path, older recipe-only champions take the in-process path.
 

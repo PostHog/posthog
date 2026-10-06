@@ -120,6 +120,11 @@ describe('llmPlaygroundRunLogic', () => {
         llmPlaygroundPromptsLogic.actions.setSystemPrompt('You answer questions about {{topic}}.')
         llmPlaygroundPromptsLogic.actions.setMessages([
             { role: 'user', content: 'Tell me about {{topic}} and {{missing}}' },
+            {
+                role: 'assistant',
+                content: '',
+                toolCalls: [{ id: 'call_1', name: 'search', arguments: '{"query": "{{topic}}"}' }],
+            },
         ])
         llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
         llmPlaygroundRunLogic.actions.submitPrompt()
@@ -130,11 +135,18 @@ describe('llmPlaygroundRunLogic', () => {
         // Filled variables resolve, unfilled ones stay in place (same as SDK compile)
         expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
             system: 'You answer questions about penguins.',
-            messages: [{ role: 'user', content: 'Tell me about penguins and {{missing}}' }],
+            messages: [
+                { role: 'user', content: 'Tell me about penguins and {{missing}}' },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'call_1', name: 'search', input: { query: 'penguins' } }],
+                },
+            ],
         })
         // Substitution must not write back into the editor state
         expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You answer questions about {{topic}}.')
         expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Tell me about {{topic}} and {{missing}}')
+        expect(llmPlaygroundPromptsLogic.values.messages[1].toolCalls?.[0].arguments).toBe('{"query": "{{topic}}"}')
 
         logic.unmount()
         streamSpy.mockRestore()

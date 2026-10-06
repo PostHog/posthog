@@ -132,6 +132,7 @@ from products.signals.backend.scout_report import (
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
+    set_scout_report_decision,
     set_scout_report_inferred_repository,
     set_scout_report_repository,
     set_scout_report_reviewers,
@@ -268,6 +269,14 @@ class EmitReportResult:
 
 
 @dataclass(frozen=True)
+class EditReportWarning:
+    """A request field the edit could not apply, while the rest of the edit landed."""
+
+    field: str
+    message: str
+
+
+@dataclass(frozen=True)
 class EditReportResult:
     report_id: str
     updated_fields: list[str]
@@ -314,6 +323,10 @@ class EditReportResult:
     # How many typed report-to-report links the edit wrote. Additive like `evidence_appended`, so a
     # plain count rather than the nullable "set or untouched" the replace-semantics fields carry.
     links_appended: int = 0
+    # Which work decisions (`actionability`, `priority`) the edit replaced. Empty when the edit set
+    # none, or re-sent the decisions the report already held.
+    decision_fields_set: tuple[str, ...] = ()
+    warnings: tuple[EditReportWarning, ...] = ()
 
     @property
     def changed(self) -> bool:
@@ -336,6 +349,7 @@ class EditReportResult:
                 or self.repository_set
                 or self.evidence_appended
                 or self.links_appended
+                or self.decision_fields_set
             )
             or self.charts_set is not None
             or self.metrics_set is not None
@@ -799,6 +813,52 @@ def _build_actionability(*, explanation: str, choice: str, already_addressed: bo
     return ActionabilityAssessment(
         explanation=explanation, actionability=actionability_choice, already_addressed=already_addressed
     )
+
+
+def _build_edit_actionability(
+    *, choice: str | None, explanation: str | None, already_addressed: bool | None
+) -> ActionabilityAssessment | None:
+    """The replacement `actionability_judgment` for an edit, or None to leave the stored one alone.
+
+    The three fields replace the judgment as one unit, so a scout restates the whole call rather than
+    patching one part of a judgment it may never have read."""
+    if choice is None and explanation is None and already_addressed is None:
+        return None
+    if choice is None or not explanation or not explanation.strip():
+        raise InvalidScoutReportError(
+            "actionability and actionability_explanation are required together when you change the "
+            "report's actionability or already_addressed"
+        )
+    return _build_actionability(explanation=explanation, choice=choice, already_addressed=bool(already_addressed))
+
+
+def _build_edit_priority(priority: str | None, explanation: str | None) -> PriorityAssessment | None:
+    if priority is None and explanation is not None:
+        raise InvalidScoutReportError("priority is required when priority_explanation is set")
+    return _build_priority(priority, explanation)
+
+
+def _decision_explanations(
+    actionability: ActionabilityAssessment | None, priority: PriorityAssessment | None
+) -> list[str]:
+    return [decision.explanation for decision in (actionability, priority) if decision is not None]
+
+
+def _supersede_warning(*, updated_fields: list[str], content_revision_count: int) -> EditReportWarning:
+    """Why a `supersedes_implementation` request recorded no replacement, for an edit that still landed."""
+    if not updated_fields:
+        message = "Not applied: it only applies alongside a title or summary that changes."
+    elif content_revision_count > MAX_SCOUT_CONTENT_REVISIONS:
+        message = (
+            f"Not applied: only a report's first {MAX_SCOUT_CONTENT_REVISIONS} content revisions can replace "
+            "its pull request. The rewrite was saved."
+        )
+    else:
+        message = (
+            "Not applied: the report has no open automated pull request to replace. The rewrite was saved, "
+            "and autostart reads the new content when it opens a pull request."
+        )
+    return EditReportWarning(field="supersedes_implementation", message=message)
 
 
 def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidence]) -> None:
@@ -1760,6 +1820,8 @@ def _capture_report_edited(
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     links: list[ReportLink] | None = None,
+    actionability: ActionabilityAssessment | None = None,
+    priority: PriorityAssessment | None = None,
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -1797,6 +1859,14 @@ def _capture_report_edited(
         "corroboration_collapsed": result.corroboration_collapsed,
         "links_appended": result.links_appended,
         "link_kinds": sorted({link.kind.value for link in links or []}),
+        "decision_fields_set": list(result.decision_fields_set),
+        "actionability": actionability.actionability.value
+        if "actionability" in result.decision_fields_set and actionability
+        else None,
+        "already_addressed": actionability.already_addressed
+        if "actionability" in result.decision_fields_set and actionability
+        else None,
+        "priority": priority.priority.value if "priority" in result.decision_fields_set and priority else None,
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -1881,6 +1951,15 @@ def _capture_report_edited(
     if appended_links:
         written = [_link_event_key(link) for link in appended_links]
         parts.append(f"links:{json.dumps(written, separators=(',', ':'))}")
+    # A decision change is a valid sole input too, so two decision-only edits to one report in a run
+    # would otherwise hash identically. Field-tagged and appended only when the edit set one.
+    decision_key: dict[str, object] = {}
+    if "actionability" in result.decision_fields_set and actionability is not None:
+        decision_key["actionability"] = actionability.model_dump(mode="json")
+    if "priority" in result.decision_fields_set and priority is not None:
+        decision_key["priority"] = priority.model_dump(mode="json")
+    if decision_key:
+        parts.append(f"decision:{json.dumps(decision_key, sort_keys=True, separators=(',', ':'))}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=author.distinct_id,
@@ -1891,7 +1970,8 @@ def _capture_report_edited(
             or suggested_prompts is not None
             or appended_evidence is not None
             or appended_links is not None
-            or result.repository_set,
+            or result.repository_set
+            or bool(decision_key),
         ),
         properties=properties,
     )
@@ -2312,6 +2392,8 @@ def _do_edit_report(
     links: list[ReportLink] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
+    actionability: ActionabilityAssessment | None = None,
+    priority: PriorityAssessment | None = None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
@@ -2358,6 +2440,7 @@ def _do_edit_report(
     content_revision_count = 0
     corroboration_collapsed = False
     supersede_recorded = False
+    decision_fields_set: list[str] = []
     implementation_context = (
         prepare_scout_supersession(team_id=team.id, report_id=report_id, title=title, summary=summary)
         if supersedes_implementation
@@ -2438,6 +2521,17 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+        # The work decision auto-start reads. In the same transaction as the content, so a rewrite
+        # and the judgment it supports land together or not at all.
+        if actionability is not None or priority is not None:
+            decision_fields_set = set_scout_report_decision(
+                team_id=team.id,
+                report_id=report_id,
+                actionability=actionability,
+                priority=priority,
+                attribution=attribution,
+                author=run.skill_name,
+            )
         if append_note is not None:
             appended = append_report_note(
                 team_id=team.id,
@@ -2515,7 +2609,15 @@ def _do_edit_report(
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     evidence_appended = len(evidence_document_ids)
     changed = (
-        bool(updated_fields or note_appended or reviewers_set or repository_set or evidence_appended or links_appended)
+        bool(
+            updated_fields
+            or note_appended
+            or reviewers_set
+            or repository_set
+            or evidence_appended
+            or links_appended
+            or decision_fields_set
+        )
         or charts_set is not None
         or metrics_set is not None
         or prompts_set is not None
@@ -2550,9 +2652,13 @@ def _do_edit_report(
         # Metrics, suggested questions and the repository live in the inbox, nowhere in the Slack
         # message, so an edit that touched only them has nothing to say in the channel — delivering
         # it would post the report a second time byte for byte.
-        inbox_only = (metrics_set is not None or prompts_set is not None or repository_set or links_appended) and not (
-            updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None
-        )
+        inbox_only = (
+            metrics_set is not None
+            or prompts_set is not None
+            or repository_set
+            or links_appended
+            or decision_fields_set
+        ) and not (updated_fields or note_appended or reviewers_set or evidence_appended or charts_set is not None)
         if report_status is not None and _surfaced(report_status) and not inbox_only:
             # An edit that only added a note or evidence leaves the title, summary and charts the
             # Slack report message shows unchanged, so re-posting it would duplicate the message
@@ -2645,9 +2751,9 @@ def _do_edit_report(
     # Keyed on whether *this* edit rewrote the content, unlike the running total the transaction
     # above resolved.
     is_content_revision = bool(updated_fields)
-    # Routing changes and a new replacement decision each need an autostart evaluation.
-    # Run it after the commit because it spawns a task.
-    if reviewers_set or repository_set or supersede_recorded:
+    # Routing changes, a new work decision, and a new replacement decision each need an autostart
+    # evaluation. Run it after the commit because it spawns a task.
+    if reviewers_set or repository_set or decision_fields_set or supersede_recorded:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
@@ -2664,6 +2770,7 @@ def _do_edit_report(
             "suggested_prompts_set": prompts_set,
             "content_revision_count": content_revision_count,
             "supersedes_implementation": supersede_recorded,
+            "decision_fields_set": decision_fields_set,
             "corroboration_collapsed": corroboration_collapsed,
         },
     )
@@ -2698,6 +2805,12 @@ def _do_edit_report(
         supersedes_implementation=supersede_recorded,
         corroboration_collapsed=corroboration_collapsed,
         links_appended=links_appended,
+        decision_fields_set=tuple(decision_fields_set),
+        warnings=(
+            (_supersede_warning(updated_fields=updated_fields, content_revision_count=content_revision_count),)
+            if supersedes_implementation and not supersede_recorded
+            else ()
+        ),
     )
     return result
 
@@ -2780,6 +2893,11 @@ def _validate_edit_inputs(
     metrics,
     suggested_prompts,
     links=None,
+    actionability=None,
+    actionability_explanation=None,
+    already_addressed=None,
+    priority=None,
+    priority_explanation=None,
 ) -> None:
     _assert_team_owns_run(team, run)
     trial_store = _trial_store(run)
@@ -2817,10 +2935,15 @@ def _validate_edit_inputs(
         and metrics is None
         and suggested_prompts is None
         and not links
+        and actionability is None
+        and actionability_explanation is None
+        and already_addressed is None
+        and priority is None
+        and priority_explanation is None
     ):
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, append_evidence, "
-            "suggested_reviewers, repository, charts, metrics, suggested_prompts, links"
+            "suggested_reviewers, repository, charts, metrics, suggested_prompts, links, actionability, priority"
         )
 
 
@@ -2842,6 +2965,11 @@ async def edit_report(
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
+    actionability: str | None = None,
+    actionability_explanation: str | None = None,
+    already_addressed: bool | None = None,
+    priority: str | None = None,
+    priority_explanation: str | None = None,
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note or fresh evidence, set
     suggested reviewers, and/or repoint it at another repository (both re-run autostart, so a report
@@ -2864,9 +2992,18 @@ async def edit_report(
         metrics,
         suggested_prompts,
         links,
+        actionability,
+        actionability_explanation,
+        already_addressed,
+        priority,
+        priority_explanation,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    built_actionability = _build_edit_actionability(
+        choice=actionability, explanation=actionability_explanation, already_addressed=already_addressed
+    )
+    built_priority = _build_edit_priority(priority, priority_explanation)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
@@ -2895,6 +3032,7 @@ async def edit_report(
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
             link_reasons=_link_reasons(built_links),
+            decision_explanations=_decision_explanations(built_actionability, built_priority),
         )
     )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
@@ -2913,6 +3051,8 @@ async def edit_report(
         links=built_links,
         supersedes_implementation=supersedes_implementation,
         corroboration_only=corroboration_only,
+        actionability=built_actionability,
+        priority=built_priority,
     )
     if _trial_store(run) is not None:
         return result
@@ -2931,6 +3071,8 @@ async def edit_report(
         metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
         links=built_links,
+        actionability=built_actionability,
+        priority=built_priority,
     )
     await _forward_report_event_async(team, forward)
     return result
@@ -2954,6 +3096,11 @@ def edit_report_sync(
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
+    actionability: str | None = None,
+    actionability_explanation: str | None = None,
+    already_addressed: bool | None = None,
+    priority: str | None = None,
+    priority_explanation: str | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(
@@ -2969,9 +3116,18 @@ def edit_report_sync(
         metrics,
         suggested_prompts,
         links,
+        actionability,
+        actionability_explanation,
+        already_addressed,
+        priority,
+        priority_explanation,
     )
     # Validated up front (cheap, pure) so a malformed `owner/repo` fails before the safety-judge call.
     normalized_repository = _normalize_repository(repository)
+    built_actionability = _build_edit_actionability(
+        choice=actionability, explanation=actionability_explanation, already_addressed=already_addressed
+    )
+    built_priority = _build_edit_priority(priority, priority_explanation)
     built_evidence = _build_signals(append_evidence) if append_evidence else None
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
@@ -2995,6 +3151,7 @@ def edit_report_sync(
             suggested_prompts=built_prompts or (),
             reviewer_reasons=_reviewer_reasons(built_reviewers),
             link_reasons=_link_reasons(built_links),
+            decision_explanations=_decision_explanations(built_actionability, built_priority),
         )
     )
     result = _do_edit_report(
@@ -3013,6 +3170,8 @@ def edit_report_sync(
         links=built_links,
         supersedes_implementation=supersedes_implementation,
         corroboration_only=corroboration_only,
+        actionability=built_actionability,
+        priority=built_priority,
     )
     if _trial_store(run) is not None:
         return result
@@ -3031,6 +3190,8 @@ def edit_report_sync(
         metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
         links=built_links,
+        actionability=built_actionability,
+        priority=built_priority,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)

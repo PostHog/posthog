@@ -57,7 +57,7 @@ export function QuillAttachedContextPicker(): JSX.Element {
                             >
                                 <IconChevronLeft />
                             </Button>
-                            <DialogTitle className="text-base font-semibold">Add context</DialogTitle>
+                            <DialogTitle>Add context</DialogTitle>
                         </div>
                         <div data-not-quill className="min-h-0 flex-1 overflow-hidden px-5 pt-3">
                             <TaxonomicFilter

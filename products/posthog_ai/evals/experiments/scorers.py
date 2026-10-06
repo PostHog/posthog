@@ -23,7 +23,7 @@ dir under ``products/posthog_ai/eval_harness/logs/``.
   scenario, did the agent recommend ``experiment-ship-variant`` rather
   than ``experiment-end``? Tests row 1 of the decision-framework matrix.
 
-The next three back the ``diagnosing-experiment-results`` skill (groups A–E).
+The next three back the ``diagnosing-experiment-health`` skill (groups A–E).
 
 * ``CitesDiagnosticGroup`` — LLM judge (binary). Did the agent's final
   message name the expected diagnostic (uneven-split bias, inactive-flag
@@ -438,7 +438,7 @@ Agent's final message:
 {{output.last_message}}
 </final_message>
 
-Answer `yes` if the agent's final message clearly identifies this diagnostic — the same root cause, in substance, paraphrasing is fine. The agent does not need to use the exact wording from the expected diagnosis, but they must name the same mechanism (e.g. naming "uneven split with multiple-variant exclusion" or equivalent for an A1 case; naming "feature flag is not active so no exposures can fire" for a B0 case; naming "sample size too small, observed difference is likely noise" for a C case; naming "test-account filter" or "default exclusion" causing PostHog to count fewer events than raw SQL for a D case; naming "ship-variant rewrote the flag to 0/100" for an E7 case).
+Answer `yes` if the agent's final message clearly identifies this diagnostic — the same root cause, in substance, paraphrasing is fine. The agent does not need to use the exact wording from the expected diagnosis, but they must name the same mechanism (e.g. naming "uneven split with multiple-variant exclusion" or equivalent for an A1 case; naming "feature flag is not active so no exposures can fire" for an inactive-flag case; naming "sample size too small, observed difference is likely noise" for a C case; naming "test-account filter" or "default exclusion" causing PostHog to count fewer events than raw SQL for a D case; naming "ship-variant rewrote the flag to 0/100" for an E7 case).
 
 Answer `no` if the agent listed a different diagnostic as the primary cause, if it asked a clarifying question instead of producing a diagnosis, or if it gave a vague "could be many things" answer without anchoring on the expected mechanism.
 """.strip(),

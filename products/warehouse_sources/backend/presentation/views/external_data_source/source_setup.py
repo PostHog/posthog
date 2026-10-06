@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -1724,21 +1725,22 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Attach destinations before any schedule starts. Extraction snapshots the set onto the
         # run, so a source whose destinations arrive after its first sync began writes that run
         # to the warehouse alone, and reaching the others costs a full resync.
-        if destination_ids:
-            try:
-                set_source_destinations(
-                    team_id=self.team_id,
-                    source_id=new_source_model.pk,
-                    destination_ids=destination_ids,
-                )
-            except Exception as e:
-                # The source is already created and its tables are configured. Losing that over a
-                # destination set the user can still fix on the Destinations tab is the worse trade.
-                base.logger.exception(
-                    "Could not attach destinations to a new source",
-                    exc_info=e,
-                    source_id=new_source_model.pk,
-                )
+        # Write the default set so new sources do not depend on the implicit fallback.
+        try:
+            selected_destination_ids = destination_ids or [get_or_create_warehouse_destination(self.team_id).pk]
+            set_source_destinations(
+                team_id=self.team_id,
+                source_id=new_source_model.pk,
+                destination_ids=selected_destination_ids,
+            )
+        except Exception as e:
+            # The source is already created and its tables are configured. Losing that over a
+            # destination set the user can still fix on the Destinations tab is the worse trade.
+            base.logger.exception(
+                "Could not attach destinations to a new source",
+                exc_info=e,
+                source_id=new_source_model.pk,
+            )
 
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale

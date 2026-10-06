@@ -2093,10 +2093,9 @@ class TestCriterionTablesReachNegatives:
 
 
 class TestBreakdownStatsDefaultOff:
-    # These tables fan a day of spend out across placements, landing pages, product groups, hours and
+    # These tables fan a day of spend out across placements, product groups, hours and
     # demographics, so they are orders of magnitude larger than the campaign and ad group reports.
-    # Defaulting one of them on would silently start syncing it for every account on the next schema
-    # reconcile, so each must stay opt-in and explain its size in the picker.
+    # Keep them opt-in so new connections do not start these large imports without a table selection.
     @pytest.mark.parametrize(
         "alias",
         [
@@ -2107,7 +2106,6 @@ class TestBreakdownStatsDefaultOff:
             "campaign_hourly_stats",
             "detail_placement_stats",
             "gender_stats",
-            "landing_page_stats",
             "location_stats",
             "product_group_stats",
             "user_location_stats",
@@ -2120,3 +2118,8 @@ class TestBreakdownStatsDefaultOff:
 
         assert contents["should_sync_default"] is False
         assert contents["description"]
+
+
+@pytest.mark.parametrize("alias", ["keyword", "keyword_stats", "landing_page_stats"])
+def test_search_performance_tables_are_preselected(alias: str) -> None:
+    assert RESOURCE_SCHEMAS[alias].get("should_sync_default", True) is True

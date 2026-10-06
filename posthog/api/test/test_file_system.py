@@ -24,7 +24,7 @@ from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.actions.backend.models.action import Action
-from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.models import ChangeRequest
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -704,9 +704,7 @@ class TestFileSystemDeletion(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert FileSystem.objects.filter(team=self.team, path="Unfiled/Unknown/Item").exists()
 
-    @parameterized.expand(
-        [("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",), ("disable_and_enable_policies",)]
-    )
+    @parameterized.expand([("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",)])
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_undo_delete_restores_feature_flag(self, setup: str, _mock_approvals_enabled) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="undo-flag", created_by=self.user)
@@ -748,16 +746,6 @@ class TestFileSystemDeletion(APIBaseTest):
                 ]
             }
             flag.save()
-        elif setup == "disable_and_enable_policies":
-            for action_key in ("feature_flag.disable", "feature_flag.enable"):
-                ApprovalPolicy.objects.create(
-                    organization=self.organization,
-                    team=self.team,
-                    action_key=action_key,
-                    conditions={},
-                    approver_config={"quorum": 1, "users": [self.user.id]},
-                    created_by=self.user,
-                )
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
 
         delete_response = self.client.delete(
@@ -767,7 +755,8 @@ class TestFileSystemDeletion(APIBaseTest):
         assert delete_response.status_code == status.HTTP_200_OK
         flag.refresh_from_db()
         assert flag.deleted is True
-        assert flag.active is False
+        # Trash leaves active alone: deleted already stops the flag serving.
+        assert flag.active is True
 
         undo_response = self.client.post(
             f"/api/environments/{self.team.id}/file_system/undo_delete/",
@@ -775,10 +764,12 @@ class TestFileSystemDeletion(APIBaseTest):
         )
 
         assert undo_response.status_code == status.HTTP_200_OK
-        flag.refresh_from_db()
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
-        assert flag.active is True
-        assert flag.deleted is False  # type: ignore
+        # Re-fetch instead of refresh_from_db: mypy narrows the earlier truthy assert on deleted,
+        # which makes asserting False on the same instance unreachable.
+        restored = FeatureFlag.objects.get(pk=flag.pk)
+        assert restored.active is True
+        assert restored.deleted is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_undo_delete_restores_original_path(self) -> None:

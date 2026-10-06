@@ -2,14 +2,19 @@ import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import * as libUtils from 'lib/utils/dom'
-import { LocalFilter, entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import eventDefinitionsJson from './__mocks__/event_definitions.json'
 import filtersJson from './__mocks__/filters.json'
+import { legacyFiltersToSeries } from './legacyFilters'
+import { SeriesNode } from './seriesNode'
+
+const baseSeries = (): SeriesNode[] => legacyFiltersToSeries(filtersJson as FilterType)
 
 describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>
@@ -26,79 +31,66 @@ describe('entityFilterLogic', () => {
         })
         initKeaTests()
         logic = entityFilterLogic({
-            setFilters: jest.fn(),
-            filters: filtersJson,
+            onChange: jest.fn(),
+            series: baseSeries(),
             typeKey: 'logic_test',
         })
         logic.mount()
     })
 
     describe('core assumptions', () => {
-        it('localFilters', async () => {
+        it('series', async () => {
             await expectLogic(logic).toMatchValues({
-                localFilters: toLocalFilters(filtersJson as FilterType),
+                series: baseSeries(),
             })
         })
     })
 
-    describe('renaming filters', () => {
+    describe('renaming series', () => {
         it('renames successfully', async () => {
-            // Select a filter to rename first
             await expectLogic(logic, () => {
-                logic.actions.selectFilter({
-                    id: '$pageview',
-                    name: '$pageview',
-                    order: 0,
-                })
+                logic.actions.selectSeries(0, logic.values.series[0], logic.values.localSeries[0].uuid)
             })
 
             await expectLogic(logic, () => {
-                logic.actions.renameFilter('Custom event name')
-            }).toDispatchActions(['renameFilter', 'updateFilter', 'setFilters'])
+                logic.actions.renameSeries('Custom event name')
+            }).toDispatchActions(['renameSeries', 'setLocalSeries'])
 
-            expect(logic.props.setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({
-                            custom_name: 'Custom event name',
-                        }),
-                    ]),
-                })
+            expect(logic.props.onChange).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        custom_name: 'Custom event name',
+                    }),
+                ])
             )
         })
 
         it('applies the rename and closes the modal without yielding', () => {
-            logic.actions.selectFilter(logic.values.localFilters[0])
+            logic.actions.selectSeries(0, logic.values.series[0], logic.values.localSeries[0].uuid)
             logic.actions.showModal()
 
-            logic.actions.renameFilter('Custom event name')
+            logic.actions.renameSeries('Custom event name')
 
-            expect(logic.values.localFilters[0].custom_name).toEqual('Custom event name')
+            expect(logic.values.series[0].custom_name).toEqual('Custom event name')
             expect(logic.values.modalVisible).toBe(false)
         })
 
         it('closes the modal when no series is selected', () => {
             logic.actions.showModal()
 
-            logic.actions.renameFilter('Custom event name')
+            logic.actions.renameSeries('Custom event name')
 
             expect(logic.values.modalVisible).toBe(false)
         })
 
         it('does not rename another series when the selected series is removed', () => {
-            const selectedFilter = logic.values.localFilters[0]
-            const replacementFilter = {
-                ...logic.values.localFilters[1],
-                order: selectedFilter.order,
-                uuid: 'replacement-uuid',
-            }
-            logic.actions.selectFilter(selectedFilter)
+            logic.actions.selectSeries(0, logic.values.series[0], logic.values.localSeries[0].uuid)
             logic.actions.showModal()
-            logic.actions.setFilters([replacementFilter])
+            logic.actions.setLocalSeries([{ uuid: 'replacement-uuid', node: logic.values.series[1] }])
 
-            logic.actions.renameFilter('Custom event name')
+            logic.actions.renameSeries('Custom event name')
 
-            expect(logic.values.localFilters[0].custom_name).not.toEqual('Custom event name')
+            expect(logic.values.series[0].custom_name).not.toEqual('Custom event name')
             expect(logic.values.modalVisible).toBe(false)
         })
     })
@@ -121,7 +113,7 @@ describe('entityFilterLogic', () => {
         })
     })
 
-    describe('setLocalFilters preserves UUIDs', () => {
+    describe('setSeries preserves UUIDs', () => {
         let uuidCounter: number
 
         beforeEach(() => {
@@ -130,109 +122,107 @@ describe('entityFilterLogic', () => {
 
             logic.unmount()
             logic = entityFilterLogic({
-                setFilters: jest.fn(),
-                filters: filtersJson,
+                onChange: jest.fn(),
+                series: baseSeries(),
                 typeKey: 'uuid_test',
             })
             logic.mount()
         })
 
-        it('preserves UUIDs when called with identical filters', () => {
-            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+        it('preserves UUIDs when called with identical series', () => {
+            const originalUuids = logic.values.localSeries.map((l) => l.uuid)
 
-            logic.actions.setLocalFilters(filtersJson as FilterType)
+            logic.actions.setSeries(baseSeries())
 
-            expect(logic.values.localFilters.map((f) => f.uuid)).toEqual(originalUuids)
+            expect(logic.values.localSeries.map((l) => l.uuid)).toEqual(originalUuids)
         })
 
-        it('preserves existing UUIDs when a filter is added', () => {
-            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+        it('preserves existing UUIDs when a series is added', () => {
+            const originalUuids = logic.values.localSeries.map((l) => l.uuid)
 
-            logic.actions.setLocalFilters({
-                ...filtersJson,
-                events: [...filtersJson.events, { id: '$autocapture', name: '$autocapture', type: 'events', order: 3 }],
-            } as FilterType)
+            logic.actions.setSeries([
+                ...baseSeries(),
+                { kind: NodeKind.EventsNode, event: '$autocapture', name: '$autocapture' },
+            ])
 
-            const newFilters = logic.values.localFilters
-            expect(newFilters).toHaveLength(4)
-            expect(newFilters[0].uuid).toBe(originalUuids[0])
-            expect(newFilters[1].uuid).toBe(originalUuids[1])
-            expect(newFilters[2].uuid).toBe(originalUuids[2])
-            expect(originalUuids).not.toContain(newFilters[3].uuid)
+            const newSeries = logic.values.localSeries
+            expect(newSeries).toHaveLength(4)
+            expect(newSeries[0].uuid).toBe(originalUuids[0])
+            expect(newSeries[1].uuid).toBe(originalUuids[1])
+            expect(newSeries[2].uuid).toBe(originalUuids[2])
+            expect(originalUuids).not.toContain(newSeries[3].uuid)
         })
 
-        it('preserves UUIDs for remaining filters when one is removed', () => {
-            const originalUuids = logic.values.localFilters.map((f) => f.uuid)
+        it('keeps each surviving row on its own uuid when a series is removed', () => {
+            const originalUuids = logic.values.localSeries.map((l) => l.uuid)
 
-            logic.actions.setLocalFilters({
-                ...filtersJson,
-                events: [filtersJson.events[1]],
-            } as FilterType)
+            logic.actions.removeSeries(0)
 
-            const newFilters = logic.values.localFilters
-            expect(newFilters).toHaveLength(2)
-            expect(originalUuids).toContain(newFilters[0].uuid)
-            expect(originalUuids).toContain(newFilters[1].uuid)
+            // Rebuilding the uuids by index would shift every row's identity up by one, which
+            // moves open property panels and drag handles onto the wrong series.
+            expect(logic.values.localSeries.map((l) => l.uuid)).toEqual(originalUuids.slice(1))
+        })
+
+        it('preserves UUIDs for remaining series when one is removed', () => {
+            const originalUuids = logic.values.localSeries.map((l) => l.uuid)
+            const remaining = baseSeries().filter((_, index) => index !== 0)
+
+            logic.actions.setSeries(remaining)
+
+            const newSeries = logic.values.localSeries
+            expect(newSeries).toHaveLength(2)
+            expect(originalUuids).toContain(newSeries[0].uuid)
+            expect(originalUuids).toContain(newSeries[1].uuid)
         })
     })
 
-    describe('updateFilterMath preserves math_property_type', () => {
+    describe('updateSeriesMath preserves math_property_type', () => {
         it('keeps math_property_type when updating math', async () => {
             await expectLogic(logic, () => {
-                logic.actions.updateFilterMath({
-                    index: 0,
-                    type: 'events',
+                logic.actions.updateSeriesMath(0, {
                     math: 'median',
                     math_property: '$session_duration',
                     math_property_type: TaxonomicFilterGroupType.SessionProperties,
                 })
-            }).toDispatchActions(['updateFilterMath', 'setFilters'])
+            }).toDispatchActions(['updateSeriesMath', 'setLocalSeries'])
 
-            expect(logic.props.setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({
-                            math: 'median',
-                            math_property: '$session_duration',
-                            math_property_type: TaxonomicFilterGroupType.SessionProperties,
-                        }),
-                    ]),
-                })
+            expect(logic.props.onChange).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        math: 'median',
+                        math_property: '$session_duration',
+                        math_property_type: TaxonomicFilterGroupType.SessionProperties,
+                    }),
+                ])
             )
         })
 
         it('clears math_property_type when math is cleared', async () => {
-            logic.actions.updateFilterMath({
-                index: 0,
-                type: 'events',
+            logic.actions.updateSeriesMath(0, {
                 math: 'median',
                 math_property: '$session_duration',
                 math_property_type: TaxonomicFilterGroupType.SessionProperties,
             })
 
             await expectLogic(logic, () => {
-                logic.actions.updateFilterMath({
-                    index: 0,
-                    type: 'events',
+                logic.actions.updateSeriesMath(0, {
                     math: undefined,
                     math_property: undefined,
                     math_property_type: undefined,
                 })
-            }).toDispatchActions(['updateFilterMath', 'setFilters'])
+            }).toDispatchActions(['updateSeriesMath', 'setLocalSeries'])
 
-            expect(logic.props.setFilters).toHaveBeenLastCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({
-                            math_property_type: undefined,
-                        }),
-                    ]),
-                })
+            expect(logic.props.onChange).toHaveBeenLastCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        math_property_type: undefined,
+                    }),
+                ])
             )
         })
     })
 
-    describe('updateFilter across entity types', () => {
+    describe('updateSeriesEntity across node kinds', () => {
         const personProperty: AnyPropertyFilter = {
             key: 'email',
             value: 'test@posthog.com',
@@ -256,82 +246,75 @@ describe('entityFilterLogic', () => {
             type: PropertyFilterType.HogQL,
         }
 
-        const eventFilter: LocalFilter = {
-            id: '$pageview',
+        const eventNode = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
             name: '$pageview',
-            type: 'events',
-            order: 0,
-            uuid: 'uuid-0',
             properties: [personProperty, extendedPersonProperty, dwColumnProperty, hogqlProperty],
-        }
-        const dataWarehouseFilter: LocalFilter = {
+        } as SeriesNode
+        const dataWarehouseNode = {
+            kind: NodeKind.DataWarehouseNode,
             id: 'payments',
             name: 'payments',
-            type: 'data_warehouse',
             table_name: 'payments',
-            order: 0,
-            uuid: 'uuid-0',
             properties: [dwColumnProperty, hogqlProperty],
-        }
+        } as SeriesNode
         const switchToPayments = {
-            type: 'data_warehouse',
-            id: 'payments',
+            kind: NodeKind.DataWarehouseNode,
+            key: 'payments',
             name: 'payments',
-            table_name: 'payments',
         }
 
         it.each([
             [
                 'drops person-scoped filters when an event becomes a data warehouse series',
-                eventFilter,
+                eventNode,
                 switchToPayments,
                 [hogqlProperty],
             ],
             [
                 'drops column filters when a data warehouse series becomes an event',
-                dataWarehouseFilter,
-                { type: 'events', id: '$pageview', name: '$pageview' },
+                dataWarehouseNode,
+                { kind: NodeKind.EventsNode, key: '$pageview', name: '$pageview' },
                 [hogqlProperty],
             ],
             [
                 'drops column filters when the data warehouse table changes',
-                dataWarehouseFilter,
-                { type: 'data_warehouse', id: 'orders', name: 'orders', table_name: 'orders' },
+                dataWarehouseNode,
+                { kind: NodeKind.DataWarehouseNode, key: 'orders', name: 'orders' },
                 [hogqlProperty],
             ],
             [
                 'keeps column filters when the data warehouse table is unchanged',
-                dataWarehouseFilter,
+                dataWarehouseNode,
                 { ...switchToPayments, timestamp_field: 'created_at' },
                 [dwColumnProperty, hogqlProperty],
             ],
-        ] as [string, LocalFilter, Record<string, any>, AnyPropertyFilter[]][])(
+        ] as [string, SeriesNode, Record<string, any>, AnyPropertyFilter[]][])(
             '%s',
-            async (_name, initialFilter, update, expectedProperties) => {
-                logic.actions.setFilters([initialFilter])
+            async (_name, initialNode, update, expectedProperties) => {
+                logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: initialNode }])
 
                 await expectLogic(logic, () => {
-                    logic.actions.updateFilter({ ...update, index: 0 } as Parameters<
-                        typeof logic.actions.updateFilter
-                    >[0])
-                }).toDispatchActions(['updateFilter', 'setFilters'])
+                    logic.actions.updateSeriesEntity(0, update as any)
+                }).toDispatchActions(['updateSeriesEntity', 'setLocalSeries'])
 
-                expect(logic.values.localFilters[0].properties).toEqual(expectedProperties)
+                expect(logic.values.series[0].properties).toEqual(expectedProperties)
             }
         )
 
         const eventPropertyMath = {
-            ...eventFilter,
+            ...eventNode,
             math: 'sum',
             math_property: 'revenue',
             math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-        }
+        } as SeriesNode
         const dataWarehousePropertyMath = {
-            ...dataWarehouseFilter,
+            ...dataWarehouseNode,
             math: 'sum',
             math_property: 'amount',
             math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-        }
+        } as SeriesNode
 
         it.each([
             [
@@ -343,13 +326,13 @@ describe('entityFilterLogic', () => {
             [
                 'drops property math when a data warehouse series becomes an event',
                 dataWarehousePropertyMath,
-                { type: 'events', id: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, key: '$pageview', name: '$pageview' },
                 { math: undefined, math_property: undefined, math_property_type: undefined },
             ],
             [
                 'drops property math when the data warehouse table changes',
                 dataWarehousePropertyMath,
-                { type: 'data_warehouse', id: 'orders', name: 'orders', table_name: 'orders' },
+                { kind: NodeKind.DataWarehouseNode, key: 'orders', name: 'orders' },
                 { math: undefined, math_property: undefined, math_property_type: undefined },
             ],
             [
@@ -364,49 +347,60 @@ describe('entityFilterLogic', () => {
             ],
             [
                 'keeps math that does not depend on a property',
-                { ...eventFilter, math: 'dau' },
+                { ...eventNode, math: 'dau' } as SeriesNode,
                 switchToPayments,
                 { math: 'dau', math_property: undefined, math_property_type: undefined },
             ],
-        ] as [string, LocalFilter, Record<string, any>, Record<string, any>][])(
+        ] as [string, SeriesNode, Record<string, any>, Record<string, any>][])(
             '%s',
-            async (_name, initialFilter, update, expectedMath) => {
-                logic.actions.setFilters([initialFilter])
+            async (_name, initialNode, update, expectedMath) => {
+                logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: initialNode }])
 
                 await expectLogic(logic, () => {
-                    logic.actions.updateFilter({ ...update, index: 0 } as Parameters<
-                        typeof logic.actions.updateFilter
-                    >[0])
-                }).toDispatchActions(['updateFilter', 'setFilters'])
+                    logic.actions.updateSeriesEntity(0, update as any)
+                }).toDispatchActions(['updateSeriesEntity', 'setLocalSeries'])
 
-                expect(logic.values.localFilters[0]).toMatchObject(expectedMath)
+                expect(logic.values.series[0]).toMatchObject(expectedMath)
             }
         )
+
+        it('coerces a string action id to the integer the schema types', async () => {
+            logic.actions.setLocalSeries([{ uuid: 'uuid-0', node: eventNode }])
+
+            await expectLogic(logic, () => {
+                logic.actions.updateSeriesEntity(0, {
+                    kind: NodeKind.ActionsNode,
+                    key: '9',
+                    name: 'Users signed up',
+                })
+            }).toDispatchActions(['updateSeriesEntity'])
+
+            expect(logic.values.series[0]).toMatchObject({ kind: NodeKind.ActionsNode, id: 9 })
+        })
     })
 
-    describe('duplicating filters', () => {
+    describe('duplicating series', () => {
         it('preserves custom_name when duplicating', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.duplicateFilter({
-                    id: '$pageview',
-                    name: '$pageview',
-                    custom_name: 'My custom label',
-                    order: 0,
-                    type: 'events',
-                })
-            }).toDispatchActions(['duplicateFilter', 'setFilters'])
+            logic.actions.setLocalSeries([
+                {
+                    uuid: 'uuid-0',
+                    node: {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        name: '$pageview',
+                        custom_name: 'My custom label',
+                    },
+                },
+            ])
 
-            expect(logic.props.setFilters).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    events: expect.arrayContaining([
-                        expect.objectContaining({
-                            id: '$pageview',
-                            custom_name: 'My custom label',
-                            order: 1,
-                        }),
-                    ]),
-                })
-            )
+            await expectLogic(logic, () => {
+                logic.actions.duplicateSeries(0)
+            }).toDispatchActions(['duplicateSeries', 'setLocalSeries'])
+
+            expect(logic.props.onChange).toHaveBeenLastCalledWith([
+                expect.objectContaining({ event: '$pageview', custom_name: 'My custom label' }),
+                expect.objectContaining({ event: '$pageview', custom_name: 'My custom label' }),
+            ])
         })
     })
 })

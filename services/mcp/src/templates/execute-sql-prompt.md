@@ -10,11 +10,11 @@ Use SQL for record inspection, custom calculations, joins, existing SQL, or requ
 
 For governed measures, check for a matching approved metric before deriving a new calculation.
 
-Use typed queries when standard PostHog calculation rules or native insight controls matter. Do not approximate standard funnels or retention with SQL.
+Default to typed runners for new product analytics and dashboard insights whenever their schemas support the requested calculation, including simple event counts, unique users, property sums, breakdowns, and time series (`query-trends`). Use the matching typed runner for funnels, retention, stickiness, paths, and lifecycle; do not approximate their standard calculation rules with SQL.
 
-For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates. Use SQL directly when the task calls for it, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
+When both methods fit, use the typed runner. SQL familiarity, SQL examples, or an earlier SQL discovery call do not justify SQL for the final analysis. Use SQL directly for the SQL-specific tasks above, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
 
-Both typed queries and SQL can support saved visualizations. A chart or table alone does not determine the method.
+Both typed queries and SQL support visualizations. Save supported dashboard analyses as native query nodes. A chart or table request, or a harness needing a separate rendering call, does not justify SQL.
 
 {guidelines}
 
