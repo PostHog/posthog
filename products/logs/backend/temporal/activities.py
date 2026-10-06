@@ -495,11 +495,24 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
     invalid and can never succeed. Runs in the same sync DB pool as discovery —
     each call is its own short transaction so a failure on one row doesn't
     roll back the others.
+
+    A firing alert with an incident destination closes its incident first. Discovery skips BROKEN
+    alerts, so the close must be delivered before the transition commits. When it is not, the alert
+    keeps its state, and the next discovery cycle finds the same bad config and tries again.
     """
     try:
+        state_seen = LogsAlertConfiguration.objects.values_list("state", flat=True).get(pk=alert_id)
+        if state_seen == LogsAlertConfiguration.State.BROKEN:
+            return
+        if incident_edge(state_seen, AlertState.BROKEN) == IncidentEdge.CLOSED:
+            alert_for_close = LogsAlertConfiguration.objects.get(pk=alert_id)
+            if _has_incident_destination(alert_for_close) and not _close_incident_for_bad_config(alert_for_close):
+                logger.warning("Deferring BROKEN until the incident close is delivered", alert_id=alert_id)
+                return
         with transaction.atomic():
             alert = LogsAlertConfiguration.objects.select_for_update().get(pk=alert_id)
-            if alert.state == LogsAlertConfiguration.State.BROKEN:
+            if alert.state != state_seen:
+                # The state moved after the close decision, so decide again on the next cycle.
                 return
             state_before = alert.state
             outcome = ControlPlaneOutcome(
@@ -516,10 +529,6 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
                 error_message=reason,
             )
             alert.save(update_fields=update_fields)
-            if incident_edge(state_before, outcome.new_state) == IncidentEdge.CLOSED and _has_incident_destination(
-                alert
-            ):
-                transaction.on_commit(lambda: _close_incident_for_bad_config(alert))
     except Exception as e:
         logger.exception(
             "Failed to mark alert BROKEN for invalid config",
@@ -530,17 +539,13 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
         capture_exception(e)
 
 
-def _close_incident_for_bad_config(alert: LogsAlertConfiguration) -> None:
-    """Send the close for an alert that broke on bad config, and record a lost one.
-
-    Discovery skips BROKEN alerts, so no later cycle retries this close. A lost one surfaces only in
-    the delivery failure metric and log, and the incident stays open until someone resolves it.
-    """
+def _close_incident_for_bad_config(alert: LogsAlertConfiguration) -> bool:
+    """Send the close for an alert about to break on bad config. Return whether the broker took it."""
     produce_result = _emit_incident_closed_event(alert, IncidentCloseReason.BROKEN, datetime.now(UTC))
     if produce_result is None:
-        return
+        return False
     flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-    alert_internal_event_delivered(
+    return alert_internal_event_delivered(
         produce_result,
         team_id=alert.team_id,
         alert_id=str(alert.id),

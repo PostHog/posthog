@@ -2157,8 +2157,9 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         assert len(result.manifests) == 1
         assert len(result.manifests[0].alert_ids) == 2
 
+    @parameterized.expand([("close_delivered", True), ("close_lost", False)])
     @time_machine.travel("2026-05-05T10:00:00Z", tick=False)
-    def test_transitions_alert_with_broken_filter_config_to_broken(self):
+    def test_transitions_alert_with_broken_filter_config_to_broken(self, _name, close_delivered):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 
         healthy = LogsAlertConfiguration.objects.create(
@@ -2188,23 +2189,30 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         _add_incident_destination(broken)
 
         with patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce:
+            if not close_delivered:
+                mock_produce.return_value.get.side_effect = TimeoutError("undelivered")
             result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
 
         manifest_alert_ids = {aid for m in result.manifests for aid in m.alert_ids}
         assert str(healthy.id) in manifest_alert_ids
         assert str(broken.id) not in manifest_alert_ids
-
-        broken.refresh_from_db()
-        assert broken.state == LogsAlertConfiguration.State.BROKEN
+        assert mock_produce.call_args.kwargs["properties"]["reason"] == "broken"
 
         from products.logs.backend.models import LogsAlertEvent
+
+        broken.refresh_from_db()
+        if not close_delivered:
+            # Discovery skips BROKEN alerts, so the alert stays firing until a later cycle delivers the close.
+            assert broken.state == LogsAlertConfiguration.State.FIRING
+            assert not LogsAlertEvent.objects.filter(alert=broken, kind=LogsAlertEvent.Kind.BROKEN_CONFIG).exists()
+            return
+        assert broken.state == LogsAlertConfiguration.State.BROKEN
 
         event = LogsAlertEvent.objects.get(alert=broken, kind=LogsAlertEvent.Kind.BROKEN_CONFIG)
         assert event.state_after == LogsAlertConfiguration.State.BROKEN
         assert event.error_message is not None and "filterGroup" in event.error_message
         assert _produced_events(mock_produce) == ["$logs_alert_incident_closed"]
         assert mock_produce.call_args.kwargs["properties"]["alert_id"] == str(broken.id)
-        assert mock_produce.call_args.kwargs["properties"]["reason"] == "broken"
 
 
 class TestCohortFromManifest(unittest.TestCase):
