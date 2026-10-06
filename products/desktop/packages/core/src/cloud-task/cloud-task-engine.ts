@@ -1098,6 +1098,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.startWatcher(input, 1);
   }
 
+  /** Whether a watcher for the run is open. The engine stops one by itself once its run ends. */
+  isWatching(taskId: string, runId: string): boolean {
+    return this.watchers.has(watcherKey(taskId, runId));
+  }
+
   unwatch(taskId: string, runId: string): void {
     const key = watcherKey(taskId, runId);
     const watcher = this.watchers.get(key);
