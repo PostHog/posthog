@@ -137,9 +137,7 @@ class TestActivityLogModel(BaseTest):
         expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
         if not truncated:
             expected_change.update(before=None, after=after)
-        assert [{k: v for k, v in c.items() if k in expected_change} for c in properties["detail"]["changes"]] == [
-            expected_change
-        ]
+        assert properties["detail"]["changes"] == [expected_change]
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")

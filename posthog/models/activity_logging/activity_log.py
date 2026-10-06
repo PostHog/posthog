@@ -1601,8 +1601,10 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 
     Returns the detail to send and a flag that tells if it was truncated.
     """
-    if not isinstance(detail, dict) or _json_size(detail) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+    if _json_size(detail) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
         return detail, False
+    if not isinstance(detail, dict):
+        return None, True
 
     # First drop the change values and the free-form fields, but keep which fields changed.
     bounded: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
@@ -1617,7 +1619,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
     summary: dict[str, Any] = {key: detail.get(key) for key in _SUMMARY_DETAIL_KEYS if key in detail}
     if isinstance(summary.get("name"), str):
         summary["name"] = summary["name"][:_MAX_SUMMARY_NAME_LENGTH]
-    return summary, True
+    if _json_size(summary) <= MAX_INTERNAL_EVENT_DETAIL_BYTES:
+        return summary, True
+    return None, True
 
 
 @receiver(post_save, sender=ActivityLog)
