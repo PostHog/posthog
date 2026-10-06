@@ -50,7 +50,7 @@ use personhog_proto::personhog::types::v1::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::storage::types::DeletePersonsMode;
+use crate::storage::types::{DeletePersonsMode, COOKIELESS_SENTINEL_VALUE};
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -680,6 +680,12 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<UpsertHashKeyOverridesRequest>,
     ) -> Result<Response<UpsertHashKeyOverridesResponse>, Status> {
         let req = request.into_inner();
+
+        if req.hash_key == COOKIELESS_SENTINEL_VALUE {
+            return Err(Status::invalid_argument(format!(
+                "hash_key must not be {COOKIELESS_SENTINEL_VALUE}"
+            )));
+        }
 
         let inserted_count = self
             .storage

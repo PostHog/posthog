@@ -8,12 +8,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
-use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
-
-// Mirrors `COOKIELESS_SENTINEL_VALUE` in `common-cookieless`, which pulls in redis and moka.
-// The override queries in this file apply the same sentinel rules as the hash key override SQL
-// in `rust/feature-flags/src/flags/flag_matching_utils.rs`. Keep the two in sync.
-const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
+use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext, COOKIELESS_SENTINEL_VALUE};
 
 // Kept as an intermediate struct because the rows are aggregated into
 // HashKeyOverrideContext via HashMap grouping logic. All field types already
@@ -26,6 +21,8 @@ struct HashKeyOverrideContextRow {
     hash_key: Option<String>,
 }
 
+// The override queries in this impl apply the same sentinel rules as the hash key override SQL
+// in `rust/feature-flags/src/flags/flag_matching_utils.rs`. Keep the two in sync.
 #[async_trait]
 impl FeatureFlagStorage for PostgresStorage {
     async fn get_hash_key_override_context(
