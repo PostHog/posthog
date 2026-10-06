@@ -99,6 +99,7 @@ describe('api-error', () => {
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
             ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
+            ['a stale-update 409', { status: 409, code: 'stale_update' }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
