@@ -295,7 +295,8 @@ class PagerDutyDestination(DestinationSpec):
 
     def validate(self, data: AlertDestinationData) -> None:
         super().validate(data)
-        if not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(data["pagerduty_routing_key"]):
+        routing_key = data["pagerduty_routing_key"]
+        if not isinstance(routing_key, str) or not _PAGERDUTY_ROUTING_KEY_RE.fullmatch(routing_key):
             raise AlertDestinationValidationError(
                 "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
                 field="pagerduty_routing_key",

@@ -296,6 +296,11 @@ class _DispatchedAlert:
     `_resolve_notification_deliveries` flushes the producer and folds delivery
     failures in — persisting before that point would record "notified" for a
     message that may never reach the broker.
+
+    Delivery is therefore at least once. For an alert with both an incident
+    destination and a message destination, a lost incident event also resends a
+    notification the broker already took. Retrying only the incident event would
+    need the pending edge stored on the alert row.
     """
 
     evaluation: _AlertEvaluation

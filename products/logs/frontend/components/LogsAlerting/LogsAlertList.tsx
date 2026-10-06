@@ -20,6 +20,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+import IconPagerDuty from 'public/services/pagerduty.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
@@ -39,6 +40,7 @@ const DESTINATION_TAGS = [
     { type: LogsAlertDestinationTypeEnumApi.Slack, label: 'Slack', icon: IconSlack },
     { type: LogsAlertDestinationTypeEnumApi.Webhook, label: 'Webhook', icon: IconWebhook },
     { type: LogsAlertDestinationTypeEnumApi.Teams, label: 'Teams', icon: IconMicrosoftTeams },
+    { type: LogsAlertDestinationTypeEnumApi.Pagerduty, label: 'PagerDuty', icon: IconPagerDuty },
 ] as const
 
 function formatThreshold(alert: LogsAlertConfigurationApi): string {

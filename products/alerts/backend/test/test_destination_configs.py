@@ -305,6 +305,11 @@ class TestPagerDutyDestination:
                 "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
             ),
             (
+                {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": 12345},
+                "pagerduty_routing_key",
+                "Enter the 32-character integration key of a PagerDuty Events API v2 integration.",
+            ),
+            (
                 {
                     "type": DestinationType.PAGERDUTY,
                     "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
