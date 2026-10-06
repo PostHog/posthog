@@ -132,7 +132,7 @@ Escalating to the next rung is the last resort, not the default.
 
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
 - **Use a `parameterized` case when the cases are known before the test runs, and `self.subTest` only when they are not**, such as one check per row a query returns.
-  A `self.subTest` failure ends the test at the first failing case.
+  Our pytest configuration makes `self.subTest` fail fast so CI can retry the test.
   Do not use the pytest `subtests` fixture: it leaves a failure in the junit file after a rerun passes.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
