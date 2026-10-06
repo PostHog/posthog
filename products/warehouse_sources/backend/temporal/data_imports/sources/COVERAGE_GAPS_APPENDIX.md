@@ -4491,10 +4491,10 @@ Today (9): `allocations_by_investment_category`, `allocations_by_person`, `alloc
 
 Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/main/README.md>
 
-- [ ] `metrics/person_metrics` — per-engineer engineering metrics; we sync engineers and company_metrics but nothing in between (high)
-- [ ] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
-- [ ] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
-- [ ] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
+- [x] `metrics/person_metrics` — per-engineer engineering metrics; we sync engineers and company_metrics but nothing in between (high)
+- [x] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
+- [x] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
+- [x] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
 - [ ] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium)
 - [ ] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium)
 - [ ] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium)
