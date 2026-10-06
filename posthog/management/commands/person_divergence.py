@@ -9,10 +9,9 @@ Usage:
     python manage.py person_divergence repair --input hidden.csv --output actions.csv
     python manage.py person_divergence repair --input hidden.csv --output actions.csv --apply
 
-Scans only read. A repair writes nothing unless --apply is passed. While legacy (version 100 or
-above) tombstones remain in ClickHouse, run the hidden scan and repair what it finds right before
-every ClickHouse deletion sweep, because the sweep deletes the rows of every person it finds, and
-run the swept scan soon after the sweep.
+While legacy (version 100 or above) tombstones remain in ClickHouse, run the hidden scan and repair
+what it finds right before every ClickHouse deletion sweep, which deletes every row of those persons.
+Run the swept scan soon after the sweep.
 """
 
 import csv

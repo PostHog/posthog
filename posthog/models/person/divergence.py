@@ -182,9 +182,6 @@ class RepairSummary:
     undelivered: int
 
 
-# ── ClickHouse and personhog access ──────────────────────────────────
-
-
 def _ch(sql: str, args: dict[str, Any], settings: dict[str, int]) -> list[Any]:
     return sync_execute(sql, args, settings=settings, workload=Workload.OFFLINE, readonly=True)
 
@@ -216,9 +213,6 @@ def _chunks(items: Sequence[_T], size: int) -> list[Sequence[_T]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
-# ── Scans over team ranges ───────────────────────────────────────────
-
-
 def _scan_team_ranges(
     query: Callable[[int, int], list[Any]],
     *,
@@ -228,11 +222,7 @@ def _scan_team_ranges(
     on_rows: Callable[[list[Any]], None],
     log: Callable[[str], None],
 ) -> list[int]:
-    """Run ``query`` over [min_team_id, max_team_id) in steps and return the teams it had to skip.
-
-    A range that runs out of memory is split in half until it covers one team. A single team that
-    still runs out of memory is skipped and returned, so the caller can rerun it with more memory.
-    """
+    """Return each team that runs out of memory even when scanned alone, so the caller can rerun it with more memory."""
     skipped: list[int] = []
 
     def scan(lo: int, hi: int) -> None:
@@ -347,9 +337,9 @@ def scan_hidden_persons(
     )
 
 
-# The sweep lightweight-deletes every row of a person whose newest row was a tombstone. A live row
-# that landed after the tombstone was swept with it, which leaves a person live in Postgres with no
-# visible ClickHouse row.
+# The ClickHouse deletion sweep deletes every row of a person whose highest-version row is a tombstone.
+# That includes a live row written after the tombstone at a lower version, so the person stays live in
+# Postgres with no visible ClickHouse row.
 _SWEPT_SQL = """
 SELECT team_id, toString(id), max(version) AS max_version
 FROM person
@@ -373,10 +363,9 @@ def scan_swept_persons(
     on_found: Callable[[DivergentPerson], None],
     log: Callable[[str], None],
 ) -> ScanSummary:
-    """Persons live in Postgres whose ClickHouse rows were all lightweight-deleted, including a live row written after a legacy tombstone.
+    """Live Postgres persons with every ClickHouse row deleted, including a live row written after a legacy tombstone.
 
-    Run it soon after a sweep: once ClickHouse merges remove the masked rows, the person has no
-    ClickHouse rows left and no scan finds it.
+    Run it soon after a ClickHouse deletion sweep: once merges remove the deleted rows, no scan finds the person.
     """
     return _scan_divergent_persons(
         sql=_SWEPT_SQL,
@@ -419,7 +408,7 @@ def scan_stale_persons(
     on_found: Callable[[DivergentPerson], None],
     log: Callable[[str], None],
 ) -> ScanSummary:
-    """Persons whose live ClickHouse winner outranks the live Postgres version, found through a late lower-version row."""
+    """Persons whose live ClickHouse winner outranks Postgres, found through a late lower-version row."""
     return _scan_divergent_persons(
         sql=_STALE_SQL,
         settings=_STALE_SETTINGS,
@@ -433,8 +422,6 @@ def scan_stale_persons(
         log=log,
     )
 
-
-# ── Sample and team checks ───────────────────────────────────────────
 
 _SAMPLE_SQL = """
 SELECT team_id, toString(id), max(version) AS max_version, toUnixTimestamp(argMax(_timestamp, version)) AS written_at
@@ -469,11 +456,7 @@ def scan_sample(
     on_sampled: Callable[[SampledPerson], None],
     log: Callable[[str], None],
 ) -> SampleSummary:
-    """Classify a uniform sample of live ClickHouse persons against Postgres.
-
-    The sample is every person with ``cityHash64(id) % modulus == residue``. With a cutoff, each
-    person is also split by whether its winning ClickHouse row was written before the cutoff.
-    """
+    """Classify a uniform sample of live ClickHouse persons against Postgres."""
     if not 0 <= residue < modulus:
         raise ValueError("residue must be in [0, modulus)")
     rows = _ch(
@@ -542,7 +525,7 @@ LIMIT %(limit)s
 
 
 def check_team(*, team_id: int, sample_size: int, before: datetime) -> TeamCheck:
-    """Sample a team's live ClickHouse persons and mappings last written before ``before`` and count how many Postgres holds live."""
+    """Count how many of a team's old live ClickHouse persons and mappings Postgres still holds live."""
     args = {"team_id": team_id, "before": int(before.timestamp()), "limit": sample_size}
     person_uuids = [row[0] for row in _ch(_TEAM_PERSONS_SQL, args, _TEAM_CHECK_SETTINGS)]
     distinct_ids = [row[0] for row in _ch(_TEAM_MAPPINGS_SQL, args, _TEAM_CHECK_SETTINGS)]
@@ -568,9 +551,6 @@ def check_team(*, team_id: int, sample_size: int, before: datetime) -> TeamCheck
         distinct_ids_sampled=len(distinct_ids),
         distinct_ids_live_in_postgres=len({r.distinct_id for r in live_mappings}),
     )
-
-
-# ── Repair ───────────────────────────────────────────────────────────
 
 
 @frozen
@@ -653,14 +633,15 @@ def _mapping_kind(person_uuid: str, pg_version: int, state: _ChMappingState | No
         return "hidden"
     if state.winner_person_uuid != person_uuid:
         return "other_person"
-    # The right owner today, but a later move of this mapping is written below the ClickHouse winner and lost.
+    # The owner matches, but a later move of this mapping would be written below the ClickHouse winner and lost.
     if state.max_version > pg_version:
         return "stale"
     return None
 
 
 def _target_version(pg_version: int, ch_max_version: int | None) -> int:
-    # One above ClickHouse, not 100: a later Postgres write or tombstone takes the next version and must outrank this row.
+    # One above ClickHouse, not 100 above: a later Postgres write or tombstone takes the next version
+    # and must outrank this row.
     return pg_version if ch_max_version is None else max(pg_version, ch_max_version + 1)
 
 
@@ -792,7 +773,6 @@ def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: in
 
 
 def _primary_mapping_versions(team_id: int, person_id: int) -> dict[str, int]:
-    """The live mappings of a person with their stored versions, read from the primary."""
     response = personhog_call(
         "person_divergence_confirm_mapping_versions",
         lambda: require_personhog_client().get_distinct_ids_for_persons(
@@ -901,8 +881,8 @@ def _execute_plan(
         before_write()
         _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
 
-    # The floor RPC reads the primary, so its answer is the owner check: the replica list that
-    # produced this mapping can be behind a merge that moved it to another person.
+    # SetPersonDistinctIdVersionFloor runs on the primary, so its reply is the owner check: the replica list
+    # that produced this mapping can lag a merge that moved it to another person.
     owned: list[_MappingPlan] = []
     for mapping in divergent_mappings:
         before_write()
@@ -940,8 +920,9 @@ def _execute_plan(
         published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
-    # The floor call does not say whether it wrote, and a replica without the NULL-version fix leaves a NULL
-    # stored version untouched, so publish only the mappings whose version on the primary reached the target.
+    # The SetPersonDistinctIdVersionFloor reply does not say whether it wrote, and a personhog-replica build
+    # without NULL-version handling leaves a NULL version unchanged, so publish only the mappings whose
+    # version on the primary reached the target.
     stored_versions = _primary_mapping_versions(plan.team_id, person.pk) if owned else {}
     for mapping in owned:
         stored_version = stored_versions.get(mapping.distinct_id)
@@ -1040,15 +1021,12 @@ def repair_persons(
 ) -> RepairSummary:
     """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
-    Without ``apply`` nothing is written and every planned action is reported as ``would_repair``.
-    A person that is in sync with Postgres is left untouched. A rerun is safe: every write is
-    guarded by a version floor, and a person whose earlier publish never landed is still divergent.
-    ``max_writes_per_second`` paces every version-floor write on the persons primary, one per
-    divergent person or distinct id, so a person with many distinct ids cannot burst past it.
+    A rerun is safe: each Postgres write only raises a version, and a person whose publish never landed
+    still counts as divergent. ``max_writes_per_second`` paces each Postgres write, one per divergent
+    person or distinct id.
 
-    A stale person is skipped with its mappings unless ``include_stale`` is set, because its repair
-    replaces the ClickHouse properties with the Postgres ones for good, and a team waiting for a
-    restore from its ClickHouse rows needs the ClickHouse ones.
+    ``include_stale`` also repairs stale persons and their mappings. That replaces their ClickHouse properties
+    with the Postgres ones for good, so never use it on a team waiting for a restore from ClickHouse.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")

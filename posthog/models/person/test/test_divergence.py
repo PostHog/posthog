@@ -113,8 +113,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self.addCleanup(sync_execute, "SYSTEM START MERGES person")
 
     def _swept_rows(self, rows_by_person: dict[UUID, list[tuple[int, bool, float]]]) -> None:
-        # Lightweight deletes run as mutations, which stopped merges also block, so the rows are
-        # swept in a one-part side table and that part is attached to person.
+        # Stopped merges also block lightweight deletes, which run as mutations, so the rows are deleted
+        # in a one-part side table whose part is then attached to person.
         self._stop_person_merges()
         staging = f"person_divergence_swept_{self.team.pk}"
         sync_execute(f"DROP TABLE IF EXISTS {staging} SYNC")
@@ -220,8 +220,6 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             target_version=target_version,
             outcome=outcome,
         )
-
-    # ── Scans ────────────────────────────────────────────────────────
 
     def _team_scan_range(self) -> dict[str, int]:
         return {"min_team_id": self.team.pk, "max_team_id": self.team.pk + 1}
@@ -365,8 +363,6 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             distinct_ids_sampled=2,
             distinct_ids_live_in_postgres=1,
         )
-
-    # ── Repair ───────────────────────────────────────────────────────
 
     def _divergent_person(self, case: str) -> Person:
         if case == "hidden":
@@ -632,7 +628,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # A replica without the NULL-version fix leaves the stored version where it was.
+            # A personhog-replica build without NULL-version handling leaves the stored version unchanged.
             ("floor_not_applied", None, "skipped_reread_lagging", 2, (1, 100)),
             # A concurrent write took the mapping past the target, so the publish carries the stored version.
             ("stored_past_the_target", 5, "repaired", 106, (0, 106)),
