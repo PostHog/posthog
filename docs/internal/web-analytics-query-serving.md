@@ -85,6 +85,7 @@ Empty filtered results offer Clear filters; unfiltered views suggest connecting 
 Connected sources show separate setup messages for disabled tables, tables awaiting a first successful sync, failed or paused syncs, and stale data.
 Search performance excludes a table when its last successful sync is older than twice its configured sync interval.
 The source list includes each table's sync frequency so this check uses the table's schedule.
+An unrecognized sync interval is returned as null, which keeps the source list available and skips the cadence check for that table.
 GSC prefers the dedicated query or page table, then falls back to a ready query-and-page table with a notice that totals can differ.
 If neither table is ready, the source is excluded instead of displaying zero traffic and misleading period comparisons.
 Query and page details use the same readiness checks.

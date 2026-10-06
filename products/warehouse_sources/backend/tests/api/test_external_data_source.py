@@ -252,6 +252,13 @@ class TestExternalDataSource(APIBaseTest):
         self.assertIn("sync_type", detail_schema)
         self.assertIn("available_columns", detail_schema)
 
+        ExternalDataSchema.objects.filter(team_id=self.team.pk, pk=schema.pk).update(
+            sync_frequency_interval=timedelta(hours=7)
+        )
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIsNone(list_response.json()["results"][0]["schemas"][0]["sync_frequency"])
+
     def test_list_source_status_and_latest_error_reflect_syncing_schemas(self):
         # `active_schemas` is derived in Python from the single schemas prefetch; the derived subset
         # must still drive the source-level status/error the same way the second prefetch did.

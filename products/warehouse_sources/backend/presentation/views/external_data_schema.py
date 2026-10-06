@@ -1782,7 +1782,10 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: ExternalDataSchema) -> str | None:
-        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+        try:
+            return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+        except ValueError:
+            return None
 
     def to_representation(self, instance: ExternalDataSchema) -> dict[str, Any]:
         ret = super().to_representation(instance)
