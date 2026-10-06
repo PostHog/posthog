@@ -57,6 +57,10 @@ export const ExperimentImplementationSnippet = memo(
             }
         `,
             'node.js': dedent`
+            import { PostHog } from 'posthog-node'
+
+            const client = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
             const experimentFlagValue = await client.getFeatureFlag('your-experiment-feature-flag', 'user distinct id')
 
             if (experimentFlagValue === 'test' ) {

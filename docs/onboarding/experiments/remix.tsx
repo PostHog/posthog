@@ -37,7 +37,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                             <Tab.Panel>
                                 <Markdown>
                                     {dedent`
-                                        For server-side experiments, use \`posthog-node\`:
+                                        For server-side experiments, install and use \`posthog-node\`:
                                     `}
                                 </Markdown>
                                 {ExperimentImplementation && <ExperimentImplementation language="node.js" />}
