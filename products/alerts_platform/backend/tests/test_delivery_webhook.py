@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, cast
 
 import pytest
@@ -93,6 +94,17 @@ class TestAlertmanagerBody(SimpleTestCase):
         assert (body["status"], alert["status"]) == (status, status)
         assert (alert["startsAt"], alert["endsAt"]) == (starts_at, ends_at)
         assert alert["labels"]["posthog_event_kind"] == kind.value
+
+    def test_a_naive_timestamp_from_clickhouse_is_sent_as_utc(self) -> None:
+        naive = announced_transition(
+            AlertEventKind.RESOLVED,
+            episode_started_at=datetime(2026, 9, 30, 9),
+            occurred_at=datetime(2026, 9, 30, 10),
+        )
+
+        alert = alertmanager_body(alert_message(transition=naive))["alerts"][0]
+
+        assert (alert["startsAt"], alert["endsAt"]) == ("2026-09-30T09:00:00+00:00", "2026-09-30T10:00:00+00:00")
 
     def test_a_resolve_closes_its_own_firing_and_nothing_else(self) -> None:
         def fingerprint(kind: AlertEventKind, grouping_key: str = "checkout") -> str:

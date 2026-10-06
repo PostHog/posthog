@@ -9,6 +9,7 @@ None of these providers returns a handle to reply to, so a send returns None and
 posts as a new message.
 """
 
+import json
 import hashlib
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Final
@@ -70,7 +71,10 @@ class WebhookUrlTransport(ABC):
             with pinned_session(url) as session:
                 response = session.post(
                     url,
-                    json=body,
+                    # UTF-8 rather than `json=`, which escapes every non-ASCII character to six
+                    # bytes or more. A provider limits the bytes it receives, so a body sized by its
+                    # UTF-8 length must be sent as UTF-8.
+                    data=json.dumps(body, ensure_ascii=False).encode(),
                     headers={"Content-Type": "application/json", **self.headers},
                     timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
                     allow_redirects=False,
