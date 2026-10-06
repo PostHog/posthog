@@ -15,6 +15,9 @@ from posthog.schema import (
     IntervalType,
 )
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters,
     apply_dashboard_filters_to_dict,
@@ -62,6 +65,33 @@ class TestHogQLDashboardFilters(BaseTest):
         assert updated.source.variables is not None
         assert updated.source.variables["plan"].value == "enterprise"
         assert updated.source.variables["plan"].code_name == "plan"
+
+    @parameterized.expand(
+        [
+            ("native", "{filters}"),
+            ("bound", "{filters(timestamp AS timestamp, properties.plan AS 'plan')}"),
+        ]
+    )
+    def test_bi_dashboard_filters_reach_the_query(self, _name: str, placeholder: str) -> None:
+        runner = self._create_hogql_runner(
+            query="SELECT count() FROM events WHERE " + placeholder + " AND event = 'purchase'",
+            filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                date_from="2026-01-01",
+                date_to="2026-01-31",
+                properties=[EventPropertyFilter(key="plan", value="pro", operator="exact")],
+            )
+        )
+        sql = prepare_and_print_ast(
+            runner.to_query(), dialect="hogql", context=HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        )[0]
+        assert "2026-01-01" in sql
+        assert "2026-01-31" in sql
+        assert "plan" in sql and "'pro'" in sql
+        assert "equals(event, 'purchase')" in sql
+        assert "{filters" not in sql
 
     def _create_hogql_runner(
         self, query: str = "SELECT uuid FROM events", filters: Optional[HogQLFilters] = None
