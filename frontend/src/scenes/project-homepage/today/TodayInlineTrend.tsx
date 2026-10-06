@@ -51,7 +51,7 @@ function TrendBar({
                 className="relative flex-1 rounded-t-[1px] bg-[var(--today-marker)]"
                 style={barHeight(value, max, MIN_BAR_PERCENT)}
             >
-                <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xxs font-semibold text-[var(--foreground)] tabular-nums">
+                <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xxs font-semibold text-foreground tabular-nums">
                     {value.toLocaleString('en-US')}
                 </span>
             </span>

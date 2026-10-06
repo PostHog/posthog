@@ -553,22 +553,43 @@ function mockReportPage(reportId: string): ReportPageApi {
             headline: firstLine,
             lead: firstLine,
             meta: '',
-            cited: null,
+            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
             recording: null,
             link: null,
-            preview: null,
+            preview: {
+                hint: 'Show the description',
+                code: [],
+                block: [],
+                text: signal.content,
+                facts: [],
+                link: null,
+                link_label: null,
+            },
         }
     })
     return {
         lead: report.summary_lead ?? '',
-        proposal: '',
+        proposal: report.suggested_prompts?.[0] ?? '',
         impact_sentence: '',
-        in_flight_pull_request: null,
+        named_pull_request: null,
         solution_names_pull_request: false,
         signals,
-        evidence: signals.slice(0, 3).map((signal) => signal.signal_id),
-        evidence_count: signals.length,
-        impact_numbers: [],
+        evidence_signal_ids: signals.slice(0, 3).map((signal) => signal.signal_id),
+        source_count: signals.length,
+        impact_numbers:
+            report.id === 'report-1'
+                ? [
+                      {
+                          key: 'tickets',
+                          value: '4',
+                          sentence: 'support tickets over 3 days.',
+                          signal_id: signals[0].signal_id,
+                          excerpt: signals[0].headline,
+                          values: [],
+                          working: null,
+                      },
+                  ]
+                : [],
         last_seen: null,
     }
 }
@@ -777,13 +798,25 @@ export const ReportWithPullRequest: Story = {
     parameters: { pageUrl: urls.todayReport('report-1') },
 }
 
-export const ReportWithSuggestedPrompts: Story = {
+export const ReportProposingItsFirstPrompt: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
 }
 
-// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
-export const ReportWithCharts: Story = {
+export const ReportWithAnImpactMetric: Story = {
     parameters: { pageUrl: urls.todayReport('report-4') },
+}
+
+export const ReportWithTicketsAndEvidenceDetail: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+}
+
+export const ReportThatFailsToLoad: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1') },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
+}
+
+export const ReportInANarrowWindow: Story = {
+    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const SpacesPane: Story = {

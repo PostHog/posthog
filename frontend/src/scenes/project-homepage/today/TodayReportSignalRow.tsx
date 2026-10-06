@@ -51,23 +51,19 @@ function rowElement(action: TodaySignalDestination, hint: RowHint | null, expand
     return <button type="button" aria-expanded={action.kind === 'read' ? expanded : undefined} />
 }
 
-function RowTrailer({
-    signal,
-    hint,
-    sourceLabel,
-}: {
-    signal: SignalViewApi
-    hint: RowHint | null
-    sourceLabel: string
-}): JSX.Element {
+function RowTrailer({ signal, hint }: { signal: SignalViewApi; hint: RowHint | null }): JSX.Element {
     const time = dayjs(signal.timestamp)
     return (
         <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-2 whitespace-nowrap">
             <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
-                <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
+                <span className={cn('flex', hint && 'group-hover/row:hidden group-focus-visible/row:hidden')}>
                     <TodayIcon icon={signal.cited ?? sourceStyle(signal.source_product).icon} />
                 </span>
-                {hint && <span className="hidden text-[var(--foreground)] group-hover/row:flex">{hint.icon}</span>}
+                {hint && (
+                    <span className="hidden text-foreground group-hover/row:flex group-focus-visible/row:flex">
+                        {hint.icon}
+                    </span>
+                )}
             </span>
             <time dateTime={signal.timestamp} title={time.format('LLL')} className="w-12 text-right tabular-nums">
                 {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
@@ -121,19 +117,16 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                     expanded && 'hover:bg-transparent',
                     !hint && 'cursor-default'
                 )}
-                title={hint?.label}
+                title={[hint?.label, sourceLabel, signal.meta].filter(Boolean).join(' · ')}
                 data-attr="today-report-signal"
             >
                 <ItemContent className="min-w-0">
-                    <ItemTitle
-                        className={cn('font-normal text-[var(--foreground)]', !expanded && 'line-clamp-2')}
-                        title={[sourceLabel, signal.meta].filter(Boolean).join(' · ')}
-                    >
+                    <ItemTitle className={cn('font-normal text-foreground', !expanded && 'line-clamp-2')}>
                         {expanded ? signal.lead : signal.headline}
                     </ItemTitle>
                 </ItemContent>
                 <ItemActions className="shrink-0 self-start pt-0.5">
-                    <RowTrailer signal={signal} hint={hint} sourceLabel={sourceLabel} />
+                    <RowTrailer signal={signal} hint={hint} />
                 </ItemActions>
             </Item>
             {expanded && preview && (

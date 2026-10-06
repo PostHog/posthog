@@ -18,11 +18,11 @@ export type TodayPrimaryAction =
 interface TodayNextStep {
     primary: TodayPrimaryAction | null
     note: string | null
-    pickedUp: boolean
+    taskPickedUp: boolean
 }
 
 interface TodayNextStepContext {
-    inFlightPullRequest: PullRequestLinkApi | null
+    namedPullRequest: PullRequestLinkApi | null
     solutionNamesPullRequest: boolean
     slotClaimed: boolean
     runningTask: { taskId: string; runId: string } | null
@@ -49,21 +49,21 @@ function claimant(assignee: NonNullable<SignalReport['assignee']>): string {
     return name ?? assignee.agent ?? 'An agent'
 }
 
-function inFlightReview({ inFlightPullRequest }: TodayNextStepContext): TodayPrimaryAction | null {
-    return inFlightPullRequest
-        ? { kind: 'review', url: inFlightPullRequest.url, label: `View PR #${inFlightPullRequest.number}` }
+function namedPullRequestReview({ namedPullRequest }: TodayNextStepContext): TodayPrimaryAction | null {
+    return namedPullRequest
+        ? { kind: 'review', url: namedPullRequest.url, label: `View PR #${namedPullRequest.number}` }
         : null
 }
 
 function alreadyAddressed(context: TodayNextStepContext): TodayNextStep {
-    const review = inFlightReview(context)
+    const review = namedPullRequestReview(context)
     if (review) {
-        return { primary: review, note: null, pickedUp: false }
+        return { primary: review, note: null, taskPickedUp: false }
     }
     return {
         primary: null,
         note: context.solutionNamesPullRequest ? null : 'A fix is already in flight. The full report links to it.',
-        pickedUp: false,
+        taskPickedUp: false,
     }
 }
 
@@ -74,7 +74,7 @@ function pullRequestStep(report: SignalReport): TodayNextStep | null {
         return null
     }
     if (pullRequest.merged) {
-        return { primary: null, note: 'The fix is merged. Resolve the report once it is live.', pickedUp: false }
+        return { primary: null, note: 'The fix is merged. Resolve the report once it is live.', taskPickedUp: false }
     }
     if (pullRequest.state === 'closed') {
         return null
@@ -82,7 +82,7 @@ function pullRequestStep(report: SignalReport): TodayNextStep | null {
     return {
         primary: { kind: 'review', url, label: reviewLabel(url, pullRequest.state === 'draft') },
         note: REVIEW_NOTES[pullRequest.review_decision ?? ''] ?? null,
-        pickedUp: false,
+        taskPickedUp: false,
     }
 }
 
@@ -91,20 +91,20 @@ function pickedUpStep(report: SignalReport, context: TodayNextStepContext): Toda
     const taskPickedUp = context.slotClaimed || assignee?.kind === 'task'
     if (taskPickedUp && context.runningTask) {
         const primary = { kind: 'open_task' as const, label: 'Open the running task', ...context.runningTask }
-        return { primary, note: null, pickedUp: true }
+        return { primary, note: null, taskPickedUp: true }
     }
     if (taskPickedUp) {
         return {
-            primary: inFlightReview(context) ?? START,
+            primary: namedPullRequestReview(context) ?? START,
             note: `A PostHog task picked this up${pickedUpOn(assignee?.claimed_at)}.`,
-            pickedUp: true,
+            taskPickedUp: true,
         }
     }
     if (assignee?.kind === 'user' || assignee?.kind === 'agent') {
         return {
-            primary: inFlightReview(context) ?? START,
+            primary: namedPullRequestReview(context) ?? START,
             note: `${claimant(assignee)} picked this up${pickedUpOn(assignee.claimed_at)}.`,
-            pickedUp: true,
+            taskPickedUp: false,
         }
     }
     return null
@@ -118,7 +118,7 @@ export function todayNextStep(report: SignalReport, context: TodayNextStepContex
     if (report.already_addressed) {
         return alreadyAddressed(context)
     }
-    return { primary: START, note: null, pickedUp: false }
+    return { primary: START, note: null, taskPickedUp: false }
 }
 
 type TodayWorkKind = 'implement' | 'investigate'
@@ -146,10 +146,10 @@ export function resolveDisabledReason(report: SignalReport, sampleReason: string
 
 export function startDisabledReason(
     report: SignalReport,
-    pickedUp: boolean,
+    taskPickedUp: boolean,
     createPrDisabledReason: string | null
 ): string | null {
-    if (pickedUp) {
+    if (taskPickedUp) {
         return 'A task already picked this up.'
     }
     if (!isActionCapableReport(report)) {

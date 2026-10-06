@@ -24,7 +24,7 @@ export function TodayReportBody({
     live: TodayReportLiveState | null
 }): JSX.Element {
     return (
-        <article className="TodayReportArticle @container flex max-w-150 flex-col gap-10">
+        <article className="TodayReportArticle flex max-w-150 flex-col gap-10">
             <div className="flex flex-col gap-5">
                 <TodayReportHeader report={report} />
                 <TodayReportAbstract report={report} />

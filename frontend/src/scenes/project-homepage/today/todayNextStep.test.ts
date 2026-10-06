@@ -1,11 +1,11 @@
+import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { reportWorkKind, todayNextStep } from './todayNextStep'
-import { report } from './todayTestFixtures'
+import { reportWorkKind, startDisabledReason, todayNextStep } from './todayNextStep'
 
 const RUN = { taskId: 't1', runId: 'r1' }
 
-const CLAIMED_BY_TASK = report({
+const CLAIMED_BY_TASK = makeReport({
     assignee: {
         kind: 'task',
         task_id: 't1',
@@ -20,7 +20,7 @@ describe('todayNextStep', () => {
     test.each([
         [
             'an open pull request',
-            report({
+            makeReport({
                 pull_requests: [
                     { url: 'https://github.com/example/web/pull/1', state: 'draft', merged: false },
                 ] as unknown as SignalReport['pull_requests'],
@@ -33,7 +33,7 @@ describe('todayNextStep', () => {
         ],
         [
             'a merged pull request',
-            report({
+            makeReport({
                 pull_requests: [
                     { url: 'https://github.com/example/web/pull/1', state: 'closed', merged: true },
                 ] as unknown as SignalReport['pull_requests'],
@@ -58,19 +58,46 @@ describe('todayNextStep', () => {
         ],
         [
             'a fix already in flight',
-            report({ already_addressed: true }),
+            makeReport({ already_addressed: true }),
             null,
             { primary: null, note: 'A fix is already in flight. The full report links to it.' },
         ],
-        ['an untouched report', report({}), null, { primary: { kind: 'start' }, note: null }],
+        ['an untouched report', makeReport({}), null, { primary: { kind: 'start' }, note: null }],
     ])('names the next step for %s', (_, input, runningTask, expected) => {
         const { primary, note } = todayNextStep(input, {
-            inFlightPullRequest: null,
+            namedPullRequest: null,
             solutionNamesPullRequest: false,
             slotClaimed: false,
             runningTask,
         })
         expect({ primary, note }).toEqual(expected)
+    })
+
+    test.each([
+        ['a task claim', CLAIMED_BY_TASK, 'A task already picked this up.'],
+        [
+            'a person claim, which leaves PostHog free to start',
+            makeReport({
+                actionability: 'immediately_actionable',
+                assignee: {
+                    kind: 'user',
+                    task_id: null,
+                    claimed_at: '2026-08-11T09:00:00Z',
+                    user: { first_name: 'Ada', last_name: '', email: 'ada@example.com' },
+                    agent: null,
+                    claim_id: 'c2',
+                } as unknown as SignalReport['assignee'],
+            }),
+            null,
+        ],
+    ])('blocks starting with PostHog only for %s', (_, input, expected) => {
+        const { taskPickedUp } = todayNextStep(input, {
+            namedPullRequest: null,
+            solutionNamesPullRequest: false,
+            slotClaimed: false,
+            runningTask: null,
+        })
+        expect(startDisabledReason(input, taskPickedUp, null)).toEqual(expected)
     })
 
     test.each([
