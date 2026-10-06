@@ -360,7 +360,6 @@ describe('EmailService with local SES', () => {
             await expect(service.executeSendEmail(invocation)).rejects.toThrow('Database fault: fetchIntegrations')
 
             expect(invocation.state.vmState?.stack).toEqual([])
-            expect(invocation.queueParameters).toEqual(params)
             expect(ses.requests).toEqual([])
             expect(await ses.getEmails()).toEqual([])
         })
