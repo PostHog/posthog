@@ -18,9 +18,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from products.alerts_platform.backend.facade.lifecycle import (
+    FIRING_STATES,
     LOGS_ALERT_POLICY,
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,
@@ -48,8 +50,11 @@ __all__ = [
     "AlertCheckOutcome",
     "AlertSnapshot",
     "AlertState",
+    "FIRING_STATES",
     "CheckResult",
     "ControlPlaneOutcome",
+    "IncidentCloseReason",
+    "IncidentEdge",
     "InvalidTransition",
     "NotificationAction",
     "Outcome",
@@ -61,6 +66,7 @@ __all__ = [
     "apply_unsnooze",
     "apply_user_reset",
     "evaluate_alert_check",
+    "incident_edge",
 ]
 
 
@@ -83,6 +89,35 @@ class AlertSnapshot:
     snooze_until: datetime | None
     consecutive_failures: int
     recent_events_breached: tuple[bool, ...]
+
+
+class IncidentEdge(StrEnum):
+    OPENED = "opened"
+    CLOSED = "closed"
+
+
+class IncidentCloseReason(StrEnum):
+    RESOLVED = "resolved"
+    BROKEN = "broken"
+    DISABLED = "disabled"
+    SNOOZED = "snoozed"
+    CONFIG_CHANGED = "config_changed"
+    DELETED = "deleted"
+
+
+def incident_edge(state_before: str, new_state: str) -> IncidentEdge | None:
+    """Whether a transition starts or ends a firing.
+
+    Read from the states, not from the notification, because cooldown can suppress a notification
+    while the state still moves. An incident manager needs a resolve for every trigger it received.
+    """
+    was_firing = state_before in FIRING_STATES
+    is_firing = new_state in FIRING_STATES
+    if is_firing and not was_firing:
+        return IncidentEdge.OPENED
+    if was_firing and not is_firing:
+        return IncidentEdge.CLOSED
+    return None
 
 
 def evaluate_alert_check(
