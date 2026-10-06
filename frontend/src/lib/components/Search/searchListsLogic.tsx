@@ -59,6 +59,20 @@ const toSearchTabItems = (
     )
 }
 
+/** Most recently viewed first. Items never viewed go last, by name. */
+const byLastViewed = (a: SearchItem, b: SearchItem): number => {
+    if (!a.lastViewedAt && !b.lastViewedAt) {
+        return a.name.localeCompare(b.name)
+    }
+    if (!a.lastViewedAt) {
+        return 1
+    }
+    if (!b.lastViewedAt) {
+        return -1
+    }
+    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
+}
+
 /** Max starred shortcuts shown in quick search (folders excluded). */
 export const STARRED_LIMIT = 20
 
@@ -279,19 +293,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 })
                 items.push(...toSearchTabItems(items, filteredProducts, featureFlags))
 
-                // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
-                return items.sort((a, b) => {
-                    if (!a.lastViewedAt && !b.lastViewedAt) {
-                        return a.name.localeCompare(b.name)
-                    }
-                    if (!a.lastViewedAt) {
-                        return 1
-                    }
-                    if (!b.lastViewedAt) {
-                        return -1
-                    }
-                    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
-                })
+                return items.sort(byLastViewed)
             },
         ],
         dataManagementItems: [
@@ -340,19 +342,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
 
                 items.push(...toSearchTabItems(items, filteredMetadata, featureFlags))
 
-                // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
-                return items.sort((a, b) => {
-                    if (!a.lastViewedAt && !b.lastViewedAt) {
-                        return a.name.localeCompare(b.name)
-                    }
-                    if (!a.lastViewedAt) {
-                        return 1
-                    }
-                    if (!b.lastViewedAt) {
-                        return -1
-                    }
-                    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
-                })
+                return items.sort(byLastViewed)
             },
         ],
         newItems: [
