@@ -129,9 +129,10 @@ export type InboxReportActionType =
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
- * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ * written, `edited_suggestion` one the reader changed first, `typed` one written from scratch, and
+ * `preset` a fixed question that a button sends, such as Today's Investigate with PostHog.
  */
-export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed' | 'preset'
 
 /**
  * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event

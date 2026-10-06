@@ -1,3 +1,4 @@
+import json
 import inspect
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -6,7 +7,14 @@ from django.conf import settings
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+)
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
@@ -216,3 +224,24 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
                 ret.update(func())
 
         return ret
+
+
+def parse_entities(data: dict) -> list["Entity"]:
+    """Build the ordered entity list from an insight-style filter dict."""
+    processed_entities: list[Entity] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        processed_entities.extend([Entity({**entity, "type": entity_type}) for entity in raw])
+
+    processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+    for index, entity in enumerate(processed_entities):
+        entity.index = index
+    return processed_entities

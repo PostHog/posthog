@@ -41,7 +41,14 @@ import {
     ResultCustomizationByValue,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isDataTableNode, isEventsNode, isGroupNode, isInsightVizNode } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    isBIVisualizationNode,
+    isDataTableNode,
+    isEventsNode,
+    isGroupNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -853,6 +860,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }

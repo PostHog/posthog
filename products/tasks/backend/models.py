@@ -864,6 +864,20 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]
+            if task.origin_product == Task.OriginProduct.POSTHOG_AI and "pr_authorship_mode" not in state:
+                from products.tasks.backend.temporal.process_task.utils import (
+                    PrAuthorshipMode,
+                    resolve_user_github_integration_for_task,
+                    user_github_integration_is_usable,
+                )
+
+                state["pr_authorship_mode"] = (
+                    PrAuthorshipMode.USER.value
+                    if user_github_integration_is_usable(
+                        resolve_user_github_integration_for_task(task, allow_refresh=False)
+                    )
+                    else PrAuthorshipMode.BOT.value
+                )
             # Every run creation flows through here, so this is where team/user default AI run
             # preferences apply when the caller didn't pin a runtime selection.
             task._apply_ai_run_defaults(state, acting_user_id)
@@ -1165,10 +1179,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             parse_requested_sandbox_template(sandbox_template) if sandbox_template is not None else None
         )
         from products.tasks.backend.temporal.process_task.utils import (
+            USER_AUTHORABLE_ORIGIN_PRODUCTS,
             PrAuthorshipMode,
             RunSource,
             apply_runtime_adapter_run_state,
-            get_pr_authorship_mode,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -1200,11 +1214,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             runtime=runtime,
         )
-        authorship_mode = get_pr_authorship_mode(
-            task_stub,
-            {"run_source": RunSource.SIGNAL_REPORT.value}
-            if origin_product == Task.OriginProduct.SIGNAL_REPORT
-            else None,
+        authorship_mode = (
+            PrAuthorshipMode.USER if origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
         )
         if not github_resolution_allowed:
             pass
@@ -1294,7 +1305,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if origin_product == Task.OriginProduct.SIGNAL_REPORT:
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
-        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK):
+        elif origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS:
             extra_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )

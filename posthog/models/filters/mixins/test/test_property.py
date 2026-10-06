@@ -6,12 +6,12 @@ from unittest.mock import patch
 from posthoganalytics.contexts import get_capture_exception_code_variables_context
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import Filter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.property import Property, PropertyGroup, PropertyValidationError
 
 
 def test_property_group_multi_level_parsing():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -47,7 +47,7 @@ def test_property_group_multi_level_parsing():
 
 
 def test_property_group_simple_parsing():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -69,14 +69,14 @@ def test_property_group_simple_parsing():
 
 
 def test_property_group_empty_parsing():
-    filter = Filter(data={"properties": {}})
+    filter = PropertiesTimelineFilter(data={"properties": {}})
 
     assert filter.property_groups.type == "AND"
     assert filter.property_groups.values == []
 
 
 def test_property_group_invalid_parsing():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "XaND",
@@ -93,7 +93,7 @@ def test_property_group_invalid_parsing():
 
 
 def test_property_group_includes_unhomogenous_groups():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -112,7 +112,7 @@ def test_property_group_includes_unhomogenous_groups():
 
 
 def test_property_multi_level_to_dict():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -149,7 +149,7 @@ def test_property_multi_level_to_dict():
 
 
 def test_property_group_simple_to_dict():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -171,7 +171,7 @@ def test_property_group_simple_to_dict():
 
 
 def test_property_group_simple_json_parsing():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": json.dumps(
                 {
@@ -196,7 +196,7 @@ def test_property_group_simple_json_parsing():
 
 
 def test_property_group_multi_level_json_parsing():
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": json.dumps(
                 {
@@ -273,7 +273,7 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
     # with no visibility at all. It must still be dropped (callers across the codebase
     # rely on best-effort parsing of legacy/malformed data), but the failure must now be
     # reported — regardless of which internal check inside Property.__init__ rejected it.
-    filter = Filter(
+    filter = PropertiesTimelineFilter(
         data={
             "properties": {
                 "type": "AND",
@@ -282,7 +282,7 @@ def test_property_group_parsing_reports_and_skips_unparsable_property(
         }
     )
 
-    with patch("posthog.models.filters.mixins.property.capture_exception") as mock_capture_exception:
+    with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
         properties = filter.property_groups.values
 
     assert len(properties) == 1
@@ -303,9 +303,9 @@ def test_property_group_parsing_reports_non_mapping_property():
     # `Property(**prop_params)` unpacking with TypeError, before __init__ even runs. The
     # grouped-properties path can't reach this: a non-mapping element trips the "cannot
     # contain both PropertyGroup and Property objects" check first.
-    filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    filter = PropertiesTimelineFilter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
-    with patch("posthog.models.filters.mixins.property.capture_exception") as mock_capture_exception:
+    with patch("posthog.models.property.parse.capture_exception") as mock_capture_exception:
         properties = filter.property_groups.values
 
     assert len(properties) == 1
@@ -328,10 +328,10 @@ def test_property_group_parsing_disables_code_variable_capture_for_reported_exce
     def fake_capture_exception(error, additional_properties=None):
         observed_context_values.append(get_capture_exception_code_variables_context())
 
-    filter = Filter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
+    filter = PropertiesTimelineFilter(data={"properties": [{"key": "attr", "value": "val_1"}, "not-a-mapping"]})
 
     with patch(
-        "posthog.models.filters.mixins.property.capture_exception", side_effect=fake_capture_exception
+        "posthog.models.property.parse.capture_exception", side_effect=fake_capture_exception
     ) as mock_capture_exception:
         _ = filter.property_groups.values
 
