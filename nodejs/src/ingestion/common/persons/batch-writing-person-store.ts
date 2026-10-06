@@ -162,8 +162,8 @@ class BatchWritingPersonsCache {
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
-    private pendingPrefetchesByBatchId = new Map<number, number>()
-    private releasedBatchIdsWithPendingPrefetch = new Set<number>()
+    private pendingReadsByBatchId = new Map<number, number>()
+    private releasedBatchIdsWithPendingRead = new Set<number>()
     private cacheMetrics: CacheMetrics = {
         updateCacheHits: 0,
         updateCacheMisses: 0,
@@ -404,8 +404,8 @@ class BatchWritingPersonsCache {
 
     releaseBatchId(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)
-        if (this.pendingPrefetchesByBatchId.has(batchId)) {
-            this.releasedBatchIdsWithPendingPrefetch.add(batchId)
+        if (this.pendingReadsByBatchId.has(batchId)) {
+            this.releasedBatchIdsWithPendingRead.add(batchId)
         }
         if (!keys) {
             return
@@ -424,26 +424,26 @@ class BatchWritingPersonsCache {
         this.batchDistinctKeys.delete(batchId)
     }
 
-    trackPendingPrefetch(batchIds: Set<number>): void {
+    trackPendingRead(batchIds: Set<number>): void {
         for (const batchId of batchIds) {
-            this.pendingPrefetchesByBatchId.set(batchId, (this.pendingPrefetchesByBatchId.get(batchId) ?? 0) + 1)
+            this.pendingReadsByBatchId.set(batchId, (this.pendingReadsByBatchId.get(batchId) ?? 0) + 1)
         }
     }
 
-    finishPendingPrefetch(batchIds: Set<number>): void {
+    finishPendingRead(batchIds: Set<number>): void {
         for (const batchId of batchIds) {
-            const pendingCount = (this.pendingPrefetchesByBatchId.get(batchId) ?? 1) - 1
+            const pendingCount = (this.pendingReadsByBatchId.get(batchId) ?? 1) - 1
             if (pendingCount <= 0) {
-                this.pendingPrefetchesByBatchId.delete(batchId)
-                this.releasedBatchIdsWithPendingPrefetch.delete(batchId)
+                this.pendingReadsByBatchId.delete(batchId)
+                this.releasedBatchIdsWithPendingRead.delete(batchId)
             } else {
-                this.pendingPrefetchesByBatchId.set(batchId, pendingCount)
+                this.pendingReadsByBatchId.set(batchId, pendingCount)
             }
         }
     }
 
-    isBatchReleasedWithPendingPrefetch(batchId: number): boolean {
-        return this.releasedBatchIdsWithPendingPrefetch.has(batchId)
+    isBatchReleasedWithPendingRead(batchId: number): boolean {
+        return this.releasedBatchIdsWithPendingRead.has(batchId)
     }
 
     processDeferredEvictions(): void {
@@ -1263,7 +1263,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         const prefetchBatchIds = new Set(uncachedEntries.map(({ batchId }) => batchId))
-        this.personCache.trackPendingPrefetch(prefetchBatchIds)
+        this.personCache.trackPendingRead(prefetchBatchIds)
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
@@ -1285,7 +1285,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
                 // Cache all results (found persons and nulls for missing ones).
                 for (const { teamId, distinctId, batchId, cacheKey } of uncachedEntries) {
-                    if (this.personCache.isBatchReleasedWithPendingPrefetch(batchId)) {
+                    if (this.personCache.isBatchReleasedWithPendingRead(batchId)) {
                         continue
                     }
 
@@ -1308,7 +1308,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 for (const { cacheKey } of uncachedEntries) {
                     this.fetchPromisesForChecking.delete(cacheKey)
                 }
-                this.personCache.finishPendingPrefetch(prefetchBatchIds)
+                this.personCache.finishPendingRead(prefetchBatchIds)
             })
 
         // Register per-key promises so fetchForChecking/fetchForUpdate can wait on the in-flight
@@ -1374,6 +1374,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (!fetchPromise) {
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
+                const readBatchIds = new Set([batchId])
+                this.personCache.trackPendingRead(readBatchIds)
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
@@ -1383,6 +1385,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         callerTag: 'ingestion/person-update-conflict',
                     })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
+                    if (this.personCache.isBatchReleasedWithPendingRead(batchId)) {
+                        return person ?? null
+                    }
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
@@ -1404,6 +1409,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         return currentCache === null ? null : toInternalPerson(currentCache)
                     }
                 } finally {
+                    this.personCache.finishPendingRead(readBatchIds)
                     this.fetchPromisesForUpdate.delete(cacheKey)
                 }
             })()

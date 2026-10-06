@@ -2895,6 +2895,26 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
         })
 
+        it('should not mark a distinct id absent when its batch was released during the primary read', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            let resolveFetch: (value: undefined) => void
+            mockRepo.fetchPerson.mockReturnValueOnce(
+                new Promise<undefined>((resolve) => {
+                    resolveFetch = resolve
+                })
+            )
+            const pendingRead = personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)
+
+            personStoreForBatch.releaseBatch(0)
+            resolveFetch!(undefined)
+            await expect(pendingRead).resolves.toBeNull()
+
+            mockRepo.fetchPerson.mockResolvedValueOnce(undefined)
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-1', 1)).resolves.toBeNull()
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2)
+        })
+
         it('should resolve (not reject) on a transient persons-Postgres failure', async () => {
             const personStoreForBatch = getPersonsStore()
 
