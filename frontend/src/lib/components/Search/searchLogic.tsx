@@ -126,12 +126,12 @@ const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet
 
 const displayNameOf = (item: SearchItem): string => item.displayName || item.name
 
-const activitySearchSource = (): FileSystemImport => ({
+const activitySearchSource = (liveEventsRetired: boolean): FileSystemImport => ({
     path: 'Activity',
     href: urls.activity(ActivityTab.ExploreEvents),
-    searchKeywords: ['event explorer', 'raw events'],
+    searchKeywords: ['event explorer', 'raw events', ...(liveEventsRetired ? ['live events'] : [])],
     searchTabs: [
-        { name: 'Live events', href: urls.activity(ActivityTab.LiveEvents) },
+        ...(liveEventsRetired ? [] : [{ name: 'Live events', href: urls.activity(ActivityTab.LiveEvents) }]),
         { name: 'Explore sessions', href: urls.activity(ActivityTab.ExploreSessions) },
     ],
 })
@@ -971,7 +971,7 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
-                const activity = activitySearchSource()
+                const activity = activitySearchSource(isEnabledByFlag(FEATURE_FLAGS.LIVESTREAM_HOGQL, featureFlags))
                 items.push({
                     id: 'product-activity',
                     name: activity.path,

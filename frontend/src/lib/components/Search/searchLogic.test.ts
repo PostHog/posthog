@@ -189,7 +189,6 @@ describe('searchLogic', () => {
         ['semantic-layer', 'productsItems', 'Data catalog'],
         ['featureflags', 'productsItems', 'Feature flags'],
         ['Feature Flags', 'productsItems', 'Feature flags'],
-        ['live events', 'productsItems', 'Activity Live events'],
         ['segments', 'peopleItems', 'Cohorts'],
     ] as const)('finds an item by a manifest search keyword: %s', (search, selector, itemName) => {
         const matches = filterSearchItems(logic.values[selector], search)
@@ -270,6 +269,25 @@ describe('searchLogic', () => {
         expect(keys).toContain('settings')
         expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(-1)
         expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeLessThan(keys.indexOf('settings'))
+    })
+
+    it.each([
+        [false, 'Live events'],
+        [true, 'Activity'],
+    ])('leads "live events" with LIVESTREAM_HOGQL=%s to %s', (liveEventsRetired, expectedDisplayName) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LIVESTREAM_HOGQL]: liveEventsRetired })
+
+        const matches = filterSearchItems(logic.values.productsItems, 'live events')
+        expect(matches.map((item) => item.displayName)).toEqual([expectedDisplayName])
+    })
+
+    it('lists Persons above the Tabs group for "users"', async () => {
+        await searchOnceProductsLoad('users')
+
+        const keys = logic.values.allCategories.map((category) => category.key)
+        const people = logic.values.allCategories.find((category) => category.key === 'people')
+        expect(people?.items[0]?.name).toBe('Persons')
+        expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(keys.indexOf('people'))
     })
 
     it.each([
