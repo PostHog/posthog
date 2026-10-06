@@ -596,10 +596,11 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     if (!run) {
                         return []
                     }
+                    // The endpoint pages at 100. A quarantine past the first page would drop its lift request.
                     const response = await visualReviewReposQuarantineList(
                         String(values.currentProjectId),
                         run.repo_id,
-                        { run_type: run.run_type }
+                        { run_type: run.run_type, limit: 1000 }
                     )
                     return response.results
                 },
