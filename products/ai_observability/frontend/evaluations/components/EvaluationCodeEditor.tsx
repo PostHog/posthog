@@ -196,6 +196,8 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
+const SESSIONS_DOCS_URL = 'https://posthog.com/docs/ai-observability/sessions'
+
 export function HogTestResultsPanel(): JSX.Element | null {
     const { hogTestResults, hogTestResultsLoading, hogTestMessage, evaluation } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
@@ -265,7 +267,19 @@ export function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
-            {hogTestMessage && <div className="text-sm text-muted">{hogTestMessage}</div>}
+            {hogTestMessage && (
+                <div className="text-sm text-muted">
+                    {hogTestMessage}
+                    {evaluation?.target === 'session' && (
+                        <>
+                            {' '}
+                            <Link to={SESSIONS_DOCS_URL} target="_blank">
+                                Learn how to capture session IDs
+                            </Link>
+                        </>
+                    )}
+                </div>
+            )}
             <LemonTable<TestHogResultItemApi>
                 columns={[
                     {

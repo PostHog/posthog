@@ -850,6 +850,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         # `message` is the key the trace and generation previews already use, so the editor
         # renders every target's empty sample through one path.
         self.assertIn("24 hours", body["message"])
+        self.assertIn("$ai_session_id", body["message"])
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
         response = self.client.post(
