@@ -536,7 +536,7 @@ async def test_traditional_shadow_records_the_traditional_comparison() -> None:
         await release_traditional.wait()
         return False
 
-    async def system_one_result(*_args: object) -> SignalsDecision:
+    async def system_one_result(*_args: object, signal_id: str | None = None) -> SignalsDecision:
         await traditional_started.wait()
         release_traditional.set()
         return SignalsDecision(

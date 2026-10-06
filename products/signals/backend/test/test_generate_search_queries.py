@@ -27,8 +27,10 @@ async def test_generate_search_queries_keeps_the_first_three_without_a_retry(ret
                 source_product="zendesk",
                 source_type="ticket",
                 signal_type_examples=[],
+                signal_id="driver-signal",
             )
         )
 
     assert result == queries[:MAX_SEARCH_QUERIES]
     assert call_llm.call_count == 1
+    assert call_llm.call_args.kwargs["signal_id"] == "driver-signal"

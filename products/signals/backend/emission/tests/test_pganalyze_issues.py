@@ -256,7 +256,9 @@ class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, BaseTest):
         table = IssuesTable(["issue_1"])
         records = self._fetch(table)
         with patch("products.signals.backend.emission.pipeline.build_async_anthropic_client") as client:
-            client.return_value.messages.create = AsyncMock(return_value=_make_llm_response("NOT_ACTIONABLE"))
+            client.return_value.messages.with_raw_response.create = AsyncMock(
+                return_value=_make_llm_response("NOT_ACTIONABLE")
+            )
             result = async_to_sync(run_signal_pipeline)(
                 team=self.team, config=PGANALYZE_ISSUES_CONFIG, records=records, extra={}
             )

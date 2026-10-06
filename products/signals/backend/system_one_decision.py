@@ -17,6 +17,7 @@ from redis.exceptions import RedisError
 
 from posthog.dataclasses import frozen
 from posthog.redis import get_client
+from posthog.sync import database_sync_to_async
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.ml_inference.backend.facade import api as decision_api
@@ -29,6 +30,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.signals.backend.spend import record_llm_request
 from products.signals.backend.system_one_prompts import (
     JEEVES_MODEL,
     JEVK_MODEL,
@@ -228,6 +230,7 @@ async def _query(
     source_id: str | None,
     source_product: str | None,
     mode: ModelMode,
+    signal_id: str | None = None,
 ) -> SignalsDecision:
     await _admit_jev(team_id, stage, mode)
     question_name = "actionable" if stage == "actionability" else "safe"
@@ -240,30 +243,40 @@ async def _query(
             instructions="Which safety category best describes the content? Choose none when no category applies.",
             criteria=SAFETY_CATEGORIES,
         )
-    result = await asyncio.to_thread(
-        decision_api.decide_when_available,
-        DecisionRequest(
-            team_id=team_id,
-            state=state,
-            questions=questions,
-            model=prompt.model,
-            ai_product="signals",
-            trace_id=trace_id,
-            properties={
-                key: value
-                for key, value in {
-                    "signals_decision_id": trace_id,
-                    "ai_stage": stage,
-                    "source_id": source_id,
-                    "source_product": source_product,
-                    "$ai_prompt_name": prompt.name,
-                    "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
-                    "system_one_prompt_source": prompt.source,
-                }.items()
-                if value is not None
-            },
-        ),
-        timeout_seconds=JEV_TIMEOUT_SECONDS,
+    try:
+        result = await asyncio.to_thread(
+            decision_api.decide_when_available,
+            DecisionRequest(
+                team_id=team_id,
+                state=state,
+                questions=questions,
+                model=prompt.model,
+                ai_product="signals",
+                trace_id=trace_id,
+                properties={
+                    key: value
+                    for key, value in {
+                        "signals_decision_id": trace_id,
+                        "ai_stage": stage,
+                        "source_id": source_id,
+                        "source_product": source_product,
+                        "$ai_prompt_name": prompt.name,
+                        "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
+                        "system_one_prompt_source": prompt.source,
+                    }.items()
+                    if value is not None
+                },
+            ),
+            timeout_seconds=JEV_TIMEOUT_SECONDS,
+        )
+    except DecisionGatewayError as error:
+        if error.status_code == 200:
+            await database_sync_to_async(record_llm_request)(
+                error.request_id, team_id=team_id, signal_id=signal_id, stage=stage
+            )
+        raise
+    await database_sync_to_async(record_llm_request)(
+        result.request_id, team_id=team_id, signal_id=signal_id, stage=stage
     )
     answer = result.answers.get(question_name)
     if not isinstance(answer, NoulAnswer):
@@ -308,6 +321,7 @@ async def run_model_decision(
     traditional_category: Callable[[T], str | None] | None = None,
     mode_override: ModelMode | None = None,
     on_deciding_provider: Callable[[str], None] | None = None,
+    signal_id: str | None = None,
 ) -> T:
     if team_id is None:
         return await traditional(None)
@@ -336,7 +350,17 @@ async def run_model_decision(
             if mode == "system-one-shadow":
                 experiment = await _shadow_model_experiment(team_id, trace_id, prompt)
                 prompt = experiment.prompt
-            result = await _query(team_id, stage, state, prompt, trace_id, source_id, source_product, mode)
+            result = await _query(
+                team_id,
+                stage,
+                state,
+                prompt,
+                trace_id,
+                source_id,
+                source_product,
+                mode,
+                signal_id=signal_id,
+            )
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except _JevAdmissionError as error:
             _ADMISSIONS.labels(stage, error.status).inc()

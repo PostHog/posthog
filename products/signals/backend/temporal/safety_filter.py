@@ -21,7 +21,6 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
-from products.signals.backend.spend import track_signal_spend
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -188,6 +187,7 @@ async def safety_filter(
     source_product: str | None = None,
     source_type: str | None = None,
     source_id: str | None = None,
+    signal_id: str | None = None,
 ) -> SafetyFilterJudgeResponse:
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
@@ -218,6 +218,7 @@ async def safety_filter(
         try:
             return await call_llm(
                 team_id=team_id,
+                signal_id=signal_id,
                 system_prompt=system_one_prompt.policy,
                 user_prompt=signal_prompt,
                 validate=validate,
@@ -255,6 +256,7 @@ async def safety_filter(
     result = await run_model_decision(
         team_id=team_id,
         stage="signal_safety",
+        signal_id=signal_id,
         primary_model=SAFETY_MODEL,
         source_id=source_id,
         source_product=source_product,
@@ -341,12 +343,16 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-@track_signal_spend
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:
         result = await safety_filter(
-            input.team_id, input.description, input.source_product, input.source_type, input.source_id
+            input.team_id,
+            input.description,
+            input.source_product,
+            input.source_type,
+            input.source_id,
+            signal_id=input.signal_id,
         )
     except Exception:
         logger.exception("Failed to run safety filter")

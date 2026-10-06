@@ -1,8 +1,3 @@
-from collections.abc import Awaitable, Callable, Coroutine, Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
-from functools import partial, wraps
-from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -12,8 +7,6 @@ from django.db.models import Count, Q, Sum
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.usage import record_gateway_usage
-from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
@@ -22,71 +15,9 @@ logger = structlog.get_logger(__name__)
 
 
 @frozen
-class SpendOwner:
-    team_id: int
-    signal_id: str
-
-
-@frozen
 class SignalSpendSummary:
     total_spend: float
     failed_stages: list[str]
-
-
-_owner: ContextVar[SpendOwner | None] = ContextVar("signal_spend_owner", default=None)
-
-
-def current_spend_signal_id(team_id: int) -> str | None:
-    owner = _owner.get()
-    return owner.signal_id if owner and owner.team_id == team_id else None
-
-
-class SignalSpendInput(Protocol):
-    @property
-    def team_id(self) -> int | None: ...
-
-    @property
-    def signal_id(self) -> str | None: ...
-
-
-class ReportSpendInput(Protocol):
-    @property
-    def team_id(self) -> int: ...
-
-    @property
-    def report_id(self) -> str: ...
-
-
-def track_signal_spend[I: SignalSpendInput, R](
-    fn: Callable[[I], Awaitable[R]],
-) -> Callable[[I], Coroutine[None, None, R]]:
-    @wraps(fn)
-    async def wrapped(input: I) -> R:
-        with signal_spend_scope(input.team_id, input.signal_id, stage=fn.__name__.removesuffix("_activity")):
-            return await fn(input)
-
-    return wrapped
-
-
-def track_report_spend[I: ReportSpendInput, R](
-    fn: Callable[[I], Awaitable[R]],
-) -> Callable[[I], Coroutine[None, None, R]]:
-    @wraps(fn)
-    async def wrapped(input: I) -> R:
-        stage = fn.__name__.removesuffix("_activity")
-        try:
-            signal_id = await database_sync_to_async(report_triggering_signal)(
-                team_id=input.team_id, report_id=input.report_id
-            )
-        except Exception:
-            logger.exception(
-                "signals.spend.accounting_failed", stage=stage, team_id=input.team_id, report_id=input.report_id
-            )
-            signal_id = None
-        with signal_spend_scope(input.team_id, signal_id, stage=stage):
-            return await fn(input)
-
-    return wrapped
 
 
 def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempotency_key: str | None = None) -> str:
@@ -97,7 +28,25 @@ def signal_id_for(*, team_id: int, source_product: str, source_type: str, idempo
     )
 
 
-def record_llm_request(request_id: str | None, *, team_id: int, signal_id: str, stage: str) -> None:
+def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
+    with transaction.atomic():
+        signal_id = (
+            SignalReport.objects.filter(team_id=team_id, id=report_id)
+            .values_list("triggering_signal_id", flat=True)
+            .first()
+        )
+    return str(signal_id) if signal_id else None
+
+
+def record_llm_request(
+    request_id: str | None,
+    *,
+    team_id: int | None,
+    stage: str,
+    signal_id: str | None = None,
+) -> None:
+    if team_id is None or signal_id is None:
+        return
     try:
         with transaction.atomic():
             SignalSpend.objects.for_team(team_id).get_or_create(
@@ -117,29 +66,6 @@ def record_llm_request(request_id: str | None, *, team_id: int, signal_id: str, 
         logger.exception(
             "signals.spend.accounting_failed", stage=stage, team_id=team_id, signal_id=signal_id, request_id=request_id
         )
-
-
-@contextmanager
-def signal_spend_scope(team_id: int | None, signal_id: str | None, *, stage: str) -> Iterator[None]:
-    if team_id is None or signal_id is None:
-        yield
-        return
-    token = _owner.set(SpendOwner(team_id=team_id, signal_id=signal_id))
-    try:
-        with record_gateway_usage(partial(record_llm_request, team_id=team_id, signal_id=signal_id, stage=stage)):
-            yield
-    finally:
-        _owner.reset(token)
-
-
-def report_triggering_signal(*, team_id: int, report_id: str) -> str | None:
-    with transaction.atomic():
-        signal_id = (
-            SignalReport.objects.filter(team_id=team_id, id=report_id)
-            .values_list("triggering_signal_id", flat=True)
-            .first()
-        )
-    return str(signal_id) if signal_id else None
 
 
 def record_task_spend(

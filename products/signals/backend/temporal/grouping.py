@@ -41,7 +41,7 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import signal_spend_summaries, track_signal_spend
+from products.signals.backend.spend import signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -201,6 +201,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
 
     return await call_llm(
         team_id=input.team_id,
+        signal_id=input.signal_id,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=validate,
@@ -218,7 +219,6 @@ class GenerateSearchQueriesOutput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-@track_signal_spend
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
@@ -495,6 +495,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
 
     return await call_llm(
         team_id=input.team_id,
+        signal_id=input.signal_id,
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
@@ -508,7 +509,6 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-@track_signal_spend
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
@@ -607,6 +607,7 @@ async def verify_match_specificity(
     new_signal_source_type: str,
     report_title: str,
     group_signals: list[SignalData],
+    signal_id: str | None = None,
 ) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     specificity_prompt = _build_specificity_prompt(
@@ -619,6 +620,7 @@ async def verify_match_specificity(
 
     specificity = await call_llm(
         team_id=team_id,
+        signal_id=signal_id,
         system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
         user_prompt=specificity_prompt,
         validate=lambda text: SpecificityResult.model_validate_json(text),
@@ -638,7 +640,6 @@ async def verify_match_specificity(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-@track_signal_spend
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
@@ -649,6 +650,7 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             new_signal_source_type=input.new_signal_source_type,
             report_title=input.report_title,
             group_signals=input.group_signals,
+            signal_id=input.signal_id,
         )
 
         logger.debug(

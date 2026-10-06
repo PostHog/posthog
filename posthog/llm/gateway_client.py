@@ -16,12 +16,6 @@ from openai import AsyncOpenAI, OpenAI
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.llm.usage import (
-    record_async_gateway_response,
-    record_async_unpriced_response,
-    record_gateway_response,
-    record_unpriced_response,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -172,7 +166,7 @@ def get_llm_client(
         base_url=base_url,
         api_key=resolved_api_key,
         default_headers=headers or None,
-        http_client=httpx.Client(trust_env=False, event_hooks={"response": [record_unpriced_response]}),
+        http_client=httpx.Client(trust_env=False),
     )
 
 
@@ -199,7 +193,7 @@ def get_async_llm_client(
         base_url=base_url,
         api_key=resolved_api_key,
         default_headers=headers or None,
-        http_client=httpx.AsyncClient(trust_env=False, event_hooks={"response": [record_async_unpriced_response]}),
+        http_client=httpx.AsyncClient(trust_env=False),
     )
 
 
@@ -248,7 +242,7 @@ def get_async_anthropic_gateway_client(
         base_url=base_url,
         api_key=resolved_api_key,
         default_headers=headers or None,
-        http_client=httpx.AsyncClient(trust_env=False, event_hooks={"response": [record_async_unpriced_response]}),
+        http_client=httpx.AsyncClient(trust_env=False),
     )
 
 
@@ -275,7 +269,7 @@ def get_anthropic_gateway_client(
         base_url=base_url,
         api_key=resolved_api_key,
         default_headers=headers or None,
-        http_client=httpx.Client(trust_env=False, event_hooks={"response": [record_unpriced_response]}),
+        http_client=httpx.Client(trust_env=False),
     )
 
 
@@ -431,7 +425,7 @@ def build_openai_client(
                 properties=properties,
                 distinct_id=distinct_id,
             ),
-            http_client=httpx.Client(trust_env=False, event_hooks={"response": [record_gateway_response]}),
+            http_client=httpx.Client(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_llm_client(product, default_headers=fallback_headers)
@@ -458,7 +452,7 @@ def build_async_openai_client(
                 properties=properties,
                 distinct_id=distinct_id,
             ),
-            http_client=httpx.AsyncClient(trust_env=False, event_hooks={"response": [record_async_gateway_response]}),
+            http_client=httpx.AsyncClient(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, session_id, properties)
     return get_async_llm_client(product, default_headers=fallback_headers)
@@ -514,7 +508,7 @@ def build_async_anthropic_client(
                 trace_id=trace_id or team_trace_id(team_id),
                 properties=labels,
             ),
-            http_client=httpx.AsyncClient(trust_env=False, event_hooks={"response": [record_async_gateway_response]}),
+            http_client=httpx.AsyncClient(trust_env=False),
         )
     fallback_headers = _python_gateway_observability_headers(trace_id, None, properties)
     if fallback_headers is None:
@@ -544,7 +538,7 @@ def _ai_gateway_anthropic_client(
             properties=labels,
             distinct_id=distinct_id,
         ),
-        http_client=httpx.Client(trust_env=False, event_hooks={"response": [record_gateway_response]}),
+        http_client=httpx.Client(trust_env=False),
     )
 
 

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -13,7 +14,6 @@ from posthog.llm.gateway_client import (
     resolve_ai_gateway_config,
     team_distinct_id,
 )
-from posthog.llm.usage import record_gateway_response
 from posthog.models import Team
 
 from ..facade.contracts import (
@@ -111,22 +111,22 @@ def decide(
     if request.privacy_mode:
         headers["X-PostHog-Privacy-Mode"] = "true"
     try:
-        with httpx.Client(
-            trust_env=False,
-            timeout=timeout_seconds,
-            transport=transport,
-            event_hooks={"response": [record_gateway_response]},
-        ) as client:
+        with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
             response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
     except httpx.RequestError as error:
         raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error
     if response.status_code != 200:
         raise DecisionGatewayError(response.status_code, response.text[:500])
+    request_id = response.headers.get("x-request-id")
     try:
         payload = response.json()
     except ValueError as error:
-        raise DecisionGatewayError(200, "decision response is not JSON") from error
-    return parse_result(payload, request.questions)
+        raise DecisionGatewayError(200, "decision response is not JSON", request_id=request_id) from error
+    try:
+        return replace(parse_result(payload, request.questions), request_id=request_id)
+    except DecisionGatewayError as error:
+        error.request_id = request_id
+        raise
 
 
 def _wire_body(request: DecisionRequest) -> dict[str, Any]:

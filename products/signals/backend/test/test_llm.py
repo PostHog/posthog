@@ -28,7 +28,9 @@ def _text_response(text: str) -> Message:
 
 def _mock_anthropic_client() -> MagicMock:
     client = MagicMock()
-    client.messages.create = AsyncMock(return_value=_text_response("ok"))
+    response = MagicMock(headers={})
+    response.parse.return_value = _text_response("ok")
+    client.messages.with_raw_response.create = AsyncMock(return_value=response)
     return client
 
 
@@ -52,7 +54,7 @@ async def test_gateway_mode_omits_legacy_stage_header():
     assert build_client.call_args.kwargs["properties"] == {"signals_decision_id": "decision-1"}
     # In gateway mode the labels ride on the builder's X-PostHog-Properties blob; the per-key
     # ai_stage header (which the Go gateway drops) must not be sent.
-    assert "extra_headers" not in client.messages.create.call_args.kwargs
+    assert "extra_headers" not in client.messages.with_raw_response.create.call_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -70,7 +72,9 @@ async def test_fallback_mode_sends_legacy_stage_header():
         )
 
     # On the Python-gateway fallback the stage still rides as a per-key header the route reads.
-    assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
+    assert client.messages.with_raw_response.create.call_args.kwargs["extra_headers"] == {
+        "x-posthog-property-ai_stage": "match"
+    }
 
 
 @pytest.mark.asyncio
@@ -87,7 +91,9 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
     # with the env configured, and keeps the legacy per-key stage header.
     legacy.assert_called_once()
     gateway.assert_not_called()
-    assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
+    assert client.messages.with_raw_response.create.call_args.kwargs["extra_headers"] == {
+        "x-posthog-property-ai_stage": "match"
+    }
 
 
 @pytest.mark.asyncio
@@ -113,14 +119,14 @@ async def test_cache_system_prompt_marks_the_system_block(
             cache_system_prompt=cache_system_prompt,
         )
 
-    assert client.messages.create.call_args.kwargs["system"] == expected_system
+    assert client.messages.with_raw_response.create.call_args.kwargs["system"] == expected_system
 
 
 @pytest.mark.asyncio
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_non_message_response_raises_descriptive_error():
     client = _mock_anthropic_client()
-    client.messages.create.return_value = "not json"
+    client.messages.with_raw_response.create.return_value.parse.return_value = "not json"
 
     with (
         patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
@@ -182,7 +188,7 @@ async def test_request_shape_follows_model_capabilities(
             stage="match",
         )
 
-    kwargs = client.messages.create.call_args.kwargs
+    kwargs = client.messages.with_raw_response.create.call_args.kwargs
     prefilled = kwargs["messages"][-1]["role"] == "assistant"
     assert prefilled is expect_prefill
     assert ("temperature" in kwargs) is expect_temperature
@@ -206,7 +212,7 @@ async def test_explicit_model_overrides_the_matching_model() -> None:
             model="claude-sonnet-5",
         )
 
-    kwargs = client.messages.create.call_args.kwargs
+    kwargs = client.messages.with_raw_response.create.call_args.kwargs
 
     # The capabilities follow the override, not MATCHING_MODEL, so dropping it flips all three.
     assert kwargs["model"] == "claude-sonnet-5"

@@ -118,7 +118,7 @@ class TestDecide:
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(request)
-            return httpx.Response(200, json=ANSWERS)
+            return httpx.Response(200, headers={"x-request-id": "generation-1"}, json=ANSWERS)
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
             result = decisions.decide(
@@ -154,6 +154,7 @@ class TestDecide:
         assert body["state"] == state
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
+        assert result.request_id == "generation-1"
         assert result.input_tokens == 772
         assert result.latency_ms == 41.25
 
@@ -204,6 +205,17 @@ class TestDecide:
             decisions.parse_result(payload, QUESTIONS)
 
         assert raised.value.status_code == 200
+
+    @pytest.mark.parametrize("content", [b"not-json", b'{"answers": {}}'])
+    def test_malformed_generation_keeps_its_request_id(self, content: bytes) -> None:
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(200, headers={"x-request-id": "generation-1"}, content=content)
+        )
+        with override_settings(**GATEWAY), pytest.raises(DecisionGatewayError) as raised:
+            decisions.decide(_request(), transport=transport)
+
+        assert raised.value.status_code == 200
+        assert raised.value.request_id == "generation-1"
 
     def test_reports_a_transport_failure_as_the_gateway_being_unreachable(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

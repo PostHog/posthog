@@ -12,20 +12,24 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import httpx
+from fakeredis import FakeRedis
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from posthog.llm.gateway_client import build_async_anthropic_client
 from posthog.llm.gateway_usage import GatewayRequestCost
-from posthog.llm.usage import record_gateway_response, record_unpriced_response
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.token_bucket import TEST_reset_scripts
 
+from products.ml_inference.backend.facade.contracts import DecisionGatewayError, DecisionResult, NoulAnswer
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
-from products.signals.backend.spend import signal_spend_scope, signal_spend_summaries, signal_spend_totals
+from products.signals.backend.spend import record_llm_request, signal_spend_summaries, signal_spend_totals
 from products.signals.backend.spend_tasks import reconcile_signal_spend
+from products.signals.backend.system_one_decision import SignalsDecisionError, run_model_decision
+from products.signals.backend.system_one_prompts import bundled_prompt
+from products.signals.backend.temporal.llm import call_llm
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.models import Task, TaskRun
 
@@ -37,43 +41,142 @@ class TestSpendPricing(SimpleTestCase):
 
 
 class TestSignalSpend(BaseTest):
-    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
-    async def test_parallel_gateway_calls_keep_their_signal_owner(self) -> None:
+    @parameterized.expand([("gateway",), ("missing_request_id",), ("legacy",)])
+    async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self, mode: str) -> None:
         drivers = [str(uuid4()), str(uuid4())]
+        attempts: dict[str, int] = {}
 
         async def respond(request: httpx.Request) -> httpx.Response:
             key = json.loads(request.content)["messages"][0]["content"]
+            attempts[key] = attempts.get(key, 0) + 1
             return httpx.Response(
                 200,
-                headers={"x-request-id": key},
+                headers={"x-request-id": f"{key}-{attempts[key]}"} if mode != "missing_request_id" else {},
                 json={
                     "id": "msg_example",
                     "type": "message",
                     "role": "assistant",
-                    "model": "model-a",
-                    "content": [{"type": "text", "text": "ok"}],
+                    "model": "claude-sonnet-5",
+                    "content": [
+                        {"type": "text", "text": "invalid" if key == "request-a" and attempts[key] == 1 else "ok"}
+                    ],
                     "stop_reason": "end_turn",
                     "usage": {"input_tokens": 10, "output_tokens": 1},
                 },
             )
 
-        async def call(driver: str | None, request_id: str) -> None:
-            with signal_spend_scope(self.team.id, driver, stage="actionability"):
-                await client.messages.create(
-                    model="model-a", max_tokens=10, messages=[{"role": "user", "content": request_id}]
-                )
+        def validate(text: str) -> str:
+            if text != "ok":
+                raise ValueError("Invalid generation")
+            return text
 
-        client = build_async_anthropic_client("signals", team_id=self.team.id)
-        try:
-            with patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)):
-                await asyncio.gather(call(drivers[0], "request-a"), call(drivers[1], "request-b"))
-                await call(None, "unattributed")
-        finally:
-            await client.close()
+        async def call(driver: str | None, request_id: str) -> str:
+            return await call_llm(
+                team_id=self.team.id,
+                signal_id=driver,
+                system_prompt="Example prompt",
+                user_prompt=request_id,
+                validate=validate,
+                stage="actionability",
+                ai_product="signals",
+                model="claude-sonnet-5",
+            )
+
+        with (
+            override_settings(
+                AI_GATEWAY_URL="" if mode == "legacy" else "https://gateway.example.com/v1",
+                AI_GATEWAY_API_KEY="" if mode == "legacy" else "phs_test",
+                LLM_GATEWAY_URL="https://legacy.example.com",
+                LLM_GATEWAY_API_KEY="test-key",
+            ),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", new=AsyncMock(side_effect=respond)),
+        ):
+            results = await asyncio.gather(call(drivers[0], "request-a"), call(drivers[1], "request-b"))
+            assert list(results) == ["ok", "ok"]
+            assert await call(None, "unattributed") == "ok"
         rows = await database_sync_to_async(
-            lambda: list(SignalSpend.objects.for_team(self.team.id).values_list("source_id", "signal_id"))
+            lambda: list(
+                SignalSpend.objects.for_team(self.team.id).values(
+                    "source_id", "signal_id", "stage", "accounting_failed"
+                )
+            )
         )()
-        assert {source: str(owner) for source, owner in rows} == {"request-a": drivers[0], "request-b": drivers[1]}
+        assert len(rows) == 3
+        assert sorted(str(row["signal_id"]) for row in rows) == sorted([drivers[0], drivers[0], drivers[1]])
+        assert all(row["stage"] == "actionability" for row in rows)
+        if mode == "gateway":
+            assert {row["source_id"]: str(row["signal_id"]) for row in rows} == {
+                "request-a-1": drivers[0],
+                "request-a-2": drivers[0],
+                "request-b-1": drivers[1],
+            }
+            assert not any(row["accounting_failed"] for row in rows)
+        else:
+            assert all(row["accounting_failed"] for row in rows)
+            assert all(row["source_id"].startswith("unknown-") for row in rows)
+
+    @parameterized.expand([("success",), ("missing_request_id",), ("invalid",), ("refused",)])
+    async def test_system_one_records_generation_ids_even_when_validation_fails(self, outcome: str) -> None:
+        driver = str(uuid4())
+        result = DecisionResult(
+            model="jevk5-fp8-0.2",
+            answers={"actionable": NoulAnswer(probability=0.98)},
+            input_tokens=10,
+            request_id=None if outcome == "missing_request_id" else "decision-request",
+        )
+        failure = (
+            DecisionGatewayError(200 if outcome == "invalid" else 429, "Example failure", request_id="decision-request")
+            if outcome in {"invalid", "refused"}
+            else None
+        )
+        TEST_reset_scripts()
+        try:
+            with (
+                patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()),
+                patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
+                patch(
+                    "products.signals.backend.system_one_decision.decision_api.decide_when_available",
+                    return_value=result,
+                    side_effect=failure,
+                ),
+            ):
+                call = run_model_decision(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    stage="actionability",
+                    primary_model="claude-sonnet-5",
+                    source_id="issue-1",
+                    source_product="linear",
+                    state={"record": "An example finding"},
+                    prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
+                    traditional=AsyncMock(return_value=False),
+                    verdict=lambda value: value,
+                    system_one_result=lambda value, _category: value,
+                    mode_override="system-one-only",
+                )
+                if failure:
+                    with self.assertRaises(SignalsDecisionError):
+                        await call
+                else:
+                    assert await call is True
+        finally:
+            TEST_reset_scripts()
+        rows = await database_sync_to_async(
+            lambda: list(
+                SignalSpend.objects.for_team(self.team.id).values(
+                    "source_id", "signal_id", "stage", "accounting_failed"
+                )
+            )
+        )()
+        if outcome == "refused":
+            assert rows == []
+        else:
+            assert len(rows) == 1
+            assert str(rows[0]["signal_id"]) == driver
+            assert rows[0]["stage"] == "actionability"
+            assert rows[0]["accounting_failed"] is (outcome == "missing_request_id")
+            if outcome != "missing_request_id":
+                assert rows[0]["source_id"] == "decision-request"
 
     def _run(self, *, report: SignalReport | None = None, task: Task | None = None, stage: str = "research") -> TaskRun:
         task = task or Task.objects.create(
@@ -128,22 +231,8 @@ class TestSignalSpend(BaseTest):
     @parameterized.expand([(None,), (RuntimeError("usage lookup failed"),)])
     def test_one_shot_requests_preserve_known_spend_and_record_failed_stage(self, failure: Exception | None) -> None:
         driver = str(uuid4())
-        with signal_spend_scope(self.team.id, driver, stage="actionability"):
-            for request_id in ["one-shot-1", "one-shot-2", "one-shot-1"]:
-                record_gateway_response(
-                    httpx.Response(
-                        200,
-                        headers={"x-request-id": request_id},
-                        request=httpx.Request("POST", "https://gateway.example.com/v1/messages"),
-                    )
-                )
-            record_gateway_response(
-                httpx.Response(
-                    200,
-                    headers={"x-request-id": "token-count"},
-                    request=httpx.Request("POST", "https://gateway.example.com/v1/messages/count_tokens"),
-                )
-            )
+        for request_id in ["one-shot-1", "one-shot-2", "one-shot-1"]:
+            record_llm_request(request_id, team_id=self.team.id, signal_id=driver, stage="actionability")
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0}
         with patch(
             "products.signals.backend.spend_tasks.fetch_gateway_cost",
@@ -162,10 +251,7 @@ class TestSignalSpend(BaseTest):
             reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 0.001}
         assert signal_spend_summaries(team_id=self.team.id, signal_ids=[driver])[driver].failed_stages == []
-        with signal_spend_scope(self.team.id, driver, stage="summarization"):
-            record_unpriced_response(
-                httpx.Response(200, request=httpx.Request("POST", "https://gateway.example.com/v1/messages"))
-            )
+        record_llm_request(None, team_id=self.team.id, signal_id=driver, stage="summarization")
         now = timezone.now()
         with patch(
             "products.signals.backend.signal_metadata.execute_hogql_query",
@@ -221,14 +307,7 @@ class TestSignalSpend(BaseTest):
                 run = self._run(report=report)
                 assert TaskRun.objects.filter(id=run.id).exists()
             else:
-                with signal_spend_scope(self.team.id, driver, stage="actionability"):
-                    record_gateway_response(
-                        httpx.Response(
-                            200,
-                            headers={"x-request-id": "example-request"},
-                            request=httpx.Request("POST", "https://gateway.example.com/v1/messages"),
-                        )
-                    )
+                record_llm_request("example-request", team_id=self.team.id, signal_id=driver, stage="actionability")
         assert SignalReport.objects.filter(id=report.id).exists()
         assert any(
             log["event"] == "signals.spend.accounting_failed"

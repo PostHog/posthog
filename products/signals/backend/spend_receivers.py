@@ -8,7 +8,7 @@ from django.utils import timezone
 import structlog
 
 from products.signals.backend.models import SignalReportTask, SignalScoutRun, SignalSpend
-from products.signals.backend.spend import current_spend_signal_id, record_task_spend, report_triggering_signal
+from products.signals.backend.spend import record_task_spend, report_triggering_signal
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
     connect_task_run_cost_updated,
@@ -43,8 +43,7 @@ def task_run_created(*, instance: "TaskRun", created: bool, **kwargs: object) ->
             signal_id = (
                 str(previous.signal_id)
                 if previous and previous.signal_id
-                else current_spend_signal_id(instance.team_id)
-                or report_triggering_signal(team_id=instance.team_id, report_id=str(task.signal_report_id))
+                else report_triggering_signal(team_id=instance.team_id, report_id=str(task.signal_report_id))
             )
             record_task_spend(
                 team_id=instance.team_id,
