@@ -1,4 +1,4 @@
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Task } from "@posthog/shared";
 import { Box, type DOMElement, Text, useAnimation, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
@@ -292,12 +292,13 @@ export function Pane({
         : offerOpen
           ? renderSheet(actionsSheet(offer), picker.index, width).map(shade)
           : [];
+  // The row stays when empty, so a notice never moves the chat. It ends flush right, like the usage on the rule below.
   const noticeLines =
     paneNotice && width > 1
       ? wrapTextWithAnsi(paneNotice, width - 1).map((line) =>
-          shade(` ${blue(line)}`),
+          shade(`${" ".repeat(width - visibleWidth(line))}${blue(line)}`),
         )
-      : [];
+      : [" "];
   const showsComposer = !modal || Boolean(modal.submitText);
   const bottomLines = [
     ...noticeLines,
