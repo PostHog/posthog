@@ -156,6 +156,9 @@ class BatchWritingPersonsCache {
     private personUpdateCache = new Map<string, PersonUpdate | null>()
     /** Distinct keys the primary had no row for; the update cache is keyed by person id and cannot hold them. */
     private absentOnPrimary = new Set<string>()
+    /** Generation of each key's last purge, so a read that began before the purge cannot re-install the marker. */
+    private absentPurgedAt = new Map<string, number>()
+    private absentGeneration = 0
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
@@ -303,7 +306,6 @@ class BatchWritingPersonsCache {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
 
         if (person === null) {
-            this.absentOnPrimary.add(cacheKey)
             const existingPersonId = this.distinctIdToPersonId.get(cacheKey)
             this.distinctIdToPersonId.delete(cacheKey)
             if (existingPersonId) {
@@ -356,7 +358,9 @@ class BatchWritingPersonsCache {
     }
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
-        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        this.distinctIdToPersonId.delete(cacheKey)
+        this.purgeAbsentOnPrimary(cacheKey)
     }
 
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {
@@ -364,7 +368,7 @@ class BatchWritingPersonsCache {
         const personId = this.distinctIdToPersonId.get(cacheKey)
 
         this.distinctIdToPersonId.delete(cacheKey)
-        this.absentOnPrimary.delete(cacheKey)
+        this.purgeAbsentOnPrimary(cacheKey)
 
         if (personId) {
             this.clearPersonCacheForPersonId(teamId, personId)
@@ -373,8 +377,29 @@ class BatchWritingPersonsCache {
         this.personCheckCache.delete(cacheKey)
     }
 
+    absentReadGeneration(): number {
+        return this.absentGeneration
+    }
+
+    /** Records a primary miss read at `readGeneration`, unless a person or a later purge superseded it. */
+    markAbsentOnPrimary(teamId: number, distinctId: string, readGeneration: number): void {
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        if (this.distinctIdToPersonId.has(cacheKey)) {
+            return
+        }
+        if ((this.absentPurgedAt.get(cacheKey) ?? -1) > readGeneration) {
+            return
+        }
+        this.absentOnPrimary.add(cacheKey)
+    }
+
     forgetAbsentOnPrimary(teamId: number, distinctId: string): void {
-        this.absentOnPrimary.delete(this.getDistinctCacheKey(teamId, distinctId))
+        this.purgeAbsentOnPrimary(this.getDistinctCacheKey(teamId, distinctId))
+    }
+
+    private purgeAbsentOnPrimary(cacheKey: string): void {
+        this.absentOnPrimary.delete(cacheKey)
+        this.absentPurgedAt.set(cacheKey, ++this.absentGeneration)
     }
 
     releaseBatchId(batchId: number): void {
@@ -471,6 +496,7 @@ class BatchWritingPersonsCache {
 
         this.personCheckCache.delete(distinctKey)
         this.absentOnPrimary.delete(distinctKey)
+        this.absentPurgedAt.delete(distinctKey)
     }
 
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
@@ -551,6 +577,11 @@ class BatchBoundPersonsCache {
     setDistinctIdToPersonId(teamId: number, distinctId: string, personId: string): void {
         this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
         this.cache.setDistinctIdToPersonId(teamId, distinctId, personId)
+    }
+
+    markAbsentOnPrimary(teamId: number, distinctId: string, readGeneration: number): void {
+        this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
+        this.cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
     }
 }
 
@@ -1236,6 +1267,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
+        const readGeneration = this.personCache.absentReadGeneration()
         const batchFetchPromise = this.personRepository
             .fetchPersonsByDistinctIds(
                 uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })),
@@ -1265,9 +1297,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                     } else {
                         cache.setCheckCachedPerson(teamId, distinctId, null)
-                        if (cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId) === undefined) {
-                            cache.setCachedPersonForUpdate(teamId, distinctId, null)
-                        }
+                        cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
                     }
                 }
 
@@ -1347,6 +1377,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
+                    const readGeneration = this.personCache.absentReadGeneration()
                     const person = await this.personRepository.fetchPerson(teamId, distinctId, {
                         useReadReplica: false,
                         callerTag: 'ingestion/person-update-conflict',
@@ -1367,7 +1398,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         // From this point, all operations are synchronous to avoid further race conditions.
                         const currentCache = cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
                         if (currentCache === undefined) {
-                            cache.setCachedPersonForUpdate(teamId, distinctId, null)
+                            cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
                             return null
                         }
                         return currentCache === null ? null : toInternalPerson(currentCache)

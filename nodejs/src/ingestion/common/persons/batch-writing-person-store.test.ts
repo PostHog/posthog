@@ -2856,6 +2856,45 @@ describe('BatchWritingPersonStore', () => {
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
         })
 
+        it('should read the primary again after removeDistinctIdFromCache purges an absent distinct id', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([])
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
+
+            // A merge retry purges the key and expects the next read to see committed state
+            personStoreForBatch.removeDistinctIdFromCache(teamId, 'user-1')
+
+            const existingPerson = { ...person, id: '7' }
+            mockRepo.fetchPerson.mockResolvedValueOnce(existingPerson)
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)).resolves.toEqual(existingPerson)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
+        })
+
+        it('should not let a prefetch that began before a purge mark the distinct id absent', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            let resolvePrefetch: (value: never[]) => void
+            const prefetchPromise = new Promise<never[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1', batchId: 0 },
+            ])
+
+            // The row appears on the primary while the prefetch is still out, and a conflict purges the key
+            personStoreForBatch.removeDistinctIdFromCache(teamId, 'user-1')
+
+            resolvePrefetch!([])
+            await prefetchCompletion
+
+            const existingPerson = { ...person, id: '7' }
+            mockRepo.fetchPerson.mockResolvedValueOnce(existingPerson)
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)).resolves.toEqual(existingPerson)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
+        })
+
         it('should resolve (not reject) on a transient persons-Postgres failure', async () => {
             const personStoreForBatch = getPersonsStore()
 
