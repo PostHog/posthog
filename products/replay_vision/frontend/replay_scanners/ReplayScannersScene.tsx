@@ -50,16 +50,11 @@ import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
-    SCANNER_TYPE_OPTIONS,
+    scannerTypeOptions,
     ScannerType,
     ReplayScanner,
     homeRedesignVariant,
 } from './types'
-
-const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
-    value,
-    label,
-}))
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -341,24 +336,31 @@ export function ReplayScannersScene(): JSX.Element {
                                 />
                                 <FilterPill<EnabledFilter>
                                     label="Status"
+                                    dataAttr="vision-scanners-status-filter"
                                     options={ENABLED_OPTIONS}
                                     value={enabledFilter}
                                     onChange={(v) => setScannersFilters({ enabledFilter: v })}
                                 />
                                 <FilterPill<ScannerType>
                                     label="Type"
-                                    options={TYPE_OPTIONS}
+                                    dataAttr="vision-scanners-type-filter"
+                                    options={scannerTypeOptions(
+                                        !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER] ||
+                                            !!scannerStats?.by_type?.experiment?.total
+                                    ).map(({ value, label }) => ({ value, label }))}
                                     value={scannerTypeFilter}
                                     onChange={(v) => setScannersFilters({ scannerTypeFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Created by"
+                                    dataAttr="vision-scanners-created-by-filter"
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Tags"
+                                    dataAttr="vision-scanners-tags-filter"
                                     searchable
                                     options={tagOptions}
                                     value={tagsFilter}

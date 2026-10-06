@@ -102,12 +102,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnable,
         canEnableReason,
         modelSelectionRequired,
+        numericBoundsRequired,
     } = useValues(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
-    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -189,7 +189,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
             : evaluation.output_type === 'categorical'
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
-                ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
+                ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
                 : undefined
 
     const focusTriggers = (): void => {
@@ -502,19 +502,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 />
                             ),
                         },
-                    !isNewEvaluation &&
-                        backfillsEnabled && {
-                            key: 'backfills',
-                            label: 'Backfills',
-                            'data-attr': 'llma-evaluation-backfills-tab',
-                            content: (
-                                <EvaluationBackfillsTab
-                                    evaluationId={evaluation.id}
-                                    userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    onConfigurationClick={() => setActiveTab('configuration')}
-                                />
-                            ),
-                        },
+                    !isNewEvaluation && {
+                        key: 'backfills',
+                        label: 'Backfills',
+                        'data-attr': 'llma-evaluation-backfills-tab',
+                        content: (
+                            <EvaluationBackfillsTab
+                                evaluationId={evaluation.id}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigurationClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
@@ -613,9 +612,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     </LemonField.Pure>
                                                     <p className="text-muted text-sm -mt-2">
                                                         {isSessionTarget
-                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for generations that have an $ai_session_id property.'
                                                             : evaluation.target === 'trace'
-                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              ? 'Runs once per trace on all of its events together, after it settles. Only fires for generations that have an $ai_trace_id property.'
                                                               : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
                                                     {isAggregateTarget && (
@@ -773,6 +772,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
+                                                    requiresBounds={numericBoundsRequired}
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">
@@ -960,6 +960,7 @@ function EvaluationModelPicker(): JSX.Element {
         (group) =>
             evaluation?.output_type === 'boolean' ||
             evaluation?.output_type === 'categorical' ||
+            evaluation?.output_type === 'numeric' ||
             group.provider !== 'system_one'
     )
     const loading = byokModelsLoading || providerKeysLoading
@@ -991,7 +992,9 @@ function EvaluationModelPicker(): JSX.Element {
                             <p className="text-sm text-muted mt-2">
                                 {evaluation.output_type === 'categorical'
                                     ? 'This judge selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
-                                    : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                    : evaluation.output_type === 'numeric'
+                                      ? 'This judge estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+                                      : 'This judge returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

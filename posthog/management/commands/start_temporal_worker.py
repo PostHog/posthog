@@ -153,7 +153,7 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
@@ -177,7 +177,7 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
-from products.canvas.backend.temporal.registry import (
+from products.canvas.backend.facade.temporal import (
     ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
     WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
 )
@@ -221,6 +221,8 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -293,6 +295,10 @@ from products.stamphog.backend.facade.temporal import (
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
+)
+from products.today.backend.facade.temporal import (
+    ACTIVITIES as TODAY_ACTIVITIES,
+    WORKFLOWS as TODAY_WORKFLOWS,
 )
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
@@ -368,6 +374,7 @@ _task_queue_specs = [
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
         + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
+        + EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
@@ -381,7 +388,8 @@ _task_queue_specs = [
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
+        + SECURITY_WORKFLOWS
+        + TODAY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -394,6 +402,7 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
         + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
+        + EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
@@ -407,7 +416,8 @@ _task_queue_specs = [
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
+        + SECURITY_ACTIVITIES
+        + TODAY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a

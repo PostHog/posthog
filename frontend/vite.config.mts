@@ -71,6 +71,7 @@ export default defineConfig(({ mode }) => {
                 public: resolve(__dirname, 'src/assets'),
                 // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
                 '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
+                '@posthog/quill-charts': resolve(__dirname, 'node_modules/@posthog/quill-charts'),
                 // Source-only workspace package (exports map points at src/*.ts) — Vite can't resolve
                 // it by default when imported from products/*/frontend, like the @posthog/icons case above.
                 // Alias each export explicitly, subpath first: a lone package-root alias would rewrite the

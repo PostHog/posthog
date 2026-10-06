@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     ExternalDataSchemaDestination,
     ExternalDataSourceDestination,
+    get_or_create_warehouse_destination,
     resolve_destinations,
 )
 from products.warehouse_sources.backend.models.external_data_job import (
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
+    SCHEMA_RESOURCE_ID_METADATA_KEY,
     ExternalDataSchema,
     auto_enable_new_schemas,
     get_all_schemas_for_source_id,
@@ -96,6 +98,7 @@ __all__ = [
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
     "MAX_FULL_REFRESH_INTERVAL_DAYS",
     "PendingSourceCredential",
+    "SCHEMA_RESOURCE_ID_METADATA_KEY",
     "SCHEDULED_FULL_REFRESH_SYNC_TYPES",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "WarehouseColumnAnnotation",
@@ -111,6 +114,7 @@ __all__ = [
     "get_latest_run_if_exists",
     "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
+    "get_or_create_warehouse_destination",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",

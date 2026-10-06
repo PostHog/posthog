@@ -470,8 +470,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     CREATE_AI_TRACE_PARSER = "create_ai_trace_parser"
     FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -1386,7 +1384,6 @@ class FileSystemIconType(StrEnum):
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
-    USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
@@ -1396,8 +1393,6 @@ class FileSystemIconType(StrEnum):
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
-    LINK = "link"
-    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
@@ -1773,6 +1768,7 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):
@@ -1947,6 +1943,23 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     DATETIME = "datetime"
     DATE = "date"
     BOOLEAN = "boolean"
+
+
+class Breakdown1(StrEnum):
+    KEYWORD = "keyword"
+    PAGE = "page"
+
+
+class Platform(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
+class SourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
 
 
 class MatchField(StrEnum):
@@ -2200,6 +2213,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
+    MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -2462,8 +2476,6 @@ class ProductKey(StrEnum):
     HISTORY = "history"
     INGESTION_WARNINGS = "ingestion_warnings"
     INTEGRATIONS = "integrations"
-    LINKS = "links"
-    LIVE_DEBUGGER = "live_debugger"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"
@@ -2502,7 +2514,6 @@ class ProductKey(StrEnum):
     TOOLBAR = "toolbar"
     TRACING = "tracing"
     METRICS = "metrics"
-    USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"

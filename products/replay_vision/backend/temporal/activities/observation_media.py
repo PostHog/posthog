@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.session_replay.rasterize_recording.storage_keys import content_location_from_s3_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -22,8 +23,13 @@ from products.replay_vision.backend.temporal.media_types import (
     LEGACY_ANALYSIS_FOOTER_HEIGHT_PX,
     THUMBNAIL_WIDTH_PX,
     ExtractThumbnailActivityInput,
+    ExtractThumbnailsActivityInput,
+    ExtractThumbnailsFrame,
+    FinalizeObservationMediaInputs,
     FinalizeObservationThumbnailInputs,
     ObservationMediaInputs,
+    PreparedFrame,
+    PrepareObservationMediaOutput,
     PrepareObservationThumbnailOutput,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
@@ -33,6 +39,7 @@ logger = structlog.get_logger(__name__)
 _MEDIA_EXPIRY = timedelta(days=90)
 # The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
 _EDGE_MARGIN_S = 3.0
+_END_MARGIN_S = 1.0
 
 
 def _footer_crop_px(context: dict[str, Any]) -> int:
@@ -47,6 +54,10 @@ def _media_key_prefix(team_id: int, observation_id: Any) -> str:
     return f"replay-vision/media/team-{team_id}/{observation_id}"
 
 
+def _session_ms_to_video_s(clock: VideoClock | None, session_ms: int) -> float:
+    return clock.session_ms_to_video_s(session_ms) if clock else session_ms / 1000
+
+
 def _first_citation_video_s(model_output: dict[str, Any] | None, clock: VideoClock | None) -> float | None:
     """The first moment the model pointed at, mapped from session time back onto the video the thumbnail is cut from."""
     if not model_output:
@@ -55,8 +66,14 @@ def _first_citation_video_s(model_output: dict[str, Any] | None, clock: VideoClo
         for segment in model_output.get(field) or []:
             if isinstance(segment, dict) and segment.get("kind") == "chip":
                 session_ms = int(segment.get("timestamp_ms") or 0)
-                return clock.session_ms_to_video_s(session_ms) if clock else session_ms / 1000
+                return _session_ms_to_video_s(clock, session_ms)
     return None
+
+
+def _clamp_to_video(picked_s: float, duration_s: float) -> float:
+    if duration_s <= 2 * _EDGE_MARGIN_S:
+        return duration_s / 2
+    return min(max(picked_s, _EDGE_MARGIN_S), duration_s - _EDGE_MARGIN_S)
 
 
 def _pick_video_time_s(
@@ -70,22 +87,42 @@ def _pick_video_time_s(
         picked = (start + end) / 2
     if picked is None:
         picked = duration_s * FALLBACK_THUMBNAIL_FRACTION
-    if duration_s <= 2 * _EDGE_MARGIN_S:
-        return duration_s / 2
-    return min(max(picked, _EDGE_MARGIN_S), duration_s - _EDGE_MARGIN_S)
+    return _clamp_to_video(picked, duration_s)
 
 
-@activity.defn
-@track_activity()
-async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
-    """Pick the frame to cut and create the `is_system` PNG asset the Node activity uploads into."""
-    media_inputs = inputs
+def _chapter_frame_times_s(
+    model_output: dict[str, Any] | None, clock: VideoClock | None, duration_s: float
+) -> list[tuple[int, float]]:
+    """Each chapter's thumbnail moment as (chapter index, video seconds), mapped back from the session clock."""
+    chapters = (model_output or {}).get("chapters") or []
+    times: list[tuple[int, float]] = []
+    for position, chapter in enumerate(chapters):
+        if not isinstance(chapter, dict) or not isinstance(chapter.get("thumbnail_ms"), int):
+            continue
+        session_ms = chapter["thumbnail_ms"]
+        # No start margin, which would move a short first chapter's frame into the next one. The end keeps a second,
+        # because a moment in trailing idle maps to the video's last instant and a seek there cuts no frame.
+        video_s = _session_ms_to_video_s(clock, session_ms)
+        times.append((position, min(max(video_s, 0.0), max(0.0, duration_s - _END_MARGIN_S))))
+    return times
+
+
+@frozen
+class _RenderSource:
+    """The analysis video a frame is cut from, and the observation that frame illustrates."""
+
+    source_s3_uri: str
+    context: dict[str, Any]
+    duration_s: float
+    clock: VideoClock | None
+    model_output: dict[str, Any] | None
+
+
+async def _load_render_source(inputs: ObservationMediaInputs) -> _RenderSource:
     try:
-        asset = await ExportedAsset.objects.aget(pk=media_inputs.analysis_asset_id, team_id=media_inputs.team_id)
+        asset = await ExportedAsset.objects.aget(pk=inputs.analysis_asset_id, team_id=inputs.team_id)
     except ExportedAsset.DoesNotExist as error:
-        raise ApplicationError(
-            f"Analysis asset {media_inputs.analysis_asset_id} is gone", non_retryable=True
-        ) from error
+        raise ApplicationError(f"Analysis asset {inputs.analysis_asset_id} is gone", non_retryable=True) from error
     if not asset.content_location:
         # The analysis render is long finished by now, so an empty location is a lost object, not a race.
         raise ApplicationError(f"Analysis asset {asset.id} has no rendered object", non_retryable=True)
@@ -95,110 +132,233 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
     if duration_s <= 0:
         raise ApplicationError(f"Analysis asset {asset.id} has no video duration", non_retryable=True)
 
-    # Read before the asset is created, so a deleted observation leaves no asset behind.
+    # Read before any media asset is created, so a deleted observation leaves no asset behind.
     observation = (
-        await ReplayObservation.objects.filter(pk=media_inputs.observation_id, team_id=media_inputs.team_id)
+        await ReplayObservation.objects.filter(pk=inputs.observation_id, team_id=inputs.team_id)
         .values_list("scanner_result", flat=True)
         .afirst()
     )
     if observation is None:
-        raise ApplicationError(f"Observation {media_inputs.observation_id} is gone", non_retryable=True)
+        raise ApplicationError(f"Observation {inputs.observation_id} is gone", non_retryable=True)
     scanner_result = observation or {}
-    clock = video_clock_from_export_context(context)
-    video_time_s = _pick_video_time_s(media_inputs, scanner_result.get("model_output"), clock, duration_s)
-    rec_start_ms = clock.video_s_to_session_ms(video_time_s) if clock else None
+    return _RenderSource(
+        source_s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/{asset.content_location}",
+        context=context,
+        duration_s=duration_s,
+        clock=video_clock_from_export_context(context),
+        model_output=scanner_result.get("model_output"),
+    )
 
-    export_context = {
+
+async def _media_asset(
+    inputs: ObservationMediaInputs, kind: ReplayObservationMedia.Kind, position: int
+) -> ExportedAsset:
+    """Get or create the `is_system` PNG asset for one media slot, so a retried activity leaves no second asset."""
+    export_context: dict[str, Any] = {
         # The recording id serves the recording-delete cascade, the observation id every other expiry.
-        "session_recording_id": media_inputs.session_id,
-        "observation_id": str(media_inputs.observation_id),
-        "media_kind": ReplayObservationMedia.Kind.THUMBNAIL.value,
+        "session_recording_id": inputs.session_id,
+        "observation_id": str(inputs.observation_id),
+        "media_kind": kind.value,
     }
-    # Get-or-create: a retried activity would otherwise leave a second asset and object behind.
+    lookup: dict[str, Any] = {
+        "export_context__session_recording_id": inputs.session_id,
+        "export_context__observation_id": str(inputs.observation_id),
+        "export_context__media_kind": kind.value,
+    }
+    # The observation has one thumbnail, and its assets predate the position key, so only other kinds carry one.
+    if kind != ReplayObservationMedia.Kind.THUMBNAIL:
+        export_context["media_position"] = position
+        lookup["export_context__media_position"] = position
     media_asset = (
         await ExportedAsset.objects.filter(
-            team_id=media_inputs.team_id,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context__session_recording_id=media_inputs.session_id,
-            export_context__observation_id=str(media_inputs.observation_id),
-            export_context__media_kind=ReplayObservationMedia.Kind.THUMBNAIL.value,
-            is_system=True,
+            team_id=inputs.team_id, export_format=ExportedAsset.ExportFormat.PNG, is_system=True, **lookup
         )
         .order_by("id")
         .afirst()
     )
     if media_asset is None:
         media_asset = await ExportedAsset.objects.acreate(
-            team_id=media_inputs.team_id,
+            team_id=inputs.team_id,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context=export_context,
             # Explicit because the PNG default is six months.
             expires_after=now() + _MEDIA_EXPIRY,
             is_system=True,
         )
+    return media_asset
+
+
+@activity.defn
+@track_activity()
+async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> PrepareObservationMediaOutput:
+    """Pick every frame to cut, the thumbnail and one per summary chapter, and create the PNG asset each uploads into."""
+    source = await _load_render_source(inputs)
+    slots = [
+        (
+            ReplayObservationMedia.Kind.THUMBNAIL,
+            0,
+            _pick_video_time_s(inputs, source.model_output, source.clock, source.duration_s),
+        ),
+        *(
+            (ReplayObservationMedia.Kind.CHAPTER, position, video_time_s)
+            for position, video_time_s in _chapter_frame_times_s(source.model_output, source.clock, source.duration_s)
+        ),
+    ]
+    frames: list[PreparedFrame] = []
+    extract_frames: list[ExtractThumbnailsFrame] = []
+    for kind, position, video_time_s in slots:
+        media_asset = await _media_asset(inputs, kind, position)
+        object_id = str(uuid4())
+        extract_frames.append(
+            ExtractThumbnailsFrame(
+                video_time_s=video_time_s, id=object_id, required=kind == ReplayObservationMedia.Kind.THUMBNAIL
+            )
+        )
+        frames.append(
+            PreparedFrame(
+                kind=kind.value,
+                position=position,
+                media_asset_id=media_asset.id,
+                object_id=object_id,
+                video_start_ms=int(video_time_s * 1000),
+                rec_start_ms=source.clock.video_s_to_session_ms(video_time_s) if source.clock else None,
+            )
+        )
+
+    return PrepareObservationMediaOutput(
+        frames=frames,
+        activity_input=ExtractThumbnailsActivityInput(
+            source_s3_uri=source.source_s3_uri,
+            frames=extract_frames,
+            footer_crop_px=_footer_crop_px(source.context),
+            width=THUMBNAIL_WIDTH_PX,
+            s3_bucket=settings.OBJECT_STORAGE_BUCKET,
+            s3_key_prefix=_media_key_prefix(inputs.team_id, inputs.observation_id),
+        ),
+    )
+
+
+@activity.defn
+@track_activity()
+async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs) -> PrepareObservationThumbnailOutput:
+    """Legacy single-frame prepare, kept for media workflows started before the batch path. Delete once they drain."""
+    source = await _load_render_source(inputs)
+    video_time_s = _pick_video_time_s(inputs, source.model_output, source.clock, source.duration_s)
+    media_asset = await _media_asset(inputs, ReplayObservationMedia.Kind.THUMBNAIL, 0)
 
     return PrepareObservationThumbnailOutput(
         media_asset_id=media_asset.id,
         activity_input=ExtractThumbnailActivityInput(
-            source_s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/{asset.content_location}",
+            source_s3_uri=source.source_s3_uri,
             video_time_s=video_time_s,
-            footer_crop_px=_footer_crop_px(context),
+            footer_crop_px=_footer_crop_px(source.context),
             width=THUMBNAIL_WIDTH_PX,
             s3_bucket=settings.OBJECT_STORAGE_BUCKET,
-            s3_key_prefix=_media_key_prefix(media_inputs.team_id, media_inputs.observation_id),
+            s3_key_prefix=_media_key_prefix(inputs.team_id, inputs.observation_id),
             id=str(uuid4()),
         ),
         video_start_ms=int(video_time_s * 1000),
-        rec_start_ms=rec_start_ms,
+        rec_start_ms=source.clock.video_s_to_session_ms(video_time_s) if source.clock else None,
     )
 
 
-def _link_media(inputs: FinalizeObservationThumbnailInputs, content_location: str) -> None:
-    """Point the asset at the rendered object and link it, as one write.
+@frozen
+class _MediaLink:
+    kind: ReplayObservationMedia.Kind
+    position: int
+    asset_id: int
+    video_start_ms: int
+    rec_start_ms: int | None
+    content_location: str
 
-    One transaction, media row first: an observation deleted before the row exists would leave the asset
-    with nothing pointing at it, and one deleted after cascades the row away, which expires the asset.
+
+def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> None:
+    """Point each asset at its rendered object and link it, as one write.
+
+    One transaction, media rows first: an observation deleted before the rows exist would leave the assets
+    with nothing pointing at them, and one deleted after cascades the rows away, which expires the assets.
     """
     with transaction.atomic():
-        media, _ = ReplayObservationMedia.objects.for_team(inputs.team_id, canonical=True).update_or_create(
-            observation_id=inputs.observation_id,
-            kind=ReplayObservationMedia.Kind.THUMBNAIL,
-            position=0,
-            defaults={
-                "team_id": inputs.team_id,
-                "asset_id": inputs.media_asset_id,
-                "video_start_ms": inputs.video_start_ms,
-                "rec_start_ms": inputs.rec_start_ms,
-            },
+        for link in links:
+            media, _ = ReplayObservationMedia.objects.for_team(team_id, canonical=True).update_or_create(
+                observation_id=observation_id,
+                kind=link.kind,
+                position=link.position,
+                defaults={
+                    "team_id": team_id,
+                    "asset_id": link.asset_id,
+                    "video_start_ms": link.video_start_ms,
+                    "rec_start_ms": link.rec_start_ms,
+                },
+            )
+            ExportedAsset.objects.filter(pk=media.asset_id, team_id=team_id).update(
+                content_location=link.content_location
+            )
+
+
+async def _link_or_expire(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> bool:
+    """Link the rendered media, or expire it when its observation is gone. Returns whether it was linked."""
+    try:
+        # `for_team` resolves the canonical team with a synchronous query of its own.
+        await sync_to_async(_link_media)(team_id, observation_id, links)
+    except (IntegrityError, ReplayObservation.DoesNotExist):
+        # The observation went away between the render and this write, so nothing will point at the objects.
+        # The sweep deletes the stored object only for a row that carries a location.
+        for link in links:
+            await ExportedAsset.objects.filter(pk=link.asset_id, team_id=team_id).aupdate(
+                content_location=link.content_location, expires_after=now()
+            )
+        return False
+    return True
+
+
+def _content_location(s3_uri: str) -> str:
+    try:
+        return content_location_from_s3_uri(s3_uri)
+    except ValueError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
+
+
+@activity.defn
+@track_activity()
+async def finalize_observation_media_activity(inputs: FinalizeObservationMediaInputs) -> None:
+    """Link every frame the video had to its slot, and expire the assets of the frames it did not have."""
+    extracted = {frame.id: frame for frame in inputs.result.frames}
+    links = [
+        _MediaLink(
+            kind=ReplayObservationMedia.Kind(frame.kind),
+            position=frame.position,
+            asset_id=frame.media_asset_id,
+            video_start_ms=frame.video_start_ms,
+            rec_start_ms=frame.rec_start_ms,
+            content_location=_content_location(extracted[frame.object_id].s3_uri),
         )
-        ExportedAsset.objects.filter(pk=media.asset_id, team_id=inputs.team_id).update(
-            content_location=content_location
+        for frame in inputs.frames
+        if frame.object_id in extracted
+    ]
+    missing = [frame.media_asset_id for frame in inputs.frames if frame.object_id not in extracted]
+    if missing:
+        await ExportedAsset.objects.filter(pk__in=missing, team_id=inputs.team_id).aupdate(expires_after=now())
+    if links and await _link_or_expire(inputs.team_id, inputs.observation_id, links):
+        logger.info(
+            "replay_vision.media_ready",
+            observation_id=str(inputs.observation_id),
+            frames=len(links),
+            missing=len(missing),
+            file_size_bytes=sum(frame.file_size_bytes for frame in inputs.result.frames),
         )
 
 
 @activity.defn
 @track_activity()
 async def finalize_observation_thumbnail_activity(inputs: FinalizeObservationThumbnailInputs) -> None:
-    """Point the asset at the uploaded PNG and link it to the observation."""
-    try:
-        content_location = content_location_from_s3_uri(inputs.result.s3_uri)
-    except ValueError as error:
-        raise ApplicationError(str(error), non_retryable=True) from error
-
-    try:
-        # `for_team` resolves the canonical team with a synchronous query of its own.
-        await sync_to_async(_link_media)(inputs, content_location)
-    except (IntegrityError, ReplayObservation.DoesNotExist):
-        # The observation went away between the render and this write, so nothing will point at the object.
-        # The sweep deletes the stored object only for a row that carries a location.
-        await ExportedAsset.objects.filter(pk=inputs.media_asset_id, team_id=inputs.team_id).aupdate(
-            content_location=content_location, expires_after=now()
-        )
-        return
-
-    logger.info(
-        "replay_vision.thumbnail_ready",
-        observation_id=str(inputs.observation_id),
+    """Legacy single-frame finalize, kept for media workflows started before the batch path. Delete once they drain."""
+    link = _MediaLink(
+        kind=ReplayObservationMedia.Kind.THUMBNAIL,
+        position=0,
         asset_id=inputs.media_asset_id,
-        file_size_bytes=inputs.result.file_size_bytes,
+        video_start_ms=inputs.video_start_ms,
+        rec_start_ms=inputs.rec_start_ms,
+        content_location=_content_location(inputs.result.s3_uri),
     )
+    await _link_or_expire(inputs.team_id, inputs.observation_id, [link])

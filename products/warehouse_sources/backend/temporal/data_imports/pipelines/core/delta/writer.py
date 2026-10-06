@@ -237,6 +237,7 @@ class DeltaWriter:
                 get_handle_cache,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                estimate_rewrite_profile,
                 get_governor,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -259,9 +260,19 @@ class DeltaWriter:
             # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
-            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
-            # mpp=1 (governor logs a capacity_exceeded ops signal).
-            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs with
+            # the smallest plan (governor logs a capacity_exceeded ops signal). The shape of the files
+            # the merge can rewrite comes from the handle's add actions, so this costs no object-store
+            # request.
+            governor = get_governor()
+            rewrite = (
+                await asyncio.to_thread(
+                    estimate_rewrite_profile, existing_delta_table, data, partition_key, normalized_primary_keys
+                )
+                if governor.config.mode != "off"
+                else None
+            )
+            async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
                     return table.upsert(
@@ -313,10 +324,26 @@ class DeltaWriter:
                 duration_ms=round(duration_s * 1000),
                 governor_mode=adm.mode,
                 governor_predicted_peak_mb=adm.predicted_peak_mb,
-                governor_observed_delta_mb=adm.observed_delta_mb,
+                governor_predicted_inuse_mb=adm.estimate.inuse_mb if adm.estimate else None,
+                governor_reader_mb=adm.estimate.reader_mb if adm.estimate else None,
+                governor_writer_mb=adm.estimate.writer_mb if adm.estimate else None,
                 governor_budget_mb=adm.budget_mb,
                 governor_capacity_exceeded=adm.capacity_exceeded,
                 governor_mpp=adm.planned_mpp,
+                governor_mpf=adm.planned_mpf,
+                governor_max_row_group_mb=adm.max_row_group_mb,
+                governor_rewrite_total_mb=adm.rewrite_total_mb,
+                governor_rewrite_files=adm.rewrite_files,
+                governor_reserved_slots=adm.reserved_slots,
+                governor_wait_ms=adm.wait_ms,
+                governor_wait_timed_out=adm.wait_timed_out,
+                # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
+                # a clean per-upsert signal.
+                governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
+                governor_rss_delta_mb=adm.rss.delta_mb if adm.rss else None,
+                governor_rss_samples=adm.rss.samples if adm.rss else None,
+                governor_concurrent_upserts=adm.concurrent_upserts,
+                governor_max_concurrent_upserts=adm.rss.max_concurrent if adm.rss else None,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
