@@ -3,8 +3,9 @@ import { fireEvent, render, waitFor } from '@testing-library/react'
 import type { ChartTheme } from '../../core/types'
 import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { computeSankeyLayout } from './sankey-data'
-import type { SankeyLinkInput, SankeyNodeInput } from './sankey-data'
+import type { SankeyLinkInput, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
 import { SankeyChart } from './SankeyChart'
+import { labelsSharingLastGap } from './SankeyNodeLabels'
 
 const THEME: ChartTheme = { colors: ['#1f77b4', '#ff7f0e', '#2ca02c'], backgroundColor: '#ffffff' }
 
@@ -231,5 +232,27 @@ describe('SankeyChart', () => {
 
         rerender(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} onError={onError} />)
         expect(container.textContent).not.toContain('Something went wrong')
+    })
+
+    it('finds labels that face each other across the gap the last two columns share', () => {
+        const node = (id: string, column: number, y0: number): SankeyNodeDatum => ({
+            id,
+            label: id,
+            color: '#000',
+            index: 0,
+            column,
+            value: 1,
+            x0: 0,
+            x1: 0,
+            y0,
+            y1: y0 + 4,
+        })
+        const first = node('first', 0, 100)
+        const penultimate = node('penultimate', 1, 100)
+        const last = node('last', 2, 102)
+        const lastFarAway = node('lastFarAway', 2, 200)
+        expect(labelsSharingLastGap(new Set([first, penultimate, last, lastFarAway]), 3)).toEqual(
+            new Set([penultimate, last])
+        )
     })
 })

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { FONT_FAMILY, truncateToWidth } from '../../utils/text-measure'
 import { useSankeyLayout } from './sankey-context'
@@ -34,7 +34,12 @@ export function labeledNodes(nodes: SankeyNodeDatum[]): Set<SankeyNodeDatum> {
     const kept = new Set<SankeyNodeDatum>()
     const byColumn = new Map<number, SankeyNodeDatum[]>()
     for (const node of nodes) {
-        byColumn.set(node.column, [...(byColumn.get(node.column) ?? []), node])
+        const column = byColumn.get(node.column)
+        if (column) {
+            column.push(node)
+        } else {
+            byColumn.set(node.column, [node])
+        }
     }
     for (const column of byColumn.values()) {
         const placed: number[] = []
@@ -49,6 +54,28 @@ export function labeledNodes(nodes: SankeyNodeDatum[]): Set<SankeyNodeDatum> {
     return kept
 }
 
+/** Labels in the last two columns that share the gap between those columns at about the same
+ *  height. The penultimate column's labels run right and the last column's run left, so each of
+ *  these gets half the gap. */
+export function labelsSharingLastGap(shown: Set<SankeyNodeDatum>, columnCount: number): Set<SankeyNodeDatum> {
+    const crowded = new Set<SankeyNodeDatum>()
+    if (columnCount < 2) {
+        return crowded
+    }
+    const nodes = [...shown]
+    const left = nodes.filter((node) => node.column === columnCount - 2)
+    const right = nodes.filter((node) => node.column === columnCount - 1)
+    for (const a of left) {
+        for (const b of right) {
+            if (Math.abs(centerY(a) - centerY(b)) < LABEL_LINE_HEIGHT) {
+                crowded.add(a)
+                crowded.add(b)
+            }
+        }
+    }
+    return crowded
+}
+
 /** One label per node, to the right of it; the last column's labels sit to its left so they stay
  *  inside the plot. Labels truncate to the free space before the next column. */
 export function SankeyNodeLabels({ color, showValues, valueFormatter }: SankeyNodeLabelsProps): React.ReactElement {
@@ -56,7 +83,12 @@ export function SankeyNodeLabels({ color, showValues, valueFormatter }: SankeyNo
     const occupiedColumns = layout.columnX.filter((x): x is number => Number.isFinite(x))
     const gap = occupiedColumns.length > 1 ? occupiedColumns[1] - occupiedColumns[0] - layout.nodeWidth : Infinity
     const maxWidth = Math.max(0, gap - LABEL_GAP * 2)
-    const shownNodes = labeledNodes(layout.nodes)
+    const sharedMaxWidth = Math.max(0, (gap - LABEL_GAP * 3) / 2)
+    const shownNodes = useMemo(() => labeledNodes(layout.nodes), [layout.nodes])
+    const crowdedNodes = useMemo(
+        () => labelsSharingLastGap(shownNodes, layout.columnCount),
+        [shownNodes, layout.columnCount]
+    )
 
     return (
         <>
@@ -66,7 +98,7 @@ export function SankeyNodeLabels({ color, showValues, valueFormatter }: SankeyNo
                 }
                 const text = showValues ? `${node.label} ${valueFormatter(node.value)}` : node.label
                 const last = node.column === layout.columnCount - 1 && layout.columnCount > 1
-                const shown = truncateToWidth(text, maxWidth, LABEL_FONT)
+                const shown = truncateToWidth(text, crowdedNodes.has(node) ? sharedMaxWidth : maxWidth, LABEL_FONT)
                 const style: React.CSSProperties = {
                     ...LABEL_STYLE_BASE,
                     color,
