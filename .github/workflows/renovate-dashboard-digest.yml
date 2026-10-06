@@ -1,6 +1,6 @@
 name: Renovate dashboard digest
 
-# Posts the pending Renovate updates to #team-devex. The lookup is read-only.
+# Posts the pending Renovate updates to #alerts-devex. The lookup is read-only.
 
 on:
     schedule:
@@ -12,7 +12,7 @@ on:
                 type: boolean
                 default: true
             channel:
-                description: 'Slack channel or user ID to post to instead of #team-devex'
+                description: 'Slack channel or user ID to post to instead of #alerts-devex'
                 type: string
                 default: ''
 

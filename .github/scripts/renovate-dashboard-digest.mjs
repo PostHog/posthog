@@ -10,7 +10,7 @@ import {
     postToSlack,
 } from './weekly-report-common.mjs'
 
-const TEAM_DEVEX_CHANNEL = 'C09G8QA6740'
+const ALERTS_DEVEX_CHANNEL = 'C0AS64N6DJL'
 const CONFIG_PATH = '.github/renovate.json5'
 const ECOSYSTEMS = { npm: 'npm', pep621: 'python', cargo: 'rust', gomod: 'go', 'github-actions': 'actions' }
 const UPDATE_TYPES = ['major', 'minor', 'patch']
@@ -91,7 +91,7 @@ async function main() {
         console.info(JSON.stringify(blocks, null, 2))
         return
     }
-    await postToSlack(blocks, 'Weekly Renovate digest', { channel: process.env.SLACK_CHANNEL || TEAM_DEVEX_CHANNEL })
+    await postToSlack(blocks, 'Weekly Renovate digest', { channel: process.env.SLACK_CHANNEL || ALERTS_DEVEX_CHANNEL })
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
