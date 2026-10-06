@@ -25,7 +25,7 @@ import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionType } from '../types'
-import { ReplayPartitionInput, ReplayPartitionResult, replayPartition } from './activities'
+import { ReplayInput, ReplayResult, replayTopic } from './activities'
 import { CdpDlqReplayer } from './cdp-dlq-replayer'
 import { DlqPartitionReader } from './partition-reader'
 
@@ -145,15 +145,14 @@ describe('CDP dead-letter replay', () => {
 
     const runReplay = async (
         queues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        input: Partial<ReplayPartitionInput> = {}
-    ): Promise<ReplayPartitionResult> => {
+        input: ReplayInput = {}
+    ): Promise<ReplayResult> => {
         await replayer?.stop()
         replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
-        return await replayPartition(
-            { replayer, openReader: () => DlqPartitionReader.open(), topic: dlqTopic },
-            { partition: 0, ...input },
-            { heartbeat: () => {}, cancellationSignal: new AbortController().signal }
-        )
+        return await replayTopic({ replayer, openReader: () => DlqPartitionReader.open(), topic: dlqTopic }, input, {
+            heartbeat: () => {},
+            cancellationSignal: new AbortController().signal,
+        })
     }
 
     /** Stands in for the forward fix on the filter side. */
@@ -466,7 +465,7 @@ describe('CDP dead-letter replay', () => {
             { hogQueue: replayQueue, hogflowQueue: replayQueue },
             { skip_unreplayable: true }
         )
-        expect(skipped).toMatchObject({ records_skipped: 1, skipped: [{ offset: 0 }] })
+        expect(skipped).toMatchObject({ records_skipped: 1, skipped: [{ partition: 0, offset: 0 }] })
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
 
         // Skipping commits past the record, so no later replay stops at it again.

@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 from typing import Any
 
@@ -11,10 +10,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
-# The activities run on the Node.js CDP worker (nodejs/src/cdp/dlq-replay/activities.ts), which
-# registers them under these names. A rename on either side strands every running replay.
-LIST_PARTITIONS_ACTIVITY = "cdp-dlq-replay-list-partitions"
-REPLAY_PARTITION_ACTIVITY = "cdp-dlq-replay-partition"
+# The activity runs on the Node.js CDP worker (nodejs/src/cdp/dlq-replay/activities.ts), which
+# registers it under this name. A rename on either side strands every running replay.
+REPLAY_ACTIVITY = "cdp-dlq-replay"
 
 # One replay at a time: two would read the same records and deliver them twice.
 REPLAY_WORKFLOW_ID = "cdp-dlq-replay"
@@ -32,20 +30,21 @@ class CdpDlqReplayResult:
     records_read: int
     records_skipped: int
     invocations_queued: int
-    partitions: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
+    """Partition, offset and reason of each record skipped with skip_unreplayable, up to 100."""
 
 
 @wf.defn(name="cdp-dlq-replay")
 class CdpDlqReplayWorkflow(PostHogWorkflow):
     """Replays the events the CDP events consumer parked on its dead-letter topic.
 
-    Each partition is drained from where the last replay committed to the end of the topic as it
-    stood when this one began. The Node.js CDP worker rebuilds the invocations for each record and
-    queues them, the same way the events consumer would have.
+    One activity on the Node.js CDP worker drains every partition from where the last replay
+    committed to the end of the topic as it stood when this one began. It rebuilds the invocations
+    for each record and queues them, the same way the events consumer would have.
 
-    A record that still cannot be replayed fails its partition, naming the offset, and the run fails
-    with it. Everything before that record is committed, so starting the replay again after the
-    fix picks up at it.
+    A record that still cannot be replayed fails the run, naming its partition and offset.
+    Everything before that record is committed, so starting the replay again after the fix picks up
+    at it.
     """
 
     inputs_cls = CdpDlqReplayInputs
@@ -58,34 +57,22 @@ class CdpDlqReplayWorkflow(PostHogWorkflow):
         # redirects later activities.
         task_queue = inputs.task_queue or settings.CDP_DLQ_REPLAY_TASK_QUEUE
 
-        partitions: list[int] = await wf.execute_activity(
-            LIST_PARTITIONS_ACTIVITY,
+        result: dict[str, Any] = await wf.execute_activity(
+            REPLAY_ACTIVITY,
+            {"skip_unreplayable": inputs.skip_unreplayable},
             task_queue=task_queue,
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=common.RetryPolicy(maximum_attempts=3),
+            start_to_close_timeout=dt.timedelta(hours=6),
+            # The activity heartbeats after every batch, and a retry starts from the last commit.
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(minutes=5),
+                maximum_attempts=10,
+            ),
         )
-
-        results: list[dict[str, Any]] = await asyncio.gather(
-            *(
-                wf.execute_activity(
-                    REPLAY_PARTITION_ACTIVITY,
-                    {"partition": partition, "skip_unreplayable": inputs.skip_unreplayable},
-                    task_queue=task_queue,
-                    start_to_close_timeout=dt.timedelta(hours=6),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=common.RetryPolicy(
-                        initial_interval=dt.timedelta(seconds=10),
-                        maximum_interval=dt.timedelta(minutes=5),
-                        maximum_attempts=10,
-                    ),
-                )
-                for partition in partitions
-            )
-        )
-
         return CdpDlqReplayResult(
-            records_read=sum(r["records_read"] for r in results),
-            records_skipped=sum(r["records_skipped"] for r in results),
-            invocations_queued=sum(r["invocations_queued"] for r in results),
-            partitions=results,
+            records_read=result["records_read"],
+            records_skipped=result["records_skipped"],
+            invocations_queued=result["invocations_queued"],
+            skipped=result["skipped"],
         )

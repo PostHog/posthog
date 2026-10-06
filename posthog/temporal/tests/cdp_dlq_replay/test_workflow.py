@@ -10,21 +10,12 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.cdp_dlq_replay.workflow import (
-    LIST_PARTITIONS_ACTIVITY,
-    REPLAY_PARTITION_ACTIVITY,
-    CdpDlqReplayInputs,
-    CdpDlqReplayWorkflow,
-)
+from posthog.temporal.cdp_dlq_replay.workflow import REPLAY_ACTIVITY, CdpDlqReplayInputs, CdpDlqReplayWorkflow
 
 
 async def _run(replay: Any, skip_unreplayable: bool = False) -> Any:
-    @activity.defn(name=LIST_PARTITIONS_ACTIVITY)
-    async def list_partitions() -> list[int]:
-        return [0, 1, 2]
-
-    @activity.defn(name=REPLAY_PARTITION_ACTIVITY)
-    async def replay_partition(input: dict[str, Any]) -> dict[str, Any]:
+    @activity.defn(name=REPLAY_ACTIVITY)
+    async def replay_activity(input: dict[str, Any]) -> dict[str, Any]:
         return replay(input)
 
     task_queue = str(uuid.uuid4())
@@ -33,7 +24,7 @@ async def _run(replay: Any, skip_unreplayable: bool = False) -> Any:
             env.client,
             task_queue=task_queue,
             workflows=[CdpDlqReplayWorkflow],
-            activities=[list_partitions, replay_partition],
+            activities=[replay_activity],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -46,26 +37,25 @@ async def _run(replay: Any, skip_unreplayable: bool = False) -> Any:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("skip_unreplayable", [False, True])
-async def test_replays_every_partition_and_adds_up_the_results(skip_unreplayable):
+async def test_passes_the_skip_flag_and_returns_the_totals(skip_unreplayable):
     calls: list[dict[str, Any]] = []
+    skipped = [{"partition": 1, "offset": 7, "error": "will never parse"}]
 
     def replay(input: dict[str, Any]) -> dict[str, Any]:
         calls.append(input)
-        return {"partition": input["partition"], "records_read": 5, "records_skipped": 1, "invocations_queued": 3}
+        return {"records_read": 5, "records_skipped": 1, "invocations_queued": 3, "skipped": skipped}
 
     result = await _run(replay, skip_unreplayable)
 
-    assert sorted(call["partition"] for call in calls) == [0, 1, 2]
-    assert all(call["skip_unreplayable"] is skip_unreplayable for call in calls)
-    assert (result.records_read, result.records_skipped, result.invocations_queued) == (15, 3, 9)
+    assert calls == [{"skip_unreplayable": skip_unreplayable}]
+    assert (result.records_read, result.records_skipped, result.invocations_queued) == (5, 1, 3)
+    assert result.skipped == skipped
 
 
 @pytest.mark.asyncio
 async def test_a_record_that_cannot_be_replayed_fails_the_run_with_its_offset():
     def replay(input: dict[str, Any]) -> dict[str, Any]:
-        if input["partition"] == 1:
-            raise ApplicationError("Partition 1 offset 7 cannot be replayed: still fails", non_retryable=True)
-        return {"partition": input["partition"], "records_read": 1, "records_skipped": 0, "invocations_queued": 1}
+        raise ApplicationError("Partition 1 offset 7 cannot be replayed: still fails", non_retryable=True)
 
     with pytest.raises(WorkflowFailureError) as failure:
         await _run(replay)

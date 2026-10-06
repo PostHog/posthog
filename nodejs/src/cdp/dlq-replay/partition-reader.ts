@@ -9,11 +9,11 @@ const MAX_EMPTY_READS = 30
 const READ_TIMEOUT_MS = 1000
 
 /**
- * Reads one partition of a topic, and commits how far a replay got.
+ * Reads every partition of a topic, and commits how far a replay got.
  *
- * Partitions are assigned rather than subscribed, so the workflow decides what runs and the group
- * never rebalances. The committed offsets are the only record of what was replayed, and the next
- * replay starts from them.
+ * Partitions are assigned rather than subscribed: there is only ever one reader, so joining a group
+ * would add a wait and a chance of rebalancing for nothing. The committed offsets are the only record
+ * of what was replayed, and the next replay starts from them.
  */
 export class DlqPartitionReader {
     private constructor(private consumer: KafkaConsumer) {}
@@ -77,8 +77,8 @@ export class DlqPartitionReader {
         this.consumer.commitSync({ topic, partition, offset: nextOffset })
     }
 
-    seek(topic: string, partition: number, offset: number): void {
-        this.consumer.assign([{ topic, partition, offset }])
+    assign(topic: string, starts: Map<number, number>): void {
+        this.consumer.assign([...starts].map(([partition, offset]) => ({ topic, partition, offset })))
     }
 
     /** An empty read is normal while a fetch is in flight. One that stays empty means the broker is not serving. */
