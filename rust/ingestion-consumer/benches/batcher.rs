@@ -148,7 +148,7 @@ impl Harness {
                 SendKind::Fresh
             };
             self.responses += 1;
-            let returned = (self.partial_every > 0 && self.responses % self.partial_every == 0)
+            let returned = (self.partial_every > 0 && self.responses.is_multiple_of(self.partial_every))
                 .then(|| send.runs[0].messages.last().cloned())
                 .flatten();
             let mut messages = Vec::new();
@@ -240,7 +240,7 @@ impl PollSource {
             let partition = (key % PARTITIONS as usize) as i32;
             let offset = self.next_offset.entry(partition).or_insert(0);
             let message = SerializedKafkaMessage {
-                topic: "events".to_string(),
+                topic: "events".into(),
                 partition,
                 offset: *offset,
                 timestamp: 0,
