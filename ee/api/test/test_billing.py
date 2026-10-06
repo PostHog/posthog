@@ -1327,7 +1327,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         mock_post.return_value = self._billing_answer(200, {"detached_at": "2026-10-05T12:00:00+00:00"})
         mock_get_billing.return_value = {"available_product_features": [], "products": []}
 
-        response = self.client.post("/api/billing/payer/detach")
+        response = self.client.post(
+            "/api/billing/payer/detach", {"organization_id": str(self.organization.id)}, content_type="application/json"
+        )
 
         assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"detached_at": "2026-10-05T12:00:00Z"})
         token = mock_post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
@@ -1346,10 +1348,17 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("admin", OrganizationMembership.Level.ADMIN, True, False),
-            ("member", OrganizationMembership.Level.MEMBER, True, False),
-            ("owner_of_an_organization_its_partner_does_not_pay_for", OrganizationMembership.Level.OWNER, False, False),
-            ("owner_through_the_partners_oauth_token", OrganizationMembership.Level.OWNER, True, True),
+            ("admin", OrganizationMembership.Level.ADMIN, True, False, False),
+            ("member", OrganizationMembership.Level.MEMBER, True, False, False),
+            (
+                "owner_of_an_organization_its_partner_does_not_pay_for",
+                OrganizationMembership.Level.OWNER,
+                False,
+                False,
+                False,
+            ),
+            ("owner_through_the_partners_oauth_token", OrganizationMembership.Level.OWNER, True, True, False),
+            ("owner_whose_page_shows_another_organization", OrganizationMembership.Level.OWNER, True, False, True),
         ]
     )
     @patch("ee.billing.billing_manager.http_session.post")
@@ -1359,12 +1368,19 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         level: OrganizationMembership.Level,
         partner_pays: bool,
         through_oauth_token: bool,
+        page_shows_another_organization: bool,
         mock_post: MagicMock,
     ) -> None:
         self.organization_membership.level = level
         self.organization_membership.save()
         application = self._provision(pays_for_customers=partner_pays)
         assert application is not None
+        page_organization = self.organization
+        if page_shows_another_organization:
+            page_organization = Organization.objects.create(name="Another Example Organization")
+            OrganizationMembership.objects.create(
+                user=self.user, organization=page_organization, level=OrganizationMembership.Level.OWNER
+            )
         if through_oauth_token:
             OAuthAccessToken.objects.create(
                 user=self.user,
@@ -1376,7 +1392,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             self.client.logout()
             self.client.credentials(HTTP_AUTHORIZATION="Bearer pha_partner_example")
 
-        response = self.client.post("/api/billing/payer/detach")
+        response = self.client.post(
+            "/api/billing/payer/detach", {"organization_id": str(page_organization.id)}, content_type="application/json"
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_post.assert_not_called()
@@ -1384,19 +1402,27 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("billing_error", 500, {"detail": "A server error occurred."}, None),
-            ("billing_unreachable", None, None, Timeout()),
-            ("answer_without_the_detach_time", 200, {"status": "ok"}, None),
+            (
+                "billing_refused",
+                409,
+                {"detail": "This customer cannot be detached from its payer."},
+                None,
+                "payer_detach_refused",
+            ),
+            ("billing_server_error", 500, {"detail": "A server error occurred."}, None, "payer_detach_unconfirmed"),
+            ("billing_unreachable", None, None, Timeout(), "payer_detach_unconfirmed"),
+            ("answer_without_the_detach_time", 200, {"status": "ok"}, None, "payer_detach_unconfirmed"),
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.http_session.post")
-    def test_failed_detach_keeps_the_partner_paying(
+    def test_failed_detach_keeps_the_partner_lock(
         self,
         _name: str,
         status_code: int | None,
         body: Any,
         error: Exception | None,
+        expected_code: str,
         mock_post: MagicMock,
         mock_get_billing: MagicMock,
     ) -> None:
@@ -1407,12 +1433,11 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         mock_post.side_effect = error
         mock_get_billing.return_value = {"available_product_features": [], "products": []}
 
-        response = self.client.post("/api/billing/payer/detach")
-
-        assert (response.status_code, response.json().get("code")) == (
-            status.HTTP_502_BAD_GATEWAY,
-            "payer_detach_failed",
+        response = self.client.post(
+            "/api/billing/payer/detach", {"organization_id": str(self.organization.id)}, content_type="application/json"
         )
+
+        assert (response.status_code, response.json().get("code")) == (status.HTTP_502_BAD_GATEWAY, expected_code)
         assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at is None
         assert self.client.get("/api/billing").json()["billing_managed_by_partner"] == {
             "partner_name": "Example Partner"

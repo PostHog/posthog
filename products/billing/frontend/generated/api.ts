@@ -49,6 +49,7 @@ import type {
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    PayerDetachRequestApi,
     PayerDetachResponseApi,
 } from './api.schemas'
 
@@ -218,10 +219,15 @@ export const getBillingPayerDetachCreateUrl = () => {
  * Moves an organization a partner pays for to paying for itself. The partner pays for usage up to `detached_at`, and the organization pays from then on, so it needs its own payment method. Only organization owners can call this, and only from a logged-in session.
  * @summary Stop the partner paying for this organization
  */
-export const billingPayerDetachCreate = async (options?: RequestInit): Promise<PayerDetachResponseApi> => {
+export const billingPayerDetachCreate = async (
+    payerDetachRequestApi: PayerDetachRequestApi,
+    options?: RequestInit
+): Promise<PayerDetachResponseApi> => {
     return apiMutator<PayerDetachResponseApi>(getBillingPayerDetachCreateUrl(), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(payerDetachRequestApi),
     })
 }
 

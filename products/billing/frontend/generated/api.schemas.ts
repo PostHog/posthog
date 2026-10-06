@@ -78,6 +78,11 @@ export interface PatchedBillingApi {
     billing_limit?: number
 }
 
+export interface PayerDetachRequestApi {
+    /** ID of the organization the owner confirmed the change for. The request is refused unless this is the organization the session currently works in. */
+    organization_id: string
+}
+
 export interface PayerDetachResponseApi {
     /** When the partner stopped paying for this organization. The partner pays for usage before this time, and the organization pays for usage from then on. */
     detached_at: string

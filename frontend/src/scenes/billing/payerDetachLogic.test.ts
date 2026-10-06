@@ -15,8 +15,8 @@ const PARTNER_PAID_BILLING: Partial<BillingType> = {
     customer_id: '',
     billing_managed_by_partner: { partner_name: 'Example Partner' },
 }
-const PAYER_DETACH_FAILED_DETAIL =
-    "Billing couldn't make the change, so your partner still pays for this organization. Try again in a few minutes, and contact support if it keeps happening."
+const PAYER_DETACH_UNCONFIRMED_DETAIL =
+    "We couldn't confirm the change with billing. Try again; it's safe to repeat. If it keeps happening, contact support."
 
 describe('payerDetachLogic', () => {
     let billingState: Partial<BillingType>
@@ -58,9 +58,11 @@ describe('payerDetachLogic', () => {
         const detachReleased = new Promise<void>((resolve) => {
             releaseDetach = resolve
         })
+        let detachBody: unknown
         useMocks({
             post: {
-                '/api/billing/payer/detach': async () => {
+                '/api/billing/payer/detach': async ({ request }) => {
+                    detachBody = await request.json()
                     await detachReleased
                     billingState = { customer_id: '' }
                     return [200, { detached_at: '2026-10-05T12:00:00Z' }]
@@ -78,6 +80,7 @@ describe('payerDetachLogic', () => {
 
         expect(logic.values).toMatchObject({ isPayerDetachModalOpen: false, isDetachingFromPayer: false })
         expect(billingLogic.values.isBillingManagedByPartner).toBe(false)
+        expect(detachBody).toEqual({ organization_id: MOCK_DEFAULT_ORGANIZATION.id })
     })
 
     it('keeps the modal open with the explanation from billing when the detach fails', async () => {
@@ -87,8 +90,8 @@ describe('payerDetachLogic', () => {
                     502,
                     {
                         type: 'server_error',
-                        code: 'payer_detach_failed',
-                        detail: PAYER_DETACH_FAILED_DETAIL,
+                        code: 'payer_detach_unconfirmed',
+                        detail: PAYER_DETACH_UNCONFIRMED_DETAIL,
                         attr: null,
                     },
                 ],
@@ -104,7 +107,7 @@ describe('payerDetachLogic', () => {
         expect(logic.values).toMatchObject({
             isPayerDetachModalOpen: true,
             isDetachingFromPayer: false,
-            payerDetachError: PAYER_DETACH_FAILED_DETAIL,
+            payerDetachError: PAYER_DETACH_UNCONFIRMED_DETAIL,
         })
         expect(billingLogic.values.isBillingManagedByPartner).toBe(true)
     })

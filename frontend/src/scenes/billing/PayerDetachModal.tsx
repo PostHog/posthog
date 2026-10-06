@@ -46,9 +46,12 @@ export function PayerDetachModal(): JSX.Element | null {
                 {payerDetachError && <LemonBanner type="error">{payerDetachError}</LemonBanner>}
                 <p className="mb-0">When you confirm:</p>
                 <ul className="list-disc pl-6 mb-0 space-y-1">
-                    <li>{`From now on, ${billingPartnerName} stops paying for this organization.`}</li>
-                    <li>{`Usage so far this month stays on ${billingPartnerName}'s bill.`}</li>
-                    <li>This organization then needs its own payment method, like any other organization.</li>
+                    <li>{`${billingPartnerName} pays for this organization's usage up to the moment you confirm.`}</li>
+                    <li>From then on, this organization pays for its own usage and needs its own payment method.</li>
+                    <li>
+                        Until you add a payment method, the organization is on the free plan and free tier limits apply.
+                    </li>
+                    <li>{`${billingPartnerName} keeps its current access to this organization's projects.`}</li>
                 </ul>
                 <p className="mb-0">You can't undo this.</p>
             </div>

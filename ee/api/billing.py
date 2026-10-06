@@ -120,12 +120,23 @@ class BillingServiceError(APIException):
     default_detail = "Billing could not answer this request. Try again in a moment."
 
 
-class PayerDetachFailed(APIException):
+class PayerDetachRefused(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
-    default_code = "payer_detach_failed"
+    default_code = "payer_detach_refused"
     default_detail = (
         "Billing couldn't make the change, so your partner still pays for this organization. "
         "Try again in a few minutes, and contact support if it keeps happening."
+    )
+
+
+# A 5xx, a timeout, or an answer without a detach time can follow a detach billing already committed.
+# Retrying is safe because billing answers a repeated detach with the original detach time.
+class PayerDetachOutcomeUnknown(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "payer_detach_unconfirmed"
+    default_detail = (
+        "We couldn't confirm the change with billing. Try again; it's safe to repeat. "
+        "If it keeps happening, contact support."
     )
 
 
@@ -577,6 +588,15 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+class PayerDetachRequestSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(
+        help_text=(
+            "ID of the organization the owner confirmed the change for. The request is refused unless this is "
+            "the organization the session currently works in."
+        ),
+    )
+
+
 class PayerDetachResponseSerializer(serializers.Serializer):
     detached_at = serializers.DateTimeField(
         help_text=(
@@ -584,6 +604,16 @@ class PayerDetachResponseSerializer(serializers.Serializer):
             "and the organization pays for usage from then on."
         ),
     )
+
+
+class ConfirmedForCurrentOrganization(permissions.BasePermission):
+    message = "You switched to another organization since this page loaded. Reload the page, then try again."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        serializer = PayerDetachRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        organization = view._get_org()
+        return organization is not None and serializer.validated_data["organization_id"] == organization.id
 
 
 @extend_schema(tags=["billing"])
@@ -741,14 +771,20 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`detached_at`, and the organization pays from then on, so it needs its own payment method. "
             "Only organization owners can call this, and only from a logged-in session."
         ),
-        request=None,
+        request=PayerDetachRequestSerializer,
         responses={200: OpenApiResponse(response=PayerDetachResponseSerializer)},
     )
     @action(
         methods=["POST"],
         detail=False,
         url_path="payer/detach",
-        permission_classes=[permissions.IsAuthenticated, IsOrganizationOwner, BillingManagedByPartner],
+        permission_classes=[
+            permissions.IsAuthenticated,
+            # Before the owner and partner checks, which judge the session's organization rather than the page's.
+            ConfirmedForCurrentOrganization,
+            IsOrganizationOwner,
+            BillingManagedByPartner,
+        ],
     )
     def detach_from_payer(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
@@ -756,7 +792,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             detached_at = self.get_billing_manager().detach_from_payer(organization)
         except (BillingServiceResponseError, PayerDetachUnconfirmed, requests.RequestException) as error:
             capture_exception(error, {"organization_id": str(organization.id)})
-            raise PayerDetachFailed() from error
+            if isinstance(error, BillingServiceResponseError) and status.is_client_error(error.status_code):
+                raise PayerDetachRefused() from error
+            raise PayerDetachOutcomeUnknown() from error
 
         OrganizationProvisioning.objects.filter(organization=organization, payer_detached_at__isnull=True).update(
             payer_detached_at=detached_at

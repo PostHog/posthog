@@ -58,6 +58,18 @@ export const BillingLicensePartialUpdateBody = /* @__PURE__ */ zod.object({
     billing_limit: zod.number().optional(),
 })
 
+/**
+ * Moves an organization a partner pays for to paying for itself. The partner pays for usage up to `detached_at`, and the organization pays from then on, so it needs its own payment method. Only organization owners can call this, and only from a logged-in session.
+ * @summary Stop the partner paying for this organization
+ */
+export const BillingPayerDetachCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .uuid()
+        .describe(
+            'ID of the organization the owner confirmed the change for. The request is refused unless this is the organization the session currently works in.'
+        ),
+})
+
 export const billingStartupsApplyCreateBodyPlanMax = 100
 
 export const BillingStartupsApplyCreateBody = /* @__PURE__ */ zod.object({
