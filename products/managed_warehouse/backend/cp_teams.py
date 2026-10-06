@@ -1,4 +1,8 @@
-"""Read-side client for the duckgres control-plane org-teams API.
+"""Read-side client for the managed-warehouse control-plane org-teams API.
+
+The control plane is duckgres (``DUCKGRES_API_URL``) unless ``HOGTOWER_API_URL`` is set,
+in which case :mod:`products.managed_warehouse.backend.hogtower` serves the same reads
+from hogtower's /api/v2 in the duckgres response shape.
 
 The control plane is the source of truth for per-team managed-warehouse state.
 This module exposes the CP rows as :class:`CPTeam` values plus a small process-local
@@ -29,12 +33,15 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from functools import partial
 
 from django.conf import settings
 
 import requests as http_requests
 
 from posthog.security.outbound_proxy import internal_requests
+
+from products.managed_warehouse.backend import hogtower
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +163,7 @@ def _cached_rows(
     return rows
 
 
-def _rows_from_response(response: http_requests.Response) -> list[dict] | None:
+def _rows_from_response(response: http_requests.Response | hogtower.TranslatedResponse) -> list[dict] | None:
     """Extract the control-plane team payload without importing DRF presentation code."""
     status_code = response.status_code
     if not 200 <= status_code < 300:
@@ -187,23 +194,32 @@ def _fetch_rows(*, organization_id: str | None) -> list[dict] | None:
     fallback behavior, but returns only its private read-side payload rather than a
     DRF ``Response``. The caller's cache remains responsible for retry behavior.
     """
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    if not base_url:
-        logger.warning("cp_teams_request_rejected_api_not_configured (organization_id=%s)", organization_id)
-        return None
-
-    if organization_id is None:
-        url = f"{base_url.rstrip('/')}/api/v1/teams"
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        if organization_id is None:
+            send = partial(hogtower.request, "GET", "", "teams", timeout=30)
+        else:
+            send = partial(hogtower.request, "GET", organization_id, "/teams", timeout=30)
     else:
-        url = f"{base_url.rstrip('/')}/api/v1/orgs/{organization_id}/teams"
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        if not base_url:
+            logger.warning("cp_teams_request_rejected_api_not_configured (organization_id=%s)", organization_id)
+            return None
 
-    headers: dict[str, str] = {}
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
+        if organization_id is None:
+            url = f"{base_url.rstrip('/')}/api/v1/teams"
+        else:
+            url = f"{base_url.rstrip('/')}/api/v1/orgs/{organization_id}/teams"
+
+        headers: dict[str, str] = {}
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
+
+        send = partial(internal_requests.request, "GET", url, json=None, params=None, headers=headers, timeout=30)
 
     try:
-        response = internal_requests.request("GET", url, json=None, params=None, headers=headers, timeout=30)
+        response = send()
     except http_requests.Timeout:
         logger.warning("cp_teams_list_request_timed_out (organization_id=%s)", organization_id)
         return None
@@ -234,18 +250,22 @@ def _fetch_all_rows() -> list[dict] | None:
 
 def _fetch_ready_warehouse_rows() -> list[dict] | None:
     """Read warehouses that can accept backfill connections from the discovery API."""
-    base_url = getattr(settings, "DUCKGRES_API_URL", None)
-    if not base_url:
-        logger.warning("cp_teams_request_rejected_api_not_configured (resource=warehouses)")
-        return None
+    send: Callable[[], http_requests.Response | hogtower.TranslatedResponse]
+    if hogtower.is_configured():
+        send = partial(hogtower.request, "GET", "", "warehouses", timeout=30)
+    else:
+        base_url = getattr(settings, "DUCKGRES_API_URL", None)
+        if not base_url:
+            logger.warning("cp_teams_request_rejected_api_not_configured (resource=warehouses)")
+            return None
 
-    headers: dict[str, str] = {}
-    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
-    if token:
-        headers["X-Duckgres-Internal-Secret"] = token
+        headers: dict[str, str] = {}
+        token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+        if token:
+            headers["X-Duckgres-Internal-Secret"] = token
 
-    try:
-        response = internal_requests.request(
+        send = partial(
+            internal_requests.request,
             "GET",
             f"{base_url.rstrip('/')}/api/v1/warehouses",
             json=None,
@@ -253,6 +273,9 @@ def _fetch_ready_warehouse_rows() -> list[dict] | None:
             headers=headers,
             timeout=30,
         )
+
+    try:
+        response = send()
     except http_requests.Timeout:
         logger.warning("cp_teams_list_request_timed_out (resource=warehouses)")
         return None
