@@ -179,6 +179,7 @@ the row lists both.
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
 | cast_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| catchpoint                       | HTTP                        | requests                                                        | ✅                          |
 | cdc_open_data                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
@@ -1012,7 +1013,6 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - cashfree
 - castor_edc
-- catchpoint
 - checkly
 - chift
 - chorus
