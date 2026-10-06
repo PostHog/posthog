@@ -21,9 +21,9 @@ export function OptOutScene(): JSX.Element {
     return (
         <div className="space-y-8" data-attr="opt-out-scene">
             <div>
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                     <h2 className="text-xl font-semibold">Message categories</h2>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <LemonButton
                             type="secondary"
                             size="small"

@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -12,10 +13,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -33,6 +36,7 @@ from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
 from products.aeo.backend.facade.testing import create_citation_check
@@ -94,6 +98,9 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.models.message_category import MessageCategory
+from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
@@ -548,16 +555,18 @@ def _create_hog_flow(team: Team, label: str) -> str:
 
 
 def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
     return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
 
 
 def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
     return MessageRecipientPreference.objects.create(
         team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+    )
+
+
+def _create_message_suppression(team: Team, label: str, suppressed: bool = True, **fields: object):
+    return MessageSuppression.objects.for_team(team.id).create(
+        team=team, identifier=f"{label}@example.com", suppressed=suppressed, **fields
     )
 
 
@@ -1021,6 +1030,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),
+    ("message_suppressions", _create_message_suppression),
     ("notebooks", _create_notebook),
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
@@ -1422,6 +1432,54 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         rows = {row[0]: row[1] for row in response.results}
 
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
+
+
+class TestSystemMessageSuppressions(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _deny_hog_flow_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
+
+    def test_exposes_the_suppression_of_each_address(self):
+        suppressed_at = datetime(2026, 9, 1, 12, 30, tzinfo=UTC)
+        _create_message_suppression(
+            self.team, "bounced", source="BOUNCE", reason="Mailbox full", suppressed_at=suppressed_at
+        )
+        _create_message_suppression(self.team, "removed", source="MANUAL", suppressed=False, deleted=True)
+
+        response = execute_hogql_query(
+            "SELECT identifier, source, reason, suppressed, suppressed_at, deleted "
+            "FROM system.message_suppressions ORDER BY identifier",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [
+            ("bounced@example.com", "BOUNCE", "Mailbox full", True, suppressed_at, 0),
+            ("removed@example.com", "MANUAL", None, False, None, 1),
+        ]
+
+    @parameterized.expand([("without_grants", None), ("with_a_workflow_grant", "flow-granted")])
+    def test_denies_users_without_hog_flow_access(self, _name: str, granted_flow_id: str | None) -> None:
+        self._deny_hog_flow_access()
+        if granted_flow_id is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=granted_flow_id,
+                access_level="viewer",
+                organization_member=self.organization_membership,
+            )
+        _create_message_suppression(self.team, "denied")
+
+        with self.assertRaises(TableAccessDeniedError):
+            execute_hogql_query("SELECT identifier FROM system.message_suppressions", team=self.team, user=self.user)
 
 
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
