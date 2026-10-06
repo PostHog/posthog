@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this integration.",
+            "type": "number"
+        },
+        "search": {
+            "default": "",
+            "description": "Optional case-insensitive name search. Leave blank to list the first users.",
+            "type": "string"
+        },
+        "team_id": {
+            "description": "Linear team ID whose members to list.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id", "team_id"],
+    "type": "object"
+}

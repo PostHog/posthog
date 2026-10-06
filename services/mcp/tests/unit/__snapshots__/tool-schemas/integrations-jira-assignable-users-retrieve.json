@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this integration.",
+            "type": "number"
+        },
+        "project_key": {
+            "description": "Jira project key whose assignable users to list.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "default": "",
+            "description": "Optional case-insensitive name search. Leave blank to list the first users.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "project_key"],
+    "type": "object"
+}
