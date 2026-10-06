@@ -92,7 +92,7 @@ When the deadline passes, the call fails with `FlagError::TimeoutError("persons_
 A call that would start after the deadline fails without taking a connection.
 Each stopped call increments `flags_database_error_total` with `timeout_type="persons_db_deadline"` and the call's `operation`.
 The canonical log line records the first stopped call in `persons_db_deadline_exceeded`.
-The internal batch evaluation endpoint does not apply the deadline, because Django leaves a person whose evaluation errors out of the static cohort and still reports the run as a success.
+The internal batch evaluation endpoint does not apply the deadline. When a person's evaluation returns an error, Django leaves that person out of the static cohort and still reports the run as a success.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
 
 A query that the deadline drops mid-flight keeps its connection until sqlx's on-release ping finishes.

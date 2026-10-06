@@ -16,7 +16,7 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    calculate_hash, db_operations, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
     populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
     should_write_hash_key_override, track_unretried_db_error,
@@ -858,7 +858,7 @@ impl FeatureFlagMatcher {
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match before_persons_db_deadline(
             self.persons_db_deadline,
-            "should_write_hash_key_override",
+            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
             should_write_hash_key_override(
                 &self.router,
                 self.team_id,
@@ -896,7 +896,7 @@ impl FeatureFlagMatcher {
                 // NB: this is the only method that writes to the database
                 if let Err(e) = before_persons_db_deadline(
                     self.persons_db_deadline,
-                    "set_hash_key_overrides",
+                    db_operations::SET_HASH_KEY_OVERRIDES,
                     set_feature_flag_hash_key_overrides(
                         &self.router,
                         self.team_id,
@@ -944,7 +944,7 @@ impl FeatureFlagMatcher {
 
         match before_persons_db_deadline(
             self.persons_db_deadline,
-            "get_hash_key_overrides",
+            db_operations::GET_HASH_KEY_OVERRIDES,
             get_feature_flag_hash_key_overrides(
                 database_for_reading,
                 pool_name,
@@ -2814,7 +2814,7 @@ impl FeatureFlagMatcher {
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
         match before_persons_db_deadline(
             self.persons_db_deadline,
-            "fetch_properties",
+            db_operations::FETCH_PROPERTIES,
             fetch_and_locally_cache_all_relevant_properties(
                 &mut self.flag_evaluation_state,
                 self.router.get_persons_reader().clone(),
@@ -3069,7 +3069,7 @@ impl FeatureFlagMatcher {
                     None => {
                         match before_persons_db_deadline(
                             self.persons_db_deadline,
-                            "get_hash_key_overrides",
+                            db_operations::GET_HASH_KEY_OVERRIDES,
                             get_feature_flag_hash_key_overrides(
                                 self.router.get_persons_reader().clone(),
                                 pool_names::PERSONS_READER,

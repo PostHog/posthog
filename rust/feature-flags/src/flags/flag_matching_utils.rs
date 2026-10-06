@@ -603,7 +603,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
             fetch_group_properties(&reader, team_id, group_type_to_key),
         )
-        .inspect_err(|e| track_unretried_db_error(e, "fetch_properties"))?;
+        .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         // Mark every requested index as fetched, not just the ones the query returned a
@@ -621,7 +621,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let person_cohort =
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids)
                 .await
-                .inspect_err(|e| track_unretried_db_error(e, "fetch_properties"))?;
+                .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
@@ -749,6 +749,16 @@ pub(crate) fn track_unretried_db_error(error: &FlagError, operation: &str) {
     if let Some((error_type, timeout_subtype)) = classify_db_error(error) {
         track_db_error(error_type, timeout_subtype, operation, false);
     }
+}
+
+/// `operation` label values for persons DB calls. The deadline wrapper in `flag_matching.rs`
+/// and the call itself both count errors in `flags_database_error_total` under this label.
+/// A mismatched literal splits one operation's errors into two series and fails nothing.
+pub(crate) mod db_operations {
+    pub const SHOULD_WRITE_HASH_KEY_OVERRIDE: &str = "should_write_hash_key_override";
+    pub const SET_HASH_KEY_OVERRIDES: &str = "set_hash_key_overrides";
+    pub const GET_HASH_KEY_OVERRIDES: &str = "get_hash_key_overrides";
+    pub const FETCH_PROPERTIES: &str = "fetch_properties";
 }
 
 /// Records `flags_hash_key_retries_total` and the `retried` label on `flags_database_error_total`
@@ -928,7 +938,7 @@ pub async fn get_feature_flag_hash_key_overrides(
 
     retry_hash_key_call(
         team_id,
-        "get_hash_key_overrides",
+        db_operations::GET_HASH_KEY_OVERRIDES,
         retry_delays,
         || {
             try_get_feature_flag_hash_key_overrides(
@@ -1175,7 +1185,7 @@ pub async fn set_feature_flag_hash_key_overrides(
 
     retry_hash_key_call(
         team_id,
-        "set_hash_key_overrides",
+        db_operations::SET_HASH_KEY_OVERRIDES,
         retry_delays,
         || {
             try_set_feature_flag_hash_key_overrides(
@@ -1267,7 +1277,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
@@ -1326,7 +1336,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
             pool_names::NON_PERSONS_READER,
-            "set_hash_key_overrides",
+            db_operations::SET_HASH_KEY_OVERRIDES,
         )
         .await
         .map_err(FlagError::from)?;
@@ -1338,7 +1348,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             (
                 "pool".to_string(),
@@ -1406,7 +1416,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ("query".to_string(), "bulk_insert_overrides".to_string()),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
@@ -1483,7 +1493,7 @@ pub async fn should_write_hash_key_override(
 
     retry_hash_key_call(
         team_id,
-        "should_write_hash_key_override",
+        db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
         retry_delays,
         || try_should_write_hash_key_override(router, team_id, &distinct_ids),
         |_| {},
@@ -1598,7 +1608,7 @@ async fn try_should_write_hash_key_override(
                             ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
                             (
                                 "operation".to_string(),
-                                "should_write_hash_key_override".to_string(),
+                                db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
                             ),
                         ],
                         1,
@@ -1686,7 +1696,7 @@ async fn try_should_write_hash_key_override(
                             ),
                             (
                                 "operation".to_string(),
-                                "should_write_hash_key_override".to_string(),
+                                db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
                             ),
                         ],
                         1,

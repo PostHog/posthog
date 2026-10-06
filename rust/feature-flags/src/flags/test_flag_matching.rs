@@ -33,17 +33,19 @@ mod tests {
             },
         },
         handler::canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        metrics::consts::FLAG_DATABASE_ERROR_COUNTER,
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
             test_utils::{
-                failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                setup_invalid_pg_client, StalledPgClient, TestContext,
+                counter_total, failing_group_type_cache, flag_list_with_metadata,
+                mock_group_type_cache, setup_invalid_pg_client, StalledPgClient, TestContext,
             },
         },
     };
+    use metrics_util::debugging::DebuggingRecorder;
 
     fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
         mock_group_type_cache(HashMap::new())
@@ -8176,6 +8178,10 @@ mod tests {
         #[case] anon_distinct_id: Option<&str>,
         #[case] first_stopped_call: &str,
     ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
         let stalled_db = Arc::new(StalledPgClient::default());
         let router = PostgresRouter::new(
             stalled_db.clone(),
@@ -8259,6 +8265,20 @@ mod tests {
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        for operation in [first_stopped_call, "fetch_properties"] {
+            assert_eq!(
+                counter_total(
+                    &snapshotter,
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[
+                        ("timeout_type", "persons_db_deadline"),
+                        ("operation", operation)
+                    ],
+                ),
+                1,
+                "{operation} stop counted once"
+            );
+        }
     }
 
     #[tokio::test]
