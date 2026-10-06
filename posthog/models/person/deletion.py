@@ -260,7 +260,7 @@ class _Mapping:
 @dataclass(frozen=False)
 class OrphanRepairResult:
     orphaned_person_uuids: list[str]
-    # Orphans with no persons-DB row, which now get a persons-DB tombstone above ClickHouse.
+    # Orphans with no persons-DB row, which get a new persons-DB tombstone above ClickHouse.
     tombstoned_persons: int = 0
     # Orphans that are tombstoned in the persons DB, raised above ClickHouse when needed and republished.
     republished_persons: int = 0
@@ -273,7 +273,7 @@ class OrphanRepairResult:
     dry_run: bool = False
 
 
-# A team with more of its live ClickHouse persons missing from the persons DB lost them, so it needs a restore.
+# Past this share of live ClickHouse persons missing from the persons DB, the team likely needs a restore.
 ORPHAN_TOMBSTONE_SHARE_LIMIT = 0.05
 
 
@@ -329,13 +329,9 @@ def tombstone_orphaned_ch_persons(
 ) -> OrphanRepairResult:
     """Tombstone orphaned persons in the persons DB one version above ClickHouse, then publish those tombstones.
 
-    The persons DB decides each version: a missing person gets a tombstone at ClickHouse max + 1, a tombstone
-    below that is raised to it, and a live person (the orphan read is a lagging replica) is left alone. The
-    ClickHouse tombstone goes out at exactly the stored version, so a later revival lands above it and the
-    weekly sweep and the drain remove both rows. The orphan's distinct ids get no tombstone of their own:
-    the sweep removes every live mapping whose owner it deletes. A rerun republishes at the stored versions.
-
-    Mappings whose deleted winner is live in the persons DB are reported as reverse drift, not touched.
+    Each ClickHouse tombstone carries the exact stored version, so a later revival lands above it and a rerun
+    republishes the same versions. Distinct ids get no tombstone of their own, because the ClickHouse deletion
+    sweep removes every live mapping of a person it deletes.
     """
     result = OrphanRepairResult(orphaned_person_uuids=sorted(o.uuid for o in orphans), dry_run=dry_run)
     if not orphans:

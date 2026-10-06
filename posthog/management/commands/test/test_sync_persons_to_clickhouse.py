@@ -37,7 +37,7 @@ SYNC_MODULE = posthog.management.commands.sync_persons_to_clickhouse.__name__
 def _raise_distinct_id_version_in_postgres(
     team_id: int, distinct_id: str, min_version: int, *, revive: bool = False
 ) -> None:
-    # The personhog fake keeps its own store, so apply the floor RPC's update to the persons DB the sync reads.
+    # The personhog fake keeps its own store, so write the same version update to the persons DB the sync reads.
     with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
         cursor.execute(
             "UPDATE posthog_persondistinctid SET version = %s, is_deleted = is_deleted AND NOT %s "
@@ -201,7 +201,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         if replica_tombstone_version is not None:
             self._seed_tombstoned_person(UUID(uuid), replica_tombstone_version)
 
-        # The sync's replica read misses the live person; the primary, which the floor call reads, holds it live.
+        # The sync's replica read misses this person, but the primary that personhog reads holds it live.
         with fake_personhog_client() as personhog:
             personhog.add_person(team_id=self.team.pk, person_id=1, uuid=uuid, version=5)
             run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
@@ -234,7 +234,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             {"team_id": self.team.pk},
         )
         properties, version, is_deleted = expected
-        # A tombstone at the stored version, never a +100 guess, so a later revival at version 10 wins.
+        # The tombstone carries the stored Postgres version, so the next revival lands above it.
         self.assertEqual(
             ch_persons, [(person_uuid, self.team.pk, "{}" if is_deleted else properties, version, is_deleted)]
         )

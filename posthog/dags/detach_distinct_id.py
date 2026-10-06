@@ -1,12 +1,12 @@
 """Dagster job to detach a distinct_id from its person.
 
 Three cleanup phases, all required:
-  1. Postgres — tombstone the posthog_persondistinctid row (stops future ingestion lookups).
+  1. Postgres: tombstone the posthog_persondistinctid row (stops future ingestion lookups).
      The tombstone version is above both the row's own version and the highest version ClickHouse
      holds for the distinct id, so the ClickHouse tombstone and override win, and a later re-add
      revives the row above them instead of starting at version 0 underneath them.
-  2. Kafka  — publish is_deleted to person_distinct_id2 at that exact version (stops ClickHouse lookups).
-  3. Override — insert into person_distinct_id_overrides so the HogQL query layer
+  2. Kafka: publish is_deleted to person_distinct_id2 at that exact version (stops ClickHouse lookups).
+  3. Override: insert into person_distinct_id_overrides so the HogQL query layer
      immediately re-attributes historical events whose person_id was baked in at
      ingestion time (Person-on-Events). squash_person_overrides later makes it
      permanent and removes the override row.

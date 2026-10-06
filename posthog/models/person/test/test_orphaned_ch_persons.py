@@ -68,7 +68,7 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert self._stored(uuid) == (True, 6)
         assert self._ch_person_state(uuid) == (1, 6)
         assert find_orphaned_ch_persons(self.team.pk, [uuid]) == []
-        # The sweep removes these with their deleted owner, so the repair writes no mapping row of its own.
+        # The ClickHouse deletion sweep removes these with their deleted owner, so the repair writes no mapping row.
         for did in ("did-a", "did-b"):
             assert self._ch_mapping_state(did) == (uuid, 0, 0)
 
@@ -120,7 +120,7 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         assert self._stored(uuid) == (True, 3)
         assert self._ch_person_state(uuid) == (0, 2)
 
-        # The second call finds the tombstone already at its floor and still publishes it.
+        # The rerun finds the tombstone it inserted and still publishes it.
         result = tombstone_orphaned_ch_persons(self.team.pk, orphans, dry_run=False)
 
         assert result.republished_persons == 1

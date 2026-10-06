@@ -167,9 +167,9 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, force: bool = F
 def _tombstone_persons_above_clickhouse(team_id: int, floors: list[PersonVersionFloor]) -> None:
     """Raise each person's Postgres tombstone above its ClickHouse version, then publish the version Postgres stores.
 
-    Publishing above Postgres alone would hide the next revival. The floor call reads the primary, and a person it
-    holds live is skipped. Each batch commits on its own and is published before the next batch starts, so a later
-    failure leaves no committed tombstone unpublished.
+    A ClickHouse tombstone above the Postgres version would hide the next revival. A person that
+    ensure_person_version_floors finds live on the primary is skipped. Each batch is published before the next
+    starts, so a failure leaves no committed tombstone unpublished.
     """
     skipped_live = 0
     undelivered = 0
@@ -200,7 +200,7 @@ def _publish_person_tombstone(team_id: int, uuid: UUID, version: int) -> None:
 
 
 def _postgres_person_tombstones(team_id: int) -> set[UUID]:
-    """The persons Postgres holds as tombstones, which the share guard does not count as missing."""
+    """The persons Postgres holds as tombstones, which orphan_share_refusal must not count as missing."""
     with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
         cursor.execute("SELECT uuid FROM posthog_person WHERE team_id = %s AND is_deleted = true", [team_id])
         return {uuid for (uuid,) in cursor.fetchall()}
@@ -226,7 +226,7 @@ class _PrimaryDistinctId:
 def _primary_distinct_id_rows(team_id: int, distinct_ids: list[str]) -> dict[str, _PrimaryDistinctId]:
     """The owner, tombstone flag and version the Postgres primary holds for each distinct id.
 
-    The floor RPC does not return this, and personhog's primary reads list only live mappings.
+    SetPersonDistinctIdVersionFloor does not return this, and personhog's primary reads list only live mappings.
     """
     with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
         cursor.execute(
@@ -341,8 +341,8 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
             if distinct_id in postgres_distinct_ids:
                 continue
             if distinct_id not in tombstone_versions:
-                # Without a Postgres row there is no version to publish at. The sweep removes the mapping only once
-                # its owner is deleted, so a mapping with a live owner needs restoring into Postgres instead.
+                # With no Postgres row there is no version to publish. The ClickHouse deletion sweep removes the
+                # mapping only once its owner is deleted, so a mapping with a live owner needs a Postgres restore.
                 logger.warning(f"Skipping distinct ID {distinct_id}: Postgres has no row for it")
                 continue
             ch_versions[distinct_id] = int(version or 0)
