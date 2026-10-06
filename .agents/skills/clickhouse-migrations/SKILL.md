@@ -163,6 +163,10 @@ If you create a new table inside such a guard, you must also add its SQL functio
 The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table).
 
 **Dictionary credentials:** when a dictionary uses a `SOURCE(CLICKHOUSE(...))`, resolve the source user/password via `get_clickhouse_creds(ClickHouseUser.DICT_READER)` and interpolate them into the `USER`/`PASSWORD` clause — do not hardcode `default`/`CLICKHOUSE_USER` or omit credentials. This keeps dictionary auth on the dedicated low-privilege `dict_reader` user, decoupled from `default`; it falls back to `default` creds when the env vars are unset. See `posthog/models/exchange_rate/sql.py` for the pattern.
+This rule covers dictionaries that a migration creates.
+A dictionary that Dagster creates uses `ClickHouseUser.DAGSTER_DICT_READER` instead (see `credentials` in `posthog/dags/common/dictionaries.py`).
+ClickHouse stores the `SOURCE` password, so that user must have a static password and never a rotating token.
+`dagster_dict_reader` can only read the tables that infra grants it, so a new source table needs a grant first.
 
 ### Declarative schema (HCL) must agree
 
