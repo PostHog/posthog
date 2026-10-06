@@ -217,7 +217,7 @@ describe('PlayerFrame', () => {
         }
     })
 
-    // The error card's button used to reload the whole page, which repeated the same failed load.
+    // A retry from the error card must load a new frame. A page reload repeats the same failed load.
     it('loads a new frame and mounts the player when the viewer retries from the error state', () => {
         const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
         try {
