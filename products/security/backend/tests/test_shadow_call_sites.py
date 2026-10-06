@@ -9,7 +9,11 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from social_core.exceptions import AuthFailed
 
-from posthog.api.signup import process_social_domain_jit_provisioning_signup, process_social_invite_signup
+from posthog.api.signup import (
+    process_social_domain_jit_provisioning_signup,
+    process_social_invite_signup,
+    signup_refused,
+)
 from posthog.models import Organization, User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
@@ -136,3 +140,14 @@ class TestShadowCallSites(APIBaseTest):
                 self._sso_join(path, email, user, joined)
 
         assert joined.members.filter(email=email).exists() is not refused
+
+    @parameterized.expand([("logged only", [], False, 1), ("enforced", ["signup"], True, 0)])
+    def test_partner_signup(self, _name: str, enforced: list[str], refused: bool, would_block: int) -> None:
+        # Partner provisioning (agentic, Stripe, Vercel) creates accounts outside the signup serializers.
+        seed_rules(block_rule(targetType="email_domain", targetValue="throwaway.example", scope="signup"))
+        before = _count("signup", "agentic_provisioning", "email_domain")
+
+        with enforcing(*enforced):
+            assert signup_refused("new.user@throwaway.example", call_site="agentic_provisioning") is refused
+
+        assert _count("signup", "agentic_provisioning", "email_domain") == before + would_block

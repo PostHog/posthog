@@ -17,6 +17,7 @@ import structlog
 from rest_framework import exceptions
 from two_factor.utils import default_device
 
+from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, SIGNUP_REFUSAL_CODE, signup_refused
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
@@ -1144,6 +1145,9 @@ class VercelIntegration:
             first_name = name.split()[0] if name.split() else name
         elif email:
             first_name = email.split("@")[0]
+
+        if signup_refused(email, call_site="vercel_provisioning"):
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SIGNUP_REFUSAL_CODE)
 
         user = User.objects.create_user(
             email=email,

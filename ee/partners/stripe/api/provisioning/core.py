@@ -20,6 +20,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 import structlog
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, SIGNUP_REFUSAL_CODE, signup_refused
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -256,6 +257,10 @@ def handle_new_user(
     # over-long value fails at the DB layer as an uncaught TypeError/DataError
     # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
+
+    if signup_refused(email, call_site="stripe_provisioning"):
+        capture_provisioning_event("account_request", "access_blocked", region=region)
+        raise SpecError(SIGNUP_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
     try:
         organization, team, user = User.objects.bootstrap(

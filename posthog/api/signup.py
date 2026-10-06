@@ -63,6 +63,9 @@ SIGNUP_BLOCKED_DETAIL = (
     "We couldn't complete your signup. If you think this is a mistake, contact support "
     f"and quote the code {SECURITY_REFUSAL_CODE}."
 )
+# Partner signup paths under ee/ raise their own error types with this code, and may not import
+# the security product directly.
+SIGNUP_REFUSAL_CODE = SECURITY_REFUSAL_CODE
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
@@ -890,6 +893,18 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
         .order_by("-created_at")
         .first()
     )
+
+
+def signup_refused(email: str, *, call_site: str) -> bool:
+    """Whether an enforced signup rule refuses a new account for this email. Never raises.
+
+    For signup paths that a partner's server drives, so there is no person's IP to check.
+    """
+    try:
+        return security_access_refused(SecuritySubject(email=email), SecuritySurface.SIGNUP, call_site=call_site)
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site=call_site)
+        return False
 
 
 def _refuse_blocked_sso_join(strategy: DjangoStrategy, backend: BaseAuth, email: str, user: Optional[User]) -> None:

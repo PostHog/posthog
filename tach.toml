@@ -982,6 +982,7 @@ depends_on = [
     # product has no facade, so this matches how review_hog and signals reach LLMSkill.
     "products.skills",
     "products.slack_app", "products.access_control",
+    "products.security",
 ]
 layer = "modules"
 
