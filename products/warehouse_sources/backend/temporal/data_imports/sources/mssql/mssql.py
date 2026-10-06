@@ -10,6 +10,9 @@ just holds an instance and validates credentials.
 from __future__ import annotations
 
 import time
+import uuid
+import datetime
+import functools
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
@@ -41,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dea
     run_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
     Column,
@@ -61,17 +65,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import checked_keyset_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     normalize_namespace,
     resolve_source_location,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "MSSQLColumn",
     "MSSQLImplementation",
+    "MSSQLResumeState",
     "filter_mssql_incremental_fields",
 ]
 
@@ -278,6 +284,199 @@ def filter_mssql_incremental_fields(
     return results
 
 
+# Key column types a keyset walk can seek on, mapped to the type the seek value is cast to. The
+# server compares and orders each of them itself, and each value survives the trip through JSON to
+# the next worker without loss. The cast keeps the comparison in the column's own type, so the seek
+# stays an index range.
+#
+# Date and time types with a fraction are left out: pymssql sends a datetime value with millisecond
+# precision, so the seek value can be lower than the key it came from. Text is left out because a
+# string parameter arrives as nvarchar, which makes the server convert a varchar key column for each
+# comparison.
+_KEYSET_KEY_TYPES = {
+    "tinyint": "tinyint",
+    "smallint": "smallint",
+    "int": "int",
+    "bigint": "bigint",
+    "date": "date",
+    "uniqueidentifier": "uniqueidentifier",
+}
+
+
+@frozen
+class MSSQLResumeState:
+    """Where an interrupted read continues from.
+
+    A full refresh stores the key of the last row it handed over, with the columns that key belongs
+    to. An incremental read stores the incremental value of that row.
+    """
+
+    key_columns: list[str] | None = None
+    last_key: list[Any] | None = None
+    incremental_value: Any = None
+
+
+@frozen
+class MSSQLUniqueIndex:
+    """A unique index from the catalog. Each column is `(name, base type, nullable)`."""
+
+    name: str
+    is_clustered: bool
+    is_primary_key: bool
+    columns: list[tuple[str, str, bool]]
+
+
+@frozen
+class MSSQLKeyset:
+    """The unique key a full refresh pages on, or the reason it cannot.
+
+    `reason` is a stable token, so the share of tables that stay on the single query is countable
+    from logs.
+    """
+
+    columns: list[str] | None = None
+    cast_types: list[str] | None = None
+    reason: str | None = None
+
+
+def _keyset_index_reason(index: MSSQLUniqueIndex, readable_columns: set[str]) -> str | None:
+    for name, data_type, nullable in index.columns:
+        if nullable:
+            # `key > last` never matches a NULL, so a row with a NULL key would never be read.
+            return "nullable_key"
+        if data_type not in _KEYSET_KEY_TYPES:
+            return f"non_orderable_type:{data_type}"
+        if name not in readable_columns:
+            return "key_not_projected"
+    return None
+
+
+def resolve_mssql_keyset(
+    *,
+    unique_indexes: list[MSSQLUniqueIndex],
+    readable_columns: set[str],
+    should_use_incremental_field: bool,
+) -> MSSQLKeyset:
+    """Pick the unique index a full refresh pages on.
+
+    The clustered index comes first, because a walk in its order reads the table in storage order.
+    The primary key comes next, then the index with the fewest columns.
+    """
+    if should_use_incremental_field:
+        return MSSQLKeyset(reason="incremental_sync")
+    if not unique_indexes:
+        return MSSQLKeyset(reason="no_unique_index")
+
+    first_reason: str | None = None
+    for index in sorted(
+        unique_indexes, key=lambda i: (not i.is_clustered, not i.is_primary_key, len(i.columns), i.name)
+    ):
+        reason = _keyset_index_reason(index, readable_columns)
+        if reason is None:
+            return MSSQLKeyset(
+                columns=[name for name, _, _ in index.columns],
+                cast_types=[_KEYSET_KEY_TYPES[data_type] for _, data_type, _ in index.columns],
+            )
+        first_reason = first_reason or reason
+    return MSSQLKeyset(reason=first_reason)
+
+
+def _keyset_key_value(value: Any) -> Any:
+    """The form of a key value that goes into the checkpoint and into the next seek.
+
+    One form for both uses, so a resumed walk sends the server the same value as an uninterrupted
+    one.
+    """
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    return value
+
+
+def _keyset_resume_key(state: MSSQLResumeState | None, keyset_columns: list[str]) -> tuple[Any, ...] | None:
+    """The key to seek past, or None to start from the first row.
+
+    A checkpoint for other columns means the table's indexes changed after it was written. A seek
+    with it would compare the wrong columns, so the walk starts again.
+    """
+    if state is None or not state.last_key or state.key_columns != keyset_columns:
+        return None
+    return tuple(state.last_key)
+
+
+def _incremental_resume_value(
+    state: MSSQLResumeState | None, incremental_field_type: IncrementalFieldType | None
+) -> Any | None:
+    """The stored incremental value, in the type the query binds."""
+    value = state.incremental_value if state is not None else None
+    if not isinstance(value, str):
+        return value
+    if incremental_field_type == IncrementalFieldType.Date:
+        return datetime.date.fromisoformat(value)
+    if incremental_field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp):
+        return datetime.datetime.fromisoformat(value)
+    return value
+
+
+class _TrackedFetch:
+    """`cursor.fetchmany` that records when the result set has no more rows."""
+
+    def __init__(self, cursor: pymssql.Cursor) -> None:
+        self._cursor = cursor
+        self.exhausted = False
+
+    def __call__(self, size: int) -> list[Any]:
+        rows = self._cursor.fetchmany(size) or []
+        self.exhausted = not rows
+        return rows
+
+
+def _keyset_seek_condition(quoted_columns: list[str], placeholders: list[str]) -> str:
+    """Rows after the last key, in the order of the key.
+
+    SQL Server has no row-value comparison. This form keeps a range on the first column, which the
+    server can seek on. A plain OR of one branch per column often makes it scan the index.
+    """
+    column, placeholder = quoted_columns[0], placeholders[0]
+    if len(quoted_columns) == 1:
+        return f"{column} > {placeholder}"
+    rest = _keyset_seek_condition(quoted_columns[1:], placeholders[1:])
+    return f"{column} >= {placeholder} AND ({column} > {placeholder} OR ({rest}))"
+
+
+def _build_keyset_query(
+    schema: str,
+    table_name: str,
+    keyset: MSSQLKeyset,
+    after: tuple[Any, ...] | None,
+    limit: int,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
+    row_filters: list[ValidatedRowFilter] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """One page of a full refresh: the next `limit` rows after `after`, in key order."""
+    if not keyset.columns or not keyset.cast_types:
+        raise ValueError("A keyset query needs key columns")
+
+    qualified_table = _IDENTIFIER_QUOTER.quote_qualified(schema, table_name)
+    projected = compute_projected_columns(enabled_columns, primary_keys, None)
+    select_clause = format_projected_select_clause(projected, _IDENTIFIER_QUOTER)
+    quoted_keys = [_IDENTIFIER_QUOTER.quote(column) for column in keyset.columns]
+
+    conditions, params = render_named_conditions(row_filters or [], _IDENTIFIER_QUOTER)
+    if after is not None:
+        placeholders = [f"CAST(%(keyset_{index})s AS {cast_type})" for index, cast_type in enumerate(keyset.cast_types)]
+        params.update({f"keyset_{index}": value for index, value in enumerate(after)})
+        conditions.insert(0, f"({_keyset_seek_condition(quoted_keys, placeholders)})")
+
+    query = f"SELECT TOP ({int(limit)}) {select_clause} FROM {qualified_table}"
+    if conditions:
+        query = f"{query} WHERE {' AND '.join(conditions)}"
+    order_by = ", ".join(f"{column} ASC" for column in quoted_keys)
+    return f"{query} ORDER BY {order_by}", params
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -289,6 +488,7 @@ def _build_query(
     enabled_columns: list[str] | None = None,
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
+    include_last_value: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     # Every identifier interpolated below is validated by the bracket
     # quoter — bad input (`;`, `]`, whitespace, etc.) raises before any
@@ -312,7 +512,9 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    operator = incremental_type_to_operator(incremental_field_type)
+    # A resumed read stopped at a batch boundary, and rows with the boundary value can sit on both
+    # sides of it. It reads that value again, and the merge on the primary key drops the repeats.
+    operator = ">=" if include_last_value else incremental_type_to_operator(incremental_field_type)
     quoted_incremental = _IDENTIFIER_QUOTER.quote(incremental_field)
     conditions = [f"{quoted_incremental} {operator} %(incremental_value)s", *filter_conditions]
     query = f"{base_query} WHERE {' AND '.join(conditions)}"
@@ -403,6 +605,7 @@ class MSSQLTableSetup:
     inner_query_args: dict[str, Any]
     chunk_size: int
     partition_settings: PartitionSettings | None
+    keyset: MSSQLKeyset
 
 
 class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Connection, pymssql.Cursor]):  # ty: ignore[invalid-type-arguments]
@@ -717,6 +920,54 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
         return [row[0] for row in rows]
 
+    def get_unique_indexes_for_table(
+        self, cursor: pymssql.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+    ) -> list[MSSQLUniqueIndex]:
+        """Return the unique indexes a keyset walk could page on.
+
+        A filtered index is unique only for the rows it covers, and the server does not use a
+        disabled one. The type is the base type, so a key of an alias type keeps its real order.
+        A failure returns no indexes, and the read then takes the single query.
+        """
+        query = """
+            SELECT i.name, i.type, i.is_primary_key, c.name, ty.name, c.is_nullable
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+            JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+            JOIN sys.types ty ON c.system_type_id = ty.user_type_id
+            JOIN sys.tables t ON i.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE i.is_unique = 1
+            AND i.has_filter = 0
+            AND i.is_disabled = 0
+            AND i.is_hypothetical = 0
+            AND ic.is_included_column = 0
+            AND ic.key_ordinal > 0
+            AND s.name = %(schema)s
+            AND t.name = %(table_name)s
+            ORDER BY i.index_id, ic.key_ordinal"""
+        try:
+            cursor.execute(query, {"schema": schema, "table_name": table_name})
+            rows = cursor.fetchall() or []
+        except Exception as e:
+            logger.debug(f"Could not read the unique indexes: {e}", exc_info=e)
+            return []
+
+        columns_by_index: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+        flags_by_index: dict[str, tuple[bool, bool]] = {}
+        for index_name, index_type, is_primary_key, column_name, type_name, is_nullable in rows:
+            columns_by_index[index_name].append((column_name, type_name, bool(is_nullable)))
+            flags_by_index[index_name] = (index_type == 1, bool(is_primary_key))
+        return [
+            MSSQLUniqueIndex(
+                name=name,
+                is_clustered=flags_by_index[name][0],
+                is_primary_key=flags_by_index[name][1],
+                columns=columns,
+            )
+            for name, columns in columns_by_index.items()
+        ]
+
     def get_table_metadata(self, cursor: pymssql.Cursor, schema: str, table_name: str) -> Table[MSSQLColumn]:
         """Return rich column metadata for building a PyArrow schema."""
         query = """
@@ -957,7 +1208,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
-    def build_pipeline(self, config: MSSQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def build_pipeline(
+        self,
+        config: MSSQLSourceConfig,
+        inputs: SourceInputs,
+        resumable_source_manager: ResumableSourceManager[MSSQLResumeState] | None = None,
+    ) -> SourceResponse:
         # Resolve the per-row namespace + table from `schema_metadata` (multi-schema) or the
         # config namespace (legacy single-schema). `response_name` keeps the legacy Delta path.
         # No fallback namespace: every real source either has a config schema or carries
@@ -978,6 +1234,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
+        manager = resumable_source_manager
 
         def _resolve_projection(
             full_table: Table[MSSQLColumn], primary_keys: list[str] | None
@@ -1014,9 +1271,19 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         row_filters=row_filters,
                     )
 
+                    if manager is None or should_use_incremental_field:
+                        unique_indexes: list[MSSQLUniqueIndex] = []
+                    else:
+                        unique_indexes = self.get_unique_indexes_for_table(cursor, schema, table_name, logger)
+
                     return MSSQLTableSetup(
                         primary_keys=primary_keys,
                         projection=projection,
+                        keyset=resolve_mssql_keyset(
+                            unique_indexes=unique_indexes,
+                            readable_columns={column.name for column in projection.table.columns},
+                            should_use_incremental_field=should_use_incremental_field,
+                        ),
                         inner_query=inner_query,
                         inner_query_args=inner_query_args,
                         chunk_size=self.get_chunk_size(
@@ -1072,8 +1339,36 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 return setup_projection
             return _resolve_projection(fresh_table, primary_keys)
 
+        def _execute(cursor: pymssql.Cursor, query: str, args: dict[str, Any]) -> list[str]:
+            logger.debug(f"MS SQL query: {query} with args: {args}")
+            retry_on_deadlock(lambda: cursor.execute(query, args), logger=logger)
+            return [column[0] for column in cursor.description or []]
+
+        keyset = setup.keyset
+        if manager is not None and keyset.reason is not None and not should_use_incremental_field:
+            logger.info(f"MSSQL keyset resume unavailable: reason={keyset.reason}")
+
+        # A resumed incremental read repeats the rows at its checkpoint value. Only a merge on a
+        # primary key drops them, so an append sync and a table without a key restart from the
+        # stored watermark as before.
+        resumes_incremental = (
+            manager is not None
+            and should_use_incremental_field
+            and incremental_field is not None
+            and inputs.sync_type == ExternalDataSchemaSyncType.INCREMENTAL
+            and bool(primary_keys)
+        )
+
         def get_rows() -> Iterator[Any]:
             binary_reporter = BinaryColumnReporter(logger)
+            last_value = db_incremental_field_last_value
+            resumed = False
+            if manager is not None and resumes_incremental and manager.can_resume():
+                resume_value = _incremental_resume_value(manager.load_state(), incremental_field_type)
+                if resume_value is not None:
+                    logger.debug(f"MSSQL incremental resume: {incremental_field} >= {resume_value}")
+                    last_value, resumed = resume_value, True
+
             with self.connect(config, team_id=inputs.team_id, lock_timeout_ms=None) as streaming_connection:
                 projection = _refreshed_projection(streaming_connection)
                 arrow_schema = projection.table.to_arrow_schema()
@@ -1084,37 +1379,121 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         should_use_incremental_field,
                         incremental_field,
                         incremental_field_type,
-                        db_incremental_field_last_value,
+                        last_value,
                         enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
+                        include_last_value=resumed,
                     )
                     if incremental_field:
                         query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"
 
-                    logger.debug(f"MS SQL query: {query} with args: {args}")
-
-                    retry_on_deadlock(lambda: cursor.execute(query, args), logger=logger)
-
-                    column_names = [column[0] for column in cursor.description or []]
+                    column_names = _execute(cursor, query, args)
 
                     # The read can still return fewer columns than the catalog listed, so restrict
                     # the schema to what came back instead of failing the Arrow build.
                     read_schema = restrict_schema_to_columns(arrow_schema, column_names)
+                    incremental_index = (
+                        column_names.index(incremental_field) if resumes_incremental and incremental_field else None
+                    )
 
                     for rows in fetch_row_batches(cursor.fetchmany, max_rows=setup.chunk_size):
-                        yield table_from_iterator(
+                        table = table_from_iterator(
                             (dict(zip(column_names, row)) for row in rows),
                             read_schema,
                             primary_keys=primary_keys,
                             binary_reporter=binary_reporter,
                         )
+                        # The rows arrive in ascending order, so the last row holds the highest value.
+                        # See `get_rows_by_keyset` for why the stage comes directly before the yield.
+                        if manager is not None and incremental_index is not None:
+                            reached = rows[-1][incremental_index]
+                            if reached is not None:
+                                manager.save_state(MSSQLResumeState(incremental_value=reached))
+                        yield table
+
+            # Only a finished read gets here. A read that stops early keeps its checkpoint.
+            if manager is not None and resumes_incremental:
+                manager.clear_state()
+
+        def get_rows_by_keyset(
+            manager: ResumableSourceManager[MSSQLResumeState], key_columns: list[str]
+        ) -> Iterator[Any]:
+            binary_reporter = BinaryColumnReporter(logger)
+            last_key = _keyset_resume_key(manager.load_state() if manager.can_resume() else None, key_columns)
+            if last_key is not None:
+                logger.debug(f"MSSQL keyset resume: {key_columns} > {last_key}")
+
+            with self.connect(config, team_id=inputs.team_id, lock_timeout_ms=None) as connection:
+                # Each page is its own transaction, so the walk holds no transaction open on the
+                # source between pages.
+                connection.autocommit(True)
+                projection = _refreshed_projection(connection)
+                arrow_schema = projection.table.to_arrow_schema()
+                page_rows = setup.chunk_size
+                while True:
+                    query, args = _build_keyset_query(
+                        schema,
+                        table_name,
+                        keyset,
+                        last_key,
+                        page_rows,
+                        enabled_columns=projection.enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
+                    )
+                    rows_in_page = 0
+                    with connection.cursor() as cursor:
+                        column_names = _execute(cursor, query, args)
+                        key_indexes = [column_names.index(column) for column in key_columns]
+                        read_schema = restrict_schema_to_columns(arrow_schema, column_names)
+
+                        fetch = _TrackedFetch(cursor)
+                        for rows in fetch_row_batches(fetch, max_rows=page_rows):
+                            rows_in_page += len(rows)
+                            # A hand-off after the only batch of a table has nothing left to read.
+                            # With a checkpoint, the next attempt would read no rows, and the
+                            # loader does not finalize a run that sends it no batch. With no
+                            # checkpoint, the next attempt is a new read that replaces the table.
+                            is_only_batch = last_key is None and fetch.exhausted and rows_in_page < page_rows
+                            batch_key = checked_keyset_key(
+                                tuple(_keyset_key_value(rows[-1][index]) for index in key_indexes), key_columns
+                            )
+                            table = table_from_iterator(
+                                (dict(zip(column_names, row)) for row in rows),
+                                read_schema,
+                                primary_keys=primary_keys,
+                                binary_reporter=binary_reporter,
+                            )
+                            # The rows arrive in key order, so each batch ends at a key the walk can
+                            # continue from. The pipeline commits the staged key only after it writes
+                            # the batch below. A stage after the yield would leave the committed key
+                            # one batch behind, and a full refresh appends, so a resumed read would
+                            # write that batch twice. Nothing that can fail sits between the two.
+                            last_key = batch_key
+                            if not is_only_batch:
+                                manager.save_state(MSSQLResumeState(key_columns=key_columns, last_key=list(batch_key)))
+                            yield table
+
+                    if rows_in_page < page_rows:
+                        break
+
+            # Only a finished walk gets here. A walk that stops early keeps its checkpoint.
+            manager.clear_state()
+
+        items: Callable[[], Iterator[Any]] = get_rows
+        takes_keyset_path = manager is not None and keyset.columns is not None
+        if manager is not None and keyset.columns is not None:
+            items = functools.partial(get_rows_by_keyset, manager, keyset.columns)
 
         return SourceResponse(
             name=location.response_name,
-            items=get_rows,
+            items=items,
             primary_keys=primary_keys,
             partition_count=setup.partition_settings.partition_count if setup.partition_settings else None,
             partition_size=setup.partition_settings.partition_size if setup.partition_settings else None,
             rows_to_sync=rows_to_sync,
+            # `supports_resume` defaults to True. A read on the single query has no position to
+            # hand to another worker, so it must say so.
+            supports_resume=takes_keyset_path or resumes_incremental,
         )
