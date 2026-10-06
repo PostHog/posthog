@@ -22,7 +22,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
-from posthog.models import Filter, Team, User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
@@ -458,10 +458,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert isoparse(results_by_id[dashboard_recent_id]["last_viewed_at"]) == isoparse("2024-01-01T12:00:00+00:00")
         assert results_by_id[dashboard_unseen_id]["last_viewed_at"] is None
 
-    def test_list_pinned_dashboards_orders_by_last_viewed_at(self):
+    @parameterized.expand(
+        [
+            (
+                "pinned only",
+                {"pinned": "true", "exclude_generated": "true"},
+                ["Recently viewed", "Earlier viewed", "Never viewed"],
+            ),
+            (
+                "recently viewed first",
+                {"ordering": "-last_viewed_at"},
+                ["Unpinned", "Never viewed", "Recently viewed", "Earlier viewed"],
+            ),
+        ]
+    )
+    def test_list_dashboards_orders_by_last_viewed_at(self, _name: str, query_params: dict, expected: list[str]):
         recently_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed", "pinned": True})
         earlier_viewed_id, _ = self.dashboard_api.create_dashboard({"name": "Earlier viewed", "pinned": True})
-        unseen_id, _ = self.dashboard_api.create_dashboard({"name": "Never viewed", "pinned": True})
+        self.dashboard_api.create_dashboard({"name": "Never viewed", "pinned": True})
         self.dashboard_api.create_dashboard({"name": "Unpinned"})
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
@@ -473,15 +487,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 team=self.team, user=self.user, type="dashboard", ref=str(recently_viewed_id)
             )
 
-        response = self.dashboard_api.list_dashboards(
-            parent="environment", query_params={"pinned": "true", "exclude_generated": "true"}
-        )
+        response = self.dashboard_api.list_dashboards(parent="environment", query_params=query_params)
 
-        assert [dashboard["id"] for dashboard in response["results"]] == [
-            recently_viewed_id,
-            earlier_viewed_id,
-            unseen_id,
-        ]
+        names = [dashboard["name"] for dashboard in response["results"]]
+        assert [name for name in names if name in expected] == expected
 
     @parameterized.expand(
         [
@@ -1098,15 +1107,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-
         with time_machine.travel("2020-01-04T13:00:01Z", tick=False):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
+                query=browser_filtered_pageview_query(),
                 team=self.team,
                 last_refresh=now(),
             )

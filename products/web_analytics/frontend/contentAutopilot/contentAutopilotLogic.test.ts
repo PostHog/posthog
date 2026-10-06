@@ -24,7 +24,11 @@ import {
     webAnalyticsContentAutopilotRunsList,
     webAnalyticsContentAutopilotRunsStart,
 } from '../generated/api'
-import type { ContentAutopilotProposalListApi, ContentAutopilotRunApi } from '../generated/api.schemas'
+import type {
+    ContentAutopilotOpportunityApi,
+    ContentAutopilotProposalListApi,
+    ContentAutopilotRunApi,
+} from '../generated/api.schemas'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import {
     EXAMPLE_OPPORTUNITIES,
@@ -316,19 +320,81 @@ describe('contentAutopilotLogic', () => {
         expect(mountedLogic.values.runs).toEqual([secondRun])
     })
 
-    it('groups the proposals returned for the selected site', async () => {
-        const newContent: ContentAutopilotProposalListApi = {
+    it('ignores refresh and drafting results for a site the user switched away from', async () => {
+        mockProfilesList.mockResolvedValue(paginated([EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE]))
+        const mountedLogic = await mountWorkspace()
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const secondSiteOpportunity: ContentAutopilotOpportunityApi = {
+            ...first,
+            id: '00000000-0000-4000-8000-000000000399',
+            profile_id: EXAMPLE_SECOND_PROFILE.id,
+        }
+        const staleRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        const staleDraft = deferred<ContentAutopilotRunApi>()
+        const secondSiteLoad = deferred<ReturnType<typeof paginated<ContentAutopilotOpportunityApi>>>()
+        mockOpportunitiesRefresh.mockReturnValueOnce(staleRefresh.promise)
+        mockOpportunitiesDraft.mockReturnValueOnce(staleDraft.promise)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockImplementation((_, params) =>
+            params?.profile_id === EXAMPLE_SECOND_PROFILE.id
+                ? secondSiteLoad.promise
+                : Promise.resolve(paginated([{ ...first, title: 'Refreshed for the first site' }]))
+        )
+
+        mountedLogic.actions.refreshOpportunities()
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.draftOpportunities()
+        mountedLogic.actions.selectProfile(EXAMPLE_SECOND_PROFILE.id)
+        mountedLogic.actions.toggleOpportunitySelection(secondSiteOpportunity.id)
+
+        staleRefresh.resolve(EXAMPLE_OPPORTUNITIES)
+        staleDraft.resolve({ ...EXAMPLE_RUN, run_status: 'pending', profile_id: EXAMPLE_PROFILE.id })
+        await expectLogic(mountedLogic).toDispatchActionsInAnyOrder([
+            'refreshOpportunitiesSuccess',
+            'draftOpportunitiesSuccess',
+        ])
+        expect(mountedLogic.values.opportunities).toBeNull()
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+
+        secondSiteLoad.resolve(paginated([secondSiteOpportunity]))
+        await expectLogic(mountedLogic).toFinishAllListeners()
+        expect(mountedLogic.values.opportunities).toEqual([secondSiteOpportunity])
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([secondSiteOpportunity.id])
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+    })
+
+    it('puts drafts ready for review first in the review queue', async () => {
+        const rejected: ContentAutopilotProposalListApi = {
             ...EXAMPLE_PROPOSAL_LIST,
             id: '00000000-0000-4000-8000-000000000202',
-            proposal_type: 'new_content',
+            lifecycle_status: 'rejected',
         }
-        mockProposalsList.mockResolvedValue(paginated([EXAMPLE_PROPOSAL_LIST, newContent]))
+        const failed: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000203',
+            lifecycle_status: 'failed',
+        }
+        const ready: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            lifecycle_status: 'ready_for_review',
+        }
+        const failedInAnOlderRun: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000204',
+            run_id: '00000000-0000-4000-8000-000000000199',
+            lifecycle_status: 'failed',
+        }
+        mockProposalsList.mockResolvedValue(paginated([rejected, failed, failedInAnOlderRun, ready]))
 
         const mountedLogic = await mountWorkspace()
 
-        expect(mountedLogic.values.siteProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id, newContent.id])
-        expect(mountedLogic.values.newContentProposals.map(({ id }) => id)).toEqual([newContent.id])
-        expect(mountedLogic.values.pageImprovementProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id])
+        expect(mountedLogic.values.reviewQueue.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+        ])
+        expect(mountedLogic.values.readyDraftCount).toBe(1)
+        expect(mountedLogic.values.failedDraftCount).toBe(1)
     })
 
     it('polls while work is active and stops refreshing after it settles', async () => {
@@ -399,31 +465,31 @@ describe('contentAutopilotLogic', () => {
         ['ready_for_review' as const, undefined, undefined, 'No unsaved changes', undefined],
         [
             'failed' as const,
-            'Only a proposal ready for review can be rejected',
+            'Only a draft ready for review can be rejected',
             undefined,
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'rejected' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'generating' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
         [
             'exported' as const,
-            'Only a proposal ready for review can be rejected',
-            'Only proposals ready for review or failed can be regenerated',
-            'Only a proposal ready for review can be edited',
-            'Only a proposal ready for review can be exported',
+            'Only a draft ready for review can be rejected',
+            'Only drafts ready for review or failed can be regenerated',
+            'Only a draft ready for review can be edited',
+            'Only a draft ready for review can be downloaded',
         ],
     ])(
         'only offers the proposal actions a %s proposal accepts',

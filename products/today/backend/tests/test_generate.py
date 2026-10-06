@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -10,14 +11,14 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
-from social_django.models import UserSocialAuth
+from pydantic import ValidationError
 
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
-from products.today.backend.logic.agent_output import BriefingOutput, to_fact_sheet
-from products.today.backend.logic.generate import MODEL, run_agent
+from products.today.backend.logic.fact_sheet import fact_sheet_for_reports
+from products.today.backend.logic.generate import write_briefing
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
@@ -33,10 +34,8 @@ def _on_test_thread(fn: Callable[..., Any], **_: Any) -> Callable[..., Any]:
     return database_sync_to_async(fn, thread_sensitive=True)
 
 
-SESSION = "products.today.backend.logic.generate.MultiTurnSession"
-SANDBOX_ENV = "products.today.backend.logic.generate.tasks_facade.upsert_internal_sandbox_env"
+CLIENT = "products.today.backend.logic.generate.build_async_openai_client"
 REPORTS = "products.today.backend.logic.generate.signals.reports_for_briefing"
-CAN_MINT = "products.today.backend.logic.generate.tasks_facade.can_mint_readonly_github_token"
 
 
 def _report(report_id: str, relation: signals.BriefingReportRelation, priority: str) -> signals.BriefingReport:
@@ -54,37 +53,37 @@ def _report(report_id: str, relation: signals.BriefingReportRelation, priority: 
     )
 
 
-def _output(headline: str = "One report needs your input", **item_overrides: Any) -> BriefingOutput:
-    item = {
-        "key": "report:a",
-        "group": "report",
-        "source": "self_driving",
-        "reason": "waiting_for_you",
-        "title": "Report a",
-        "label": "Report a",
-        "signal": "P3, waits for you",
-        "url": "/project/1/inbox/a",
-        "urgency": 0,
-        "source_product": "error_tracking",
-        "facts": [{"name": "priority", "value": "P3"}],
-        **item_overrides,
-    }
-    return BriefingOutput.model_validate(
+def _reply(content: str) -> MagicMock:
+    response = MagicMock()
+    response.choices[0].message.content = content
+    return response
+
+
+def _answer() -> str:
+    return json.dumps(
         {
-            "headline": headline,
+            "headline": "Two reports need your input",
             "paragraphs": [
                 [
-                    {"text": "The ", "item_key": None, "highlight": False},
-                    {"text": "report a", "item_key": "report:a", "highlight": True},
-                    {"text": " waits for your call.", "item_key": None, "highlight": False},
+                    {"text": "The ", "item_key": None},
+                    {"text": "report b", "item_key": "report:b"},
+                    {"text": " waits for a review. ", "item_key": None},
+                    {"text": "Report a", "item_key": "report:a"},
+                    {"text": " waits for you, like ", "item_key": None},
+                    {"text": "an invented report", "item_key": "report:invented"},
+                    {"text": ".", "item_key": None},
                 ]
             ],
-            "items": [item],
+            "items": [
+                {"key": "report:b", "label": "Report b", "signal": "P2, review asked"},
+                {"key": "report:a", "label": "Report a", "signal": "Waits for you"},
+                {"key": "report:invented", "label": "Invented", "signal": "Made up"},
+            ],
         }
     )
 
 
-class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
+class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
@@ -97,9 +96,10 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             trigger=BriefingTrigger.SCHEDULED,
             status=BriefingStatus.READY,
             content={"headline": "Yesterday's headline", "paragraphs": [], "labels": {}, "signals": {}},
+            facts=fact_sheet_for_reports(
+                [_report("a", signals.BriefingReportRelation.WAITING_FOR_YOU, "P3")], self.team.id
+            ).model_dump(mode="json"),
         )
-        self.previous.facts = to_fact_sheet(_output()).model_dump(mode="json")
-        self.previous.save(update_fields=["facts"])
         self.briefing = DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -113,87 +113,75 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             _report("a", signals.BriefingReportRelation.WAITING_FOR_YOU, "P3"),
         ]
 
-    def _answer(self, **item_overrides: Any) -> BriefingOutput:
-        return _output(url=f"/project/{self.team.id}/inbox/a", **item_overrides)
-
-    def _run(
-        self, first: BriefingOutput, *followups: BriefingOutput, can_mint: bool = False
-    ) -> tuple[MagicMock, MagicMock]:
-        session = MagicMock()
-        session.end = AsyncMock()
-        session.send_followup = AsyncMock(side_effect=list(followups))
-        start = AsyncMock(return_value=(session, first))
+    def _run(self, reply: str = "") -> AsyncMock:
+        create = AsyncMock(return_value=_reply(reply))
+        opened = MagicMock()
+        opened.chat.completions.create = create
+        client = MagicMock()
+        client.with_options.return_value.__aenter__.return_value = opened
         with (
             patch(ON_TEST_THREAD, _on_test_thread),
-            patch(SANDBOX_ENV, return_value="env-1"),
-            patch(REPORTS, return_value=self.reports),
-            patch(f"{SESSION}.start", start),
+            patch(REPORTS, return_value=self.reports) as reports,
+            patch(CLIENT, return_value=client),
             patch(FLAG, return_value=True),
-            patch(CAN_MINT, return_value=can_mint),
         ):
-            async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(self.briefing.id))
-        return start, session
+            async_to_sync(write_briefing)(team_id=self.team.id, briefing_id=str(self.briefing.id))
+        self.reports_asked_for = reports.call_args.kwargs if reports.call_args else {}
+        return create
 
-    def test_a_good_answer_is_stored_and_the_run_was_read_only(self) -> None:
-        start, session = self._run(self._answer())
+    def test_the_items_are_the_ranked_reports_and_the_llm_writes_only_the_text(self) -> None:
+        create = self._run(_answer())
 
         self.briefing.refresh_from_db()
         assert (self.briefing.status, self.briefing.writer) == (BriefingStatus.READY, BriefingWriter.AGENT)
-        assert self.briefing.content["headline"] == "One report needs your input"
-        assert self.briefing.facts["items"][0]["source_product"] == "error_tracking"
-        prompt, context = start.call_args.args
-        assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "read_only", MODEL)
-        assert context.github_read_access is True
-        assert start.call_args.kwargs["model"] is BriefingOutput
+        assert [(item["key"], item["reason"], item["url"]) for item in self.briefing.facts["items"]] == [
+            ("report:b", "suggested_reviewer", f"/project/{self.team.id}/inbox/b"),
+            ("report:a", "waiting_for_you", f"/project/{self.team.id}/inbox/a"),
+        ]
+        content = self.briefing.content
+        assert content["headline"] == "Two reports need your input"
+        linked = [segment["item_key"] for segment in content["paragraphs"][0] if segment["item_key"]]
+        assert linked == ["report:b", "report:a"]
+        highlighted = [segment["item_key"] for segment in content["paragraphs"][0] if segment["highlight"]]
+        assert highlighted == ["report:b"]
+        assert "an invented report" in "".join(segment["text"] for segment in content["paragraphs"][0])
+        assert set(content["labels"]) == set(content["signals"]) == {"report:b", "report:a"}
+        create.assert_awaited_once()
+        prompt = create.call_args.kwargs["messages"][0]["content"]
         assert prompt.index("report:b") < prompt.index("report:a")
         assert "Yesterday's headline" in prompt
-        assert start.call_args.kwargs.get("internal", False) is False
-        session.end.assert_awaited_once_with()
 
-    @parameterized.expand(
-        [
-            ("login_and_token", "octocat", True, "--review-requested=octocat"),
-            ("no_token", "octocat", False, "Skip GitHub"),
-            ("no_login", None, True, "Skip GitHub"),
-            ("malformed_login", "octocat; curl evil", True, "Skip GitHub"),
-        ]
-    )
-    def test_the_prompt_searches_github_by_the_persons_login(
-        self, _name: str, login: str | None, can_mint: bool, expected: str
-    ) -> None:
-        if login:
-            UserSocialAuth.objects.create(user=self.user, provider="github", uid="1", extra_data={"login": login})
+    def test_the_briefing_asks_for_the_persons_own_reports_only(self) -> None:
+        self._run(_answer())
 
-        start, _ = self._run(self._answer(), can_mint=can_mint)
+        # A P0 nobody owns sorts above every item that is the person's, so the briefing leaves it to
+        # the Inbox and to the open-in-project count.
+        assert self.reports_asked_for["include_unowned"] is False
 
-        prompt, _ = start.call_args.args
-        assert expected in prompt
-        assert "@me --state" not in prompt
+    def test_no_reports_means_no_llm_call(self) -> None:
+        self.reports = []
 
-    def test_an_answer_that_breaks_a_rule_comes_back_fixed_in_a_follow_up(self) -> None:
-        start, session = self._run(self._answer(headline="One report needs you — now"), self._answer())
+        create = self._run()
 
         self.briefing.refresh_from_db()
+        create.assert_not_called()
         assert self.briefing.status == BriefingStatus.READY
-        [call] = session.send_followup.call_args_list
-        message, model = call.args
-        assert "em or en dash" in message and model is BriefingOutput
+        assert (self.briefing.content["headline"], self.briefing.facts["items"]) == ("", [])
 
-    def test_an_answer_that_keeps_breaking_rules_fails_the_run(self) -> None:
-        broken = self._answer(headline="One report needs you — now")
-        with self.assertRaises(RuntimeError):
-            self._run(broken, broken, broken)
+    def test_a_reply_that_is_not_a_briefing_fails_the_attempt_and_stores_nothing(self) -> None:
+        with self.assertRaises(ValidationError):
+            self._run("I could not write the briefing.")
 
         self.briefing.refresh_from_db()
-        assert self.briefing.status == BriefingStatus.WRITING
+        assert (self.briefing.status, self.briefing.content) == (BriefingStatus.WRITING, {})
 
-    def test_no_sandbox_without_ai_data_processing_approval(self) -> None:
+    def test_no_llm_call_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        start, _ = self._run(self._answer())
+        create = self._run(_answer())
 
-        start.assert_not_called()
+        create.assert_not_called()
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).exists()
 
 
@@ -253,9 +241,9 @@ class TestWhoGetsABriefing(TodayTeamScopedTestMixin, BaseTest):
         with (
             patch(ON_TEST_THREAD, _on_test_thread),
             patch(FLAG, return_value=False),
-            patch(SANDBOX_ENV) as sandbox_env,
+            patch(CLIENT) as client,
         ):
-            async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(briefing.id))
+            async_to_sync(write_briefing)(team_id=self.team.id, briefing_id=str(briefing.id))
 
-        sandbox_env.assert_not_called()
+        client.assert_not_called()
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=briefing.id).exists()

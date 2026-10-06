@@ -40,6 +40,7 @@ from products.replay_vision.backend.api.scanners import (
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
+from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
 from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -58,6 +59,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
+from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
@@ -338,6 +340,172 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 201, resp.json())
 
+    def test_experiment_scanner_create_validates_the_experiment(self) -> None:
+        # The type is unusable without a resolvable exposed population, so the write path must
+        # refuse a draft experiment and an unknown variant with the linkage's own message, and
+        # must keep the experiment out of the legacy targeting column.
+        launched = create_experiment(self.team, "launched-flag", launched=True, variants=["control", "test"])
+        draft = create_experiment(self.team, "draft-flag", variants=["control", "test"])
+
+        def post(name: str, experiment_id: int, **config_overrides: Any) -> Any:
+            return self.client.post(
+                self.scanners_url,
+                data={
+                    "name": name,
+                    "scanner_type": ScannerType.EXPERIMENT,
+                    "scanner_config": {"prompt": "p", "experiment_id": experiment_id, **config_overrides},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+
+        draft_resp = post("draft-scanner", draft.id)
+        self.assertEqual(draft_resp.status_code, 400, draft_resp.json())
+        self.assertIn("hasn't launched", draft_resp.json()["detail"])
+
+        unknown_variant = post("unknown-variant", launched.id, variants=["control", "nope"])
+        self.assertEqual(unknown_variant.status_code, 400, unknown_variant.json())
+        self.assertIn("not a variant", unknown_variant.json()["detail"])
+
+        valid = post("experiment-scanner", launched.id, variants=["test"])
+        self.assertEqual(valid.status_code, 201, valid.json())
+        scanner = ReplayScanner.objects.get(id=valid.json()["id"])
+        self.assertEqual(scanner.experiment_scope(), {"experiment_id": launched.id, "variants": ["test"]})
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        self.assertEqual(exposure.variants, ["test"])
+
+        with_column = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "column-on-experiment-type",
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": {"prompt": "p", "experiment_id": launched.id},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+                "experiment_targeting": {"experiment_id": launched.id},
+            },
+            format="json",
+        )
+        self.assertEqual(with_column.status_code, 400, with_column.json())
+        self.assertEqual(with_column.json()["attr"], "experiment_targeting")
+
+    def test_experiment_scanner_saved_off_on_a_draft_turns_on_at_launch(self) -> None:
+        draft = create_experiment(self.team, "waiting-flag", variants=["control", "test"])
+        other_draft = create_experiment(self.team, "other-draft-flag", variants=["control", "test"])
+
+        def post(name: str, experiment_id: int, *, enabled: bool, **config_overrides: Any) -> Any:
+            return self.client.post(
+                self.scanners_url,
+                data={
+                    "name": name,
+                    "scanner_type": ScannerType.EXPERIMENT,
+                    "scanner_config": {
+                        "prompt": "p",
+                        "experiment_id": experiment_id,
+                        "start_on_launch": True,
+                        **config_overrides,
+                    },
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "enabled": enabled,
+                },
+                format="json",
+            )
+
+        enabled_on_draft = post("enabled-on-draft", draft.id, enabled=True)
+        self.assertEqual(enabled_on_draft.status_code, 400, enabled_on_draft.json())
+        self.assertIn("hasn't launched", enabled_on_draft.json()["detail"])
+
+        unknown_variant = post("unknown-variant-on-draft", draft.id, enabled=False, variants=["nope"])
+        self.assertEqual(unknown_variant.status_code, 400, unknown_variant.json())
+        self.assertIn("not a variant", unknown_variant.json()["detail"])
+
+        waiting = post("waiting", draft.id, enabled=False)
+        self.assertEqual(waiting.status_code, 201, waiting.json())
+        other = post("waiting-on-other-draft", other_draft.id, enabled=False)
+        self.assertEqual(other.status_code, 201, other.json())
+
+        early_enable = self.client.patch(
+            f"{self.scanners_url}{waiting.json()['id']}/", data={"enabled": True}, format="json"
+        )
+        self.assertEqual(early_enable.status_code, 400, early_enable.json())
+        self.assertEqual(early_enable.json()["attr"], "enabled")
+
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{draft.id}/launch/")
+        self.assertEqual(launch.status_code, 200, launch.json())
+
+        started = ReplayScanner.objects.get(id=waiting.json()["id"])
+        self.assertTrue(started.enabled)
+        self.assertNotIn("start_on_launch", started.scanner_config)
+        self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+
+        # Setting a start date on a draft also launches it, through the experiment update path.
+        patch_launch = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{other_draft.id}/",
+            data={"start_date": "2026-09-01T00:00:00Z"},
+            format="json",
+        )
+        self.assertEqual(patch_launch.status_code, 200, patch_launch.json())
+        self.assertTrue(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+
+    def test_stale_save_after_launch_drops_the_start_on_launch_marker(self) -> None:
+        draft = create_experiment(self.team, "stale-form-flag", variants=["control", "test"])
+        config = {"prompt": "p", "experiment_id": draft.id, "start_on_launch": True}
+        created = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "stale-form",
+                "scanner_type": ScannerType.EXPERIMENT,
+                "scanner_config": config,
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+                "enabled": False,
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.json())
+        scanner_url = f"{self.scanners_url}{created.json()['id']}/"
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{draft.id}/launch/")
+        self.assertEqual(launch.status_code, 200, launch.json())
+        self.client.patch(scanner_url, data={"enabled": False}, format="json")
+
+        stale = self.client.patch(scanner_url, data={"enabled": False, "scanner_config": config}, format="json")
+        self.assertEqual(stale.status_code, 200, stale.json())
+
+        scanner = ReplayScanner.objects.get(id=created.json()["id"])
+        self.assertNotIn("start_on_launch", scanner.scanner_config)
+        start_scanners_of_launched_experiments()
+        scanner.refresh_from_db()
+        self.assertFalse(scanner.enabled)
+
+    def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
+        # Retargeting would mix two experiments' populations under one scanner's history and
+        # readouts, so it is a new scanner, not an edit; `variants` stays editable.
+        watched = create_experiment(self.team, "watched-flag", launched=True, variants=["control", "test"])
+        other = create_experiment(self.team, "other-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(
+            name="fixed-experiment",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": watched.id},
+        )
+
+        retarget = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "p", "experiment_id": other.id}},
+            format="json",
+        )
+        self.assertEqual(retarget.status_code, 400, retarget.json())
+        self.assertIn("fixed after creation", retarget.json()["detail"])
+
+        narrowed = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "sharper", "variants": ["test"]}},
+            format="json",
+        )
+        self.assertEqual(narrowed.status_code, 200, narrowed.json())
+        scanner.refresh_from_db()
+        self.assertEqual(
+            scanner.scanner_config, {"prompt": "sharper", "variants": ["test"], "experiment_id": watched.id}
+        )
+
     @parameterized.expand(
         [
             ("classifier_without_tags", ScannerType.CLASSIFIER, {"prompt": "p"}),
@@ -426,6 +594,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "Scale is required.",
             ),
             (
+                "experiment_missing_experiment",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p"},
+                "Experiment is required.",
+            ),
+            (
+                "experiment_empty_variants",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "variants": []},
+                "Variants must be a non-empty list, or null to watch every variant.",
+            ),
+            (
+                "experiment_duplicate_variants",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "variants": ["test", "test"]},
+                "Variants must be unique.",
+            ),
+            (
                 "not_a_dict",
                 ScannerType.MONITOR,
                 "just a string",
@@ -460,6 +646,20 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 ScannerType.SUMMARIZER,
                 {"prompt": "p", "chapter_target": 50},
                 "Unknown scanner configuration keys: chapter_target.",
+            ),
+            # A saved value would fake the variant or hypothesis in every scan's prompt.
+            (
+                "experiment_scan_time_keys",
+                ScannerType.EXPERIMENT,
+                {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
+                "Unknown scanner configuration keys: experiment_context, session_variant.",
+            ),
+            # Learned rules are loaded per scan; a saved value would inject rules nobody's ratings produced.
+            (
+                "learned_rules_in_config",
+                ScannerType.MONITOR,
+                {"prompt": "p", "project_rules": ["Avoid: x"], "scanner_rules": ["Avoid: y"]},
+                "Unknown scanner configuration keys: project_rules, scanner_rules.",
             ),
         ]
     )
@@ -906,7 +1106,6 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
             ("bulk", "{scanner_id}/bulk_observe/"),
             ("retry", "{scanner_id}/observations/{observation_id}/retry/"),
             ("backfill", "{scanner_id}/backfills/"),
-            ("evaluate_prompt", "{scanner_id}/prompt_suggestions/00000000-0000-0000-0000-000000000001/evaluate/"),
             ("resume_backfill", "{scanner_id}/backfills/00000000-0000-0000-0000-000000000001/resume/"),
         ]
     )
@@ -3800,11 +3999,35 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         [
             ("sampling_rate_above_one", {"sampling_rate": 1.5}),
             ("sampling_rate_negative", {"sampling_rate": -0.1}),
+            (
+                "both_scope_shapes",
+                {"experiment": {"experiment_id": 1}, "experiment_targeting": {"experiment_id": 1, "variant": None}},
+            ),
+            ("empty_variant_list", {"experiment": {"experiment_id": 1, "variants": []}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
+        # An experiment scanner keeps its experiment in its config, so the estimate has to take that
+        # shape, or an agent sizing one counts every session instead of the exposed ones.
+        experiment = create_experiment(self.team, "estimate-flag", launched=True, variants=["control", "test"])
+        scope = {"experiment_id": experiment.id, "variants": ["test"]}
+        with patch(
+            "products.replay_vision.backend.api.scanners.estimate_scanner_session_volume",
+            wraps=estimate_scanner_session_volume,
+        ) as estimate:
+            resp = self.client.post(self.estimate_url, data={"experiment": scope}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        exposure = estimate.call_args.kwargs["query"].experiment_exposure
+        self.assertEqual((exposure.experiment_id, exposure.variants), (experiment.id, ["test"]))
+
+        # A denied or unknown experiment reads the same, so its existence can't be probed.
+        resp = self.client.post(self.estimate_url, data={"experiment": {"experiment_id": 999_999}}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "experiment")
 
     def test_estimate_counts_only_in_window_sessions(self) -> None:
         for index in range(3):
@@ -4166,6 +4389,16 @@ class TestInlineScanAction(_VisionAPITestCase):
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
         )
+
+    def test_experiment_type_is_refused(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
+        # Inline scans skip the saved-scanner access check and the variant attribution, so an
+        # experiment-type inline scan would read an experiment's population with neither.
+        resp = self._scan(
+            scanner_type="experiment",
+            scanner_config={"experiment_id": 1},
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
 
     def test_a_fully_refused_scan_still_reports_the_request(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -4833,6 +5066,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             with patch(ranker, return_value=mode):
                 resp = self.client.get(self.feed_url)
             items = resp.json()["results"]
+            # The shadow arm ranks on the weighted score, so the response names that ranker too.
+            self.assertEqual(resp.json()["ranker"], "weighted-score", mode)
             # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
             self.assertEqual(
                 [item["observation"]["session_id"] for item in items],
@@ -4845,6 +5080,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         with patch(ranker, return_value="jev"):
             resp = self.client.get(self.feed_url)
         items = resp.json()["results"]
+        self.assertEqual(resp.json()["ranker"], "jev")
         # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
         # recency, so neither claims the model judged it worth watching.
         self.assertEqual(
@@ -5670,8 +5906,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner()
         ActivityLog.objects.all().delete()
 
-        scanner.feedback_themes = {"themes": []}
-        scanner.save(update_fields=["feedback_themes"])
+        scanner.search_suggestions = ["checkout errors"]
+        scanner.save(update_fields=["search_suggestions"])
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 

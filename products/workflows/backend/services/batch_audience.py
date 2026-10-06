@@ -10,8 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.filters import Filter
-from posthog.models.property import GroupTypeIndex
+from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.team.team import Team
 
 from products.feature_flags.backend.user_blast_radius import (
@@ -103,7 +102,7 @@ def get_batch_audience_count(
                 left=ast.Field(chain=["persons", "team_id"]),
                 right=ast.Constant(value=team.pk),
             ),
-            property_to_expr(cleaned_filter.property_groups, team, scope="person"),
+            property_to_expr(cleaned_filter, team, scope="person"),
         ]
 
         # uniqCombined, not count(DISTINCT ...): the latter compiles to uniqExact, which holds
@@ -122,7 +121,8 @@ def get_batch_audience_count(
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         response = execute_hogql_query(query=select_query, team=team)
 
-    return response.results[0][0] if response.results else 0
+    # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
+    return (response.results[0][0] if response.results else None) or 0
 
 
 def email_dedupe_group_expr() -> ast.Expr:
@@ -140,7 +140,7 @@ def email_dedupe_group_expr() -> ast.Expr:
 
 def _build_audience_person_query(
     team: Team,
-    filter: Filter,
+    prop_group: PropertyGroup,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
 ) -> ast.SelectQuery:
@@ -150,7 +150,7 @@ def _build_audience_person_query(
             left=ast.Field(chain=["persons", "team_id"]),
             right=ast.Constant(value=team.pk),
         ),
-        property_to_expr(filter.property_groups, team, scope="person"),
+        property_to_expr(prop_group, team, scope="person"),
     ]
 
     if dedupe_key == EMAIL_DEDUPE_KEY:

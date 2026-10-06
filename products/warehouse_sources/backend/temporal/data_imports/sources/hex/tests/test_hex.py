@@ -326,6 +326,58 @@ class TestProjectRunsFanout:
         assert final_state.paginator_state["current"] is None
 
 
+class TestPerProjectCursorFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_queried_tables_follow_child_cursor_and_carry_project_id(self, MockSession):
+        session = MockSession.return_value
+
+        def _tables_page(names: list[str], after: Optional[str] = None) -> Response:
+            return _response(
+                {
+                    "values": [
+                        {"dataConnectionId": "dc1", "dataConnectionName": "Warehouse", "tableName": name}
+                        for name in names
+                    ],
+                    "pagination": {"after": after, "before": None},
+                    "traceId": "t",
+                }
+            )
+
+        snaps = _wire(
+            session,
+            [
+                _projects_page(["p1", "p2"], after=None),
+                _tables_page(["orders"], after="cur-1"),
+                _tables_page(["users"], after=None),
+                _tables_page(["orders"], after=None),
+            ],
+        )
+        rows = _rows(_source(endpoint="queried_tables"))
+
+        assert [(r["projectId"], r["tableName"]) for r in rows] == [("p1", "orders"), ("p1", "users"), ("p2", "orders")]
+        assert all("_projects_id" not in r for r in rows)
+        assert snaps[1]["url"] == "https://app.hex.tech/api/v1/projects/p1/queriedTables"
+        assert snaps[2]["params"]["after"] == "cur-1"
+        assert snaps[3]["url"] == "https://app.hex.tech/api/v1/projects/p2/queriedTables"
+        assert "after" not in snaps[3]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_cells_pass_project_as_query_param(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _projects_page(["p1"], after=None),
+                _response({"values": [{"id": "c1", "projectId": "p1"}], "pagination": {"after": None, "before": None}}),
+            ],
+        )
+        rows = _rows(_source(endpoint="cells"))
+
+        assert [r["id"] for r in rows] == ["c1"]
+        assert snaps[1]["url"] == "https://app.hex.tech/api/v1/cells?projectId=p1"
+        assert snaps[1]["params"] == {"limit": 100}
+
+
 class TestRuntimeHostCheck:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_blocks_unsafe_workspace_host_before_any_request(self, MockSession):

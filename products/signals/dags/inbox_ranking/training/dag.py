@@ -76,6 +76,7 @@ from products.signals.backend.ranking.model_contract import (
     readable_head_names,
     trained_head_files,
 )
+from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
@@ -117,8 +118,13 @@ from products.signals.dags.inbox_ranking.training.examples import (
     reports_missing_birth_snapshot,
     state_rows,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
-from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS,
+    HEADS_BY_HORIZON,
+    HEADS_BY_NAME,
+)
+from products.signals.dags.inbox_ranking.training.promotion import apply_promotion_override, decide_promotion
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     HeadExampleCounts,
@@ -179,16 +185,15 @@ METADATA_FILE = "metadata.json"
 _LABEL_COLUMNS = (
     "impression_unit_count",
     "open_count",
-    "create_pr_click_count",
-    "discuss_count",
     "dismissal_reason",
     "wrong_dismissal_count",
+    "fixed_count",
+    "lowvalue_dismissal_count",
     "pr_created_count",
     "pr_merged_count",
     "refund_count",
     "feedback_positive_count",
-    "reviewer_add_count",
-    "reviewer_remove_count",
+    *ACTION_LABEL_COLUMNS,
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
@@ -503,6 +508,7 @@ def _write_examples(
             birth_day_positives=birth_day_positives(head_examples.examples),
             example_window_start=head_examples.window_start,
             example_cap_bound=head_examples.cap_bound,
+            pairs_skipped_missing_label_columns=head_examples.pairs_skipped_missing_label_columns,
         )
         for name, head_examples in built.items()
     }
@@ -518,6 +524,12 @@ def _write_examples(
         },
         **{
             f"{feature_set.name}_{name}_birth_day_positives": dagster.MetadataValue.int(head_counts.birth_day_positives)
+            for name, head_counts in counts.items()
+        },
+        **{
+            f"{feature_set.name}_{name}_pairs_skipped_missing_label_columns": dagster.MetadataValue.int(
+                head_counts.pairs_skipped_missing_label_columns
+            )
             for name, head_counts in counts.items()
         },
         f"{feature_set.name}_s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -736,10 +748,11 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     partition_key = context.partition_key
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
+    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     metadata: dict[str, dagster.MetadataValue] = {}
     decided = 0
     for family in MODEL_FAMILIES:
-        family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family)
+        family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family, overrides)
         if family_metadata is None:
             continue
         decided += 1
@@ -758,6 +771,7 @@ def _decide_champion(
     prefix: str,
     partition_key: str,
     family: ModelFamily,
+    overrides: RankingOverrides,
 ) -> dict[str, dagster.MetadataValue] | None:
     """One family's promotion decision against its own pointer, or None when the family has no
     candidate for the partition."""
@@ -769,6 +783,7 @@ def _decide_champion(
         return None
     champion_key = champion_object_key(prefix, family.name)
     champion = _read_json_if_exists(client, bucket, champion_key)
+    champion_grades: dict[str, HoldoutGrade] = {}
     champion_aucs: dict[str, float] = {}
     champion_eces: dict[str, float] = {}
     if champion is not None:
@@ -790,7 +805,7 @@ def _decide_champion(
                     f"the {family.name} champion is compared on its stored AUC"
                 )
             else:
-                grades = paired_champion_grades(
+                champion_grades = paired_champion_grades(
                     client,
                     bucket,
                     prefix,
@@ -799,30 +814,34 @@ def _decide_champion(
                     feature_set=champion_feature_set,
                     holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
                 )
-                champion_aucs = {head: grade.auc for head, grade in grades.items() if grade.auc is not None}
+                champion_aucs = {head: grade.auc for head, grade in champion_grades.items() if grade.auc is not None}
                 champion_eces = {
                     head: grade.expected_calibration_error
-                    for head, grade in grades.items()
+                    for head, grade in champion_grades.items()
                     if grade.expected_calibration_error is not None
                 }
                 context.log.info(
                     f"{family.name} champion {champion['model_version']} on this holdout: "
                     f"AUC {champion_aucs}, ECE {champion_eces}"
                 )
+    promotion_override = overrides.promotion_for(family.name)
     decision = decide_promotion(
         candidate,
         champion,
         now=datetime.datetime.now(datetime.UTC),
         min_days_between=settings.INBOX_RANKING_PROMOTION_MIN_DAYS,
-        champion_aucs=champion_aucs,
-        champion_eces=champion_eces,
+        champion_grades=champion_grades,
+        min_holdout_positives={name: head.min_holdout_positives for name, head in HEADS_BY_NAME.items()},
+        skip_gates=promotion_override.skip_gates,
     )
+    outcome = apply_promotion_override(decision, candidate, champion, promotion_override)
     context.log.info(
-        f"{family.name} promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason})"
+        f"{family.name} promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason}), "
+        f"override={outcome.override}, outcome promote={outcome.promote}"
     )
 
     promoted = False
-    if decision.promote and settings.INBOX_RANKING_AUTO_PROMOTE:
+    if outcome.promote and settings.INBOX_RANKING_AUTO_PROMOTE:
         _put_json(
             client,
             bucket,
@@ -834,7 +853,7 @@ def _decide_champion(
             },
         )
         promoted = True
-    elif decision.promote:
+    elif outcome.promote:
         context.log.info(f"INBOX_RANKING_AUTO_PROMOTE is off; the {family.name} candidate would have been promoted")
 
     # The paired AUCs belong to the incumbent: after a promotion `champion_version` names the
@@ -850,11 +869,13 @@ def _decide_champion(
                 run_id=context.run.run_id,
                 model_name=family.name,
                 decision=decision,
+                outcome=outcome,
                 promoted=promoted,
                 champion_version=champion_version,
                 incumbent_champion_version=incumbent_champion_version,
                 champion_aucs=champion_aucs,
                 champion_eces=champion_eces,
+                skipped_gates=promotion_override.skip_gates,
             )
         ],
     )
@@ -862,6 +883,8 @@ def _decide_champion(
         f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
         f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
         f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
+        f"{family.name}_override": dagster.MetadataValue.text(outcome.override or "none"),
+        f"{family.name}_skipped_heads": dagster.MetadataValue.json(list(decision.skipped_heads)),
         **{
             f"{family.name}_champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
             for head, auc in champion_aucs.items()
@@ -904,6 +927,10 @@ def _publish_manifest(
 ) -> dict[str, dagster.MetadataValue]:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
     served_family = settings.INBOX_RANKING_SERVED_FAMILY
+    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
+    pinned, dropped_pins = _pinned_models(client, bucket, prefix, overrides.pin)
+    for key, reason in dropped_pins.items():
+        context.log.warning(f"pinned model {key} dropped: {reason}")
 
     families = [
         FamilyModels(
@@ -916,8 +943,17 @@ def _publish_manifest(
         for family in MODEL_FAMILIES
     ]
     decision = compose_manifest(
-        families, served_family=served_family, prefix=prefix, now=datetime.datetime.now(datetime.UTC)
+        families, served_family=served_family, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned
     )
+    manifest_keys = {entry.key for entry in decision.manifest.models} if decision.manifest else set()
+    if decision.manifest is not None:
+        for key in overrides.pin:
+            if key not in dropped_pins and key not in manifest_keys:
+                dropped_pins[key] = "over the manifest entry cap"
+    pin_metadata = {
+        "pinned_keys": dagster.MetadataValue.json(sorted(set(overrides.pin) & manifest_keys)),
+        "dropped_pins": dagster.MetadataValue.json(dropped_pins),
+    }
     if decision.manifest is None:
         context.log.warning(f"no serving manifest for dt={partition_key}: {decision.reason}")
         capture_training_events(
@@ -933,7 +969,7 @@ def _publish_manifest(
                 )
             ],
         )
-        return {"published": dagster.MetadataValue.bool(False)}
+        return {"published": dagster.MetadataValue.bool(False), **pin_metadata}
 
     manifest = decision.manifest
     manifest_key = serving_manifest_key(prefix)
@@ -972,8 +1008,65 @@ def _publish_manifest(
         "entries_copied": dagster.MetadataValue.int(len(publication.copied)),
         "entries_already_present": dagster.MetadataValue.int(len(publication.present)),
         "bytes_copied": dagster.MetadataValue.int(publication.bytes_copied),
+        **pin_metadata,
         **mirror_metadata,
     }
+
+
+def _object_exists(client, bucket: str, key: str) -> bool:
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return False
+        raise
+    return True
+
+
+def _pinned_models(
+    client, bucket: str, prefix: str, keys: Sequence[str]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """The metadata of each pinned model this build can serve, and the reason each other pin is dropped.
+
+    `publish_serving_models` fails the whole manifest when a file it copies is missing, so a pin
+    is checked here, before composition. A bad pin then costs only itself.
+    """
+    pinned: list[dict[str, Any]] = []
+    dropped: dict[str, str] = {}
+    for key in keys:
+        try:
+            metadata, reason = _pin_metadata(client, bucket, prefix, key)
+        # S3 answers 403, not 404, for a missing key when the role cannot list the prefix, and a
+        # pin must cost only itself, so every read error drops the pin.
+        except (ClientError, ValueError) as error:
+            metadata, reason = None, f"could not read the model: {error!r}"
+        if metadata is None:
+            dropped[key] = reason or "unknown"
+            continue
+        pinned.append(metadata)
+    return pinned, dropped
+
+
+def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:
+    """The metadata of one pinned model, or None and the reason it cannot be served."""
+    model_name, model_version = key.split("@", 1)
+    metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE))
+    if metadata is None:
+        return None, f"no {METADATA_FILE} in the dataset bucket"
+    if (metadata.get("model_name"), metadata.get("model_version")) != (model_name, model_version):
+        return None, f"{METADATA_FILE} describes another model"
+    mismatch = model_mismatch(metadata)
+    if mismatch is not None:
+        return None, mismatch
+    heads = trained_head_files(metadata, HEADS_BY_NAME)
+    missing = [
+        f"{head}.ubj"
+        for head in sorted(heads)
+        if not _object_exists(client, bucket, model_object_key(prefix, model_name, model_version, f"{head}.ubj"))
+    ]
+    if not heads or missing:
+        return None, f"missing boosters {missing}" if missing else "no trained head"
+    return metadata, None
 
 
 def _publish_mirror(
@@ -1392,7 +1485,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
 
 # Runs after the dataset job's 3h budget (02:30 UTC start) so dt=D-1's snapshots exist.
 @dagster.schedule(
-    cron_schedule="0 6 * * *",
+    cron_schedule="13 6 * * *",
     job=inbox_ranking_training_job,
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING

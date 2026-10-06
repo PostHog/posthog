@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -100,6 +101,7 @@ class TestTrackReviewCompleted(BaseTest):
         turn_trigger_source: str = "manual",
         review_mode: str = REVIEW_MODE_FULL,
         flash_reasoning_effort: str = "medium",
+        marker: ReviewHogMarker | None = None,
     ) -> TrackReviewCompletedInput:
         return TrackReviewCompletedInput(
             team_id=self.team.id,
@@ -111,6 +113,7 @@ class TestTrackReviewCompleted(BaseTest):
             turn_trigger_source=turn_trigger_source,
             review_mode=review_mode,
             flash_reasoning_effort=flash_reasoning_effort,
+            marker=marker,
         )
 
     @parameterized.expand([(True,), (False,)])
@@ -146,7 +149,13 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(self._tracking_input(report_id, published=published))
+            _track_review_completed(
+                self._tracking_input(
+                    report_id,
+                    published=published,
+                    marker=ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234"),
+                )
+            )
 
         capture.assert_called_once()
         kwargs = capture.call_args.kwargs
@@ -180,6 +189,8 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_commits"] == 3
         assert props["pr_reviewable_additions"] == 80
         assert 90 <= props["duration_seconds"] < 600
+        assert props["reviewhog_version"] == "reviewhog-full-9-9"
+        assert props["reviewhog_fingerprint"] == "abc1234"
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go
@@ -194,6 +205,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_additions"] is None
         assert props["pr_reviewable_additions"] is None
         assert props["findings_total"] == 0
+        # A turn without a marker ran on an unknown release; the current deploy's version would mislabel it.
+        assert props["reviewhog_version"] is None
+        assert props["reviewhog_fingerprint"] is None
 
     @parameterized.expand([("completed",), ("failed",), ("started",)])
     def test_event_uuid_is_stable_across_retries_and_separate_for_each_mode(self, event: str) -> None:

@@ -7,7 +7,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+
 import { TodayAskBox } from './TodayAskBox'
+import { WALK_THROUGH_QUESTION } from './todayAskPrompt'
 import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
@@ -30,7 +33,7 @@ function TodayMetaLine(): JSX.Element {
 }
 
 function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.Element {
-    const { hoveredReportId, reports } = useValues(todayLogic)
+    const { hoveredReportId, reports, teamReportPreviews, reportStateOverrides } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
     const { reportId } = segment
     if (!reportId) {
@@ -44,6 +47,7 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
             subtle
             className="TodayReportLink"
             data-active={hoveredReportId === reportId}
+            data-state={reportStateOverrides[reportId] ?? 'open'}
             data-attr="today-briefing-report"
             onClick={() => report && reportOpened(report, 'briefing')}
             onMouseEnter={() => setHoveredReportId(reportId)}
@@ -52,7 +56,15 @@ function BriefingSegment({ segment }: { segment: TodayBriefingSegment }): JSX.El
             {segment.text}
         </Link>
     )
-    return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
+    const preview = teamReportPreviews.briefing[reportId]
+    const linkWithCard = preview ? (
+        <TodayPreviewTrigger payload={preview} inline>
+            {link}
+        </TodayPreviewTrigger>
+    ) : (
+        link
+    )
+    return segment.highlight ? <span className="TodayHome__highlight">{linkWithCard}</span> : linkWithCard
 }
 
 function TodayBriefingReports(): JSX.Element {
@@ -96,7 +108,7 @@ function TodayBriefingReports(): JSX.Element {
                 <button
                     type="button"
                     data-attr="today-ask-about-edition"
-                    onClick={() => askAi('Walk me through what changed in my product today.')}
+                    onClick={() => askAi(WALK_THROUGH_QUESTION, 'walk_through')}
                 >
                     ask PostHog AI to walk you through it
                 </button>
@@ -135,7 +147,7 @@ export function TodayBriefing(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconRefresh />}
-                            tooltip="Write a fresh briefing"
+                            tooltip="Refresh briefing"
                             onClick={() => refreshBriefing()}
                             data-attr="today-briefing-refresh"
                         />

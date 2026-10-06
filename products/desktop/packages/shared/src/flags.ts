@@ -98,3 +98,9 @@ export const CUSTOM_IMAGES_FEATURE_FLAG =
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;
 export const TWIG_CLOUD_MODE_FLAG = featureFlagKeys.TWIG_CLOUD_MODE_FLAG;
 export const USER_SPEND_LIMIT_FLAG = featureFlagKeys.USER_SPEND_LIMIT_FLAG;
+/** Move local custom instructions to "My instructions" on the server, then stop adding them to cloud tasks. */
+export const SERVER_AGENT_INSTRUCTIONS_FLAG =
+  featureFlagKeys.SERVER_AGENT_INSTRUCTIONS_FLAG;
+/** Move local task defaults to the server once, then keep "always create pull requests" in step with it. */
+export const SERVER_TASK_DEFAULTS_FLAG =
+  featureFlagKeys.SERVER_TASK_DEFAULTS_FLAG;

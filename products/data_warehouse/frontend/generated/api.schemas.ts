@@ -3166,6 +3166,7 @@ export interface CredentialApi {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -3515,6 +3516,7 @@ export interface CredentialApi {
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
  * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4525,6 +4527,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -4874,6 +4877,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
     GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

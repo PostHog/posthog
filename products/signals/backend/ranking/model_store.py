@@ -35,9 +35,13 @@ from products.signals.backend.ranking.model_contract import (
     model_mismatch,
     trained_head_files,
 )
+from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
     DEFAULT_MODEL_KIND,
+    MANIFEST_SERVED_ROLE,
     METADATA_FILE,
+    SERVED_OVERRIDE_ROLE,
+    SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
     serving_manifest_key,
@@ -71,6 +75,8 @@ class ServingSet:
     others: Sequence[LoadedModel]
     # Model key to the reason the entry could not be loaded.
     skipped: Mapping[str, str]
+    # The overrides whose `served` key this set serves. None when the manifest's served model serves.
+    served_override: RankingOverrides | None = None
 
 
 class ModelKindHandler(Protocol):
@@ -166,12 +172,16 @@ def clear_model_cache() -> None:
         _cache.clear()
 
 
-def load_serving_set() -> ServingSet | None:
+def load_serving_set(overrides: RankingOverrides | None = None) -> ServingSet | None:
     """Every model the manifest names, or None when no manifest is published yet.
 
     A served entry that fails to load raises, because a pass without a served score is worse than
     no pass. Any other entry that fails is recorded in `skipped`, and the scorer writes it as a
     skipped result, so the coverage of each model stays readable.
+
+    A `served` override moves the served role to another model the manifest names. An override
+    that cannot apply is logged and the manifest's served model serves, so a bad override never
+    stops a pass.
     """
     raw_manifest = object_storage.read(serving_manifest_key(settings.INBOX_RANKING_DATASET_S3_PREFIX), missing_ok=True)
     if raw_manifest is None:
@@ -188,4 +198,56 @@ def load_serving_set() -> ServingSet | None:
         except ModelLoadError as error:
             logger.warning("inbox_ranking_model_skipped", model_key=entry.key, reason=str(error))
             skipped[entry.key] = str(error)
-    return ServingSet(manifest=manifest, served=served, others=others, skipped=skipped)
+    serving = ServingSet(manifest=manifest, served=served, others=others, skipped=skipped)
+    if overrides is None or overrides.served is None or overrides.served == manifest.served.key:
+        return serving
+    rejection = served_override_rejection(serving, overrides.served)
+    if rejection is not None:
+        logger.warning(
+            "inbox_ranking_override_rejected",
+            override_served=overrides.served,
+            manifest_served=manifest.served.key,
+            reason=rejection,
+        )
+        return serving
+    return _with_served_override(serving, overrides)
+
+
+def served_override_rejection(serving: ServingSet, key: str) -> str | None:
+    """Why the model `key` cannot take the served role this pass, or None when it can.
+
+    Only a model the manifest names and the pass loaded qualifies, so an override never makes a
+    pod load a model it did not already hold. The model must also have every head the manifest's
+    served model has, because consumers read `p_<head>` off the served score.
+    """
+    if key in serving.skipped:
+        return f"{key} did not load: {serving.skipped[key]}"
+    model = next((model for model in serving.others if model.entry.key == key), None)
+    if model is None:
+        return f"{key} is not in the serving manifest"
+    missing_heads = sorted(set(serving.served.entry.heads) - set(model.entry.heads))
+    if missing_heads:
+        return f"{key} has no head for {missing_heads}"
+    return None
+
+
+def _with_served_override(serving: ServingSet, overrides: RankingOverrides) -> ServingSet:
+    def roles(entry: ServingManifestEntry) -> list[str]:
+        if entry.key == overrides.served:
+            return [SERVED_ROLE, SERVED_OVERRIDE_ROLE, *entry.roles]
+        if SERVED_ROLE in entry.roles:
+            return [MANIFEST_SERVED_ROLE, *(role for role in entry.roles if role != SERVED_ROLE)]
+        return list(entry.roles)
+
+    entries = [entry.model_copy(update={"roles": roles(entry)}) for entry in serving.manifest.models]
+    manifest = serving.manifest.model_copy(update={"models": entries})
+    by_key = {entry.key: entry for entry in entries}
+    loaded = [serving.served, *serving.others]
+    served = next(model for model in loaded if model.entry.key == overrides.served)
+    return ServingSet(
+        manifest=manifest,
+        served=replace(served, entry=by_key[served.entry.key]),
+        others=[replace(model, entry=by_key[model.entry.key]) for model in loaded if model is not served],
+        skipped=serving.skipped,
+        served_override=overrides,
+    )

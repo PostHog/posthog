@@ -9,6 +9,8 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 
+from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
@@ -129,7 +131,17 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     # Each destination is also keyed on its own, without a schema. A source-level surface wants one
     # series per destination across every table, and the API filters `instance_id` by equality, so
     # without this row it would have to ask once per schema per destination.
-    for destination_id in job.destination_ids or []:
+    # A run still reaches here with no ids: a job that predates destinations, a CDC companion
+    # lane, or a run of a team the flag was off for. Without this fallback those runs report no
+    # destination at all, and a project sees a gap in its rows-by-destination chart.
+    destination_ids = list(job.destination_ids or [])
+    if not destination_ids:
+        try:
+            destination_ids = [str(get_or_create_warehouse_destination(job.team_id).id)]
+        except Exception:
+            logger.exception("Failed to resolve the warehouse destination for data import metrics")
+
+    for destination_id in destination_ids:
         payloads.extend(rows_for(f"{schema_instance_id}/{destination_id}"))
         payloads.extend(rows_for(str(destination_id)))
 

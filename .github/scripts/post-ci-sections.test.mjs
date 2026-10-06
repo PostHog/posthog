@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
 import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
@@ -122,6 +123,36 @@ describe('CI report section builders', () => {
         assert.equal(section.status, 'fail')
         assert.match(section.body, /actions\/runs\/42/)
     })
+
+    for (const testCase of [
+        {
+            name: 'claims the PR frontend only when it was swapped in',
+            frontendSwapped: true,
+            expected: /\*\*and\*\* frontend/,
+        },
+        {
+            name: 'says the frontend is unchanged when it was not swapped in',
+            frontendSwapped: false,
+            expected: /frontend unchanged by this PR/,
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildHogboxPreviewSection({
+                state: 'ready',
+                sha: '1234567890abcdef',
+                runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+                url: 'https://preview.example.com',
+                boxId: 'box-1',
+                penId: 'None',
+                consoleHost: 'console.example.com',
+                frontendSwapped: testCase.frontendSwapped,
+            })
+            assert.equal(section.status, 'ok')
+            assert.match(section.summary, /https:\/\/preview\.example\.com/)
+            assert.match(section.body, testCase.expected)
+            assert.doesNotMatch(section.body, /console\/fleet\/pens/)
+        })
+    }
 
     it('moves a hobby preview through setup, ready, and failed states', () => {
         const initial = buildHobbySection({ state: 'initial', ...commonHobby })
