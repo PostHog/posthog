@@ -48,6 +48,7 @@ def resource_config(api_key: str, name: str, endpoint: Endpoint) -> RESTAPIConfi
             "base_url": BASE_URL,
             "auth": {"type": "bearer", "token": api_key},
             "headers": {"Accept": "application/json"},
+            "request_timeout": (10, 60),
         },
         "resources": [
             {

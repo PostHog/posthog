@@ -51,6 +51,10 @@ def respond(transport: MagicMock, payloads: list[dict[str, Any]], status: int = 
     return sent
 
 
+def query_params(request: PreparedRequest) -> dict[str, list[str]]:
+    return parse_qs(urlsplit(cast(str, request.url)).query)
+
+
 def inputs_for(table: str, incremental: bool = False) -> SourceInputs:
     return SourceInputs(
         schema_name=table,
@@ -125,8 +129,8 @@ def test_cursor_pages_and_terminal_page(
     assert extract(table, manager) == [{"id": "a"}, {"id": "b"}]
     assert len(sent) == 2
     assert urlsplit(sent[0].url).path == f"/{path}"
-    assert parse_qs(urlsplit(sent[0].url).query) == params
-    assert parse_qs(urlsplit(sent[1].url).query) == {**params, "cursor": ["next-1"]}
+    assert query_params(sent[0]) == params
+    assert query_params(sent[1]) == {**params, "cursor": ["next-1"]}
     assert all(request.headers["Authorization"] == "Bearer test-token" for request in sent)
     manager.save_state.assert_called_once_with(GetdxResumeConfig(paginator_state={"cursor": "next-1"}))
 
@@ -142,7 +146,7 @@ def test_users_follow_next_page(transport: MagicMock) -> None:
     manager = manager_for()
 
     assert extract("users", manager) == [{"id": "a"}, {"id": "b"}]
-    assert [parse_qs(urlsplit(request.url).query) for request in sent] == [
+    assert [query_params(request) for request in sent] == [
         {"page": ["1"], "page_size": ["100"]},
         {"page": ["2"], "page_size": ["100"]},
     ]
@@ -165,7 +169,7 @@ def test_resume_skips_consumed_pages(
 
     assert extract(table, manager) == [{"id": "resumed"}]
     assert len(sent) == 1
-    assert parse_qs(urlsplit(sent[0].url).query)[param] == [str(cursor)]
+    assert query_params(sent[0])[param] == [str(cursor)]
     manager.save_state.assert_not_called()
 
 
