@@ -390,9 +390,14 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
             updates={"repartition_swap": {"state": "ready"}, "repartition_rewrite": {"rows_written": 1}},
         )
         assert not stale.abandon_repartition_if_claimed("newer")
+        assert not stale.abandon_repartition_if_claimed("latest")
+        schema.refresh_from_db()
+        assert schema.repartition_swap == {"state": "ready"}
+        assert schema.repartition_rewrite == {"rows_written": 1}
+
+        update_sync_type_config_keys(schema.id, self.team.pk, removals=["repartition_swap"])
         assert stale.abandon_repartition_if_claimed("latest")
         schema.refresh_from_db()
-        assert schema.repartition_swap is None
         assert schema.repartition_rewrite is None
         assert schema.last_repartition_at is not None
 

@@ -924,6 +924,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             claim = config.get("repartition_claim")
             if not (isinstance(claim, dict) and claim.get("token") == claim_token):
                 return
+            if config.get("repartition_swap") is not None:
+                return
             for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
                 config.pop(key, None)
             config["last_repartition_at"] = timezone.now().isoformat()
