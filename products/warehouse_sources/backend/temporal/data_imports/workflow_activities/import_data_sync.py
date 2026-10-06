@@ -63,7 +63,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -97,7 +96,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -386,20 +388,26 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         model = await _get_external_data_job(inputs.run_id)
 
-        if model.pipeline_version == ExternalDataJob.PipelineVersion.V3:
-            attempt = current_activity_attempt()
-            if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
-                await logger.ainfo(
-                    "Skipping retry - job already terminal",
-                    status=model.status,
-                    attempt=attempt,
-                )
-                # The consumer already finalized this run (that's how it became terminal), so the
-                # workflow must not overwrite the status or release the lock — see PipelineResult.
-                return PipelineResult(
-                    should_trigger_cdp_producer=False,
-                    consumer_manages_job_status=True,
-                )
+        if model.pipeline_version != ExternalDataJob.PipelineVersion.V3:
+            # Only a job created before every run moved to V3 can get here, and the V2 pipeline
+            # that ran it no longer exists.
+            raise NonRetryableException(
+                f"Job {inputs.run_id} uses pipeline version {model.pipeline_version}. Only V3 jobs can run."
+            )
+
+        attempt = current_activity_attempt()
+        if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
+            await logger.ainfo(
+                "Skipping retry - job already terminal",
+                status=model.status,
+                attempt=attempt,
+            )
+            # The consumer already finalized this run (that's how it became terminal), so the
+            # workflow must not overwrite the status or release the lock — see PipelineResult.
+            return PipelineResult(
+                should_trigger_cdp_producer=False,
+                consumer_manages_job_status=True,
+            )
 
         # A rewrite spanning several activity budgets resumes only while live stays at the Delta
         # version its checkpoint was built against, and the merge below is what moves it. Importing
@@ -982,33 +990,16 @@ async def _run(
         reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
-        use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
-
-        if use_v3:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
-
-            logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = v3_pipeline_class(source_response)(
-                source_response,
-                logger,
-                job_inputs.run_id,
-                reset_pipeline,
-                shutdown_monitor,
-                resumable_source_manager,
-                models=models,
-                source_cursor_manager=source_cursor_manager,
-            )
-        else:
-            pipeline = PipelineNonDLT(
-                source_response,
-                logger,
-                job_inputs.run_id,
-                reset_pipeline,
-                shutdown_monitor,
-                resumable_source_manager,
-                models=models,
-                source_cursor_manager=source_cursor_manager,
-            )
+        pipeline = v3_pipeline_class(source_response)(
+            source_response,
+            logger,
+            job_inputs.run_id,
+            reset_pipeline,
+            shutdown_monitor,
+            resumable_source_manager,
+            models=models,
+            source_cursor_manager=source_cursor_manager,
+        )
 
         result = await pipeline.run()
         del pipeline
