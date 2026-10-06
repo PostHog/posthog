@@ -419,7 +419,8 @@ class TestBudgetExhaustion:
         )
 
         if expect_give_up:
-            schema.abandon_repartition_if_claimed.assert_called_once()
+            schema.clear_repartition_pending.assert_called_once()
+            schema.clear_repartition_rewrite.assert_called_once()
         else:
             assert schema.set_repartition_pending.call_args.args[0]["attempts"] == prior_attempts + 1
 
