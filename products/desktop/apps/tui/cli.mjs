@@ -39,6 +39,14 @@ globalThis.__posthogTuiReload = () =>
 // An edit that breaks loading (a missing export, a syntax error) must not end the process: it holds the local
 // agents, which may be the very session making the edit. Show the error and load again after the next save.
 const appMounted = () => globalThis.__posthogTuiMounted === true;
+// While nothing is on screen, Enter tries again. The listener goes once the app is back, since the app reads stdin too.
+let retryOnEnter = null;
+const stopRetryOnEnter = () => {
+  if (!retryOnEnter) return;
+  process.stdin.off("data", retryOnEnter);
+  process.stdin.pause();
+  retryOnEnter = null;
+};
 const showFailure = (error) => {
   const detail =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
@@ -47,14 +55,35 @@ const showFailure = (error) => {
     `${new Date().toISOString()} error [load] ${detail}\n`,
   );
   if (appMounted() || !process.stdout.isTTY) return;
+  globalThis.__posthogTuiLoadFailed = true;
   const message = error instanceof Error ? error.message : String(error);
   process.stdout.write(
-    `\x1b[2J\x1b[H The TUI failed to load: ${message}\r\n\r\n` +
-      ` Save a fix and it loads again. Local agents keep running. The log is at ${LOG_PATH}.\r\n` +
-      " Ctrl+C quits.\r\n",
+    `\x1b[2J\x1b[H The TUI couldn't load: ${message}\r\n\r\n` +
+      " Press Enter to try again, or Ctrl+C to quit. Your chats keep running.\r\n" +
+      " If an agent is changing the TUI's code, it tries again by itself when that change lands.\r\n\r\n" +
+      ` Details are in ${LOG_PATH}\r\n`,
   );
+  if (process.stdin.isTTY && !retryOnEnter) {
+    retryOnEnter = (data) => {
+      if (!String(data).includes("\n") && !String(data).includes("\r")) return;
+      stopRetryOnEnter();
+      clearScreen();
+      runner.clearCache();
+      void start();
+    };
+    process.stdin.setRawMode?.(false);
+    process.stdin.resume();
+    process.stdin.on("data", retryOnEnter);
+  }
 };
-const start = () => runner.import("/src/main.tsx").catch(showFailure);
+// A retry clears what the failure printed, so a terminal without an alternate screen shows only the app.
+const clearScreen = () => {
+  if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
+};
+const start = () =>
+  runner.import("/src/main.tsx").then(() => {
+    if (appMounted()) stopRetryOnEnter();
+  }, showFailure);
 process.on("unhandledRejection", showFailure);
 process.on("uncaughtException", showFailure);
 // After an edit settles, a screen with no app on it means the reload failed, so try again from disk.
@@ -63,6 +92,8 @@ server.watcher.on("change", () => {
   clearTimeout(retry);
   retry = setTimeout(() => {
     if (appMounted()) return;
+    stopRetryOnEnter();
+    clearScreen();
     runner.clearCache();
     void start();
   }, 1_000);

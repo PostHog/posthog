@@ -6,6 +6,12 @@ import { stopLocals } from "./local";
 import { MouseInput } from "./mouse";
 import { applyBackground, applyTheme, detectBackground } from "./theme";
 
+// cli.mjs printed why the last load failed; clear it, in case the terminal has no alternate screen to hide it.
+const loader = globalThis as { __posthogTuiLoadFailed?: boolean };
+if (loader.__posthogTuiLoadFailed) {
+  process.stdout.write("\x1b[2J\x1b[H");
+  loader.__posthogTuiLoadFailed = false;
+}
 const background = await detectBackground();
 if (background) applyBackground(background);
 else applyTheme("dark");

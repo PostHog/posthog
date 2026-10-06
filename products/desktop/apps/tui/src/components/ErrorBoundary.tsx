@@ -37,22 +37,19 @@ function Crashed({ error }: { error: Error }): ReactElement {
       ).__posthogTuiReload?.();
     if (key.ctrl && input === "q") exit();
   });
-  const where = (error.stack ?? "").split("\n").slice(1, 4);
   return (
     <Box flexDirection="column" padding={1}>
       <Text color="red" bold>
         The TUI hit an error: {error.message}
       </Text>
-      {where.map((line) => (
-        <Text key={line} dimColor wrap="truncate-end">
-          {line.trim()}
-        </Text>
-      ))}
       <Text> </Text>
+      <Text>Press Ctrl+R to reload, or Ctrl+Q to quit.</Text>
       <Text>
-        Save a fix and it reloads, or press Ctrl+R to reload. Ctrl+Q quits.
+        Your chats keep running. If an agent is changing the TUI's code, the TUI
+        reloads by itself when that change lands.
       </Text>
-      <Text dimColor>Local agents keep running. The log is at {LOG_PATH}.</Text>
+      <Text> </Text>
+      <Text dimColor>Details are in {LOG_PATH}</Text>
     </Box>
   );
 }
