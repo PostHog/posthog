@@ -135,6 +135,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
@@ -1739,6 +1740,7 @@ class SignalReportViewSet(
         # A value that is not a JSON number reads as NULL, so one bad row cannot fail the list.
         # The guard is in the CASE, not the filter: the latest artefact decides, as it does for the
         # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
+        # A stale score (the report was edited after the text it scored) also sorts as unscored.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
@@ -1749,11 +1751,12 @@ class SignalReportViewSet(
                 content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField()
             )
             latest_score = Subquery(
-                SignalReportArtefact.objects.filter(
-                    report_id=OuterRef("id"),
-                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                annotate_stale_score(
+                    SignalReportArtefact.objects.filter(
+                        report_id=OuterRef("id"),
+                        type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                    ).order_by("-created_at")
                 )
-                .order_by("-created_at")
                 .annotate(
                     _score=Case(
                         When(
@@ -1775,7 +1778,11 @@ class SignalReportViewSet(
                 .annotate(_score_type=Func(F("_score"), function="jsonb_typeof", output_field=CharField()))
                 .annotate(
                     _score_value=Case(
-                        When(_score_type="number", then=Cast(F("_score"), output_field=FloatField())),
+                        When(
+                            _score_type="number",
+                            _score_is_stale=False,
+                            then=Cast(F("_score"), output_field=FloatField()),
+                        ),
                         default=Value(None),
                         output_field=FloatField(),
                     )
@@ -1838,6 +1845,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.RANKING_SCORE
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_ranking_score_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type__in=EDIT_ARTEFACT_TYPES)
+                .only("id", "report", "created_at")
+                .order_by("-created_at")[:1],
+                to_attr="prefetched_latest_edit_artefacts",
             ),
         )
 
@@ -2092,6 +2106,8 @@ class SignalReportViewSet(
                         content=content,
                         attribution=attribution,
                     )
+            # The prefetch predates these edits, so the response would mark a now-stale score fresh.
+            report.__dict__.pop("prefetched_latest_edit_artefacts", None)
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(
