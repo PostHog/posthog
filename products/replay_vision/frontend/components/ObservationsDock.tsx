@@ -36,7 +36,12 @@ const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
-export function ObservationsDock(): JSX.Element | null {
+export function ObservationsDock({
+    extraActions,
+}: {
+    /** Recording actions the host places beside the summarize button. */
+    extraActions?: React.ReactNode
+}): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     // The dock is a sibling of the player frame, so it kept its summarize button on screen even when
     // the frame had swapped itself for the "Recording not found" or "deleted" screen — a control that
@@ -46,7 +51,7 @@ export function ObservationsDock(): JSX.Element | null {
     if (!sessionRecordingId || isNotFound || isRecordingDeleted) {
         return null
     }
-    return <ObservationsDockContent sessionId={sessionRecordingId} />
+    return <ObservationsDockContent sessionId={sessionRecordingId} extraActions={extraActions} />
 }
 
 /**
@@ -229,7 +234,13 @@ function SummarizeExplainer(): JSX.Element {
     )
 }
 
-function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
+function ObservationsDockContent({
+    sessionId,
+    extraActions,
+}: {
+    sessionId: string
+    extraActions?: React.ReactNode
+}): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds, defaultSummarizer, summarizePending } =
         useValues(logic)
@@ -278,6 +289,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
                 <SummarizeExplainer />
+                {extraActions}
                 {summarizeBlockedReason &&
                     !hasContent && (
                         // Collapsed with nothing to expand, the disabled button's tooltip is the only place

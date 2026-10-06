@@ -3,6 +3,7 @@ import {
     TaskPullRequest,
     pullRequestLabel,
     pullRequestStates,
+    spacePullRequests,
     splitPullRequests,
     taskPullRequests,
 } from './taskPullRequests'
@@ -55,6 +56,22 @@ describe('taskPullRequests', () => {
     ])('splits %i PRs into %i chips and %i behind the overflow chip', (count, visible, overflow) => {
         const split = splitPullRequests(prs(count))
         expect([split.visible.length, split.overflow.length]).toEqual([visible, overflow])
+    })
+
+    it('lists each space PR once, under its newest session, up to the limit', () => {
+        const older = { id: 'older', timestamp: '2026-09-27T10:00:00Z', pullRequests: [pr('org/app', 1)] }
+        const newer = {
+            id: 'newer',
+            timestamp: '2026-09-28T10:00:00Z',
+            pullRequests: [pr('org/app', 2), pr('org/app', 1)],
+        }
+        const listed = (limit?: number): string[] =>
+            spacePullRequests([older, newer], limit).map(
+                ({ pullRequest, session }) => `${session.id}#${pullRequest.number}`
+            )
+
+        expect(listed()).toEqual(['newer#2', 'newer#1'])
+        expect(listed(1)).toEqual(['newer#2'])
     })
 
     // The chips look states up by URL, so a subpage URL from the run must land on the PR's own URL.

@@ -1,97 +1,84 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
-import { IconEllipsis, IconGear, IconCopy, IconPlus, IconStar, IconStarFilled } from '@posthog/icons'
 import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+    IconArchive,
+    IconCopy,
+    IconPencil,
+    IconPeople,
+    IconPlus,
+    IconStar,
+    IconStarFilled,
+    IconTrash,
+} from '@posthog/icons'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { spaceLabel, spaceNewSessionUrl, todaySpacesLogic } from './todaySpacesLogic'
+import { TodayMenuParts } from './todayMenuParts'
+import { todaySpacesLogic } from './todaySpacesLogic'
 
-export function TodaySpaceActions({ space }: { space: ChannelDTOApi }): JSX.Element {
-    const { pendingSpaceIds } = useValues(todaySpacesLogic)
+interface TodaySpaceActionsProps {
+    parts: TodayMenuParts
+    space: ChannelDTOApi
+    /** Starts each item's `data-attr`, so every surface counts on its own. */
+    dataAttrPrefix: string
+}
+
+function autoArchiveActionLabel(days: number | null): string {
+    return days === null ? 'Auto-archive: off…' : `Auto-archive: ${days} ${days === 1 ? 'day' : 'days'}…`
+}
+
+/** A space's actions, New session first, like the space rows in PostHog Desktop. */
+export function TodaySpaceActions({
+    parts: { Item, Separator },
+    space,
+    dataAttrPrefix,
+}: TodaySpaceActionsProps): JSX.Element {
     const { toggleStar, copySpaceLink } = useActions(todaySpacesLogic)
-    const saving = pendingSpaceIds.includes(space.id)
-    const newSessionLabel = `New session in ${spaceLabel(space)}`
-    const menuLabel = saving ? 'Saving your last change' : 'More actions'
+    const attr = (name: string): string => `${dataAttrPrefix}-${name}`
+    const settingsUrl = urls.taskSpaceSettings(space.id)
+    const editable = !space.system_role
 
     return (
-        <div className="flex gap-0.5">
-            <Tooltip>
-                <TooltipTrigger
-                    delay={0}
-                    render={
-                        <Button
-                            size="icon-xs"
-                            aria-label={newSessionLabel}
-                            render={<LinkPrimitive to={spaceNewSessionUrl(space.id)} />}
-                            data-attr="today-space-row-new-session"
-                        />
-                    }
-                >
-                    <IconPlus />
-                </TooltipTrigger>
-                <TooltipContent>{newSessionLabel}</TooltipContent>
-            </Tooltip>
-            <DropdownMenu>
-                <Tooltip>
-                    <TooltipTrigger
-                        delay={0}
-                        render={
-                            <DropdownMenuTrigger
-                                render={
-                                    <Button
-                                        size="icon-xs"
-                                        aria-label={menuLabel}
-                                        loading={saving}
-                                        data-attr="today-space-row-menu"
-                                    />
-                                }
-                            />
-                        }
-                    >
-                        <IconEllipsis />
-                    </TooltipTrigger>
-                    <TooltipContent>{menuLabel}</TooltipContent>
-                </Tooltip>
-                <DropdownMenuContent align="end" className="w-48">
-                    {space.system_role !== 'personal' && (
-                        <DropdownMenuItem
-                            onClick={() => toggleStar(space.id, !space.starred)}
-                            data-attr="today-space-row-star"
-                        >
-                            {space.starred ? <IconStarFilled /> : <IconStar />}
-                            {space.starred ? 'Unstar space' : 'Star space'}
-                        </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onClick={() => copySpaceLink(space.id)} data-attr="today-space-row-copy-link">
-                        <IconCopy />
-                        Copy link
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                        render={
-                            <Button size="row" left render={<LinkPrimitive to={urls.taskSpaceSettings(space.id)} />} />
-                        }
-                        data-attr="today-space-row-settings"
-                    >
-                        <IconGear />
-                        Space settings
-                    </DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
+        <>
+            <Item to={urls.taskSpaceNewSession(space.id)} dataAttr={attr('new-session')}>
+                <IconPlus />
+                New session
+            </Item>
+            {space.system_role !== 'personal' && (
+                <Item onClick={() => toggleStar(space.id, !space.starred)} dataAttr={attr('star')}>
+                    {space.starred ? <IconStarFilled /> : <IconStar />}
+                    {space.starred ? 'Unstar space' : 'Star space'}
+                </Item>
+            )}
+            <Item onClick={() => copySpaceLink(space.id)} dataAttr={attr('copy-link')}>
+                <IconCopy />
+                Copy link
+            </Item>
+            <Separator />
+            <Item to={settingsUrl} dataAttr={attr('auto-archive')}>
+                <IconArchive />
+                {autoArchiveActionLabel(space.auto_archive_after_days)}
+            </Item>
+            {space.channel_type === 'private' && (
+                <Item to={settingsUrl} dataAttr={attr('members')}>
+                    <IconPeople />
+                    Members
+                </Item>
+            )}
+            {editable && (
+                <>
+                    <Item to={settingsUrl} dataAttr={attr('rename')}>
+                        <IconPencil />
+                        Rename space…
+                    </Item>
+                    <Item to={settingsUrl} variant="destructive" dataAttr={attr('delete')}>
+                        <IconTrash />
+                        Delete space…
+                    </Item>
+                </>
+            )}
+        </>
     )
 }

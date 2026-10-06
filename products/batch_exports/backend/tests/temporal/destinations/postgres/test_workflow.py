@@ -15,8 +15,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
@@ -29,6 +27,7 @@ from products.batch_exports.backend.tests.temporal.destinations.postgres.utils i
     TEST_MODELS,
     assert_clickhouse_records_in_postgres,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     WORKFLOW_REAL_TIME_LIMIT_SECONDS,
     NeverFinishingActivity,

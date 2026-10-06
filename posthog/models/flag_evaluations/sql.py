@@ -32,6 +32,7 @@ FLAG_EVALUATIONS_WRITABLE_TABLE = f"writable_{FLAG_EVALUATIONS_TABLE}"
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
+# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
 FLAG_EVALUATIONS_TTL_DAYS = 90
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table

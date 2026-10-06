@@ -15,6 +15,11 @@ class TestIntercomSource:
         self.source = IntercomSource()
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
+        self.manager = mock.MagicMock()
+
+    @pytest.mark.parametrize("schema_name,expected", [("contacts", True), ("companies", False)])
+    def test_retry_budget_excludes_companies_scroll(self, schema_name, expected):
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
@@ -39,7 +44,7 @@ class TestIntercomSource:
         inputs.api_version = pinned
         inputs.should_use_incremental_field = False
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["api_version"] == expected
@@ -85,6 +90,21 @@ class TestIntercomSource:
         # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
         # scroll expires, so this should stay out of error tracking the same way the 404
         # scroll-expiry case above does.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.intercom.io/conversations/1",
+            "500 Server Error: Internal Server Error for url: https://api.intercom.io/contacts",
+        ],
+    )
+    def test_transient_server_error_is_retryable(self, error_msg):
+        # Every Intercom call already retries a 429/5xx at the transport level
+        # (`_INTERCOM_RETRY`) before `raise_for_status` can raise, so a `HTTPError` reaching here
+        # has exhausted that budget — a transient blip, not a bug. Temporal retries the whole
+        # activity next, so this should stay out of error tracking as noise.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
@@ -192,7 +212,7 @@ class TestIntercomSource:
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
 
-        result = self.source.source_for_pipeline(self.config, inputs)
+        result = self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         assert result is sentinel
         mock_intercom_source.assert_called_once_with(
@@ -201,6 +221,7 @@ class TestIntercomSource:
             team_id=self.team_id,
             job_id="job-1",
             api_version="2.13",
+            resumable_source_manager=self.manager,
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
@@ -223,7 +244,7 @@ class TestIntercomSource:
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["incremental_field"] is None
@@ -241,4 +262,4 @@ class TestIntercomSource:
         inputs.schema_name = "contacts"
 
         with pytest.raises(ValueError, match="Intercom access token not found for job job-1"):
-            self.source.source_for_pipeline(self.config, inputs)
+            self.source.source_for_pipeline(self.config, self.manager, inputs)

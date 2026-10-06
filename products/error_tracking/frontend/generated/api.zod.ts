@@ -376,7 +376,7 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod
         config: zod
             .record(zod.string(), zod.string())
             .describe(
-                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}.'
+                'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace\"}; linear {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}; jira {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace\"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.'
             ),
         issue: zod.uuid().describe('ID of the error tracking issue to link the reference to.'),
     })
@@ -603,7 +603,9 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssueCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssueCreateBodyVolumeResolutionDefault)
-        .describe('Volume buckets. Maximum 200.'),
+        .describe(
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true."
+        ),
     includeSparkline: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
@@ -997,7 +999,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
         .describe(
-            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets."
         ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])

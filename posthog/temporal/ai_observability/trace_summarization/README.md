@@ -65,6 +65,8 @@ It starts the next team when any running team finishes, so one slow team holds o
 The coordinator fixes one window from the time Temporal started the run, and passes it to every per-team workflow as `window_start` and `window_end`.
 So each team covers the same hour however late in the run it starts, and consecutive runs cover consecutive hours.
 Continue-as-new carries the remaining teams and the window into the next run, so it loses nothing.
+Before it continues as new, the coordinator waits for the running teams to finish, and the free slots stay idle during that wait.
+So it continues as new only at its own history limits (the `continue_as_new_history_length` and `continue_as_new_history_size_bytes` inputs), not at the lower Temporal suggestion.
 A run that is skipped, or that reaches its timeout before it reaches a team, still loses that hour for the teams it did not reach.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
@@ -207,6 +209,7 @@ Text representations (up to 2 MB) are stored in Redis between the two activities
 - `TextReprExpiredError` is non-retryable (Redis key missing means fetch must re-run, but this is handled by workflow-level retry)
 - Embedding failures tracked separately, don't fail summary generation
 - Activity retries use exponential backoff via centralized retry policies
+- A failed LLM call is captured as an exception only on the last attempt of `summarize_and_save_activity`. An earlier attempt logs `OpenAI API call failed, retry pending` at warning level, because the retry can still save the summary.
 
 ## Testing
 
