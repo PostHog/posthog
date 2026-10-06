@@ -43,7 +43,11 @@ export function CreateOrganizationModal({
         !!preflight?.cloud &&
         // Without billing features the limit is unknown, so do not claim the organization is at it.
         !!currentOrganization?.available_product_features?.length &&
-        !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length ?? 0)
+        !hasAvailableFeature(
+            AvailableFeature.ORGANIZATIONS_PROJECTS,
+            // Match the backend limit check: distinct projects, demo projects excluded.
+            new Set(currentOrganization?.teams?.filter((team) => !team.is_demo).map((team) => team.project_id)).size
+        )
 
     const closeModal: () => void = () => {
         if (onClose) {
