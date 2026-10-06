@@ -2960,8 +2960,44 @@ database "posthog" {
     column "entry_pathname" {
       type = "String"
     }
+    column "entry_hostname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
     column "pageview_count" {
       type = "UInt64"
+    }
+    column "is_bounce" {
+      type = "Bool"
+    }
+    column "session_duration" {
+      type = "Int64"
+    }
+    column "is_bot" {
+      type = "Bool"
+    }
+    column "paths" {
+      type = "Array(Tuple(host String, pathname String, pageviews UInt32))"
     }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -3536,8 +3572,44 @@ database "posthog" {
     column "entry_pathname" {
       type = "String"
     }
+    column "entry_hostname" {
+      type = "String"
+    }
+    column "end_pathname" {
+      type = "String"
+    }
+    column "device_type" {
+      type = "String"
+    }
+    column "os" {
+      type = "String"
+    }
+    column "browser" {
+      type = "String"
+    }
+    column "country_code" {
+      type = "String"
+    }
+    column "region_code" {
+      type = "String"
+    }
+    column "city_name" {
+      type = "String"
+    }
     column "pageview_count" {
       type = "UInt64"
+    }
+    column "is_bounce" {
+      type = "Bool"
+    }
+    column "session_duration" {
+      type = "Int64"
+    }
+    column "is_bot" {
+      type = "Bool"
+    }
+    column "paths" {
+      type = "Array(Tuple(host String, pathname String, pageviews UInt32))"
     }
     column "computed_at" {
       type    = "DateTime64(6, 'UTC')"

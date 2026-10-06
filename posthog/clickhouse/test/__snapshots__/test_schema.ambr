@@ -9136,9 +9136,31 @@
       utm_content String,
       referring_domain String,
       entry_pathname String,
+      entry_hostname String,
+      end_pathname String,
+  
+      -- Taken from the session's first pageview, so a read can break down or filter by device and geo
+      -- without scanning events.
+      device_type String,
+      os String,
+      browser String,
+      country_code String,
+      region_code String,
+      city_name String,
   
       -- Pageviews in the session, so a read can report views next to visitors and sessions.
       pageview_count UInt64,
+  
+      -- Session-level values from the sessions table, so a read can report bounce rate and duration
+      -- without joining back to sessions.
+      is_bounce Bool,
+      session_duration Int64,
+      is_bot Bool,
+  
+      -- Pageviews per (host, pathname) in the session, capped by the insert to the most-viewed entries.
+      -- A session whose pageview_count exceeds the sum here was capped, so a read that filters on a
+      -- host or pathname can miss that session's tail entries.
+      paths Array(Tuple(host String, pathname String, pageviews UInt32)),
   
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
       expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
@@ -9850,9 +9872,31 @@
       utm_content String,
       referring_domain String,
       entry_pathname String,
+      entry_hostname String,
+      end_pathname String,
+  
+      -- Taken from the session's first pageview, so a read can break down or filter by device and geo
+      -- without scanning events.
+      device_type String,
+      os String,
+      browser String,
+      country_code String,
+      region_code String,
+      city_name String,
   
       -- Pageviews in the session, so a read can report views next to visitors and sessions.
       pageview_count UInt64,
+  
+      -- Session-level values from the sessions table, so a read can report bounce rate and duration
+      -- without joining back to sessions.
+      is_bounce Bool,
+      session_duration Int64,
+      is_bot Bool,
+  
+      -- Pageviews per (host, pathname) in the session, capped by the insert to the most-viewed entries.
+      -- A session whose pageview_count exceeds the sum here was capped, so a read that filters on a
+      -- host or pathname can miss that session's tail entries.
+      paths Array(Tuple(host String, pathname String, pageviews UInt32)),
   
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
       expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
@@ -14851,9 +14895,31 @@
       utm_content String,
       referring_domain String,
       entry_pathname String,
+      entry_hostname String,
+      end_pathname String,
+  
+      -- Taken from the session's first pageview, so a read can break down or filter by device and geo
+      -- without scanning events.
+      device_type String,
+      os String,
+      browser String,
+      country_code String,
+      region_code String,
+      city_name String,
   
       -- Pageviews in the session, so a read can report views next to visitors and sessions.
       pageview_count UInt64,
+  
+      -- Session-level values from the sessions table, so a read can report bounce rate and duration
+      -- without joining back to sessions.
+      is_bounce Bool,
+      session_duration Int64,
+      is_bot Bool,
+  
+      -- Pageviews per (host, pathname) in the session, capped by the insert to the most-viewed entries.
+      -- A session whose pageview_count exceeds the sum here was capped, so a read that filters on a
+      -- host or pathname can miss that session's tail entries.
+      paths Array(Tuple(host String, pathname String, pageviews UInt32)),
   
       computed_at DateTime64(6, 'UTC') DEFAULT now(),
       expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
