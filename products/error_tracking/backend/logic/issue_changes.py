@@ -1,21 +1,34 @@
-"""Typed contents of issue change rows: the snapshot and the per-kind data payload.
+"""Issue change rows: the snapshot, the per-kind data payload, and the writer.
 
 Values are raw model values, not display labels: consumers that render messages
 map them to labels themselves. Cymbal writes the same JSON shapes from Rust, and
 tests/fixtures/issue_change_data.json pins them for both sides.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, ClassVar, Literal
 from uuid import UUID
 
+from django.db.models import Min
+
+import structlog
+
 from posthog.dataclasses import frozen
+from posthog.models.user import User
+from posthog.models.utils import uuid7
+from posthog.ph_client import feature_enabled_or_false
 
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueChange,
+    ErrorTrackingIssueFingerprintV2,
 )
+
+logger = structlog.get_logger(__name__)
+
+ISSUE_CHANGE_LOG_FLAG = "error-tracking-issue-change-log"
 
 Kind = ErrorTrackingIssueChange.Kind
 Status = ErrorTrackingIssue.Status
@@ -195,3 +208,91 @@ def parse_change_data(kind: str, data: dict[str, Any]) -> IssueChangeData:
             )
     # Unreachable while every kind has a case above. It turns a kind added without one into an error.
     raise ValueError(f"Unhandled issue change kind: {kind}")
+
+
+def issue_change_log_enabled(team_id: int) -> bool:
+    try:
+        return feature_enabled_or_false(
+            ISSUE_CHANGE_LOG_FLAG,
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # An unreleased feature stays off when the flags service is unreachable,
+        # rather than defaulting on or failing the mutation.
+        logger.exception("error_tracking_issue_change_log_flag_check_failed", team_id=team_id)
+        return False
+
+
+@frozen
+class ChangeOperation:
+    """One user action, ingestion transaction or automation run. Its rows share `operation_id`."""
+
+    id: UUID
+    team_id: int
+    actor_type: ErrorTrackingIssueChange.ActorType
+    actor_user_id: int | None
+    bulk: bool
+
+    @classmethod
+    def for_user(cls, team_id: int, user: User, *, bulk: bool = False) -> "ChangeOperation | None":
+        """Start an operation, or return None when the change log is off for the team.
+
+        Call it before the mutation opens its transaction, so the flag check never holds row locks.
+        """
+        if not issue_change_log_enabled(team_id):
+            return None
+        return cls(
+            id=uuid7(),
+            team_id=team_id,
+            actor_type=ErrorTrackingIssueChange.ActorType.USER,
+            actor_user_id=user.id,
+            bulk=bulk,
+        )
+
+
+@frozen
+class IssueChange:
+    # The issue as it is after the change. The snapshot is built from it.
+    issue: ErrorTrackingIssue
+    data: IssueChangeData
+
+
+def record_issue_changes(operation: ChangeOperation | None, changes: Sequence[IssueChange]) -> None:
+    """Write the change rows. Call it inside the transaction that applies the changes."""
+    if operation is None or not changes:
+        return
+    issue_ids = {change.issue.id for change in changes}
+    assignees = {
+        assignment.issue_id: AssigneeRef.from_assignment(assignment)
+        for assignment in ErrorTrackingIssueAssignment.objects.filter(team_id=operation.team_id, issue_id__in=issue_ids)
+    }
+    first_seen_by_issue: dict[UUID, datetime | None] = dict(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=operation.team_id, issue_id__in=issue_ids)
+        .values("issue_id")
+        .annotate(earliest_first_seen=Min("first_seen"))
+        .values_list("issue_id", "earliest_first_seen")
+    )
+    ErrorTrackingIssueChange.objects.for_team(operation.team_id).bulk_create(
+        [
+            ErrorTrackingIssueChange(
+                team_id=operation.team_id,
+                issue_id=change.issue.id,
+                kind=change.data.kind,
+                data=change.data.to_data(),
+                snapshot=IssueSnapshot.build(
+                    change.issue,
+                    assignee=assignees.get(change.issue.id),
+                    first_seen=first_seen_by_issue.get(change.issue.id),
+                ).to_json(),
+                operation_id=operation.id,
+                bulk=operation.bulk,
+                actor_type=operation.actor_type,
+                actor_user_id=operation.actor_user_id,
+            )
+            for change in changes
+        ]
+    )
