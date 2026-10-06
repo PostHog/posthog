@@ -284,58 +284,23 @@ def _context_provenance(context: dict, pr: PRData) -> CommitProvenance | None:
 
 
 def _author_team_slugs(context: dict) -> set[str]:
-    """Every team the server found the author on. A failed lookup arrives empty, which denies owner-only paths."""
+    """Every team that the server found the author on, for the pipeline's membership checks.
+
+    review_pr.py asks GitHub once per team. The sandbox holds no token, so the server supplies the set.
+    It decides two things. The reviewer prompt reads `author_on_owning_team` with a default of True,
+    so the ownership summary must always set it. A deny category's `exempt_author_teams` reads it too.
+    An unresolvable lookup arrives as an empty set, which yields "not on any owning team" and denies
+    owner-only paths. review_pr.py fails in the same direction, and that direction is the safe one
+    for a bot that approves.
+    """
     return {str(slug) for slug in context.get("author_team_slugs") or []}
 
 
-def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
-    """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
-
-    review_pr.py resolves membership with one `gh` call per owning team. The sandbox holds no
-    token, so the server supplies every team that the author belongs to, and this function does the
-    intersection.
-
-    `author_on_owning_team` matters beyond the summary text. The reviewer prompt reads that key with
-    a default of True, so an unset key tells the reviewer that the author owns the code, whoever
-    opened the PR. An unresolvable lookup arrives as an empty set and yields "not on any owning
-    team". review_pr.py fails in the same direction, and that direction is the safe one for a bot that
-    approves.
-    """
-    cl = pipeline.classification
-    ownership = cl.get("ownership", {})
-    individuals = ownership.get("individuals", [])
-    teams = ownership.get("teams", [])
-    if ownership.get("team_count", 0) == 0 and not individuals:
-        cl["ownership_summary"] = "no owned paths touched"
-        return
-
-    author = pipeline.pr.author
-    author_teams = [team for team in teams if team.split("/")[-1] in author_team_slugs]
-
-    parts = []
-    if teams:
-        parts.append(f"touches {', '.join(teams)}")
-    if individuals:
-        # Individuals never enter the membership check. The author either is one of them or is
-        # not.
-        suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
-        parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
-    if author_teams:
-        parts.append(f"author {author} is on {', '.join(author_teams)}")
-    elif teams:
-        parts.append(f"author {author} is not on any owning team")
-    if ownership.get("cross_team"):
-        parts.append("cross-team change")
-
-    cl["ownership_summary"] = "; ".join(parts)
-    cl["author_on_owning_team"] = bool(author_teams)
-
-
-def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
+def _run_gates_offline(pipeline: Pipeline) -> None:
     """Run the four deterministic gate checks, the same ones that _run_gates runs.
 
-    Mirrors Pipeline._run_gates, and replaces _summarize_ownership's `gh` membership lookup with the
-    server-injected team set (see _apply_ownership_summary).
+    Mirrors Pipeline._run_gates without the console output. Set `pipeline.author_team_slugs` first
+    (see _author_team_slugs), or the membership checks call `gh`, which the sandbox cannot do.
     """
     gates = [
         ("prerequisites", pipeline._check_prerequisites),
@@ -347,7 +312,7 @@ def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
         passed, message = check()
         pipeline.gate_results.append(GateResult(name, passed, message))
 
-    _apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
 
 def _familiarity_offline(
@@ -604,7 +569,7 @@ def pregate(context: dict) -> dict:
 
     pipeline.author_team_slugs = _author_team_slugs(context)
     pipeline._classify()
-    _run_gates_offline(pipeline, pipeline.author_team_slugs)
+    _run_gates_offline(pipeline)
     if _blocked_only_by_pending_migration_check(pipeline):
         if not _pending_migration_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
@@ -652,7 +617,7 @@ def run(context: dict) -> dict:
         with _timed_phase("gates"):
             pipeline.author_team_slugs = _author_team_slugs(context)
             pipeline._classify()
-            _run_gates_offline(pipeline, pipeline.author_team_slugs)
+            _run_gates_offline(pipeline)
         gate_verdict = pipeline._gate_verdict()
 
         # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment

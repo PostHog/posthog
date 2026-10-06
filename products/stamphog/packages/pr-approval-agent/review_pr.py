@@ -41,7 +41,6 @@ from gates import (
     MAX_LINES,
     POLICY,
     assign_tier,
-    author_exempt_categories,
     build_ownership,
     category_fully_exempt,
     classify_files,
@@ -432,8 +431,11 @@ class Pipeline:
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
-        author_exempt = author_exempt_categories(deny, self._author_on_team)
-        deny = [category for category in deny if category not in author_exempt]
+        deny = [
+            category
+            for category in deny
+            if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+        ]
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -481,7 +483,6 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
-            "author_exempt_deny_categories": author_exempt,
             "title_scrutiny_flags": title_flags,
             "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
@@ -658,8 +659,7 @@ class Pipeline:
         author = self.pr.author
         author_teams = []
         for team_raw in teams:
-            team_slug = team_raw.split("/")[-1]
-            if check_team_membership(author, team_slug):
+            if self._author_on_team(team_raw.split("/")[-1]):
                 author_teams.append(team_raw)
 
         parts = []
@@ -674,7 +674,7 @@ class Pipeline:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
         elif teams:
             parts.append(f"author {author} is not on any owning team")
-        if ownership["cross_team"]:
+        if ownership.get("cross_team"):
             parts.append("cross-team change")
 
         self.classification["ownership_summary"] = "; ".join(parts)

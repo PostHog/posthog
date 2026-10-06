@@ -116,8 +116,9 @@ def test_ownership_summary_reflects_author_team_membership(
     # which reads the key with a default of True. An unset key tells the reviewer that every author
     # owns the code that they touched, and the note then never appears on a hosted review.
     pipeline = _ownership_pipeline(ownership)
+    pipeline.author_team_slugs = author_team_slugs
 
-    review_local._apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
     assert pipeline.classification["ownership_summary"] == expected_summary
     assert pipeline.classification.get("author_on_owning_team") is expected_on_team
