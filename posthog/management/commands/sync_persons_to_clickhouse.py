@@ -341,8 +341,8 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
             if distinct_id in postgres_distinct_ids:
                 continue
             if distinct_id not in tombstone_versions:
-                # Without a Postgres row there is no version to publish at; the sweep removes the mapping once
-                # it deletes the owner.
+                # Without a Postgres row there is no version to publish at. The sweep removes the mapping only once
+                # its owner is deleted, so a mapping with a live owner needs restoring into Postgres instead.
                 logger.warning(f"Skipping distinct ID {distinct_id}: Postgres has no row for it")
                 continue
             ch_versions[distinct_id] = int(version or 0)
