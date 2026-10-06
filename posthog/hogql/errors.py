@@ -104,3 +104,9 @@ class ResolutionError(InternalHogQLError):
     """Resolution of a table/field/expression failed."""
 
     pass
+
+
+class AmbiguousFieldError(QueryError, ResolutionError):
+    """An unqualified field name matches more than one table in scope. The user must qualify it.
+
+    It is also a ResolutionError, because many callers catch ResolutionError to handle it."""
