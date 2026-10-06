@@ -285,6 +285,15 @@ class CuratedGitHubSource:
             optional_columns=self._tables.workflow_runs_optional_columns,
         )
 
+    def ci_read_scope(self) -> str:
+        """Names the tables a CI read of this handle uses, for a cache key.
+
+        The Depot table is part of the answer only for a caller who may read the Depot source. A cache key
+        without it would serve an answer built from Depot rows to a caller who has no access to them.
+        """
+        depot = self._depot_job_attempts()
+        return f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+
     def ci_data_freshness(self) -> CIDataFreshness:
         """When the runs and jobs this handle reads were last synced from their sources."""
         return resolve_ci_data_freshness(

@@ -319,7 +319,12 @@ def _default_branch(curated: CuratedGitHubSource, repo: RepoRef) -> str | None:
 
 
 def _cache_prefix(curated: CuratedGitHubSource, owner: str, name: str) -> str:
-    return f"engineering_analytics:{curated.team.pk}:{curated.source_id}:{owner.casefold()}/{name.casefold()}"
+    # The key holds what the handle resolved for this caller, not only what the request named. Two callers
+    # share an entry only when they read the same repository through the same tables.
+    scope = hashlib.sha256(
+        f"{curated.repository.casefold()}|{curated.ci_read_scope()}|{owner.casefold()}/{name.casefold()}".encode()
+    ).hexdigest()
+    return f"engineering_analytics:{curated.team.pk}:{curated.source_id}:{scope}"
 
 
 def _cache_get(cache_key: str) -> object:
