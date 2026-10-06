@@ -51,6 +51,16 @@ class TestTaskCaptureEvent(TestCase):
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
 
+    @parameterized.expand([(True,), (False,)])
+    def test_run_events_carry_internal_flag(self, internal: bool) -> None:
+        task = self._task(internal=internal)
+        run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
+
+        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+            run.capture_event("task_run_completed")
+
+        self.assertIs(capture.call_args.kwargs["properties"]["internal"], internal)
+
     @parameterized.expand(
         [
             (Task.OriginProduct.SIGNALS_SCOUT, "scout-trial:00000000-0000-4000-8000-000000000001", True),
