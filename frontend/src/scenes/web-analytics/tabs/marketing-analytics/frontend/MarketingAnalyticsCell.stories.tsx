@@ -47,8 +47,3 @@ export const ClickableAndStatic: Story = {
         </div>
     ),
 }
-
-export const DarkComparison: Story = {
-    ...ClickableAndStatic,
-    globals: { theme: 'dark' },
-}
