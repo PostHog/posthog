@@ -118,6 +118,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases': ['Canvases', 'canvases'],
     '/canvases/new': ['CanvasNew', 'canvasNew'],
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
@@ -698,6 +699,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'business_knowledge',
     },
     CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
+    Canvases: { name: 'Canvases', projectBased: true },
     CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
@@ -1310,6 +1312,7 @@ export const productUrls = {
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvases: (): string => '/canvases',
     canvasNew: (spaceId?: string | null): string =>
         spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
     canvasDetail: (id: string): string => `/canvases/${id}`,
@@ -1804,6 +1807,7 @@ export const fileSystemTypes = {
     action: {
         name: 'Action',
         href: (ref: string) => urls.action(ref),
+        listHref: () => urls.actions(),
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
@@ -1813,6 +1817,7 @@ export const fileSystemTypes = {
         iconType: 'cohort' as FileSystemIconType,
         iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
+        listHref: () => urls.cohorts(),
         filterKey: 'cohort',
     },
     dashboard: {
@@ -1826,6 +1831,7 @@ export const fileSystemTypes = {
         name: 'Early access feature',
         iconType: 'early_access_feature' as FileSystemIconType,
         href: (ref: string) => urls.earlyAccessFeature(ref),
+        listHref: () => urls.earlyAccessFeatures(),
         iconColor: [
             'var(--color-product-early-access-features-light)',
             'var(--color-product-early-access-features-dark)',
@@ -1843,6 +1849,7 @@ export const fileSystemTypes = {
         name: 'Experiment',
         iconType: 'experiment',
         href: (ref: string) => urls.experiment(ref),
+        listHref: () => urls.experiments(),
         iconColor: ['var(--color-product-experiments-light)'],
         filterKey: 'experiment',
     },
@@ -1850,6 +1857,7 @@ export const fileSystemTypes = {
         name: 'Feature flag',
         iconType: 'feature_flag',
         href: (ref: string) => urls.featureFlag(ref),
+        listHref: () => urls.featureFlags(),
         iconColor: ['var(--color-product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
@@ -1857,6 +1865,7 @@ export const fileSystemTypes = {
         name: 'Insight',
         iconType: 'product_analytics',
         href: (ref: string) => urls.insightView(ref as InsightShortId),
+        listHref: () => urls.savedInsights(),
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
@@ -1870,6 +1879,7 @@ export const fileSystemTypes = {
         name: 'Product tour',
         iconType: 'product_tour',
         href: (ref: string) => urls.productTour(ref),
+        listHref: () => urls.productTours(),
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
         filterKey: 'product_tour',
     },
@@ -1877,6 +1887,7 @@ export const fileSystemTypes = {
         name: 'Replay playlist',
         iconType: 'session_replay',
         href: (ref: string) => urls.replayPlaylist(ref),
+        listHref: () => urls.replay(ReplayTabs.Playlists),
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         filterKey: 'session_recording_playlist',
     },
@@ -1884,6 +1895,7 @@ export const fileSystemTypes = {
         name: 'Survey',
         iconType: 'survey',
         href: (ref: string) => urls.survey(ref),
+        listHref: () => urls.surveys(),
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'survey',
     },
@@ -1900,6 +1912,7 @@ export const fileSystemTypes = {
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         href: (ref: string) => urls.workflow(ref, 'workflow'),
+        listHref: () => urls.workflows(),
         filterKey: 'workflows',
     },
 }

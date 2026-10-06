@@ -834,7 +834,11 @@ def get_sandbox_ph_mcp_configs(
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
     neither is set, because the instance has no MCP server.
+    An explicit empty scope list also omits the server: internal-only tokens cannot initialize
+    a PostHog MCP session.
     """
+    if scopes == []:
+        return []
     url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
     if not url:
         return []
