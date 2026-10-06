@@ -26,7 +26,10 @@ export function proportionLegendItems(
 ): LegendItem[] {
     const hidden = new Set(hiddenKeys)
     const valueByKey = new Map(series.map((s) => [s.key, partValue(s)]))
-    const total = series.reduce((acc, s) => (s.visibility?.excluded || hidden.has(s.key) ? acc : acc + partValue(s)), 0)
+    const total = series.reduce(
+        (acc, s) => (s.visibility?.excluded || hidden.has(s.key) ? acc : acc + (valueByKey.get(s.key) ?? 0)),
+        0
+    )
     return legendItemsFromSeries(series, theme).map((item) => {
         if (hidden.has(item.key)) {
             return item

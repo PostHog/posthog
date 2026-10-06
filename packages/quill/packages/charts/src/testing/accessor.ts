@@ -6,7 +6,7 @@
 // contract — renaming them breaks consumers' tests. Keep in sync with the
 // overlay components that emit them.
 
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
 import { dragSelection } from './interactions'
@@ -94,6 +94,9 @@ export interface HogChart<Meta = unknown> {
     /** Proportion-bar legend rows — label plus `share · value`, or null for a hidden part. Empty when
      *  the legend is hidden. */
     proportionLegendItems(): LegendItemSummary[]
+    /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
+     *  instead of isolating it. Throws when no legend row has the label. */
+    clickLegendItem(label: string, options?: { additive?: boolean }): void
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
     /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
@@ -231,6 +234,18 @@ export function getHogChart<Meta = unknown>(
             ),
         slopeLegendItems: () => readLegendItems(scope, 'hog-chart-slope-legend'),
         proportionLegendItems: () => readLegendItems(scope, 'hog-chart-proportion-legend'),
+        clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
+            const labelEl = Array.from(
+                scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')
+            ).find((el) => el.textContent === label)
+            const row = labelEl?.closest('button')
+            if (!row) {
+                throw new Error(`No clickable legend row labelled "${label}"`)
+            }
+            act(() => {
+                fireEvent.click(row, { metaKey: additive })
+            })
+        },
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
             if (totalLabels === undefined) {
@@ -279,7 +294,7 @@ function readLegendItems(scope: ParentNode, legendDataAttr: string): LegendItemS
     if (!legend) {
         return []
     }
-    return Array.from(legend.querySelectorAll<HTMLElement>('.truncate')).map((labelEl) => {
+    return Array.from(legend.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')).map((labelEl) => {
         const secondary = labelEl.nextElementSibling
         const isSecondary = secondary?.getAttribute('data-attr') === 'hog-chart-legend-secondary'
         return {

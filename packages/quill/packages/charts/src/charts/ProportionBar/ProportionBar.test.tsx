@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from '@testing-library/react'
+import { fireEvent } from '@testing-library/react'
 
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import type { ChartTheme, Series } from '../../core/types'
@@ -7,13 +7,15 @@ import { ProportionBar } from './ProportionBar'
 
 const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58', '#a78bfa'], backgroundColor: '#ffffff' }
 
-// 600 + 100 + 100 over the 800px mock rect, so part `b` spans x 600..700.
+// 600 + 100 + 100 over the 800px mock rect, so part `b` spans x 600..700. With `a` hidden, `b` and `c`
+// share the bar and `b` spans x 0..400.
 const PARTS: Series[] = [
     { key: 'a', label: 'a', data: [600] },
     { key: 'b', label: 'b', data: [100] },
     { key: 'c', label: 'c', data: [100] },
 ]
-const INSIDE_B = { clientX: 650, clientY: mockRect.height / 2 }
+const at = (clientX: number): { clientX: number; clientY: number } => ({ clientX, clientY: mockRect.height / 2 })
+const INSIDE_B = at(650)
 
 describe('ProportionBar', () => {
     it('hands the tooltip the hovered part with its raw value, like a pie', async () => {
@@ -26,15 +28,25 @@ describe('ProportionBar', () => {
         expect(ctx[0]).toMatchObject({ series: { key: 'b' }, value: 100, fraction: 0.125 })
     })
 
-    it('reports the clicked part through onSliceClick', async () => {
+    it.each([
+        { name: 'all parts drawn', hidden: [], cursor: INSIDE_B, sliceIndex: 1, fraction: 0.125 },
+        { name: 'a hidden part before it', hidden: ['a'], cursor: at(200), sliceIndex: 0, fraction: 0.5 },
+    ])('reports the clicked part like a pie slice, with $name', async ({ hidden, cursor, sliceIndex, fraction }) => {
         const onSliceClick = jest.fn()
-        const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} onSliceClick={onSliceClick} />)
+        const { chart } = renderHogChart(
+            <ProportionBar
+                series={PARTS}
+                theme={THEME}
+                config={{ legend: { defaultHiddenKeys: hidden } }}
+                onSliceClick={onSliceClick}
+            />
+        )
 
-        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
+        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, cursor))
         fireEvent.click(chart.element)
 
         const payload: RadialSlicePayload = onSliceClick.mock.calls[0][0]
-        expect(payload).toMatchObject({ sliceIndex: 1, value: 100, fraction: 0.125, series: { key: 'b' } })
+        expect(payload).toMatchObject({ sliceIndex, value: 100, fraction, series: { key: 'b', data: [100] } })
         expect(payload.series.color).toBe(THEME.colors[1])
     })
 
@@ -46,9 +58,7 @@ describe('ProportionBar', () => {
             '12.5% · 100',
         ])
 
-        act(() => {
-            fireEvent.click(screen.getByText('a').closest('button')!, { metaKey: true })
-        })
+        chart.clickLegendItem('a', { additive: true })
 
         expect(chart.proportionLegendItems().map((item) => item.secondaryLabel)).toEqual([
             null,

@@ -91,6 +91,8 @@ function ProportionBarInner<Meta = unknown>({
         [series, theme, valueFormatter, legendProps.hiddenKeys]
     )
     const colorByKey = useMemo(() => new Map(legendItems.map((item) => [item.key, item.color])), [legendItems])
+    // Tooltips and clicks hand back the consumer's own series, not the single-value copies the bar draws.
+    const seriesByKey = useMemo(() => new Map(series.map((s) => [s.key, s])), [series])
 
     const barSeries = useMemo<Series<Meta>[]>(
         () => visibleSeries.map((s) => ({ ...s, data: [partValue(s)] })),
@@ -100,6 +102,8 @@ function ProportionBarInner<Meta = unknown>({
         () => barSeries.reduce((acc, s) => (s.visibility?.excluded ? acc : acc + s.data[0]), 0),
         [barSeries]
     )
+    // As on PieChart, a slice index counts only the drawn parts, so a hidden part does not shift it.
+    const drawnKeys = useMemo(() => barSeries.filter((s) => !s.visibility?.excluded).map((s) => s.key), [barSeries])
     const fractionOf = useCallback(
         (value: number): number => (visibleTotal > 0 ? value / visibleTotal : 0),
         [visibleTotal]
@@ -133,28 +137,30 @@ function ProportionBarInner<Meta = unknown>({
             if (!entry) {
                 return null
             }
-            const value = partValue(entry.series)
-            const partCtx = { ...ctx, seriesData: [{ ...entry, value, fraction: fractionOf(value) }] }
+            const part = seriesByKey.get(entry.series.key) ?? entry.series
+            const value = partValue(part)
+            const partCtx = { ...ctx, seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }] }
             return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
         },
-        [tooltip, fractionOf, valueFormatter]
+        [tooltip, seriesByKey, fractionOf, valueFormatter]
     )
 
     const handlePointClick = useCallback(
         ({ series: clicked }: PointClickData<Meta>): void => {
-            const sliceIndex = series.findIndex((s) => s.key === clicked.key)
-            if (!onSliceClick || sliceIndex < 0) {
+            const part = seriesByKey.get(clicked.key)
+            const sliceIndex = drawnKeys.indexOf(clicked.key)
+            if (!onSliceClick || !part || sliceIndex < 0) {
                 return
             }
-            const value = partValue(clicked)
+            const value = partValue(part)
             onSliceClick({
                 sliceIndex,
-                series: { ...series[sliceIndex], color: colorByKey.get(clicked.key) ?? '' },
+                series: { ...part, color: colorByKey.get(part.key) ?? '' },
                 value,
                 fraction: fractionOf(value),
             })
         },
-        [series, onSliceClick, colorByKey, fractionOf]
+        [seriesByKey, drawnKeys, onSliceClick, colorByKey, fractionOf]
     )
 
     return (
