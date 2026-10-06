@@ -251,9 +251,9 @@ class TestAppleSearchAdsSource:
 
     @parameterized.expand([("generated_default", "oauth"), ("stored_branch", "key_pair")])
     def test_a_source_holding_key_material_keeps_using_it(self, _name: str, selection: Any) -> None:
-        # A source created before the sign-in path stores its key material flat, with no
-        # `auth_method` branch, so it parses with that branch's generated default. Routing it down
-        # the OAuth path on that default alone would break every pre-existing Apple Ads sync.
+        # Migration 0172 names the branch, but a source holds its key material flat until that
+        # migration runs, and a flat source parses with the branch's generated default. Routing it
+        # down the OAuth path on that default alone would break every pre-existing Apple Ads sync.
         config = key_pair_config(
             auth_method=AppleSearchAdsAuthMethodConfig(
                 selection=selection,

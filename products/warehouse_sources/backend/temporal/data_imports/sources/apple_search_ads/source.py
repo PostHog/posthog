@@ -404,9 +404,10 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
     def _uses_oauth(config: AppleSearchAdsSourceConfig) -> bool:
         """Whether this source authenticates through an Apple Ads grant rather than a key pair.
 
-        The stored integration id is the test, not `auth_method.selection`. A source created before
-        the sign-in path existed holds its key material flat, with no `auth_method` branch, so it
-        parses with that branch's generated default and the selection does not describe it.
+        The stored integration id is the test, not `auth_method.selection`. Migration 0172 names
+        the branch on every source that predates the sign-in path, but a source holds its key
+        material flat until that migration runs, and a flat source parses with the branch's
+        generated default, which is the sign-in option.
         """
         return bool(config.auth_method.apple_ads_integration_id)
 
