@@ -133,6 +133,9 @@ const ROOTS = [
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
         ],
     },
     {
@@ -157,6 +160,9 @@ const ROOTS = [
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
         ],
     },
     {

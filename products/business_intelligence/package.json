@@ -2,8 +2,10 @@
     "name": "@posthog/products-business-intelligence",
     "private": true,
     "dependencies": {
+        "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
