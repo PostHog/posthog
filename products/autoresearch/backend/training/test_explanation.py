@@ -35,7 +35,7 @@ class TestNormalizeModelExplanation(SimpleTestCase):
                 {
                     "feature_importances": [
                         {"feature": "a", "importance": 0.3, "direction": "down"},
-                        {"feature": "b", "importance": 0.2, "direction": "+"},
+                        {"feature": "b", "auc_drop_when_shuffled": 0.2, "direction": "+"},
                     ]
                 },
                 {

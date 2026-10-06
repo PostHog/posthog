@@ -15,6 +15,7 @@ class FeatureDirection(models.TextChoices):
 
 # Champions written before the serializer was typed store their list under other keys.
 _LEGACY_LIST_KEYS = ("top_features", "features", "feature_importances")
+_LEGACY_IMPORTANCE_KEYS = ("importance", "auc_drop_when_shuffled", "gain")
 _POSITIVE_WORDS = {"positive", "+", "up", "raises", "increases"}
 _NEGATIVE_WORDS = {"negative", "-", "down", "lowers", "decreases"}
 
@@ -43,7 +44,7 @@ def _feature(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     name = raw.get("name", raw.get("feature"))
-    importance = raw.get("importance")
+    importance = next((raw[key] for key in _LEGACY_IMPORTANCE_KEYS if key in raw), None)
     direction = _direction(raw.get("direction"))
     if not isinstance(name, str) or not name or direction is None:
         return None
