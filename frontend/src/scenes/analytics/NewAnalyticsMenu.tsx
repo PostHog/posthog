@@ -10,32 +10,33 @@ import {
     ItemTitle,
 } from '@posthog/quill'
 
-import { newViewLogic } from './newViewLogic'
-import { VIEW_TYPES } from './viewsUtils'
-import { ViewTypeIcon } from './ViewTypeIcon'
+import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
+import { ANALYTICS_TYPES } from './analyticsUtils'
+import { NewAnalyticsSource, newAnalyticsLogic } from './newAnalyticsLogic'
 
-interface NewViewMenuProps {
+interface NewAnalyticsMenuProps {
     /** The element that opens the menu, such as a quill `Button`. The menu merges its own props onto it. */
     trigger: JSX.Element
+    source: NewAnalyticsSource
     children?: React.ReactNode
 }
 
-/** Asks which type of view to create, then hands off to that type's own create flow. */
-export function NewViewMenu({ trigger, children }: NewViewMenuProps): JSX.Element {
-    const { pickNewViewType } = useActions(newViewLogic)
+/** Asks which type of analytics to create, then hands off to that type's own create flow. */
+export function NewAnalyticsMenu({ trigger, source, children }: NewAnalyticsMenuProps): JSX.Element {
+    const { pickNewAnalyticsType } = useActions(newAnalyticsLogic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger render={trigger}>{children}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-72">
-                {VIEW_TYPES.map((info) => (
+                {ANALYTICS_TYPES.map((info) => (
                     <DropdownMenuItem
                         key={info.type}
-                        className="h-auto items-start py-1.5 whitespace-normal [&>svg]:mt-1.5"
-                        onClick={() => pickNewViewType(info.type)}
-                        data-attr={`views-new-${info.type}`}
+                        className="h-auto cursor-pointer items-start py-1.5 whitespace-normal [&>svg]:mt-1.5"
+                        onClick={() => pickNewAnalyticsType(info.type, source)}
+                        data-attr={`analytics-new-${info.type}`}
                     >
-                        <ViewTypeIcon type={info.type} />
+                        <AnalyticsTypeIcon type={info.type} />
                         <ItemContent variant="menuItem">
                             <ItemTitle>{info.label}</ItemTitle>
                             <ItemDescription>{info.description}</ItemDescription>
