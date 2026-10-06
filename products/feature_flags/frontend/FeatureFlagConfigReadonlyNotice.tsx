@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import { FeatureFlagConfig } from '~/types'
@@ -22,7 +21,7 @@ export function FeatureFlagConfigReadonlyNotice({
 }): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const label = featureFlagConfigFormatLabel(filters)
-    const editable = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR] && isRulesV2EditableConfig(filters)
+    const editable = isRulesV2EditableConfig(filters, featureFlags)
     return (
         <LemonBanner type="info">
             {featureFlagConfigFormat(filters) !== 'v2' ? (

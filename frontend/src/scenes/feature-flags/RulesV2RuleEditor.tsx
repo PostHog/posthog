@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
@@ -29,6 +30,8 @@ export function RulesV2RuleEditor({
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule, removeRule, moveRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
     const path = `filters.rules[${index}]`
+    const descriptionInputId = useId()
+    const rolloutInputId = useId()
 
     return (
         <div className="rounded border p-3 bg-surface-primary flex flex-col gap-3" data-attr="rules-v2-rule">
@@ -71,8 +74,14 @@ export function RulesV2RuleEditor({
                 />
             </div>
             {fieldError(path) && <LemonBanner type="error">{fieldError(path)}</LemonBanner>}
-            <LemonField.Pure label="Description" showOptional error={fieldError(`${path}.description`)}>
+            <LemonField.Pure
+                label="Description"
+                htmlFor={descriptionInputId}
+                showOptional
+                error={fieldError(`${path}.description`)}
+            >
                 <LemonInput
+                    id={descriptionInputId}
                     value={rule.description ?? ''}
                     onChange={(description) => updateRule(index, { ...rule, description: description || undefined })}
                 />
@@ -97,10 +106,12 @@ export function RulesV2RuleEditor({
                 <div className="flex flex-wrap gap-4">
                     <LemonField.Pure
                         label="Rollout percentage"
+                        htmlFor={rolloutInputId}
                         className="w-40"
                         error={fieldError(`${path}.rollout_percentage`)}
                     >
                         <PercentageInput
+                            id={rolloutInputId}
                             value={rule.rollout_percentage}
                             onChange={(rollout_percentage) => updateRule(index, { ...rule, rollout_percentage })}
                             data-attr="rules-v2-rollout-percentage"

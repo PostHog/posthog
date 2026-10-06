@@ -4565,4 +4565,43 @@ describe('the editor a flag opens in', () => {
     ] as const)('%s opens the %s editor', async (_label, expected, id, editorEnabled, search) => {
         expect(await editorKind(id, editorEnabled, search)).toBe(expected)
     })
+
+    // The editor builds its draft from the stored rules and would throw on, or drop, what it cannot represent.
+    it.each([
+        ['a string return type', { return_type: 'string', default_value: 'control' }],
+        ['group assignment', { aggregation_group_type_index: 0 }],
+        [
+            'an experiment rule',
+            {
+                rules: [
+                    {
+                        id: 'rule-experiment',
+                        rule_type: 'experiment',
+                        targeting: { properties: [] },
+                        experiment_id: 12,
+                        paused: false,
+                        variants: [
+                            { key: 'control', weight: 50, value: false },
+                            { key: 'test', weight: 50, value: true },
+                        ],
+                        rollout_percentage: 100,
+                        on_rollout_miss: 'continue',
+                        assignment_algorithm: 'sha1_60_v1',
+                        assign_by: 'person',
+                        seed: 'stored-seed',
+                    },
+                ],
+            },
+        ],
+    ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [
+                    200,
+                    { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } },
+                ],
+            },
+        })
+        expect(await editorKind(7, true)).toBeNull()
+    })
 })

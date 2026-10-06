@@ -243,6 +243,26 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         ),
     })
 
+    const editButton = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.FeatureFlag}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={featureFlag.user_access_level}
+        >
+            {({ disabledReason }) => (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabledReason={disabledReason}
+                    onClick={() => editFeatureFlag(true)}
+                    data-attr={isV1Config ? undefined : 'edit-rules-v2-flag'}
+                >
+                    Edit
+                </LemonButton>
+            )}
+        </AccessControlAction>
+    )
+
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
@@ -650,47 +670,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         }}
                         actions={
                             isV1Config ? (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.FeatureFlag}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={featureFlag.user_access_level}
-                                >
-                                    {({ disabledReason }) => (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            disabledReason={disabledReason}
-                                            onClick={() => editFeatureFlag(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    )}
-                                </AccessControlAction>
+                                editButton
                             ) : (
                                 <div className="flex items-center gap-2">
                                     <LemonTag type="highlight" data-attr="feature-flag-config-format">
                                         {featureFlagConfigFormatLabel(featureFlag.filters)}
                                     </LemonTag>
-                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR] &&
-                                        isRulesV2EditableConfig(featureFlag.filters) && (
-                                            <AccessControlAction
-                                                resourceType={AccessControlResourceType.FeatureFlag}
-                                                minAccessLevel={AccessControlLevel.Editor}
-                                                userAccessLevel={featureFlag.user_access_level}
-                                            >
-                                                {({ disabledReason }) => (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        size="small"
-                                                        disabledReason={disabledReason}
-                                                        onClick={() => editFeatureFlag(true)}
-                                                        data-attr="edit-rules-v2-flag"
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                )}
-                                            </AccessControlAction>
-                                        )}
+                                    {isRulesV2EditableConfig(featureFlag.filters, featureFlags) && editButton}
                                 </div>
                             )
                         }

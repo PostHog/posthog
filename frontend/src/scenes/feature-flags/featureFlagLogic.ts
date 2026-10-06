@@ -22,7 +22,6 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
-import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -35,7 +34,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
@@ -141,6 +139,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import {
     ProjectSelectOption,
@@ -499,35 +498,6 @@ export function validateFeatureFlagKey(key: string): string | undefined {
           : !key.match?.(/^[a-zA-Z0-9_-]+$/)
             ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
             : undefined
-}
-
-/** Resolves true when the user confirms a key rename, which breaks SDK calls that still use the old key. */
-export function confirmFeatureFlagKeyChange(oldKey: string): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-        LemonDialog.open({
-            title: 'Change flag key?',
-            description: createElement(
-                'span',
-                null,
-                'Renaming this key will break any existing code that references it (e.g. ',
-                createElement(
-                    'code',
-                    { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
-                    `getFeatureFlag('${oldKey}')`
-                ),
-                '). Make sure to update all SDK calls and integrations.'
-            ),
-            primaryButton: {
-                children: 'Change key',
-                status: 'danger',
-                onClick: () => resolve(true),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            onAfterClose: () => resolve(false),
-        })
-    })
 }
 
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
@@ -4840,7 +4810,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (isV1FeatureFlagConfig(featureFlag.filters)) {
                     return 'v1'
                 }
-                return rulesV2 && isRulesV2EditableConfig(featureFlag.filters) ? 'rules_v2' : null
+                return isRulesV2EditableConfig(featureFlag.filters, enabledFeatures) ? 'rules_v2' : null
             },
         ],
         rowVersionToken: [

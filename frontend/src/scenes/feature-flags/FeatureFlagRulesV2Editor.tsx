@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useId } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import {
@@ -30,6 +31,8 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const { tags } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
     const isNew = id === 'new'
+    const keyInputId = useId()
+    const descriptionInputId = useId()
 
     return (
         <div className="flex flex-col gap-4" data-attr="feature-flag-rules-v2-editor">
@@ -68,6 +71,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                 <div className="rounded border p-3 bg-surface-primary flex flex-col gap-3 max-w-200">
                     <LemonField.Pure
                         label="Flag key"
+                        htmlFor={keyInputId}
                         error={fieldError('key')}
                         help={
                             !isNew && draft.key !== featureFlag.key
@@ -76,6 +80,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                         }
                     >
                         <LemonInput
+                            id={keyInputId}
                             value={draft.key}
                             onChange={(key) => setDraft({ key: slugifyFeatureFlagKey(key) })}
                             data-attr="rules-v2-flag-key"
@@ -85,8 +90,14 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                             placeholder="e.g. new-checkout"
                         />
                     </LemonField.Pure>
-                    <LemonField.Pure label="Description" showOptional error={fieldError('name')}>
+                    <LemonField.Pure
+                        label="Description"
+                        htmlFor={descriptionInputId}
+                        showOptional
+                        error={fieldError('name')}
+                    >
                         <LemonTextArea
+                            id={descriptionInputId}
                             value={draft.name}
                             onChange={(name) => setDraft({ name })}
                             className="ph-ignore-input"

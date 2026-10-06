@@ -16,10 +16,11 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 
-import { isApprovalRequiredError } from 'lib/api-error'
+import { readableErrorMessage } from 'lib/api-error'
 import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,7 @@ import {
 
 import {
     isRulesV2FeatureFlagConfig,
+    isStaleRowVersionError,
     rulesV2CreateDisabledReason,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsCreate, featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
@@ -47,7 +49,13 @@ import type {
 } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
-import { FeatureFlagLogicProps, confirmFeatureFlagKeyChange, featureFlagLogic } from './featureFlagLogic'
+import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
+import {
+    FeatureFlagLogicProps,
+    featureFlagLogic,
+    validateFeatureFlagKey,
+    variantKeyToIndexFeatureFlagPayloads,
+} from './featureFlagLogic'
 
 export interface FeatureFlagRulesV2Draft {
     key: string
@@ -175,7 +183,7 @@ function editorField(path: string): string | null {
 
 /** Field errors arrive with `attr`; document errors arrive as `detail` prefixed with their `filters…` path. */
 export function rulesV2SaveError(error: any): RulesV2SaveError {
-    const detail: string = error?.detail || error?.message || 'This flag could not be saved.'
+    const detail = readableErrorMessage(error) ?? 'This flag could not be saved.'
     const prefixed = error?.attr ? null : /^(filters(?:\.\w+|\[\d+\])*): (.+)$/s.exec(detail)
     const path: string | null = error?.attr || prefixed?.[1] || null
     const field = path ? editorField(path) : null
@@ -212,7 +220,22 @@ export interface featureFlagRulesV2EditorLogicActions {
         editing: boolean
         expandAdvanced: boolean
     } // featureFlagLogic
-    loadFeatureFlag: () => any // featureFlagLogic
+    loadFeatureFlagSuccess: (
+        featureFlag: FeatureFlagType,
+        payload?: any
+    ) => {
+        featureFlag: FeatureFlagType
+        payload?: any
+    } // featureFlagLogic
+    refreshFeatureFlag: (
+        payload?:
+            | {
+                  afterAgentChange?: boolean
+              }
+            | undefined
+    ) => {
+        afterAgentChange?: boolean
+    } // featureFlagLogic
     setRulesV2DraftDirty: (dirty: boolean) => {
         dirty: boolean
     } // featureFlagLogic
@@ -246,6 +269,13 @@ export interface featureFlagRulesV2EditorLogicActions {
     }
     setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => {
         draft: Partial<FeatureFlagRulesV2Draft>
+    }
+    setRule: (
+        index: number,
+        rule: FeatureFlagRulesV2DraftRule
+    ) => {
+        index: number
+        rule: FeatureFlagRulesV2DraftRule
     }
     submitRulesV2Flag: () => {
         value: true
@@ -293,7 +323,10 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
             teamLogic,
             ['currentTeam'],
         ],
-        actions: [featureFlagLogic(props), ['editFeatureFlag', 'loadFeatureFlag', 'setRulesV2DraftDirty']],
+        actions: [
+            featureFlagLogic(props),
+            ['editFeatureFlag', 'loadFeatureFlagSuccess', 'refreshFeatureFlag', 'setRulesV2DraftDirty'],
+        ],
     })),
     actions({
         loadDraft: (draft: FeatureFlagRulesV2Draft) => ({ draft }),
@@ -301,6 +334,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         setConfig: (config: Partial<FeatureFlagRulesV2DraftConfig>) => ({ config }),
         addRule: true,
         updateRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
+        setRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
         removeRule: (index: number) => ({ index }),
         moveRule: (from: number, to: number) => ({ from, to }),
         saveRulesV2Flag: true,
@@ -319,7 +353,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                     ...state,
                     config: { ...state.config, rules: [...state.config.rules, NEW_TARGETED_RELEASE_RULE] },
                 }),
-                updateRule: (state, { index, rule }) => ({
+                setRule: (state, { index, rule }) => ({
                     ...state,
                     config: { ...state.config, rules: state.config.rules.map((r, i) => (i === index ? rule : r)) },
                 }),
@@ -353,7 +387,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 setDraft: () => null,
                 setConfig: () => null,
                 addRule: () => null,
-                updateRule: () => null,
+                setRule: () => null,
                 removeRule: () => null,
                 moveRule: () => null,
             },
@@ -366,7 +400,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 setDraft: () => true,
                 setConfig: () => true,
                 addRule: () => true,
-                updateRule: () => true,
+                setRule: () => true,
                 removeRule: () => true,
                 moveRule: () => true,
             },
@@ -401,8 +435,9 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 if (createDisabledReason) {
                     return createDisabledReason
                 }
-                if (!draft.key.trim()) {
-                    return 'Enter a flag key.'
+                const keyError = validateFeatureFlagKey(draft.key)
+                if (keyError) {
+                    return keyError
                 }
                 const badRollout = draft.config.rules.some(
                     (rule) =>
@@ -431,6 +466,12 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        // Inputs such as PercentageInput report a change on every blur, and an unchanged rule is not an edit.
+        updateRule: ({ index, rule }) => {
+            if (!objectsEqual(values.draft.config.rules[index], rule)) {
+                actions.setRule(index, rule)
+            }
+        },
         saveRulesV2Flag: async () => {
             const storedFlag = values.featureFlag
             if (
@@ -457,34 +498,32 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         },
         submitRulesV2Flag: async () => {
             const projectId = String(values.currentProjectId)
+            const body = rulesV2WriteBody(values.draft)
             try {
                 // The wire types describe the v1 document; the v2 document travels under the same `filters` key.
                 const saved =
                     props.id === 'new'
-                        ? await featureFlagsCreate(
-                              projectId,
-                              rulesV2WriteBody(values.draft) as unknown as FeatureFlagCreateRequestSchemaApi
-                          )
+                        ? await featureFlagsCreate(projectId, body as unknown as FeatureFlagCreateRequestSchemaApi)
                         : await featureFlagsPartialUpdate(
                               projectId,
                               props.id as number,
-                              rulesV2WriteBody(
-                                  values.draft
-                              ) as unknown as PatchedFeatureFlagPartialUpdateRequestSchemaApi
+                              body as unknown as PatchedFeatureFlagPartialUpdateRequestSchemaApi
                           )
                 actions.saveRulesV2FlagSuccess(saved as unknown as FeatureFlagType)
             } catch (error: any) {
-                if (error?.status === 409 && !isApprovalRequiredError(error)) {
+                if (isStaleRowVersionError(body, error)) {
                     lemonToast.error(
                         'This flag changed while you were editing it. It has been reloaded; your edits were not saved.'
                     )
                     actions.saveRulesV2FlagFailure(null)
-                    // A full load: the silent refresh keeps the loaded document and would show stale rules.
                     actions.editFeatureFlag(false)
-                    actions.loadFeatureFlag()
+                    actions.refreshFeatureFlag()
                     return
                 }
-                actions.saveRulesV2FlagFailure(rulesV2SaveError(error))
+                const saveError = rulesV2SaveError(error)
+                actions.saveRulesV2FlagFailure(saveError)
+                // The inline error can sit off-screen and is not announced, so a toast reports the rejection too.
+                lemonToast.error(`Flag not saved: ${saveError.message}`)
             }
         },
         saveRulesV2FlagSuccess: ({ flag }) => {
@@ -496,8 +535,9 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 router.actions.push(urls.featureFlag(flag.id ?? 'new'))
                 return
             }
+            // The response is the stored flag, so the page takes it without a second request.
+            actions.loadFeatureFlagSuccess(variantKeyToIndexFeatureFlagPayloads(flag))
             actions.editFeatureFlag(false)
-            actions.loadFeatureFlag()
         },
     })),
     // featureFlagLogic resets the page on a same-URL navigation unless it knows the draft is dirty.
