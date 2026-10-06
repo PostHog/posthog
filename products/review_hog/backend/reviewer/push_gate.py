@@ -7,8 +7,8 @@ sees a first review or a human trigger: the workflow calls it only for automatic
 The rules, in order. The first rule that matches gives the reason:
 
 1. `no_new_commits`: the PR has no commit it did not have at the last reviewed head (a force-push back).
-2. `merge_only`: the new commits are all merge commits, or the PR's full diff against its base is the
-   same at both heads (a rebase).
+2. `merge_only`: the PR's full diff against its base is the same at both heads (a base merge or a
+   rebase). A merge that changes the PR's own lines runs the review.
 3. `docs_only`: the new own commits touch only docs, lockfiles, snapshots, images, and generated files.
 4. `system_one_below_threshold`: System One rates the new own commits below a threshold.
 
@@ -275,8 +275,11 @@ class PushGate:
         if not new_shas:
             return _matched("no_new_commits")
         own_shas = [sha for sha in new_shas if sha not in current.merge_shas]
-        if not own_shas or _same_full_diff(previous, current):
+        if _same_full_diff(previous, current):
             return _matched("merge_only", own_commits=len(own_shas))
+        if not own_shas:
+            # A merge that changed the PR's own lines (conflict resolution) carries code nobody reviewed.
+            return _runs("interdiff_too_large", own_commits=0)
         if len(own_shas) > MAX_OWN_COMMITS:
             return _runs("interdiff_too_large", own_commits=len(own_shas))
         own_files = self._commit_files(own_shas)

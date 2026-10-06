@@ -168,6 +168,14 @@ def test_push_gate_reviews_the_push_when_system_one_is_unavailable(_name: str, e
 
 @parameterized.expand(
     [
+        (
+            "merge_resolves_conflict",
+            _push(
+                new_commits=[_commit("a"), _commit("m", merge=True)],
+                pr_files=[_file("posthog/billing.py", _BILLING_FIX)],
+            ),
+            "interdiff_too_large",
+        ),
         ("compare_gone", {**_CODE_PUSH, "compare/master...new": None}, "compare_unavailable"),
         (
             "patch_left_out",
