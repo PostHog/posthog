@@ -88,48 +88,58 @@ echo ""
 echo "testPathPatterns: ${pattern_args[*]}"
 echo ""
 
-# Run the stories REPEAT_COUNT times. Each run does a full snapshot comparison.
+# Run the stories REPEAT_COUNT times in each browser. Each run does a full snapshot comparison.
 # If any run fails, the story is flaky.
+#
+# The merge queue is the first full-matrix run that includes webkit, so a story that breaks
+# only in webkit must fail here. Otherwise it fails the queue batch of every PR behind it.
+BROWSERS=(chromium webkit)
+total_runs=$((REPEAT_COUNT * ${#BROWSERS[@]}))
 failed_runs=0
-for run in $(seq 1 "$REPEAT_COUNT"); do
-    echo "=== Run $run/$REPEAT_COUNT ==="
+for browser in "${BROWSERS[@]}"; do
+    for run in $(seq 1 "$REPEAT_COUNT"); do
+        echo "=== $browser run $run/$REPEAT_COUNT ==="
 
-    # First run: --updateSnapshot to create baselines for new stories.
-    # Subsequent runs: --ci to verify the snapshot is stable.
-    if [ "$run" -eq 1 ]; then
-        snapshot_flag="--updateSnapshot"
-    else
-        snapshot_flag="--ci"
-    fi
+        # First run: --updateSnapshot to create baselines for new stories.
+        # Subsequent runs: --ci to verify the snapshot is stable.
+        if [ "$run" -eq 1 ]; then
+            snapshot_flag="--updateSnapshot"
+        else
+            snapshot_flag="--ci"
+        fi
 
-    set +e
-    # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
-    # pipefail is set at script level so tee preserves the exit code.
-    # --passWithNoTests: changed stories may live in a separate storybook that
-    # the main runner's testMatch doesn't cover. Those are verified by their own
-    # CI, so finding no matching tests here is not a failure.
-    pnpm --filter=@posthog/storybook exec test-storybook \
-        $snapshot_flag --no-index-json --maxWorkers=1 \
-        --browsers chromium \
-        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
-    exit_code=${PIPESTATUS[0]}
-    set -e
+        set +e
+        # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
+        # pipefail is set at script level so tee preserves the exit code.
+        # --passWithNoTests: changed stories may live in a separate storybook that
+        # the main runner's testMatch doesn't cover. Those are verified by their own
+        # CI, so finding no matching tests here is not a failure.
+        # STORYBOOK_SKIP_TAGS must match the visual-regression shards in ci-storybook.yml,
+        # so that a story tagged test-skip-<browser> is skipped here too.
+        STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
+            pnpm --filter=@posthog/storybook exec test-storybook \
+            $snapshot_flag --no-index-json --maxWorkers=1 \
+            --browsers "$browser" \
+            -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${browser}-run${run}.log"
+        exit_code=${PIPESTATUS[0]}
+        set -e
 
-    if [ $exit_code -ne 0 ]; then
-        echo "Run $run failed (exit code $exit_code)"
-        failed_runs=$((failed_runs + 1))
-    else
-        echo "Run $run passed"
-    fi
+        if [ $exit_code -ne 0 ]; then
+            echo "$browser run $run failed (exit code $exit_code)"
+            failed_runs=$((failed_runs + 1))
+        else
+            echo "$browser run $run passed"
+        fi
 
-    echo ""
+        echo ""
+    done
 done
 
 if [ "$failed_runs" -gt 0 ]; then
     echo ""
-    echo "Flake verification failed — $failed_runs/$REPEAT_COUNT runs failed"
-    echo "Flaky snapshots must be fixed before merging."
+    echo "Flake verification failed — $failed_runs/$total_runs runs failed"
+    echo "Flaky stories must be fixed before merging."
     exit 1
 fi
 
-echo "Flake verification passed — all $REPEAT_COUNT runs stable"
+echo "Flake verification passed — all $total_runs runs stable"
