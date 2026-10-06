@@ -14,6 +14,14 @@
 //! on an error channel; the consumer turns them into a process failure, so
 //! the failure decision stays in the consumer loop.
 
+pub mod in_flight;
+pub mod key_queues;
+pub mod request;
+pub mod retry_policy;
+pub mod state_machine;
+#[cfg(test)]
+pub(crate) mod test_support;
+pub mod worker_assigner;
 pub mod worker_pool;
 
 use std::collections::HashMap;
