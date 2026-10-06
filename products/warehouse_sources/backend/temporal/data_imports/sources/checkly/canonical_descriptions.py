@@ -4,7 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "checks": {
-        "description": "Monitoring checks in the Checkly account. Inline authentication, request payloads, query parameters, headers, environment variables, and URL credentials/query strings are excluded.",
+        "description": "Monitoring checks in the Checkly account. Inline authentication, request details, environment variables, executable scripts, and URLs are excluded.",
         "docs_url": "https://api.checklyhq.com/openapi.json",
         "columns": {
             "id": "Unique check ID.",
@@ -15,7 +15,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "check_groups": {
-        "description": "Groups that share settings across monitoring checks. Inline authentication, request payloads, query parameters, headers, environment variables, and URL credentials/query strings are excluded.",
+        "description": "Groups that share settings across monitoring checks. Inline authentication, request details, environment variables, executable scripts, and URLs are excluded.",
         "docs_url": "https://api.checklyhq.com/openapi.json",
         "columns": {"id": "Unique group ID.", "name": "Group name."},
     },

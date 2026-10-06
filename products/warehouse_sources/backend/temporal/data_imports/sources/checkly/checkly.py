@@ -1,7 +1,6 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 from requests import HTTPError
 
@@ -88,30 +87,26 @@ def validate_credentials(
     return True, None
 
 
-_SECRET_FIELD_NAMES = frozenset({"basicAuth", "body", "config", "environmentVariables", "headers", "queryParameters"})
-
-
-def _sanitize_url(value: str) -> str:
-    try:
-        parsed = urlsplit(value)
-        hostname = parsed.hostname
-        port = parsed.port
-    except ValueError:
-        return ""
-    if hostname is None:
-        return urlunsplit((parsed.scheme, "", parsed.path, "", ""))
-    host = f"[{hostname}]" if ":" in hostname else hostname
-    netloc = f"{host}:{port}" if port is not None else host
-    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "basicAuth",
+        "body",
+        "browserCheckDefaults",
+        "config",
+        "environmentVariables",
+        "headers",
+        "localSetupScript",
+        "localTearDownScript",
+        "queryParameters",
+        "script",
+        "url",
+    }
+)
 
 
 def _strip_secret_fields(value: Any) -> Any:
     if isinstance(value, dict):
-        return {
-            key: _sanitize_url(item) if key.lower() == "url" and isinstance(item, str) else _strip_secret_fields(item)
-            for key, item in value.items()
-            if key not in _SECRET_FIELD_NAMES
-        }
+        return {key: _strip_secret_fields(item) for key, item in value.items() if key not in _SECRET_FIELD_NAMES}
     if isinstance(value, list):
         return [_strip_secret_fields(item) for item in value]
     return value

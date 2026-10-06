@@ -130,16 +130,20 @@ def test_definitions_exclude_monitored_service_credentials(transport: Transport,
             {
                 "id": "check-a",
                 "request": {
-                    "url": "https://user:password@example.com/path?token=secret#private",
+                    "url": "https://hooks.slack.com/services/T000/B000/SECRET",
                     "basicAuth": {"username": "user", "password": "secret"},
                     "body": "password=secret",
                     "headers": [{"key": "Authorization", "value": "Bearer secret"}],
                     "queryParameters": [{"key": "token", "value": "secret"}],
                 },
+                "script": "login('secret')",
+                "localSetupScript": "setup('secret')",
+                "localTearDownScript": "teardown('secret')",
                 "apiCheckDefaults": {
                     "basicAuth": {"username": "user", "password": "group-secret"},
                     "environmentVariables": [{"key": "TOKEN", "value": "group-secret"}],
                     "headers": [{"key": "X-Api-Key", "value": "group-secret"}],
+                    "browserCheckDefaults": {"script": "login('group-secret')"},
                 },
                 "config": {"webhookUrl": "https://example.com/secret"},
             }
@@ -151,7 +155,7 @@ def test_definitions_exclude_monitored_service_credentials(transport: Transport,
         [
             {
                 "id": "check-a",
-                "request": {"url": "https://example.com/path"},
+                "request": {},
                 "apiCheckDefaults": {},
             }
         ]
