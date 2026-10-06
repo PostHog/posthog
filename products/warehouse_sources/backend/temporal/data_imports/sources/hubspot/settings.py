@@ -18,6 +18,7 @@ STARTDATE = datetime(year=2000, month=1, day=1)
 # /crm/v4/associations/... becomes /crm/associations/2026-03/... .
 HUBSPOT_API_VERSION_V3 = "v3"
 HUBSPOT_API_VERSION_2026_03 = "2026-03"
+HUBSPOT_API_VERSION_2026_09 = "2026-09"
 
 # Matches the leading "/crm/<v3|v4>/<resource>" of a CRM path, capturing the resource name
 # (objects, properties, associations, pipelines, owners) so the version can be re-inserted after
