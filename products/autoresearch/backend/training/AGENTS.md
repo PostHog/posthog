@@ -17,6 +17,8 @@ The other half is `../inference/`, which consumes what this package produces and
   The brief's worked `features.sql` reads events through a pre-filtered subquery (the event names the features use, the anchor persons, and the anchors' widest window) before it joins, because ClickHouse builds the hash table from the right side of a join and a direct events join reads the whole team's events.
   The brief also states the inference cutoff: the start of the prediction date in UTC (`ScoringWindow` in `../inference/scoring.py`), not `now()`.
   The brief's cost guidance is advice only. Cost does not enter champion selection, so the brief does not tell the agent to trade AUC for a cheaper query.
+  For a person column that events do not carry, the brief recommends `raw_persons` in a subquery filtered with `id IN (SELECT person_id FROM {anchors})`, never `LEFT JOIN persons`, because the persons table dedupes every person of the team before any filter applies.
+  `feature_sql_hints()` in `recipe_validation.py` returns a non-blocking hint when a query reads `persons` or `raw_persons` in a SELECT whose `WHERE` does not refer to `{anchors}`. The `materialize-features` response carries the hints, with the `elapsed_s` and `rows_read` of the materialization.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
@@ -32,8 +34,13 @@ The other half is `../inference/`, which consumes what this package produces and
   The bundle is written once per run, so a losing iteration can overwrite it: the uploaded `features.sql` must match the `feature_sql` recorded by the selected iteration, whitespace aside, or promotion raises rather than publishing a champion whose recipe and score describe other code.
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
   The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
-  A promoted bundle-backed model is fitted. A bundle-backed challenger is fitted only when it enters the shadow set (see `shadow_set.py`). The fit runs after commit, and a failed fit only logs: it never changes the completion result.
-  A successful fit sets `metrics.model_fitted`. A challenger without it stays out of the shadow set.
+  A promoted bundle-backed model is fitted. A bundle-backed challenger is fitted only when it enters the shadow set (see `shadow_set.py`). The fit runs after commit and never changes the completion result.
+  A successful challenger fit sets `metrics.model_fitted`, and a failed one only logs. A challenger without `model_fitted` stays out of the shadow set.
+  After a champion fit, `check_scorability()` runs the bundle's `features.sql` against today's inference anchors under `BATCH_QUERY`. A passing check records `scorability_elapsed_s` and `scorability_rows_read` in the model metrics and sets `model_fitted`.
+  A failed fit, a failed check, or a check above `SCORABILITY_TIME_BUDGET_S` (half the batch query limit) rolls the promotion back under the pipeline lock: the candidate becomes a challenger with `not_promoted_reason` in its metrics, and the champion it archived comes back. A first champion that rolls back puts the pipeline back in the status it had before promotion. The rolled-back candidate has no `model_fitted`, so it never enters the shadow set.
+  The rollback changes nothing when the candidate is no longer the champion. A scoring run that started with the candidate fails in `_require_still_champion()` before it emits.
+  A recipe-only champion is not checked.
+  A champion whose scheduled scoring runs failed with a repeatable `failure_kind` on the last two prediction dates, with no success after the first of them, is unscorable (`find_unscorable_champion()` in `../inference/failures.py`). Any candidate replaces it whatever the margin, with `promotion_reason` `replaced_unscorable` in the model metrics, and the fit and the scorability check still roll back a candidate that cannot score either. The brief tells the agent the failure kind and the onset date.
 - `shadow_set.py`
   `shadow_set(pipeline)` computes the models worth scoring side by side. Nothing stores the set.
   It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
