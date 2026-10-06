@@ -44,7 +44,7 @@ def http_mock(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         response.request = request
         response._content = json.dumps(body).encode()
         response.raw = HTTPResponse(body=BytesIO(response._content), preload_content=False)
-        response._content_consumed = True
+        response._content_consumed = True  # type: ignore[attr-defined]
         response.headers["Content-Type"] = "application/json"
         return response
 

@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs
 
 import pytest
@@ -57,7 +58,7 @@ def test_pagination_auth_and_checkpoint(
     monkeypatch.setattr(f"{MODULE}.PAGE_SIZE", 2)
     http_mock.side_effect = [(200, TOKEN), (200, payload(["a", "b"])), (200, payload(terminal_ids))]
     response = azure_application_insights_source(config, "v1", "requests", 1, "job", manager, None)
-    batches = iter(response.items())
+    batches = iter(cast(Iterable[list[dict[str, Any]]], response.items()))
     first = next(batches)
     assert first[0]["customDimensions"] == {"environment": "test"}
     assert manager.save_state.call_args.args[0].item_id == "b"
@@ -105,7 +106,7 @@ def test_incremental_and_full_refresh_window(
 ) -> None:
     http_mock.side_effect = [(200, TOKEN), (200, payload([]))]
     response = azure_application_insights_source(config, "v1", "dependencies", 1, "job", manager, last_value)
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     body = json.loads(http_mock.call_args.args[0].body)
     assert body["timespan"] == f"{expected_start}/2026-01-08T12:00:00+00:00"
     assert f'timestamp >= todatetime("{expected_start}")' in body["query"]
@@ -125,7 +126,7 @@ def test_resume_preserves_window_and_escapes_cursor(
     )
     http_mock.side_effect = [(200, TOKEN), (200, payload([]))]
     response = azure_application_insights_source(config, "v1", "exceptions", 1, "job", manager, None)
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     body = json.loads(http_mock.call_args.args[0].body)
     assert body["timespan"] == "2026-01-01T12:00:00Z/2026-01-08T12:00:00Z"
     assert f"strcmp(tostring(itemId), {json.dumps('a' + chr(34) + chr(92) + 'b')})" in body["query"]
@@ -150,7 +151,7 @@ def test_bad_results_do_not_advance_checkpoint(
     http_mock.side_effect = [(200, TOKEN), (200, body)]
     response = azure_application_insights_source(config, "v1", "availabilityResults", 1, "job", manager, None)
     with pytest.raises(ValueError, match=message):
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     manager.save_state.assert_not_called()
 
 
@@ -185,7 +186,7 @@ def test_invalid_query_target_makes_no_request(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         response = azure_application_insights_source(config, version, endpoint, 1, "job", manager, None)
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     http_mock.assert_not_called()
 
 
@@ -201,7 +202,7 @@ def test_repeated_cursor_does_not_advance_checkpoint(
     http_mock.side_effect = [(200, TOKEN), (200, payload(["a"]))]
     response = azure_application_insights_source(config, "v1", "requests", 1, "job", manager, None)
     with pytest.raises(ValueError, match="pagination did not advance"):
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     manager.save_state.assert_not_called()
 
 
@@ -223,7 +224,7 @@ def test_pipeline_applies_watermark_only_for_incremental_sync(
     )
     http_mock.side_effect = [(200, TOKEN), (200, payload([]))]
     response = AzureApplicationInsightsSource().source_for_pipeline(config, manager, inputs)
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     body = json.loads(http_mock.call_args.args[0].body)
     assert body["timespan"].split("/")[0] == (
         "2026-01-07T11:00:00+00:00" if incremental else "2026-01-01T12:00:00+00:00"
