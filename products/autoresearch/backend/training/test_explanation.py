@@ -31,6 +31,22 @@ class TestNormalizeModelExplanation(SimpleTestCase):
                 },
             ),
             (
+                "prose_read_per_clause",
+                {
+                    "top_features": [
+                        {"name": "a", "importance": 0.3, "direction": "higher -> less likely; lower -> more likely"},
+                        {"name": "b", "importance": 0.2, "direction": "more likely at lower values"},
+                        {"name": "c", "importance": 0.1, "direction": "higher -> more likely; lower -> more likely"},
+                    ]
+                },
+                {
+                    "top_features": [
+                        {"name": "a", "importance": 0.3, "direction": "negative"},
+                        {"name": "b", "importance": 0.2, "direction": "negative"},
+                    ]
+                },
+            ),
+            (
                 "legacy_feature_importances_key_and_signs",
                 {
                     "feature_importances": [

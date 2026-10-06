@@ -1,5 +1,6 @@
 """The `model_explanation` shape the model card reads, and the reader for rows written before it existed."""
 
+import re
 import math
 from typing import Any
 
@@ -28,16 +29,20 @@ def _direction(value: Any) -> FeatureDirection | None:
         return FeatureDirection.POSITIVE
     if text in _NEGATIVE_WORDS:
         return FeatureDirection.NEGATIVE
-    # Prose such as "higher -> less likely" or "lower = more likely".
-    if "more likely" in text:
-        positive = True
-    elif "less likely" in text:
-        positive = False
-    else:
+    # Prose such as "higher -> less likely; lower -> more likely". Each clause pairs a value side with a
+    # likelihood, so read the clauses one by one and drop the entry when they disagree.
+    raises: set[bool] = set()
+    for clause in re.split(r"[;,]", text):
+        more, less = "more likely" in clause, "less likely" in clause
+        if not (more or less):
+            continue
+        higher, lower = bool(re.search(r"\bhigher\b", clause)), bool(re.search(r"\blower\b", clause))
+        if (more and less) or (higher and lower):
+            return None
+        raises.add(less if lower else more)
+    if len(raises) != 1:
         return None
-    if text.startswith("lower"):
-        positive = not positive
-    return FeatureDirection.POSITIVE if positive else FeatureDirection.NEGATIVE
+    return FeatureDirection.POSITIVE if raises.pop() else FeatureDirection.NEGATIVE
 
 
 def _feature(raw: Any) -> dict[str, Any] | None:
