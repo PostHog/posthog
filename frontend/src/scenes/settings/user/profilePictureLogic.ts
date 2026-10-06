@@ -48,12 +48,14 @@ export interface profilePictureLogicActions {
         user: UserType,
         payload?:
             | {
+                  failureCallback: (() => void) | undefined
                   successCallback: (() => void) | undefined
                   user: Partial<UserType>
               }
             | undefined
     ) => {
         payload?: {
+            failureCallback: (() => void) | undefined
             successCallback: (() => void) | undefined
             user: Partial<UserType>
         }

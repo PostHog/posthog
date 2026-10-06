@@ -47,6 +47,7 @@ import {
     IconMessage,
     IconNotebook,
     IconNotification,
+    IconPageChart,
     IconPencil,
     IconPeople,
     IconPerson,
@@ -153,6 +154,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     endpoints: {
         icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
+    },
+    business_intelligence: {
+        icon: <IconPageChart />,
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
     },
     sql_editor: {
         icon: <IconServer />,

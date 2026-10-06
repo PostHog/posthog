@@ -1,0 +1,127 @@
+import { useActions, useValues } from 'kea'
+
+import { IconChevronDown, IconCode, IconCopy, IconLogomark, IconSearch } from '@posthog/icons'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    Text,
+} from '@posthog/quill'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { IMPLEMENTATION_AGENTS } from 'products/signals/frontend/inbox/components/detail/implementationAgents'
+import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
+import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SignalReport } from 'products/signals/frontend/inbox/types'
+
+import { TodayActionButton } from './TodayActionButton'
+import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
+import { todayReportLogic } from './todayReportLogic'
+
+const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-code')
+
+export function TodayImplementMenu({
+    report,
+    reportUrl,
+    disabledReason,
+    postHogDisabledReason,
+}: {
+    report: SignalReport
+    reportUrl: string
+    disabledReason: string | null
+    postHogDisabledReason: string | null
+}): JSX.Element {
+    const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { startWithPostHog } = useActions(todayReportLogic({ reportId: report.id }))
+    const starting = isCreatingPr || isDiscussing
+    const implement = reportWorkKind(report) === 'implement'
+
+    const sendPrompt = (agentKey: string, send: (prompt: string) => void): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'copy_implementation_prompt',
+            surface: 'today',
+            extra: { agent: agentKey, work: reportWorkKind(report) },
+        })
+        send(reportWorkPrompt(report, reportUrl))
+    }
+
+    const label = (
+        <>
+            {implement ? <IconCode /> : <IconSearch />}
+            <span>{implement ? 'Implement with' : 'Investigate with'}</span>
+            <IconChevronDown />
+        </>
+    )
+
+    if (disabledReason) {
+        return (
+            <TodayActionButton
+                variant="primary"
+                className="me-1 gap-1.5"
+                disabledReason={disabledReason}
+                data-attr="today-report-implement-with"
+            >
+                {label}
+            </TodayActionButton>
+        )
+    }
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="primary"
+                        loading={starting}
+                        className="me-1 gap-1.5"
+                        data-attr="today-report-implement-with"
+                    >
+                        {label}
+                    </Button>
+                }
+            />
+            <DropdownMenuContent align="start" className="TodayImplementMenu w-52">
+                <DropdownMenuItem
+                    onClick={() => startWithPostHog()}
+                    disabled={!!postHogDisabledReason || starting}
+                    data-attr="today-report-start-task"
+                >
+                    <IconLogomark className="size-4 self-start" />
+                    <span className="flex flex-col">
+                        <span>PostHog</span>
+                        {postHogDisabledReason && (
+                            <Text size="xs" variant="muted" render={<span />}>
+                                {postHogDisabledReason}
+                            </Text>
+                        )}
+                    </span>
+                </DropdownMenuItem>
+                {AGENTS.map((agent) => (
+                    <DropdownMenuItem
+                        key={agent.key}
+                        onClick={() => sendPrompt(agent.key, agent.open)}
+                        data-attr={`today-report-open-${agent.key}`}
+                    >
+                        {agent.icon}
+                        {agent.name}
+                    </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    onClick={() =>
+                        sendPrompt('clipboard', (prompt) => void copyToClipboard(prompt, 'prompt for your agent'))
+                    }
+                    data-attr="today-report-copy-prompt"
+                >
+                    <IconCopy className="size-4" />
+                    Copy prompt
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}

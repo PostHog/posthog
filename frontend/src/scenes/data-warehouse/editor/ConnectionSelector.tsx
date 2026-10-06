@@ -16,7 +16,8 @@ import {
     addHiddenSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
-} from './connectionSelectorLogic'
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 const sourceIcon = (src: string): JSX.Element => (
