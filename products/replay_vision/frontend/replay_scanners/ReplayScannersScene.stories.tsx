@@ -71,7 +71,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
-        created_at: '2026-05-12T00:00:00Z',
+        // Older than the Overview's 14-day default, so its range matches the 14 days in the trend mock.
+        created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
         credits_this_month: 0,
@@ -2138,6 +2139,33 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
     ],
 }
 
