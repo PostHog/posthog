@@ -1,7 +1,7 @@
 import json
 from collections.abc import Iterator
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -223,7 +223,11 @@ def test_transient_probe_errors_propagate(config: HarnessSourceConfig, transport
     ],
 )
 def test_region_routes_requests(
-    config: HarnessSourceConfig, manager: MagicMock, transport: MagicMock, region: str, host: str
+    config: HarnessSourceConfig,
+    manager: MagicMock,
+    transport: MagicMock,
+    region: Literal["us", "us3", "us_accounts", "eu"],
+    host: str,
 ) -> None:
     config.region = region
     transport.send.return_value = response({"data": {"content": [], "totalPages": 0}})
@@ -237,7 +241,7 @@ def test_region_routes_requests(
 def test_invalid_region_never_sends_token(
     config: HarnessSourceConfig, manager: MagicMock, transport: MagicMock, region: str
 ) -> None:
-    config.region = region
+    config.region = cast(Any, region)
     assert HarnessSource().validate_credentials(config, 1) == (False, "Select a supported Harness region.")
     with pytest.raises(ValueError, match="supported Harness region"):
         harness_source(config, "services", 1, "job", manager)
