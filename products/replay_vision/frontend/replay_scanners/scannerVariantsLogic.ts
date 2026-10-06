@@ -8,7 +8,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { visionScannersVariantsList } from '../generated/api'
-import type { ExperimentVariantsReadoutApi, VariantsAnalysisStateApi } from '../generated/api.schemas'
+import {
+    type ExperimentVariantsReadoutApi,
+    ObservationStatusEnumApi,
+    type VariantsAnalysisStateApi,
+} from '../generated/api.schemas'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 
 /** The observations list's value for observations with no resolved variant. */
@@ -38,7 +42,12 @@ export function variantComparisonState(
 }
 
 export function variantObservationsUrl(scannerId: string, variantKey: string): string {
-    return combineUrl(urls.replayVision(scannerId), { tab: ReplayScannerTab.Observations, variant: variantKey }).url
+    return combineUrl(urls.replayVision(scannerId), {
+        tab: ReplayScannerTab.Observations,
+        variant: variantKey,
+        // The readout counts only succeeded observations, and an observation that has not succeeded has no variant yet.
+        ...(variantKey === UNATTRIBUTED_VARIANT ? { status: ObservationStatusEnumApi.Succeeded } : {}),
+    }).url
 }
 
 export interface ScannerVariantsLogicProps {

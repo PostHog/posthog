@@ -5,7 +5,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ExperimentVariantsReadoutApi, VariantsAnalysisStateApi } from '../generated/api.schemas'
-import { scannerVariantsLogic, variantComparisonState } from './scannerVariantsLogic'
+import {
+    UNATTRIBUTED_VARIANT,
+    scannerVariantsLogic,
+    variantComparisonState,
+    variantObservationsUrl,
+} from './scannerVariantsLogic'
 
 const analysis = (overrides: Partial<VariantsAnalysisStateApi>): VariantsAnalysisStateApi => ({
     scout_config_id: 'scout-1',
@@ -35,6 +40,18 @@ describe('scannerVariantsLogic', () => {
         ['a current analysis', analysis({}), true, 'ready'],
     ] as const)('reads %s as %s', (_name, state, hasScout, expected) => {
         expect(variantComparisonState(state, hasScout)).toBe(expected)
+    })
+
+    // The readout counts only succeeded observations, but every observation that has not succeeded
+    // also has no variant, so the "No variant" link must narrow to succeeded ones to match its count.
+    it.each([
+        ['a variant', 'control', null],
+        ['no variant', UNATTRIBUTED_VARIANT, 'succeeded'],
+    ])('links %s to the observations its count reads', (_name, variantKey, expectedStatus) => {
+        const params = new URL(variantObservationsUrl('scanner-1', variantKey), 'http://localhost').searchParams
+
+        expect(params.get('variant')).toBe(variantKey)
+        expect(params.get('status')).toBe(expectedStatus)
     })
 
     it('reports one tab view per mount, not one per reload', async () => {
