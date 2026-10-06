@@ -341,32 +341,54 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+export interface EmailServiceDeps {
+    sesConfig: EmailServiceConfig
+    integrationManager: IntegrationManagerService
+    teamWorkflowsConfigService: TeamWorkflowsConfigService
+    encryptionSaltKeys: string
+    siteUrl: string
+    trackingCodeSigner: EmailTrackingCodeSigner
+    emailSuppressionService: EmailSuppressionService
+    recipientsManager: RecipientsManagerService
+    messageAssetsService?: MessageAssetsService
+    workflowEmailRateLimiter?: RateLimiterService | null
+    teamEmailRateLimiter?: RateLimiterService | null
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
+    private sesConfig: EmailServiceConfig
+    private integrationManager: IntegrationManagerService
+    private teamWorkflowsConfigService: TeamWorkflowsConfigService
+    private siteUrl: string
+    private trackingCodeSigner: EmailTrackingCodeSigner
+    private emailSuppressionService: EmailSuppressionService
+    private recipientsManager: RecipientsManagerService
+    private messageAssetsService?: MessageAssetsService
+    private workflowEmailRateLimiter: RateLimiterService | null
+    private teamEmailRateLimiter: RateLimiterService | null
     private recipientTokensService: RecipientTokensService
     private untrackedConfigSetWarningLogged = false
 
-    constructor(
-        private sesConfig: EmailServiceConfig,
-        private integrationManager: IntegrationManagerService,
-        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        encryptionSaltKeys: string,
-        private siteUrl: string,
-        private trackingCodeSigner: EmailTrackingCodeSigner,
-        private emailSuppressionService: EmailSuppressionService,
-        private recipientsManager: RecipientsManagerService,
-        private messageAssetsService?: MessageAssetsService,
-        private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
-    ) {
+    constructor(deps: EmailServiceDeps) {
+        this.sesConfig = deps.sesConfig
+        this.integrationManager = deps.integrationManager
+        this.teamWorkflowsConfigService = deps.teamWorkflowsConfigService
+        this.siteUrl = deps.siteUrl
+        this.trackingCodeSigner = deps.trackingCodeSigner
+        this.emailSuppressionService = deps.emailSuppressionService
+        this.recipientsManager = deps.recipientsManager
+        this.messageAssetsService = deps.messageAssetsService
+        this.workflowEmailRateLimiter = deps.workflowEmailRateLimiter ?? null
+        this.teamEmailRateLimiter = deps.teamEmailRateLimiter ?? null
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
                   endpoint: this.sesConfig.sesEndpoint || undefined,
               })
             : null
-        this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+        this.recipientTokensService = new RecipientTokensService(deps.encryptionSaltKeys, deps.siteUrl)
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code

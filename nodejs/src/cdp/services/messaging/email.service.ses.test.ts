@@ -64,8 +64,8 @@ describe('EmailService with local SES', () => {
     }
 
     const createService = (endpoint: string, config: Partial<EmailServiceConfig> = {}): EmailService =>
-        new EmailService(
-            {
+        new EmailService({
+            sesConfig: {
                 sesAccessKeyId: 'local-ses-test',
                 sesSecretAccessKey: 'local-ses-test',
                 sesRegion: 'us-east-1',
@@ -77,17 +77,17 @@ describe('EmailService with local SES', () => {
                 teamEmailTierDailyCaps: [dailyCap],
                 ...config,
             },
-            hub.integrationManager,
-            configService,
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            suppression,
-            new RecipientsManagerService(hub.postgres),
-            assets,
-            limiter,
-            limiter
-        )
+            integrationManager: hub.integrationManager,
+            teamWorkflowsConfigService: configService,
+            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+            siteUrl: hub.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: suppression,
+            recipientsManager: new RecipientsManagerService(hub.postgres),
+            messageAssetsService: assets,
+            workflowEmailRateLimiter: limiter,
+            teamEmailRateLimiter: limiter,
+        })
 
     beforeEach(async () => {
         process.env.AWS_ACCESS_KEY_ID = 'local-ses-test'
