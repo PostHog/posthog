@@ -51,6 +51,10 @@ export interface RunSubscription {
 }
 
 const OLDER_PAGE_SIZE = 500;
+// A sandbox restored from a snapshot usually takes under a minute; past this, the reply gives up.
+const AGENT_RESTART_TIMEOUT_MS = 10 * 60_000;
+// The server's clock can run a little ahead of this machine's.
+const CLOCK_SKEW_MS = 5_000;
 
 export function applyUpdate(
   view: RunView,
@@ -212,8 +216,21 @@ export function runNotice(
   turnOpen: boolean,
   lastTurn: Transcript["lastTurn"],
   turnStartedAt: number | null = null,
-  setup: SetupProgress | null = null,
+  {
+    setup = null,
+    reopening = false,
+  }: {
+    setup?: SetupProgress | null;
+    // A reply is bringing the chat's stopped run back, until its agent takes the message.
+    reopening?: boolean;
+  } = {},
 ): ChatNotice | null {
+  const reopeningRun =
+    view.status === "queued" || view.status === "in_progress";
+  // Until the backend reports the new setup, the wait is for the sandbox to come back.
+  if (reopening && (!reopeningRun || !setup || setup.done)) {
+    return { text: "Reopening sandbox…", tone: "working" };
+  }
   if (view.status === "failed") {
     return { text: view.runError || "The run failed.", tone: "error" };
   }
@@ -310,6 +327,71 @@ export class CloudRuns {
     ) => Promise<string[]>,
   ) {}
 
+  // Open watches by run, so a run brought back can be watched again for its panes.
+  private readonly watching = new Map<string, number>();
+
+  // Resolves once a run brought back with `resume_in_cloud` has its agent running again, after `since` (epoch ms).
+  // The engine stops watching a run once it ends, so the run is watched again to see it come back.
+  agentRestarted(
+    taskId: string,
+    runId: string,
+    since: number,
+    timeoutMs = AGENT_RESTART_TIMEOUT_MS,
+  ): Promise<void> {
+    const key = keyOf(taskId, runId);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.engine.off(CloudTaskEvent.Update, listener);
+        // Watched only for this wait, so nothing is left streaming.
+        if (!this.watching.get(key)) this.engine.unwatch(taskId, runId);
+        if (error) reject(error);
+        else resolve();
+      };
+      const started = (entries: StoredLogEntry[]): boolean =>
+        entries.some(
+          (entry) =>
+            entry.type === "pi_run_started" &&
+            (Date.parse(entry.timestamp ?? "") || 0) >= since - CLOCK_SKEW_MS,
+        );
+      const listener = (update: CloudTaskUpdatePayload): void => {
+        if (update.taskId !== taskId || update.runId !== runId) return;
+        if (
+          (update.kind === "snapshot" || update.kind === "logs") &&
+          started(update.newEntries)
+        ) {
+          finish();
+          return;
+        }
+        if (
+          (update.kind === "snapshot" || update.kind === "status") &&
+          (update.status === "failed" || update.status === "cancelled")
+        )
+          finish(
+            new Error(update.errorMessage || "The sandbox didn't come back"),
+          );
+      };
+      const timer = setTimeout(
+        () => finish(new Error("The sandbox took too long to come back")),
+        timeoutMs,
+      );
+      this.engine.on(CloudTaskEvent.Update, listener);
+      this.context().then(
+        ({ apiHost, teamId }) => {
+          if (settled) return;
+          // A watch still open counts once; restarting it keeps the count the panes expect.
+          if (this.watching.get(key)) this.engine.unwatch(taskId, runId);
+          this.engine.watch({ taskId, runId, apiHost, teamId });
+        },
+        (error: unknown) =>
+          finish(error instanceof Error ? error : new Error(String(error))),
+      );
+    });
+  }
+
   // Fetches the last `entries` log entries so opening the run shows its recent messages at once.
   async prefetch(
     taskId: string,
@@ -344,6 +426,8 @@ export class CloudRuns {
   ): RunSubscription {
     let own = this.previews.get(keyOf(taskId, runId)) ?? emptyRunView;
     let stopped = false;
+    const key = keyOf(taskId, runId);
+    this.watching.set(key, (this.watching.get(key) ?? 0) + 1);
     // Entries paged in from earlier runs, and how many each earlier run still holds above them.
     let earlierEntries: StoredLogEntry[] = [];
     const earlier: { runId: string; remaining: number }[] = [];
@@ -423,6 +507,7 @@ export class CloudRuns {
 
     return {
       stop: () => {
+        if (!stopped) this.watching.set(key, (this.watching.get(key) ?? 1) - 1);
         stopped = true;
         this.engine.off(CloudTaskEvent.Update, listener);
         this.engine.unwatch(taskId, runId);

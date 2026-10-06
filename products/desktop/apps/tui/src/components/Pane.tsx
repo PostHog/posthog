@@ -123,6 +123,7 @@ export function Pane({
   onTurn,
   focused,
   notice: paneNotice,
+  reopening,
 }: {
   title: string;
   paneTaskId: string | null;
@@ -163,6 +164,8 @@ export function Pane({
   onComposerBox: (element: DOMElement | null) => void;
   // A notice about this chat, shown in a row above the composer.
   notice: string | null;
+  // A reply is bringing this chat's stopped run back.
+  reopening: boolean;
   // Called once the chat's run has a live sandbox.
   onRunLive: (taskId: string, runId: string) => void;
   // The run while the agent is mid-turn, or null, so Esc can stop it.
@@ -208,7 +211,7 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
-        setup,
+        { setup, reopening },
       )
     : local
       ? runNotice(

@@ -243,12 +243,18 @@ export function createCloud(
     engine.sendCommand({ ...input, ...(await context()) });
   return {
     runs,
-    chats: new PiChats(api, sendMessage, currentRepository(), {
-      toTask: (taskId, filePaths) =>
-        artifacts.uploadTaskStagedAttachments(api, taskId, filePaths),
-      toRun: (taskId, runId, filePaths) =>
-        artifacts.uploadRunAttachments(api, taskId, runId, filePaths),
-    }),
+    chats: new PiChats(
+      api,
+      sendMessage,
+      currentRepository(),
+      {
+        toTask: (taskId, filePaths) =>
+          artifacts.uploadTaskStagedAttachments(api, taskId, filePaths),
+        toRun: (taskId, runId, filePaths) =>
+          artifacts.uploadRunAttachments(api, taskId, runId, filePaths),
+      },
+      (taskId, runId, since) => runs.agentRestarted(taskId, runId, since),
+    ),
     control: (taskId, runId) => piControl(sendPi, taskId, runId),
     // A local chat runs the harness in the folder the TUI started in, on the same PostHog login.
     startLocal: async (id) => {

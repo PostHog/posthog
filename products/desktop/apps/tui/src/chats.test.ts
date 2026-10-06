@@ -16,7 +16,7 @@ const task = (runStatus: string, sandboxAlive = true): Task =>
     },
   }) as unknown as Task;
 
-function setup() {
+function setup({ canReopen = false } = {}) {
   const api = {
     createTask: vi.fn(async () => ({ id: "t1" })),
     createTaskRun: vi.fn(async () => ({ id: "r1" })),
@@ -25,8 +25,12 @@ function setup() {
       ...task("queued"),
       latest_run: { id: "r2" },
     })),
+    resumeRunInCloud: vi.fn(async () => ({ id: "r1", status: "queued" })),
   };
   const sendMessage = vi.fn(async () => {});
+  const agentRestarted = vi.fn(
+    async (_taskId: string, _runId: string, _since: number) => {},
+  );
   const uploads = {
     toTask: vi.fn(async (_taskId: string, _filePaths: string[]) => [
       "staged-1",
@@ -42,8 +46,9 @@ function setup() {
     sendMessage,
     "posthog/posthog",
     uploads,
+    canReopen ? agentRestarted : undefined,
   );
-  return { api, sendMessage, uploads, chats };
+  return { api, sendMessage, uploads, chats, agentRestarted };
 }
 
 describe("PiChats", () => {
@@ -95,13 +100,10 @@ describe("PiChats", () => {
     expect(api.runTaskInCloud).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["has finished", task("completed")],
-    ["has lost its sandbox", task("in_progress", false)],
-  ])("resumes a run that %s with the reply", async (_, subject) => {
+  it("starts a new run that continues a finished one, when it cannot bring the run back", async () => {
     const { api, sendMessage, chats } = setup();
 
-    const resumed = await chats.reply(subject, "Keep going");
+    const resumed = await chats.reply(task("completed"), "Keep going");
 
     expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
       piRuntime: true,
@@ -110,6 +112,79 @@ describe("PiChats", () => {
     });
     expect(sendMessage).not.toHaveBeenCalled();
     expect(resumed.latest_run?.id).toBe("r2");
+  });
+
+  describe("bringing a stopped run back", () => {
+    it.each([
+      ["has finished", task("completed"), 0],
+      ["has lost its sandbox", task("in_progress", false), 1],
+    ])(
+      "brings back a run that %s on the same run, then sends the reply to its agent",
+      async (_, subject, failedSends) => {
+        const { api, sendMessage, chats, agentRestarted } = setup({
+          canReopen: true,
+        });
+        for (let i = 0; i < failedSends; i++)
+          sendMessage.mockRejectedValueOnce(new Error("No active sandbox"));
+        const onReopen = vi.fn();
+
+        const replied = await chats.reply(subject, "Keep going", [], onReopen);
+
+        expect(onReopen).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            latest_run: expect.objectContaining({ id: "r1", status: "queued" }),
+          }),
+        );
+        expect(api.resumeRunInCloud).toHaveBeenCalledWith("t1", "r1");
+        expect(agentRestarted).toHaveBeenCalledWith(
+          "t1",
+          "r1",
+          expect.any(Number),
+        );
+        expect(sendMessage).toHaveBeenLastCalledWith(
+          "t1",
+          "r1",
+          "Keep going",
+          [],
+        );
+        expect(agentRestarted.mock.invocationCallOrder[0]).toBeLessThan(
+          sendMessage.mock.invocationCallOrder.at(-1) ?? 0,
+        );
+        expect(api.runTaskInCloud).not.toHaveBeenCalled();
+        expect(replied.latest_run).toMatchObject({
+          id: "r1",
+          status: "queued",
+        });
+      },
+    );
+
+    it("starts a new run that continues it when the server still counts it as running", async () => {
+      const { api, chats } = setup({ canReopen: true });
+      api.resumeRunInCloud.mockRejectedValueOnce(
+        new Error("Run is already active in cloud"),
+      );
+
+      const replied = await chats.reply(task("completed"), "Keep going");
+
+      expect(api.runTaskInCloud).toHaveBeenCalledWith("t1", null, {
+        piRuntime: true,
+        resumeFromRunId: "r1",
+        pendingUserMessage: "Keep going",
+      });
+      expect(replied.latest_run?.id).toBe("r2");
+    });
+
+    it("keeps the reply unsent when the agent does not come back", async () => {
+      const { sendMessage, chats, agentRestarted } = setup({ canReopen: true });
+      agentRestarted.mockRejectedValueOnce(
+        new Error("The sandbox took too long to come back"),
+      );
+
+      await expect(
+        chats.reply(task("completed"), "Keep going"),
+      ).rejects.toThrow("took too long");
+      expect(sendMessage).not.toHaveBeenCalled();
+    });
   });
 
   it("resumes the run when a reply finds it already ended", async () => {
