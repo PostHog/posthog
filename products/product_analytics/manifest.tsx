@@ -101,6 +101,7 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            listHref: () => urls.savedInsights(),
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },

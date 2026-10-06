@@ -1,7 +1,10 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -9,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import (
     PENDING_CLAIM_TTL,
     DatabaseThreadStore,
@@ -17,6 +21,7 @@ from products.alerts_platform.backend.delivery.thread_store import (
 )
 from products.alerts_platform.backend.delivery.transport import MessageHandle
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.tests.test_delivery_dispatch import TARGET, FakeTransport, _announcement
 
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
 
@@ -48,9 +53,14 @@ class TestDatabaseThreadStore(APIBaseTest):
 
     def test_an_evaluation_that_already_landed_is_not_sent_again(self) -> None:
         key = self._key()
-        claim = self.store.claim(key, "eval-1")
+        with time_machine.travel(FIRING, tick=False):
+            claim = self.store.claim(key, "eval-1")
         assert claim is not None
-        self.store.delivered(claim, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+        with time_machine.travel(FIRING + timedelta(minutes=10), tick=False):
+            self.store.delivered(claim, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+
+        with team_scope(self.team.id):
+            assert PlatformAlertThread.objects.get(id=claim.thread_id).updated_at == FIRING + timedelta(minutes=10)
 
         assert self.store.claim(key, "eval-1") is None
 
@@ -86,6 +96,37 @@ class TestDatabaseThreadStore(APIBaseTest):
                 self.store.claim(key, "eval-2")
         else:
             assert self.store.claim(key, "eval-2") is not None
+
+    def test_a_send_that_a_dead_attempt_left_claimed_goes_out_once_the_claim_is_stale(self) -> None:
+        transport = FakeTransport()
+
+        def send() -> None:
+            with patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"):
+                deliver(
+                    transport=transport,
+                    thread_store=self.store,
+                    team_id=self.team.id,
+                    configuration_id=str(self.configuration.id),
+                    evaluation_key="eval-1",
+                    target=TARGET,
+                    announcement=_announcement(episode_started_at=FIRING),
+                )
+
+        dead = self.store.claim(replace(self._key(), provider=transport.provider), "eval-1")
+        assert dead is not None
+
+        with pytest.raises(ThreadBusy):
+            send()
+        assert transport.sends == []
+
+        with team_scope(self.team.id):
+            PlatformAlertThread.objects.filter(id=dead.thread_id).update(
+                pending_claimed_at=timezone.now() - PENDING_CLAIM_TTL * 2
+            )
+        send()
+        send()
+
+        assert len(transport.sends) == 1
 
     def test_a_superseded_holder_does_not_clear_the_claim_that_replaced_it(self) -> None:
         key = self._key()
