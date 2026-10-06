@@ -29698,6 +29698,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializeRepeatedCTEs": {
+                    "description": "Reuse eligible bounded event aggregates within one query execution. Default off.",
+                    "type": "boolean"
+                },
                 "materializedColumnsOptimizationMode": {
                     "enum": ["disabled", "optimized"],
                     "type": "string"

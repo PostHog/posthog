@@ -2597,6 +2597,8 @@ export namespace Schemas {
       inCohortVia?: InCohortVia | null;
       inlineCohortCalculation?: InlineCohortCalculation | null;
       materializationMode?: MaterializationMode | null;
+      /** Reuse eligible bounded event aggregates within one query execution. Default off. */
+      materializeRepeatedCTEs?: boolean | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
       mergeFederatedAggregateJoins?: boolean | null;
