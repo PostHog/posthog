@@ -3472,7 +3472,6 @@ async fn test_set_person_version_floor_guarded_bump(#[case] initial_version: Opt
     let ctx = TestContext::new().await;
     let person = seed_person(&ctx, "rv_did", initial_version, false).await;
 
-    // Bump above the current version (0 or NULL).
     let updated = ctx
         .storage
         .set_person_version_floor(ctx.team_id, person.id, 50)
