@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use metrics::{counter, gauge};
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
@@ -120,7 +120,9 @@ struct KeyState {
 /// within a process: the key's messages arrive from its single partition in
 /// offset order, and eviction requires every earlier send to have resolved.
 pub struct KeyOrderSentinel {
-    keys: Mutex<HashMap<String, KeyState>>,
+    /// Keyed by customer-chosen routing keys, so the hasher is seeded per
+    /// map to resist collision flooding.
+    keys: Mutex<HashMap<Arc<str>, KeyState, ahash::RandomState>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
@@ -129,7 +131,7 @@ pub struct KeyOrderSentinel {
 impl Default for KeyOrderSentinel {
     fn default() -> Self {
         Self {
-            keys: Mutex::new(HashMap::new()),
+            keys: Mutex::new(HashMap::default()),
             enabled: AtomicBool::new(true),
         }
     }
@@ -149,53 +151,144 @@ impl KeyOrderSentinel {
         }
     }
 
-    /// Record that `messages` for `routing_key` are being handed to a worker.
-    /// `kind` distinguishes a fresh assignment (offsets must only move
-    /// forward) from a retry-path resend (repeating un-ACKed offsets is
-    /// legal). Call at assignment time, under the dispatcher's pin-table
-    /// lock, so the check order matches the intended per-key send order.
-    /// Null-key messages are skipped — they carry no per-key order promise
-    /// (see module docs). Emits metrics and logs; returns violations for
-    /// tests.
+    /// Takes the lock once for several calls and sets the key-count gauge
+    /// once, when the batch drops.
+    pub fn batch(&self) -> SentinelBatch<'_> {
+        let keys = self
+            .enabled
+            .load(Ordering::Relaxed)
+            .then(|| self.keys.lock().unwrap());
+        SentinelBatch { keys }
+    }
+
+    /// See [`SentinelBatch::note_sent`].
     pub fn note_sent(
         &self,
-        routing_key: &str,
+        routing_key: &(impl SentinelKey + ?Sized),
         messages: &[SerializedKafkaMessage],
         kind: SendKind,
     ) -> Vec<KeyOrderViolation> {
-        if !self.enabled.load(Ordering::Relaxed) {
+        self.batch().note_sent(routing_key, messages, kind)
+    }
+
+    /// See [`SentinelBatch::note_acked`].
+    pub fn note_acked(&self, routing_key: &str, max_offset: i64) {
+        self.batch().note_acked(routing_key, max_offset);
+    }
+
+    /// See [`SentinelBatch::evict`].
+    pub fn evict(&self, routing_key: &str) {
+        self.batch().evict(routing_key);
+    }
+
+    /// Drop all state. Called on rebalance: partitions may move to another
+    /// consumer and back, legitimately replaying uncommitted offsets, so every
+    /// baseline is stale.
+    pub fn clear(&self) {
+        self.keys.lock().unwrap().clear();
+        gauge!("ingestion_consumer_key_sentinel_keys").set(0.0);
+    }
+
+    /// Number of tracked keys (bounded by in-flight work; exposed for tests).
+    pub fn key_count(&self) -> usize {
+        self.keys.lock().unwrap().len()
+    }
+}
+/// A routing key the sentinel looks up as `&str` and stores as `Arc<str>`,
+/// so a caller that already shares its keys stores them without a copy.
+pub trait SentinelKey {
+    fn as_key(&self) -> &str;
+    fn to_shared(&self) -> Arc<str>;
+}
+
+impl SentinelKey for str {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self)
+    }
+}
+
+impl SentinelKey for String {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self.as_str())
+    }
+}
+
+impl SentinelKey for Arc<str> {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::clone(self)
+    }
+}
+
+/// A run of sentinel calls under one lock. Disabled, every call is a no-op.
+pub struct SentinelBatch<'a> {
+    keys: Option<MutexGuard<'a, HashMap<Arc<str>, KeyState, ahash::RandomState>>>,
+}
+
+impl SentinelBatch<'_> {
+    /// Record that `messages` for `routing_key` are being handed to a worker.
+    /// `kind` distinguishes a fresh assignment (offsets must only move
+    /// forward) from a retry-path resend (repeating un-ACKed offsets is
+    /// legal). Call in the intended per-key send order. Null-key messages are
+    /// skipped — they carry no per-key order promise (see module docs). Emits
+    /// metrics and logs; returns violations for tests.
+    pub fn note_sent(
+        &mut self,
+        key: &(impl SentinelKey + ?Sized),
+        messages: &[SerializedKafkaMessage],
+        kind: SendKind,
+    ) -> Vec<KeyOrderViolation> {
+        let Some(keys) = self.keys.as_mut() else {
             return Vec::new();
+        };
+        let routing_key = key.as_key();
+        let mut violations = Vec::new();
+        let mut first: Option<&SerializedKafkaMessage> = None;
+        let mut last: Option<&SerializedKafkaMessage> = None;
+        let mut unkeyed = 0usize;
+        for message in messages {
+            if message.key.is_none() {
+                unkeyed += 1;
+                continue;
+            }
+            // Offsets within an assigned group must be strictly ascending:
+            // groups are built in batch order, and a batch preserves
+            // partition order.
+            if let Some(previous) = last {
+                if message.partition == previous.partition && message.offset <= previous.offset {
+                    violations.push(KeyOrderViolation {
+                        kind: KeyOrderViolationKind::IntraGroupDisorder,
+                        routing_key: routing_key.to_string(),
+                        partition: message.partition,
+                        offset: message.offset,
+                    });
+                }
+            }
+            first.get_or_insert(message);
+            last = Some(message);
         }
-        let keyed: Vec<&SerializedKafkaMessage> =
-            messages.iter().filter(|m| m.key.is_some()).collect();
-        let unkeyed = messages.len() - keyed.len();
         if unkeyed > 0 {
             counter!("ingestion_consumer_key_sentinel_unkeyed_total").increment(unkeyed as u64);
         }
-        let Some(first) = keyed.first() else {
-            return Vec::new();
+        let (Some(first), Some(last)) = (first, last) else {
+            return violations;
         };
-        let last = keyed.last().expect("non-empty");
-        let mut violations = Vec::new();
 
-        // Offsets within an assigned group must be strictly ascending: groups
-        // are built in batch order, and a batch preserves partition order.
-        for pair in keyed.windows(2) {
-            if pair[1].partition == pair[0].partition && pair[1].offset <= pair[0].offset {
-                violations.push(KeyOrderViolation {
-                    kind: KeyOrderViolationKind::IntraGroupDisorder,
-                    routing_key: routing_key.to_string(),
-                    partition: pair[1].partition,
-                    offset: pair[1].offset,
-                });
-            }
-        }
-
-        let mut keys = self.keys.lock().unwrap();
         match keys.get_mut(routing_key) {
             None => {
                 keys.insert(
-                    routing_key.to_string(),
+                    key.to_shared(),
                     KeyState {
                         partition: first.partition,
                         last_sent: last.offset,
@@ -248,9 +341,6 @@ impl KeyOrderSentinel {
                 }
             }
         }
-        let key_count = keys.len();
-        drop(keys);
-        gauge!("ingestion_consumer_key_sentinel_keys").set(key_count as f64);
 
         for violation in &violations {
             counter!(
@@ -273,11 +363,10 @@ impl KeyOrderSentinel {
     /// Record that a worker ACKed this key's messages up to `max_offset`.
     /// ACKs may arrive out of order across concurrent sub-batches (HTTP
     /// completion order), so this only ever advances the high-water mark.
-    pub fn note_acked(&self, routing_key: &str, max_offset: i64) {
-        if !self.enabled.load(Ordering::Relaxed) {
+    pub fn note_acked(&mut self, routing_key: &str, max_offset: i64) {
+        let Some(keys) = self.keys.as_mut() else {
             return;
-        }
-        let mut keys = self.keys.lock().unwrap();
+        };
         if let Some(state) = keys.get_mut(routing_key) {
             state.last_acked = Some(state.last_acked.map_or(max_offset, |a| a.max(max_offset)));
         }
@@ -286,40 +375,29 @@ impl KeyOrderSentinel {
     /// Drop a key's state. Call when its pin is evicted — every send has
     /// resolved and nothing is deferred, so there is nothing left to order
     /// against and future offsets are necessarily higher.
-    pub fn evict(&self, routing_key: &str) {
-        if !self.enabled.load(Ordering::Relaxed) {
-            return;
+    pub fn evict(&mut self, routing_key: &str) {
+        if let Some(keys) = self.keys.as_mut() {
+            keys.remove(routing_key);
         }
-        let mut keys = self.keys.lock().unwrap();
-        keys.remove(routing_key);
-        let key_count = keys.len();
-        drop(keys);
-        gauge!("ingestion_consumer_key_sentinel_keys").set(key_count as f64);
     }
+}
 
-    /// Drop all state. Called on rebalance: partitions may move to another
-    /// consumer and back, legitimately replaying uncommitted offsets, so every
-    /// baseline is stale.
-    pub fn clear(&self) {
-        self.keys.lock().unwrap().clear();
-        gauge!("ingestion_consumer_key_sentinel_keys").set(0.0);
-    }
-
-    /// Number of tracked keys (bounded by in-flight work; exposed for tests).
-    pub fn key_count(&self) -> usize {
-        self.keys.lock().unwrap().len()
+impl Drop for SentinelBatch<'_> {
+    fn drop(&mut self) {
+        if let Some(keys) = &self.keys {
+            gauge!("ingestion_consumer_key_sentinel_keys").set(keys.len() as f64);
+        }
     }
 }
 
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery), resets sentinel baselines around rebalances, and
+/// restart-time redelivery), forgets revoked partitions around rebalances, and
 /// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
     /// Where the consumer's frontiers go. Held here so the rebalance
     /// callbacks tell it which partitions leave the assignment.
     commit_sentinel: Arc<CommitSentinel>,
-    key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
@@ -333,17 +411,15 @@ pub struct SentinelContext {
     revoke_hook: OnceLock<RevokeHook>,
 }
 
-type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
+pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 
 impl SentinelContext {
     pub fn new(
         commit_sentinel: Arc<CommitSentinel>,
-        key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
     ) -> Self {
         Self {
             commit_sentinel,
-            key_sentinel,
             topic_offset_ledger,
             assignment_epoch: None,
             revoke_hook: OnceLock::new(),
@@ -368,7 +444,6 @@ impl SentinelContext {
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
-            Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
         )
     }
@@ -427,10 +502,6 @@ impl ConsumerContext for SentinelContext {
                     "Rebalance: partitions revoked"
                 );
                 self.forget_ledger_partitions(tpl);
-                // Revoked partitions may be replayed by another consumer (or by
-                // us after re-assignment) from the last commit — every per-key
-                // baseline is stale.
-                self.key_sentinel.clear();
                 // The hook must run after the ledger forget above: it stamps
                 // each revocation with the bumped generation so only older
                 // poll slices are stripped.
@@ -485,7 +556,7 @@ mod tests {
 
     fn msg_at(partition: i32, offset: i64) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition,
             offset,
             timestamp: 0,
