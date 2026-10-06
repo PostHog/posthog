@@ -94,6 +94,12 @@ interface SQLEditorProps {
     queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    /** Treat the whole editor text as one query, and refuse to run more than one statement. */
+    singleStatement?: boolean
+    /** Leave out the setup agent and MCP suggestions, for hosts where they do not apply. */
+    hideAgentHints?: boolean
+    hideVariables?: boolean
+    hideFilters?: boolean
 }
 
 export function SQLEditor({
@@ -117,6 +123,10 @@ export function SQLEditor({
     queryPaneDefaultHeight,
     queryPaneMinHeight,
     autoFocusQueryPane,
+    singleStatement,
+    hideAgentHints,
+    hideVariables,
+    hideFilters,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -210,6 +220,8 @@ export function SQLEditor({
         mode,
         monaco,
         editor,
+        singleStatement,
+        hideAgentHints,
     })
 
     const { sourceQuery, dataLogicKey } = useValues(logic)
@@ -286,7 +298,10 @@ export function SQLEditor({
                     <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                             <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
+                                <BindLogic
+                                    logic={sqlEditorLogic}
+                                    props={{ tabId, mode, monaco, editor, singleStatement, hideAgentHints }}
+                                >
                                     {showQueryPanel ? <VariablesQuerySync /> : null}
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -336,6 +351,8 @@ export function SQLEditor({
                                                                 hideRunButton={hideRunButton}
                                                                 onShareTab={onShareTab}
                                                                 autoFocusQueryPane={autoFocusQueryPane}
+                                                                hideVariables={hideVariables}
+                                                                hideFilters={hideFilters}
                                                             />
                                                         )}
                                                     </div>
