@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.canonical_descriptions import (
@@ -127,7 +128,7 @@ class TestEcbDataPortalSource:
         ],
     )
     def test_get_retryable_errors_match_only_ecb_server_errors(self, error_msg: str, retryable: bool) -> None:
-        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors()) is retryable
+        assert error_message_matches(error_msg, self.source.get_retryable_errors()) is retryable
 
     def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_make_inputs())
