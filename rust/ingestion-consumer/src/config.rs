@@ -193,7 +193,8 @@ pub struct Config {
     /// How long the key-table packer may hold an open request for more keys
     /// before it sends the request short of the target (milliseconds). `0`
     /// (default) holds nothing: each action sends what is ready, packed up to
-    /// the target. Only read under `INGESTION_SCHEDULER=key_table`.
+    /// the target. At most half of `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS`. Only
+    /// read under `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_LATENCY_BUDGET_MS", default = "0")]
     pub pack_latency_budget_ms: u64,
 

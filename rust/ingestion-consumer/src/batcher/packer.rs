@@ -61,6 +61,10 @@ impl Packer {
         }
     }
 
+    pub fn latency_budget(&self) -> Duration {
+        self.targets.latency_budget
+    }
+
     pub fn held_messages(&self) -> usize {
         self.requests().map(|request| request.message_count).sum()
     }

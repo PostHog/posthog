@@ -88,6 +88,13 @@ impl BatcherStateMachine {
         if stall_timeout.is_zero() {
             return Err("stall_timeout must be > 0".to_string());
         }
+        // A key's next messages queue behind its held run and count toward
+        // a stall, so the hold must leave most of the stall window.
+        if packer.latency_budget() * 2 > stall_timeout {
+            return Err(
+                "the pack latency budget must be at most half the stall timeout".to_string(),
+            );
+        }
         Ok(BatcherStateMachine::Running(ActiveState {
             keys: KeyQueues::new(),
             packer,
@@ -846,6 +853,19 @@ mod tests {
     }
 
     #[test]
+    fn a_pack_budget_over_half_the_stall_timeout_is_rejected() {
+        let assigner =
+            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+        let packer = Packer::new(PackTargets {
+            latency_budget: STALL / 2 + Duration::from_millis(1),
+            ..PackTargets::default()
+        });
+        let created =
+            BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, Instant::now());
+        assert!(created.is_err());
+    }
+
+    #[test]
     fn a_second_shutdown_keeps_a_waiting_retrys_wakeup() {
         let now = Instant::now();
         let workers = pool(&["w"]);
@@ -1097,9 +1117,9 @@ mod tests {
     }
 
     #[test]
-    fn neither_an_idle_period_nor_a_long_pack_budget_counts_toward_a_stall() {
+    fn neither_an_idle_period_nor_a_held_batch_counts_toward_a_stall() {
         let start = Instant::now();
-        let budget = STALL * 2;
+        let budget = STALL / 2;
         let workers = pool(&["w"]);
         let batcher = packing_batcher(100, budget, 4, start);
 
