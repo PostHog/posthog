@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
@@ -67,6 +67,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         appliedResponseLoading,
         rejectedResponseLoading,
         listsUnreadable,
+        noEmailActionReason,
     } = useValues(workflowProposalsLogic({ id }))
     const { reloadLists } = useActions(workflowProposalsLogic({ id }))
 
@@ -99,6 +100,8 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
     const notice = optimizationUnreadable ? (
         <SuggestionsUnreadableNotice />
+    ) : noEmailActionReason ? (
+        <LemonBanner type="info">{noEmailActionReason}</LemonBanner>
     ) : !optimizationEnabled ? (
         <SuggestionsOffNotice />
     ) : null
@@ -107,7 +110,15 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         // Off with nothing filed is the introduction; an unreadable setting keeps its own notice, since it
         // is not "off". Either one with a queue still shows the queue, which the server keeps resolvable.
         if (notice) {
-            return optimizationUnreadable ? notice : <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+            if (optimizationUnreadable) {
+                return notice
+            }
+            return (
+                <div className="flex flex-col gap-4">
+                    {noEmailActionReason && notice}
+                    <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+                </div>
+            )
         }
 
         if (!listsSettling) {

@@ -29,6 +29,8 @@ describe('workflowProposalsLogic', () => {
     let workflowStatus: string
     let workflowDraft: Record<string, any> | null
     let workflowDraftStamp: string | null
+    let workflowActions: Record<string, any>[]
+    let optimizationEnabled: boolean
 
     const proposal = {
         id: PROPOSAL_ID,
@@ -55,6 +57,8 @@ describe('workflowProposalsLogic', () => {
         workflowStatus = 'active'
         workflowDraft = { actions: [] }
         workflowDraftStamp = DRAFT_STAMP
+        workflowActions = []
+        optimizationEnabled = false
         ;(LemonDialog.open as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -65,7 +69,7 @@ describe('workflowProposalsLogic', () => {
                         name: 'Test',
                         version: workflowVersion,
                         status: workflowStatus,
-                        actions: [],
+                        actions: workflowActions,
                         edges: [],
                         draft: workflowDraft,
                         draft_updated_at: workflowDraftStamp,
@@ -80,6 +84,7 @@ describe('workflowProposalsLogic', () => {
                         ? [200, { count: 1, results: [proposal] }]
                         : [proposalsListStatus, { detail: 'nope' }]
                 },
+                '/api/projects/:team_id/hog_flows/:id/optimization/': () => [200, { enabled: optimizationEnabled }],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
@@ -135,6 +140,32 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.pendingProposals).toEqual([])
+    })
+
+    it.each([
+        { case: 'no email step, off', actions: [{ id: 'hook', type: 'function' }], enabled: false, blocked: true },
+        {
+            case: 'an email step, off',
+            actions: [{ id: 'mail', type: 'function_email' }],
+            enabled: false,
+            blocked: false,
+        },
+        {
+            case: 'no email step, already on',
+            actions: [{ id: 'hook', type: 'function' }],
+            enabled: true,
+            blocked: false,
+        },
+    ])('turning self-driving on with $case', async ({ actions, enabled, blocked }) => {
+        await expectLogic(logic).toDispatchActions(['loadOptimizationSuccess']).toFinishAllListeners()
+        workflowActions = actions
+        optimizationEnabled = enabled
+        await expectLogic(logic, () => {
+            logic.actions.loadOptimization()
+            workflowLogic({ id: WORKFLOW_ID }).actions.loadWorkflow()
+        }).toFinishAllListeners()
+
+        expect(!!logic.values.noEmailActionReason).toBe(blocked)
     })
 
     it('reloads the queue when the workflow version moves', async () => {

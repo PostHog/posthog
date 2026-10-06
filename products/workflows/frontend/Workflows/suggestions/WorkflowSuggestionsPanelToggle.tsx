@@ -10,7 +10,7 @@ import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Element {
-    const { optimizationEnabled, optimizationLoading, optimizationUnreadable } = useValues(
+    const { optimizationEnabled, optimizationLoading, optimizationUnreadable, noEmailActionReason } = useValues(
         workflowProposalsLogic({ id })
     )
     const { setOptimizationEnabled } = useActions(workflowProposalsLogic({ id }))
@@ -35,10 +35,17 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
                     checked={optimizationEnabled}
                     onChange={(checked) => setOptimizationEnabled(checked)}
                     // A failed read must not show "off" for a workflow that may be on.
-                    disabled={optimizationLoading || optimizationUnreadable || !!disabledReason || !!notLiveReason}
+                    disabled={
+                        optimizationLoading ||
+                        optimizationUnreadable ||
+                        !!disabledReason ||
+                        !!notLiveReason ||
+                        !!noEmailActionReason
+                    }
                     tooltip={
                         disabledReason ??
                         notLiveReason ??
+                        noEmailActionReason ??
                         (optimizationUnreadable
                             ? 'Could not read whether suggestions are on for this workflow. Reload the page to try again.'
                             : 'PostHog reads how this workflow performs and suggests changes for you to review. Nothing reaches anyone until you approve a suggestion and publish it.')

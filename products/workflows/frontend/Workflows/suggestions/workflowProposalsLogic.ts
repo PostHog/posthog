@@ -20,6 +20,7 @@ import type {
     WorkflowProposalApi,
     WorkflowProposalOutcomeApi,
 } from '../../generated/api.schemas'
+import { isEmailAction } from '../hogflows/steps/types'
 import type { HogFlow } from '../hogflows/types'
 import { workflowLogic } from '../workflowLogic'
 
@@ -53,6 +54,7 @@ export interface workflowProposalsLogicValues {
     lastSeenDraftStamp: string | null
     lastSeenVersion: number | null
     listsUnreadable: boolean
+    noEmailActionReason: string | undefined
     optimization: HogFlowOptimizationApi | null
     optimizationEnabled: boolean
     optimizationLoading: boolean
@@ -226,6 +228,7 @@ export interface workflowProposalsLogicMeta {
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         rejectedProposals: (rejectedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
+        noEmailActionReason: (originalWorkflow: HogFlow | null, optimizationEnabled: boolean) => string | undefined
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
     }
@@ -457,6 +460,17 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         optimizationEnabled: [
             (s) => [s.optimization],
             (optimization: HogFlowOptimizationApi | null): boolean => !!optimization?.enabled,
+        ],
+        noEmailActionReason: [
+            (s) => [s.originalWorkflow, s.optimizationEnabled],
+            (originalWorkflow: HogFlow | null, optimizationEnabled: boolean): string | undefined => {
+                // Suggestions read email opens and clicks, so there is nothing to judge without an email step.
+                // The published actions are what gets judged. Turning it off stays available.
+                if (!originalWorkflow || optimizationEnabled || originalWorkflow.actions.some(isEmailAction)) {
+                    return undefined
+                }
+                return 'Self-driving only works on workflows that send email for now. Add an email step and publish the workflow to turn it on.'
+            },
         ],
         pendingProposals: [
             (s) => [s.proposalsResponse],
