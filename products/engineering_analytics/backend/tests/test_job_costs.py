@@ -162,10 +162,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def test_exposed_view_columns_match_the_field_contract(self) -> None:
-        # The view body projects its column list through four nested SELECTs. Appending to FIELDS but
-        # missing a layer yields a query that still runs and silently drops the column from the
-        # exposed view, so assert the two agree — the same guard ci_job_history has.
+    def test_builder_columns_match_the_field_contract(self) -> None:
+        # The exposed view selects FIELDS by name from the builder's rows, so a column the builder
+        # drops must fail here and not in a team's saved query.
         jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(0, *_MATRIX[0][1:])])
         runs_table = self._create_table(
             "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
@@ -174,7 +173,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         columns = execute_hogql_query(
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         ).columns
-        assert columns == list(job_costs.FIELDS)
+        assert columns == list(job_costs.BUILDER_FIELDS)
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(
