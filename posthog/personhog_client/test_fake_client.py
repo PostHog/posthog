@@ -725,7 +725,6 @@ class TestFakePersonHogClientVersionRpcs:
         assert missing is not None and missing.is_deleted
         other_team = self.client.stored_person(self.OTHER_TEAM_ID, "elsewhere")
         assert other_team is not None and other_team.version == 1
-        # Once every row is at its floor, a repeat changes nothing.
         assert [r.outcome for r in self._ensure_persons(*floors)] == [
             live,
             at_floor,

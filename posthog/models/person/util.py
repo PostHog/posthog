@@ -955,7 +955,6 @@ class VersionFloorOutcome(StrEnum):
     TOMBSTONE_INSERTED = "tombstone_inserted"
     TOMBSTONE_RAISED = "tombstone_raised"
     TOMBSTONE_AT_FLOOR = "tombstone_at_floor"
-    # A live row, left unchanged at its current version. The caller decides what to do.
     LIVE = "live"
 
 
@@ -981,10 +980,7 @@ class PersonVersionFloorResult:
 
 
 def _retry_lost_race(fn: Callable[[], _T]) -> _T:
-    """Call ``fn``, retrying a bounded number of times when the server reports a lost race.
-
-    Every other error propagates, including the lock timeout, which surfaces as INTERNAL.
-    """
+    """Retry ``fn`` only on a lost race; every other error, including the INTERNAL lock timeout, propagates."""
     for attempt in range(1, VERSION_FLOOR_ATTEMPTS):
         try:
             return fn()
@@ -996,13 +992,12 @@ def _retry_lost_race(fn: Callable[[], _T]) -> _T:
 
 
 def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFloor]) -> list[PersonVersionFloorResult]:
-    """Make the Postgres version of each person tombstone at least its floor, so a later revival lands above it.
+    """Raise each person tombstone's Postgres version to at least ``min_version``, so a later revival lands above it.
 
-    A missing person gets a tombstone at the floor and a live row comes back LIVE unchanged; each batch
-    commits on its own, is safe to repeat, and returns results in request order.
-    Publish a ClickHouse tombstone at the returned version for every result that is not LIVE, because the
-    drain removes only tombstones the sweep finds in ClickHouse; a retry can report its own insert as
-    TOMBSTONE_AT_FLOOR.
+    A missing person gets a tombstone and a live person is left unchanged. Each batch commits on its own and is
+    safe to repeat; results keep request order. Publish a ClickHouse tombstone at the returned version for every
+    result that is not LIVE, because the Postgres cleanup drain removes only tombstones the ClickHouse deletion
+    sweep finds; a retry can report its own insert as TOMBSTONE_AT_FLOOR.
     """
 
     def personhog_fn() -> list[PersonVersionFloorResult]:

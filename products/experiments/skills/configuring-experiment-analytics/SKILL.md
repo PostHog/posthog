@@ -200,5 +200,5 @@ See `references/interpreting-results.md` for guidance on reading experiment resu
 ## Related skills
 
 - **`configuring-experiment-rollout`** — the rollout side: variant splits and traffic percentage
-- **`diagnosing-experiment-results`** — when results look biased, empty, or strange
+- **`diagnosing-experiment-health`** — when results look biased, empty, or strange
 - **`analyzing-experiment-session-replays`** — qualitative complement — watch what each variant's users actually did

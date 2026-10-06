@@ -1817,27 +1817,18 @@ class TestSalesReports:
         assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
     @time_machine.travel("2026-03-05 09:00:00", tick=False)
-    def test_sales_report_400_is_not_tolerated(self) -> None:
-        # SALES reports don't carry the subscription-family quirk, so a 400 there is a real error and
-        # must still surface rather than being silently treated as an empty day.
-        session = MagicMock()
-        bad_request = _report_response(None, missing_status_code=400)
-        bad_request.raise_for_status.side_effect = Exception("400 Client Error: Bad Request")
-        session.get.return_value = bad_request
+    def test_sales_report_vendor_number_400_fails_fast(self) -> None:
+        api = _FakeReportApi({}, sales_status_code=400)
 
-        with patch(f"{MODULE}._make_session", return_value=session):
-            with pytest.raises(Exception, match="400"):
-                list(
-                    get_rows(
-                        issuer_id="issuer",
-                        key_id="KEY123",
-                        private_key=PRIVATE_KEY_PEM,
-                        vendor_number="85234567",
-                        endpoint="sales_reports",
-                        logger=MagicMock(),
-                        resumable_source_manager=_FakeManager(),
-                    )
-                )
+        with pytest.raises(AppStoreConnectReportError, match="does not recognize the vendor number"):
+            _collect(
+                "sales_reports",
+                api,
+                _FakeManager(),
+                vendor_number="85234567",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 2),
+            )
 
     @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_subscription_report_unrecognized_400_fails_loudly(self) -> None:

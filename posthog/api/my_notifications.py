@@ -43,6 +43,9 @@ INTERESTING_CHANGES = [
 class MyNotificationsSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
+    detail = serializers.JSONField(
+        source="safe_detail", read_only=True, help_text="What changed, with the values of masked fields hidden."
+    )
 
     class Meta:
         model = ActivityLog
