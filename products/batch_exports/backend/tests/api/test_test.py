@@ -13,13 +13,13 @@ from rest_framework import status
 
 from posthog.models import Integration
 
-from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
-from products.batch_exports.backend.api.destination_tests.bigquery import BigQueryProjectTestStep
-from products.batch_exports.backend.api.destination_tests.databricks import (
+from products.batch_exports.backend.models.batch_export import BatchExportDestination
+from products.batch_exports.backend.presentation.views.destination_tests.base import DestinationTestStepResult, Status
+from products.batch_exports.backend.presentation.views.destination_tests.bigquery import BigQueryProjectTestStep
+from products.batch_exports.backend.presentation.views.destination_tests.databricks import (
     DatabricksDestinationTest,
     DatabricksEstablishConnectionTestStep,
 )
-from products.batch_exports.backend.models.batch_export import BatchExportDestination
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
@@ -211,7 +211,7 @@ def test_run_test_step_rejects_destination_type_change(
     malicious_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": {
-            "type": "S3",
+            "type": "S3Compatible",
             # Valid configuration for the submitted type, so the type change is what gets rejected.
             "config": {"bucket_name": "my-bucket", "region": "us-east-1", "prefix": "events/"},
         },
@@ -219,7 +219,7 @@ def test_run_test_step_rejects_destination_type_change(
     }
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.batch_export.get_destination_test"
+        "products.batch_exports.backend.presentation.views.batch_export.get_destination_test"
     ) as mock_get_destination_test:
         response = client.post(
             f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
@@ -348,7 +348,7 @@ def test_can_run_bigquery_test_step_with_castable_type(
     )
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.destination_tests.base.DestinationTest.run_step"
+        "products.batch_exports.backend.presentation.views.destination_tests.base.DestinationTest.run_step"
     ) as run_step_mocked:
         fake_test_step = BigQueryProjectTestStep()
         fake_test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)
@@ -404,7 +404,7 @@ def test_can_run_databricks_test_step_for_new_destination(
     client.force_login(user)
 
     with unittest.mock.patch(
-        "products.batch_exports.backend.api.batch_export.get_destination_test"
+        "products.batch_exports.backend.presentation.views.batch_export.get_destination_test"
     ) as mock_get_destination_test:
         test_step = DatabricksEstablishConnectionTestStep()
         test_step.result = DestinationTestStepResult(status=Status.PASSED, message=None)

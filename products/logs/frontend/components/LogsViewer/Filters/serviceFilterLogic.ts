@@ -108,7 +108,7 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
                         limit: 1000,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     }).url
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
                 },

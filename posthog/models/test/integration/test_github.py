@@ -384,6 +384,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def test_get_pull_request_diff_uses_the_durable_pr_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
+            result = github.get_pull_request_diff("PostHog/posthog", 42)
+
+        assert result == {"success": True, "diff": "diff --git a b", "truncated": False}
+        mock_get.assert_called_once_with(
+            "GET",
+            "/repos/PostHog/posthog/pulls/42",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={"Accept": "application/vnd.github.diff"},
+        )
+
     def _github_for_org(self) -> GitHubIntegration:
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
@@ -1185,6 +1200,37 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.is_assignable("PostHog/posthog", "alice")
         assert result["success"] is False
         assert result["status_code"] == 403
+
+    @parameterized.expand(
+        [
+            ("traversal_in_repository", "PostHog/posthog/../../orgs/PostHog/members", "alice"),
+            ("path_in_login", "PostHog/posthog", "alice/../../members"),
+        ]
+    )
+    def test_is_assignable_refuses_unsafe_paths_without_calling_github(self, _name: str, repository: str, login: str):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_get") as mock_get:
+            result = github.is_assignable(repository, login)
+        assert result["success"] is False
+        mock_get.assert_not_called()
+
+    def test_list_assignees_searches_every_page_and_caches_the_list(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}, {"login": "bob"}]
+        second = MagicMock(status_code=200)
+        second.json.return_value = [{"login": "Alicia"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], True)
+        ) as mock_pages:
+            first_search = github.list_assignees("PostHog/posthog", "ali")
+            second_search = github.list_assignees("PostHog/posthog", "bob")
+
+        assert [assignee.id for assignee in first_search] == ["alice", "Alicia"]
+        assert [assignee.id for assignee in second_search] == ["bob"]
+        mock_pages.assert_called_once()
 
     @parameterized.expand(
         [

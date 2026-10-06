@@ -241,6 +241,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -251,6 +252,7 @@ describe('ErrorTrackingPipeline', () => {
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn(),
             updatePerson: jest.fn(),
+            handleOversizedPersonProperties: jest.fn(),
             updatePersonAssertVersion: jest.fn(),
             updatePersonsBatch: jest.fn(),
             deletePerson: jest.fn(),
@@ -266,6 +268,7 @@ describe('ErrorTrackingPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {
@@ -323,6 +326,8 @@ describe('ErrorTrackingPipeline', () => {
             }),
             promiseScheduler,
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,

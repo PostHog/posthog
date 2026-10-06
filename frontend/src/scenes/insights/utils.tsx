@@ -42,6 +42,7 @@ import {
 import {
     containsHogQLQuery,
     isDataTableNode,
+    isBIVisualizationNode,
     isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
@@ -199,7 +200,8 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
 
     return insightId
         ? insightId
-        : (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+        : // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+          (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
               .results[0]?.id
 }
 
@@ -857,6 +859,9 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (isBIVisualizationNode(query)) {
+        return 'business_intelligence'
+    }
     if (!query?.kind) {
         return 'product_analytics'
     }

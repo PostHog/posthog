@@ -62,6 +62,7 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
+            listHref: () => urls.featureFlags(),
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },
@@ -79,7 +80,7 @@ export const manifest: ProductManifest = {
         {
             path: `Feature flags`,
             intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'feature_flag',
             href: urls.featureFlags(),
             sceneKey: 'FeatureFlags',

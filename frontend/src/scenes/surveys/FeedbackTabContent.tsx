@@ -21,14 +21,16 @@ import { QuickSurveyForm } from './QuickSurveyModal'
 export interface FeedbackTabContentProps {
     surveys: Survey[]
     context: QuickSurveyContext
-    emptyStateBannerMessage: string
+    emptyStateHeader: string
+    emptyStateDescription: string
     multipleSurveysBannerMessage: React.ReactNode
 }
 
 export function FeedbackTabContent({
     surveys,
     context,
-    emptyStateBannerMessage,
+    emptyStateHeader,
+    emptyStateDescription,
     multipleSurveysBannerMessage,
 }: FeedbackTabContentProps): JSX.Element {
     const { surveysResponsesCountLoading, surveysResponsesCount } = useValues(surveysLogic)
@@ -37,9 +39,8 @@ export function FeedbackTabContent({
         return (
             <div className="flex flex-col items-center pt-5">
                 <div className="w-full max-w-5xl">
-                    <LemonBanner type="info" className="mb-6">
-                        {emptyStateBannerMessage}
-                    </LemonBanner>
+                    <h2 className="font-semibold text-lg">{emptyStateHeader}</h2>
+                    <p className="text-secondary max-w-prose mb-6">{emptyStateDescription}</p>
                     <div className="border rounded p-6 bg-bg-light">
                         <QuickSurveyForm context={context} />
                     </div>

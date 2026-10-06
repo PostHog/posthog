@@ -36,7 +36,6 @@ import { getChartAlternatives } from './chartRecommendations'
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
 
 export interface ChartAlternativesLogicProps extends InsightLogicProps {
-    editMode?: boolean
     embedded: boolean
     inSharedMode?: boolean
 }
@@ -52,7 +51,6 @@ export interface chartAlternativesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     canEditInsight: boolean // insightLogic
     editingDisabledReason: null // insightLogic
-    isInDashboardContext: boolean // insightLogic
     display: ChartDisplayType | null | undefined // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
     isSingleSeriesOutput: boolean // insightVizDataLogic
@@ -75,11 +73,11 @@ export interface chartAlternativesLogicValues {
     canShowAlternatives: boolean
     currentDisplay: ChartDisplayType
     currentOption: ChartDisplayOption | undefined
-    editMode: boolean | undefined
     embedded: boolean
     galleryOpen: boolean
     inSharedMode: boolean | undefined
     isEditableSurface: boolean
+    isEligibleSurface: boolean
     options: ChartDisplayOptionGroup[]
     selectionDisabledReason: string | undefined
     trendsSource: TrendsQuery | null
@@ -103,6 +101,9 @@ export interface chartAlternativesLogicActions {
     openGallery: () => {
         value: true
     }
+    reportChartMenuOpened: () => {
+        value: true
+    }
     selectChart: (
         display: ChartDisplayType,
         source: ChartAlternativeSource
@@ -119,7 +120,6 @@ export interface chartAlternativesLogicActions {
 export interface chartAlternativesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        editMode: (arg: any) => boolean | undefined
         embedded: (arg: any) => boolean
         inSharedMode: (arg: any) => boolean | undefined
         currentDisplay: (display: ChartDisplayType | null | undefined) => ChartDisplayType
@@ -148,21 +148,14 @@ export interface chartAlternativesLogicMeta {
             options: ChartDisplayOptionGroup[],
             currentDisplay: ChartDisplayType
         ) => ChartDisplayOption | undefined
-        isEditableSurface: (
-            editMode: boolean | undefined,
-            embedded: boolean,
-            inSharedMode: boolean | undefined,
-            isInDashboardContext: boolean,
-            canEditInsight: boolean,
-            editingDisabledReason: null
-        ) => boolean
-        canShowAlternatives: (
-            featureFlags: FeatureFlagsSet,
+        isEditableSurface: (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean) => boolean
+        isEligibleSurface: (
             isEditableSurface: boolean,
             isTrends: boolean,
             query: Node<Record<string, any>> | null,
             trendsSource: TrendsQuery | null
         ) => boolean
+        canShowAlternatives: (featureFlags: FeatureFlagsSet, isEligibleSurface: boolean) => boolean
         canSelectCharts: (canShowAlternatives: boolean, insightDataLoading: boolean) => boolean
         selectionDisabledReason: (
             canShowAlternatives: boolean,
@@ -188,7 +181,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             insightLogic(props),
-            ['canEditInsight', 'editingDisabledReason', 'isInDashboardContext'],
+            ['canEditInsight', 'editingDisabledReason'],
             insightVizDataLogic(props),
             ['display', 'insightDataLoading', 'isSingleSeriesOutput', 'isTrends', 'query', 'querySource', 'series'],
         ],
@@ -198,6 +191,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         openGallery: true,
         closeGallery: true,
         toggleGallery: true,
+        reportChartMenuOpened: true,
         selectChart: (display: ChartDisplayType, source: ChartAlternativeSource) => ({ display, source }),
     }),
     reducers({
@@ -212,7 +206,6 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         ],
     }),
     selectors({
-        editMode: [() => [(_, props) => props.editMode], (editMode: boolean | undefined) => editMode],
         embedded: [() => [(_, props) => props.embedded], (embedded: boolean) => embedded],
         inSharedMode: [() => [(_, props) => props.inSharedMode], (inSharedMode: boolean | undefined) => inSharedMode],
         currentDisplay: [
@@ -266,43 +259,25 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 optionForDisplay(options, currentDisplay),
         ],
         isEditableSurface: [
-            (s) => [
-                s.editMode,
-                s.embedded,
-                s.inSharedMode,
-                s.isInDashboardContext,
-                s.canEditInsight,
-                s.editingDisabledReason,
-            ],
-            (
-                editMode: boolean | undefined,
-                embedded: boolean,
-                inSharedMode: boolean | undefined,
-                isInDashboardContext: boolean,
-                canEditInsight: boolean,
-                editingDisabledReason: null
-            ): boolean =>
-                !!editMode &&
-                !embedded &&
-                !inSharedMode &&
-                !isInDashboardContext &&
-                canEditInsight &&
-                !editingDisabledReason,
+            (s) => [s.embedded, s.inSharedMode, s.canEditInsight],
+            (embedded: boolean, inSharedMode: boolean | undefined, canEditInsight: boolean): boolean =>
+                !embedded && !inSharedMode && canEditInsight,
         ],
-        canShowAlternatives: [
-            (s) => [s.featureFlags, s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
+        // Where either experiment arm offers a chart type choice, so where an opened menu counts as an exposure.
+        isEligibleSurface: [
+            (s) => [s.isEditableSurface, s.isTrends, s.query, s.trendsSource],
             (
-                featureFlags: FeatureFlagsSet,
                 isEditableSurface: boolean,
                 isTrends: boolean,
                 query: Node | null,
                 trendsSource: TrendsQuery | null
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] &&
-                isEditableSurface &&
-                isTrends &&
-                !!query &&
-                !!trendsSource,
+            ): boolean => isEditableSurface && isTrends && !!query && !!trendsSource,
+        ],
+        canShowAlternatives: [
+            (s) => [s.featureFlags, s.isEligibleSurface],
+            (featureFlags: FeatureFlagsSet, isEligibleSurface: boolean): boolean =>
+                // Reading the flag logs a flag call, so read it only where the gallery could show.
+                isEligibleSurface && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test',
         ],
         canSelectCharts: [
             (s) => [s.canShowAlternatives, s.insightDataLoading],
@@ -330,6 +305,19 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
         openGallery: () => {
             if (!values.canSelectCharts) {
                 actions.closeGallery()
+                return
+            }
+            actions.reportChartMenuOpened()
+        },
+        toggleGallery: () => {
+            if (values.galleryOpen) {
+                actions.reportChartMenuOpened()
+            }
+        },
+        reportChartMenuOpened: () => {
+            if (values.isEligibleSurface) {
+                // The chart gallery experiment uses this as its exposure event, for both arms.
+                posthog.capture('insight chart type menu opened', { current_display: values.currentDisplay })
             }
         },
         selectChart: ({ display, source }) => {

@@ -57,6 +57,9 @@ AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
+# Matches the cap PostHog Code applies to its local personalization.
+AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"
@@ -222,6 +225,11 @@ TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
+CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
+# The plan name a person reads when a subscription run is refused. Every layer that gates,
+# refuses, or explains one of these runs takes the name from here.
+SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
+CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"

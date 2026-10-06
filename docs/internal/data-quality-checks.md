@@ -62,6 +62,8 @@ Notification recipient checks retain the existing global warehouse-resource poli
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
 
+A run under the materialization gate sets `audited_staged_refresh`, including a run that errored before it could read the staged files. Check `status` and `error` before treating the refresh as audited. The stored failing-rows query cannot name the view, because the SQL editor resolves that name to the published table, which after a block is still the previous version. So the query holds the view's definition in a `WITH` clause and reads the view's source tables. Those sources can change after the run, so a replay can return different rows than the run counted. When the view's definition cannot be read, the run stores no query.
+
 ## Models overview
 
 The models overview reports one status for the whole project. It shows the status panel only when the model list and the check list have both answered, and when no model and no check needs attention. A request that failed is reported as a failure, so an unanswered request never reads as an all-clear.
@@ -69,6 +71,14 @@ The models overview reports one status for the whole project. It shows the statu
 The panel's text follows the check results. It claims that all data quality checks passed only when every check passed on its last run. A check that was skipped or has never run is not a passed check, so the panel then says that no checks are failing and some have not passed yet. The overview reads one page of checks, so a project that fills that page gets the same text as a project with the data quality tab off: a check on a later page could be failing. A project with no checks is asked to add some. When the data quality tab is not available, the panel speaks about the models alone.
 
 A project that has no models and no saved views gets the first-view text instead of a status claim.
+
+## Model detail
+
+Every table node keeps its Lineage tab. Loading the Data quality subject does not wait for the lineage graph.
+
+A model in the lineage graph can also open a Data quality tab. The tab reads the checks of the model's own subject. A saved view answers as a view. An imported warehouse table answers as a table. The node carries the table identifier. The dependency sync refreshes this identifier when it resolves a saved query. A table that is deleted and imported again then uses its new row.
+
+PostHog tables use the subject catalog API. The frontend matches the node name to a `posthog_table` subject from that API. It passes the returned subject id, subject type, and columns to the checks panel. It does not calculate the subject id. The Data quality panel shows a loading, request-error, access-denied, or unsupported-table state when the catalog cannot provide a supported subject.
 
 ## Subject schedules
 
