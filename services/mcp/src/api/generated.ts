@@ -59517,7 +59517,7 @@ export namespace Schemas {
 
     export interface LeakedKeyReport {
       /**
-         * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+         * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
          * @maxLength 200
          */
       token: string;
@@ -59526,6 +59526,7 @@ export namespace Schemas {
     /**
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
+     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token
      */
@@ -59535,17 +59536,19 @@ export namespace Schemas {
     export const LeakedKeyReportResponseTypeEnum = {
       PersonalApiKey: 'personal_api_key',
       ProjectSecretApiKey: 'project_secret_api_key',
+      TeamSecretToken: 'team_secret_token',
       OauthAccessToken: 'oauth_access_token',
       OauthRefreshToken: 'oauth_refresh_token',
     } as const;
 
     export interface LeakedKeyReportResponse {
-      /** Whether a matching PostHog key or token was found and revoked. */
+      /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
       found: boolean;
-      /** The type of key that was found and revoked, or null if no match was found.
+      /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
        *
        * * `personal_api_key` - personal_api_key
        * * `project_secret_api_key` - project_secret_api_key
+       * * `team_secret_token` - team_secret_token
        * * `oauth_access_token` - oauth_access_token
        * * `oauth_refresh_token` - oauth_refresh_token */
       type: LeakedKeyReportResponseTypeEnum | null;
@@ -63686,6 +63689,8 @@ export namespace Schemas {
       readonly id: string;
       /** Meeting title; may be empty. */
       readonly title: string;
+      /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+      readonly is_recurring: boolean;
       /**
          * Gong call URL matched through the calendar event id; null when no Gong call is available.
          * @nullable
@@ -101888,7 +101893,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -101970,7 +101975,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
