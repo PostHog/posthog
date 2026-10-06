@@ -330,7 +330,6 @@ class DataWarehouseSavedQuerySerializer(
             return
 
         request = self.context["request"]
-        # Best effort: the write has already committed, so an analytics failure must not fail the request.
         try:
             report_user_action(
                 request.user,

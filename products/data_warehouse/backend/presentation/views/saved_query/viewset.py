@@ -136,7 +136,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
-        # Generated saved queries are implementation details, not intentional view creation.
         context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
