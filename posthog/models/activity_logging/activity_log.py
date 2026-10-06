@@ -974,6 +974,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "custom_oauth2_integrations",
         # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
         "destination_links",
+        # The diff reads each reverse relation in full on both sides, after the save, so it never
+        # sees a real before-state. The view prefetches `schemas` without the deleted ones, so the
+        # two lists differ on every save and the entry stores every job and schema twice, which
+        # goes past the Kafka message limit for a source with a long sync history. Schemas log
+        # their own changes under the ExternalDataSchema scope, and jobs are sync runs, not user changes.
+        "jobs",
+        "schemas",
     ],
     "ExternalDataSchema": [
         "status",
