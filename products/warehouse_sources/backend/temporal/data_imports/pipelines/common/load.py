@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
@@ -72,8 +73,97 @@ class IncrementalFieldMissingFromDataError(Exception):
         )
 
 
+_UNRESOLVED = object()
+
+
+def _get_json_path_value(raw_value: Any, path: list[str]) -> Any:
+    """Walk a JSON string's object members; distinguish a missing member from null."""
+    if raw_value is None:
+        return None  # null parent -> null cursor value
+
+    try:
+        value = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return _UNRESOLVED  # not JSON -> path unresolvable
+
+    for part in path:
+        if value is None:
+            return None  # null reached mid-path -> null value
+        if not isinstance(value, dict) or part not in value:
+            return _UNRESOLVED  # structurally missing -> unresolvable
+        value = value[part]
+
+    if isinstance(value, (dict, list)):
+        return _UNRESOLVED  # leaf must be scalar
+    return value
+
+
+def parse_member_path(path: str) -> list[str] | None:
+    """Parse a simple dotted member path, optionally prefixed with '$.'.
+
+    Supported: "meta.updated_at", "$.meta.updated_at", "updated_at"
+    Not supported: array indexes, wildcards, filters, or quoted JSONPath keys.
+    Only member access is accepted because a cursor must resolve to at most one
+    scalar per record.
+    """
+    path = path.strip()
+
+    if path.startswith("$."):
+        path = path[2:]
+    elif path.startswith("$"):
+        return None
+
+    if not path:
+        return None
+
+    parts = path.split(".")
+    if any(not part or part != part.strip() or any(char in part for char in "$[]*?'\"") for part in parts):
+        return None
+
+    return parts
+
+
+def resolve_incremental_values(table: pa.Table, field_name: str) -> list[Any] | None:
+    """Return the per-row raw cursor values for `field_name`, or None if unresolvable.
+
+    Only the first segment is normalized: top-level columns are normalized by
+    `normalize_table_column_names`, while nested keys keep the source's spelling.
+    """
+    parts = parse_member_path(field_name)
+    if parts is None:
+        return None
+
+    root_name = normalize_column_name(parts[0])
+    if root_name in table.column_names:
+        root_column = table[root_name]
+
+        # Nested columns are JSON-serialized before cursor extraction.
+        if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
+            root_values = root_column.to_pylist()
+            if not root_values:
+                return []  # empty batch -> leave cursor
+
+            values = [_get_json_path_value(value, parts[1:]) for value in root_values]
+            if any(value is not _UNRESOLVED for value in values):
+                return [None if value is _UNRESOLVED else value for value in values]
+
+    # Fallback to a top-level column named after the normalized configured path. This covers
+    # single-segment fields and flattened dotted names when normalization maps dots to
+    # underscores (e.g. "meta.updated_at" -> "meta_updated_at").
+    flat_name = normalize_column_name(".".join(parts))
+    if flat_name in table.column_names:
+        column = table[flat_name]
+        if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
+            return None
+        return column.to_pylist()
+
+    return None
+
+
 def get_incremental_field_value(
-    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
+    schema: ExternalDataSchema | None,
+    table: pa.Table,
+    aggregate: Literal["max"] | Literal["min"] = "max",
 ) -> Any:
     # CDC and xmin schemas track their own cursor (CDC log position, xmin ceiling) outside of
     # sync_type_config["incremental_field"] — that key can be a stale leftover from a prior
@@ -85,21 +175,26 @@ def get_incremental_field_value(
     if incremental_field_name is None:
         return None
 
-    normalized_field_name = normalize_column_name(incremental_field_name)
-    if normalized_field_name not in table.column_names:
+    if aggregate not in ("max", "min"):
+        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+
+    raw_values = resolve_incremental_values(table, incremental_field_name)
+    if raw_values is None:
         raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
 
-    column = table[normalized_field_name]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
+    processed_values = [
+        process_incremental_value(value, schema.incremental_field_type) for value in raw_values if value is not None
+    ]
+    if not processed_values:
+        # Empty batch, or every row null: leave the cursor where it is.
+        return None
+
+    processed_column = pa.array(processed_values)
 
     if aggregate == "max":
         last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
     else:
-        raise Exception(f"Unsupported aggregate function for get_incremental_field_value: {aggregate}")
+        last_value = pc.min(processed_column)
 
     return last_value.as_py()
 
