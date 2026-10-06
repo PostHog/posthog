@@ -178,6 +178,7 @@ class TestPagination:
 
         _rows(_source("test_runs", _make_manager()))
         assert params[0]["$top"] == "1000"
+        assert session.send.call_args.kwargs["timeout"] == (10, 60)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_load_zones_has_no_top_param(self, MockSession: mock.MagicMock) -> None:
@@ -309,6 +310,7 @@ class TestDistributionFanOut:
         # `$top` pages the parent listing only; the distribution endpoint takes no query params.
         assert params[0]["$top"] == "1000"
         assert all(not p for p in params[1:])
+        assert all(call.kwargs["timeout"] == (10, 60) for call in session.send.call_args_list)
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
