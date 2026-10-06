@@ -401,6 +401,7 @@ impl KafkaSink {
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
         min_timestamp_micros: Option<i64>,
+        backfill_days: Option<u32>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -445,6 +446,14 @@ impl KafkaSink {
                         value: Some(&micros.to_string()),
                     });
                 }
+                // A backfill request can carry recent rows, so row age cannot identify it.
+                // The Node consumer reads this header to apply the per-project backfill flag.
+                if let Some(days) = backfill_days {
+                    headers = headers.insert(Header {
+                        key: "backfill_days",
+                        value: Some(&days.to_string()),
+                    });
+                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -484,6 +493,7 @@ impl KafkaSink {
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
+        backfill_days: Option<u32>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -512,6 +522,7 @@ impl KafkaSink {
             Some(records_uncompressed_bytes),
             timestamps_overridden,
             min_kafka_log_row_timestamp_micros(&rows),
+            backfill_days,
         )
         .await?;
 
@@ -543,6 +554,7 @@ impl KafkaSink {
             None,
             timestamps_overridden,
             None,
+            None,
         )
         .await?;
 
@@ -573,6 +585,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
             None,
         )
         .await?;

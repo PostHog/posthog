@@ -493,7 +493,13 @@ pub async fn export_logs_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .write(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+        )
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
