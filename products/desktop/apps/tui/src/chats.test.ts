@@ -26,6 +26,23 @@ function setup({ canReopen = false } = {}) {
       latest_run: { id: "r2" },
     })),
     resumeRunInCloud: vi.fn(async () => ({ id: "r1", status: "queued" })),
+    getIntegrations: vi.fn(async () => [
+      { id: 7, kind: "github" },
+      { id: 8, kind: "slack" },
+    ]),
+    getGithubUserIntegrations: vi.fn(async () => [
+      { id: "mine", installation_id: "i-1" },
+    ]),
+    getGithubRepositoriesPage: vi.fn(async () => ({
+      repositories: ["posthog/posthog"],
+      hasMore: false,
+      total: 1,
+    })),
+    getGithubUserRepositoriesPage: vi.fn(async () => ({
+      repositories: ["me/side-project"],
+      hasMore: false,
+      total: 1,
+    })),
   };
   const sendMessage = vi.fn(async () => {});
   const agentRestarted = vi.fn(
@@ -60,7 +77,6 @@ describe("PiChats", () => {
     expect(api.createTask).toHaveBeenCalledWith({
       description: "Fix the flaky test",
       repository: "posthog/posthog",
-      repositories: ["posthog/posthog"],
       runtime: "pi",
     });
     expect(api.createTaskRun).toHaveBeenCalledWith("t1", {
@@ -76,16 +92,27 @@ describe("PiChats", () => {
 
   it.each([
     [
-      "the repositories picked for it",
+      "several repositories and the team's GitHub integration",
       ["posthog/posthog-js", "posthog/posthog"],
       {
         repository: "posthog/posthog-js",
         repositories: ["posthog/posthog-js", "posthog/posthog"],
+        github_integration: 7,
+      },
+    ],
+    [
+      "the personal GitHub connection a searched repository came from",
+      ["me/side-project", "posthog/posthog"],
+      {
+        repository: "me/side-project",
+        repositories: ["me/side-project", "posthog/posthog"],
+        github_user_integration: "mine",
       },
     ],
     ["no repository when none was picked", [], { repository: undefined }],
   ])("starts a cloud chat with %s", async (_, repositories, expected) => {
     const { api, chats } = setup();
+    await chats.searchRepositories("");
 
     await chats.start("Look into it", [], repositories);
 
