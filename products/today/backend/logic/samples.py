@@ -23,9 +23,6 @@ class SampleSignal:
 class SampleReport:
     id: str
     summary: str
-    actionability: str | None
-    status: str
-    pull_request_url: str | None
     signals: list[SampleSignal]
 
 
@@ -65,11 +62,7 @@ def sample_page_source(sample: SampleReport) -> signals.ReportPageSource:
     return signals.ReportPageSource(
         summary=sample.summary,
         sections=signals.report_sections(sample.summary),
-        status=sample.status,
-        actionability=sample.actionability,
-        already_addressed=False,
-        has_pull_requests=sample.pull_request_url is not None,
-        suggested_prompts=[],
+        action_prompts=[],
         repo_slug=None,
         signals=_sample_signals(sample, datetime.now(UTC)),
     )

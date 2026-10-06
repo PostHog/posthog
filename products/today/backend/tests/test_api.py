@@ -8,15 +8,16 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PersonalAPIKey, User
+from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.models import SignalReport
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
-from products.today.backend.tests.test_report_page import page_source
+from products.today.backend.tests.factories import page_source
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 
@@ -225,3 +226,24 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/page/")
 
         assert response.status_code == expected
+
+    @parameterized.expand([("a deleted report", True, False), ("another team's report", False, True)])
+    def test_report_page_answers_404_for(
+        self, _sync_connect: MagicMock, _name: str, deleted: bool, other: bool
+    ) -> None:
+        team = Team.objects.create(organization=self.organization) if other else self.team
+        report = SignalReport.objects.create(
+            team=team,
+            title="Checkout fails",
+            summary="Checkout fails for some shoppers.",
+            status=SignalReport.Status.DELETED if deleted else SignalReport.Status.READY,
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with (
+            self._flag(True),
+            patch("products.signals.backend.report_page_source.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report.id}/page/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND

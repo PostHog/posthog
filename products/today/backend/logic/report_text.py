@@ -5,18 +5,18 @@ from markdown_it.token import Token
 
 from .formats import GitHubLink, collapsed_whitespace, github_links, is_word_char, replace_iso_dates
 
-_MARKDOWN = MarkdownIt("commonmark")
+MARKDOWN = MarkdownIt("commonmark")
 _TEXT_TOKENS = frozenset({"text", "code_inline", "html_inline"})
 _BREAK_TOKENS = frozenset({"softbreak", "hardbreak"})
 _LINK_OPENERS = frozenset("(<[")
-_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def readable_date(year: int, month: int, day: int, original: str) -> str:
-    if not 1 <= month <= 12 or not 1 <= day <= 31:
+    if year < 1 or not 1 <= month <= 12 or not 1 <= day <= 31:
         return original
     shown = date(year, month, 1) + timedelta(days=day - 1)
-    return f"{shown.day} {_MONTHS[shown.month - 1]}"
+    return f"{shown.day} {MONTHS[shown.month - 1]}"
 
 
 def _is_bare_link(text: str, link: GitHubLink) -> bool:
@@ -46,4 +46,4 @@ def _token_text(token: Token) -> str:
 
 def rendered_text(markdown: str) -> str:
     text = replace_iso_dates(collapsed_whitespace(_shortened_github_links(markdown)), readable_date)
-    return "".join(_token_text(token) for token in _MARKDOWN.parseInline(text))
+    return "".join(_token_text(token) for token in MARKDOWN.parseInline(text))

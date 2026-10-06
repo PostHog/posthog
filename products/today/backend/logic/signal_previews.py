@@ -3,6 +3,8 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from ..facade import contracts
 from .prose import concise_text, paragraphs
 from .signal_text import RECORDING_SOURCES, SignalInput, code_file, detail, github_file_url, slack_thread, text_of
@@ -30,34 +32,49 @@ def _readable(signal: SignalInput, content: str) -> str:
     return " ".join(part for part in (found.lead, found.rest) if part)
 
 
+@frozen
+class _Frame:
+    function: str
+    path: str
+    line: str
+
+
+@frozen
+class _Exception:
+    header: str
+    frames: list[_Frame]
+
+
 def exception_chain(content: str) -> list[contracts.PreviewLine]:
     fenced = _FENCED_BLOCK.search(content)
     trace = fenced.group(1) if fenced else ""
-    exceptions: list[tuple[str, list[tuple[str, str, str]]]] = []
+    exceptions: list[_Exception] = []
     for raw in trace.split("\n"):
         line = raw.strip()
         if not line:
             continue
         frame = _FRAME_LINE.match(line)
         if frame and exceptions:
-            exceptions[-1][1].append((frame.group(1), frame.group(2), frame.group(3)))
+            exceptions[-1].frames.append(_Frame(function=frame.group(1), path=frame.group(2), line=frame.group(3)))
         elif not frame:
-            exceptions.append((line, []))
-    if not any(frames for _, frames in exceptions):
+            exceptions.append(_Exception(header=line, frames=[]))
+    if not any(exception.frames for exception in exceptions):
         return []
     prose = _FENCED_BLOCK.sub("", content, count=1)
     lines: list[contracts.PreviewLine] = []
-    for index, (header, frames) in enumerate(exceptions):
+    for index, exception in enumerate(exceptions):
         if 0 < index < len(exceptions) - _MAX_EXCEPTIONS + 1:
             continue
-        own = [frame for frame in frames if _IN_APP_PATH.match(frame[1])]
-        candidates = own or frames
+        own = [frame for frame in exception.frames if _IN_APP_PATH.match(frame.path)]
+        candidates = own or exception.frames
         shown = candidates[-1] if candidates else None
+        header = exception.header
         if not (index == 0 and header in prose):
             lines.append(contracts.PreviewLine(text=header if index == 0 else f"Caused by {header}", quiet=False))
         if shown:
-            function, path, line_number = shown
-            lines.append(contracts.PreviewLine(text=f"  {path.split('/')[-1]}:{line_number}  {function}", quiet=True))
+            lines.append(
+                contracts.PreviewLine(text=f"  {shown.path.split('/')[-1]}:{shown.line}  {shown.function}", quiet=True)
+            )
     return lines
 
 

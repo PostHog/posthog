@@ -124,20 +124,26 @@ def _paragraph_heading(line: str) -> str | None:
     return heading
 
 
+@frozen
+class _OpenSection:
+    heading: str
+    lines: list[str]
+
+
 def _paragraph_heading_sections(markdown: str) -> _SplitSummary:
     lead_lines: list[str] = []
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[_OpenSection] = []
     current = lead_lines
     for line in markdown.split("\n"):
         heading = _paragraph_heading(line)
         if heading:
-            current = []
-            sections.append((heading, current))
+            sections.append(_OpenSection(heading=heading, lines=[]))
+            current = sections[-1].lines
         else:
             current.append(line)
     return _SplitSummary(
         lead="\n".join(lead_lines).strip(),
-        sections=[_Section(heading=heading, body="\n".join(body).strip()) for heading, body in sections],
+        sections=[_Section(heading=section.heading, body="\n".join(section.lines).strip()) for section in sections],
     )
 
 
