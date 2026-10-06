@@ -3,6 +3,7 @@ import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -133,7 +134,7 @@ class TestActivityLogModel(BaseTest):
         assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
         assert properties["detail"]["name"] == "my flag"
         assert properties.get("detail_truncated", False) is truncated
-        expected_change = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
         if not truncated:
             expected_change.update(before=None, after=after)
         assert [{k: v for k, v in c.items() if k in expected_change} for c in properties["detail"]["changes"]] == [
