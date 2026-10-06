@@ -23,7 +23,7 @@ We welcome contributions. A few quick notes so you know how we operate:
 Before we do a full review, please:
 
 - Ensure that you've run tests locally and resolved any merge conflicts before submitting.
-- Respond to automated review feedback (e.g. PostHog Review comments) where applicable.
+- Respond to automated review feedback (e.g. AI bot review comments) where applicable.
 - Keep the change focused; add tests and docs where it meaningfully improves clarity.
 - Follow existing patterns and conventions in the areas you touch.
 - If AI helped write your contribution, read our [AI contributions policy](AI_POLICY.md) — we expect disclosure and full understanding of the code you submit.
