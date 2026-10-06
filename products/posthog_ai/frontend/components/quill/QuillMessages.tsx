@@ -91,7 +91,6 @@ export interface QuillHumanMessageProps {
     text: string
     startedAt?: number
     attachments?: ThreadItem['attachments']
-    /** Content above the bubble, such as the context the message was sent with. */
     header?: ReactNode
     children?: ReactNode
 }
@@ -135,7 +134,6 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({
 export interface QuillAssistantMessageProps {
     id: string
     content: string
-    /** Content below the prose, such as answer actions. */
     action?: ReactNode
 }
 

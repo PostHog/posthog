@@ -1,9 +1,6 @@
 import type { ReactNode } from 'react'
 
-/**
- * Bounds an activity's opened details. A long command, query or thought then scrolls inside its row and
- * never fills the thread.
- */
+// A long command, query or thought scrolls inside its row instead of filling the thread.
 export const ACTIVITY_DETAILS_BOUND_CLASS = 'max-h-80 overflow-y-auto overscroll-contain'
 
 export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'failed'

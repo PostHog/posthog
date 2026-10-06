@@ -45,7 +45,6 @@ export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
 export type { ThreadSkin } from '../components/quill/quillThreadContext'
 export { ThreadSkinContext, useQuillThread } from '../components/quill/quillThreadContext'
-// Quill chat bubbles, for a thread that renders its own messages under a quill `ThreadSkinContext`.
 export { QuillAssistantMessage, QuillHumanMessage } from '../components/quill/QuillMessages'
 export type { QuillAssistantMessageProps, QuillHumanMessageProps } from '../components/quill/QuillMessages'
 export { useThreadSkin } from '../hooks/useThreadSkin'
