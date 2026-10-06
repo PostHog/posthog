@@ -13,6 +13,8 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -42,6 +44,7 @@ class PriorProgress:
 class TrackEvaluation:
     value: int
     checkpoint: dict[str, object] | None = None
+    complete: bool = True
 
 
 def _week_monday(day: date) -> date:
@@ -123,7 +126,12 @@ INGESTION_LAG = timedelta(hours=1)
 LATE_ARRIVAL_LOOKBACK = timedelta(days=3)
 
 
-def _ingestion_window_expr(since: datetime | None, until: datetime, earliest_timestamp: datetime | None) -> ast.Expr:
+def _ingestion_window_expr(
+    since: datetime | None,
+    until: datetime,
+    earliest_timestamp: datetime | None,
+    latest_timestamp: datetime | None = None,
+) -> ast.Expr:
     exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["created_at"]), right=ast.Constant(value=until)
@@ -141,6 +149,14 @@ def _ingestion_window_expr(since: datetime | None, until: datetime, earliest_tim
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=earliest_timestamp),
+            )
+        )
+    if latest_timestamp is not None:
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=latest_timestamp),
             )
         )
     return ast.And(exprs=exprs)
@@ -167,6 +183,14 @@ def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> Tra
 
 
 CONVERSIONS_LOOKBACK_DAYS = 90
+CONVERSIONS_BOOTSTRAP_CHUNK_DAYS = 7
+
+
+@frozen
+class ConversionBootstrap:
+    next_start: datetime
+    end: datetime
+    created_until: datetime
 
 
 def _action_event_filter_expr(actions: list[Action]) -> ast.Expr:
@@ -204,6 +228,49 @@ def _daily_buckets(checkpoint: dict[str, object], fingerprints: list[list[object
         return None
 
 
+def _conversion_bootstrap_state(checkpoint: dict[str, object]) -> ConversionBootstrap | None:
+    bootstrap = checkpoint.get("bootstrap")
+    if not isinstance(bootstrap, dict):
+        return None
+    next_start = parse_zoned_datetime_string(bootstrap.get("next_start"))
+    end = parse_zoned_datetime_string(bootstrap.get("end"))
+    created_until = parse_zoned_datetime_string(bootstrap.get("created_until"))
+    if next_start is None or end is None or created_until is None or next_start >= end:
+        return None
+    return ConversionBootstrap(next_start=next_start, end=end, created_until=created_until)
+
+
+def _add_conversion_counts(
+    ctx: EvalContext,
+    actions: list[Action],
+    daily: dict[str, list[int]],
+    since: datetime | None,
+    until: datetime,
+    earliest_timestamp: datetime,
+    latest_timestamp: datetime | None = None,
+) -> None:
+    for team in _project_environment_teams(ctx.team):
+        query = parse_select(
+            "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
+            placeholders={
+                "window": _ingestion_window_expr(since, until, earliest_timestamp, latest_timestamp),
+                "events": _action_event_filter_expr(actions),
+                "test": _test_account_filter_expr(team),
+            },
+        )
+        if not isinstance(query, ast.SelectQuery):
+            raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
+        query.select = [
+            query.select[0],
+            *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
+        ]
+        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+        for row in response.results or []:
+            day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
+            for index, value in enumerate(row[1:]):
+                day_counts[index] += int(value or 0)
+
+
 def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
     actions = list(
         Action.objects.filter(team__project_id=ctx.team.project_id, deleted=False)
@@ -220,39 +287,66 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
     fingerprints = _action_fingerprints(actions)
     daily = _daily_buckets(prior.checkpoint, fingerprints)
     since = parse_zoned_datetime_string(prior.checkpoint.get("counted_through"))
-    if daily is None or since is None:
-        daily, since, earliest_timestamp = {}, None, window_start
-    else:
-        earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK)
+    bootstrap = _conversion_bootstrap_state(prior.checkpoint) if daily is not None and since is None else None
+    if daily is None:
+        daily = {}
+    if since is None and bootstrap is None:
+        daily = {}
 
     with achievement_query_scope(ctx.team.id):
-        for team in _project_environment_teams(ctx.team):
-            query = parse_select(
-                "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
-                placeholders={
-                    "window": _ingestion_window_expr(since, until, earliest_timestamp),
-                    "events": _action_event_filter_expr(actions),
-                    "test": _test_account_filter_expr(team),
-                },
+        if bootstrap is None:
+            earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK) if since is not None else window_start
+            try:
+                _add_conversion_counts(ctx, actions, daily, since, until, earliest_timestamp)
+            except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+                if since is not None:
+                    raise
+                daily = {}
+                bootstrap = ConversionBootstrap(
+                    next_start=window_start,
+                    end=window_start + timedelta(days=CONVERSIONS_LOOKBACK_DAYS),
+                    created_until=until,
+                )
+        if bootstrap is not None:
+            next_start, end, created_until = bootstrap.next_start, bootstrap.end, bootstrap.created_until
+            next_start = max(next_start, window_start)
+            if next_start >= end:
+                daily = {}
+                next_start, end, created_until = (
+                    window_start,
+                    window_start + timedelta(days=CONVERSIONS_LOOKBACK_DAYS),
+                    until,
+                )
+            chunk_end = min(next_start + timedelta(days=CONVERSIONS_BOOTSTRAP_CHUNK_DAYS), end)
+            _add_conversion_counts(
+                ctx, actions, daily, None, created_until, next_start, chunk_end if chunk_end < end else None
             )
-            if not isinstance(query, ast.SelectQuery):
-                raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
-            query.select = [
-                query.select[0],
-                *(ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions),
-            ]
-            response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
-            for row in response.results or []:
-                day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
-                for index, value in enumerate(row[1:]):
-                    day_counts[index] += int(value or 0)
+            if chunk_end == end and created_until < until:
+                _add_conversion_counts(
+                    ctx,
+                    actions,
+                    daily,
+                    created_until,
+                    until,
+                    max(window_start, created_until - LATE_ARRIVAL_LOOKBACK),
+                )
 
     oldest_kept_day = window_start.date().isoformat()
     daily = {day: counts for day, counts in daily.items() if day >= oldest_kept_day and any(counts)}
     per_action_totals = [sum(counts[index] for counts in daily.values()) for index in range(len(actions))]
+    checkpoint: dict[str, object] = {"actions": fingerprints, "daily": daily}
+    if bootstrap is not None and chunk_end < end:
+        checkpoint["bootstrap"] = {
+            "next_start": chunk_end.isoformat(),
+            "end": end.isoformat(),
+            "created_until": created_until.isoformat(),
+        }
+    else:
+        checkpoint["counted_through"] = until.isoformat()
     return TrackEvaluation(
         value=max(len(actions), max(per_action_totals, default=0)),
-        checkpoint={"actions": fingerprints, "daily": daily, "counted_through": until.isoformat()},
+        checkpoint=checkpoint,
+        complete="bootstrap" not in checkpoint,
     )
 
 

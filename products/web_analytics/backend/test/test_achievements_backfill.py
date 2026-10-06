@@ -1,7 +1,11 @@
+from datetime import date
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from products.web_analytics.backend.achievements import backfill, tasks
+from products.web_analytics.backend.achievements.definitions import TRACKS, TrackKey
+from products.web_analytics.backend.achievements.evaluators import EvalContext, TrackEvaluation
 from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
 from products.web_analytics.backend.test.achievements_test_utils import make_evaluators, make_incremental_evaluators
 
@@ -43,3 +47,20 @@ class TestBackfill(BaseTest):
         loyal = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(user=self.user, track_key="loyalty")
         self.assertEqual(loyal.current_stage, 1)
         self.assertIsNone(loyal.last_computed_at)
+
+    def test_backfill_keeps_partial_conversion_value_private(self) -> None:
+        checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-09T00:00:00+00:00"}}
+        evaluation = TrackEvaluation(value=1000, checkpoint=checkpoint, complete=False)
+        with patch.object(backfill, "evaluate_track", return_value=evaluation):
+            touched = backfill._backfill_track(
+                EvalContext(team=self.team, user=None, today=date.today(), arm=None),
+                TRACKS[TrackKey.CONVERSIONS],
+            )
+
+        progress = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
+            user__isnull=True, track_key="conversions"
+        )
+        self.assertTrue(touched)
+        self.assertEqual(progress.progress_value, 0)
+        self.assertEqual(progress.current_stage, 0)
+        self.assertEqual(progress.state["checkpoint"], checkpoint)

@@ -61,6 +61,13 @@ def _backfill_track(ctx: EvalContext, track: TrackDefinition) -> bool:
     except Exception:
         logger.warning("wa_achievements_backfill_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         return False
+    if not evaluation.complete:
+        if evaluation.checkpoint is None:
+            return False
+        state = dict(progress.state or {})
+        state["checkpoint"] = evaluation.checkpoint
+        persist_progress(progress, progress.progress_value, progress.current_stage, state, bump_last_computed_at=False)
+        return True
     value = max(evaluation.value, progress.progress_value)
     stage = track.stage_for_value(value, None)
     seeded_at = timezone.now().isoformat()

@@ -251,6 +251,13 @@ def _apply_progress(
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
         ):
             return []
+        if not evaluation.complete:
+            state = dict(progress.state or {})
+            state["checkpoint"] = evaluation.checkpoint
+            persist_progress(
+                progress, progress.progress_value, progress.current_stage, state, bump_last_computed_at=False
+            )
+            return []
         new_value = evaluation.value
         is_cumulative = track.evaluator_key != "streak"
         value = max(new_value, progress.progress_value) if is_cumulative else new_value

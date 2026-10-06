@@ -1,11 +1,16 @@
 from datetime import date, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Element, Team, User
 
 from products.actions.backend.models.action import Action
@@ -146,6 +151,62 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
     def test_conversions_falls_back_to_goal_count_without_conversions(self) -> None:
         self._pay_action("$autocapture")
         self.assertEqual(evaluate_conversions(self._ctx(), EMPTY_PRIOR).value, 1)
+
+    @parameterized.expand(
+        [
+            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307)),
+            ("timeout", ClickHouseQueryTimeOut()),
+        ]
+    )
+    def test_conversions_resume_a_bounded_initial_scan_after_limit(self, _name: str, failure: Exception) -> None:
+        self._pay_action("$autocapture")
+        first_now = timezone.now()
+        old_timestamp = first_now - timedelta(days=10)
+        recent_timestamp = first_now - timedelta(days=2)
+        future_timestamp = first_now + timedelta(days=1)
+        self._pay_click(timestamp=old_timestamp, created_at=old_timestamp)
+        self._pay_click(timestamp=recent_timestamp, created_at=recent_timestamp)
+        self._pay_click(timestamp=future_timestamp, created_at=first_now - timedelta(hours=2))
+        flush_persons_and_events()
+
+        attempts = 0
+
+        def fail_full_window_once(*args: object, **kwargs: object):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise failure
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            patch("products.web_analytics.backend.achievements.evaluators.CONVERSIONS_LOOKBACK_DAYS", 14),
+            patch(
+                "products.web_analytics.backend.achievements.evaluators.execute_hogql_query",
+                side_effect=fail_full_window_once,
+            ),
+        ):
+            with patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=first_now):
+                first = evaluate_conversions(self._ctx(), EMPTY_PRIOR)
+            self.assertEqual(first.value, 1)
+            self.assertFalse(first.complete)
+            assert first.checkpoint is not None
+            self.assertNotIn("counted_through", first.checkpoint)
+
+            self._pay_click(timestamp=first_now - timedelta(hours=2), created_at=first_now)
+            flush_persons_and_events()
+            with patch(
+                "products.web_analytics.backend.achievements.evaluators.timezone.now",
+                return_value=first_now + timedelta(hours=2),
+            ):
+                final = evaluate_conversions(
+                    self._ctx(), PriorProgress(value=first.value, last_computed_at=None, checkpoint=first.checkpoint)
+                )
+
+        self.assertEqual(final.value, 4)
+        self.assertTrue(final.complete)
+        assert final.checkpoint is not None
+        self.assertIn("counted_through", final.checkpoint)
+        self.assertNotIn("bootstrap", final.checkpoint)
 
     @parameterized.expand(
         [
