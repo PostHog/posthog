@@ -5932,6 +5932,8 @@ export interface HogQLQueryApi {
     /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
     filters?: HogQLFiltersApi | null
     kind?: 'HogQLQuery'
+    /** Cap returned rows and probe for hasMore when the execution limit permits it. Overrides the outer SQL LIMIT. */
+    limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
@@ -8379,9 +8381,11 @@ export interface BISortApi {
 }
 
 export interface BITopNApi {
+    /** @minimum 1 */
     count: number
     fieldId: string
     includeOther: boolean
+    /** @minimum 0 */
     measureIndex: number
 }
 

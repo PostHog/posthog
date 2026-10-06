@@ -10,6 +10,7 @@ import {
     NodeKind,
     TableSettings,
 } from './schema-general'
+import { non_negative_integer, positive_integer } from './type-utils'
 
 export interface BIVisualizationNode extends Node<never> {
     kind: NodeKind.BIVisualizationNode
@@ -82,13 +83,13 @@ export interface BITableCalculation {
     /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
     computeUsing?: string
     /** Number of points, including the current point, in a trailing moving average. */
-    window?: number
+    window?: positive_integer
 }
 
 export interface BITopN {
     fieldId: string
-    count: number
-    measureIndex: number
+    count: positive_integer
+    measureIndex: non_negative_integer
     includeOther: boolean
 }
 

@@ -124,10 +124,11 @@ function groupingSets(config: BIConfig, input: BIAnalysisInput): string[][] {
     if (![ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap].includes(config.chartType)) {
         return sets
     }
-    if (config.totals?.rows) {
+    const pivot = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    if (pivot && config.totals?.rows) {
         sets.push(rows)
     }
-    if (config.totals?.columns) {
+    if (pivot && config.totals?.columns) {
         sets.push(columns)
     }
     if (config.totals?.rows || config.totals?.columns) {

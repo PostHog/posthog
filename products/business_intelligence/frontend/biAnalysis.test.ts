@@ -28,6 +28,7 @@ describe('BI analysis queries', () => {
         const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(worksheet))!.config
         expect(parsed.values[0].tableCalculation).toEqual({ type, window: 7 })
         const result = buildBIQuery(parsed)!
+        expect(result.node.source.limit).toBe(worksheet.limit)
         expect(result.query).toContain('OVER (PARTITION BY bi_column_event')
         expect(result.query.match(/LIMIT/g)).toHaveLength(1)
         if (type === 'percent_change' || type === 'percent_of_total') {
@@ -83,6 +84,7 @@ describe('BI analysis queries', () => {
             sort: { key: 'rows:number', direction: 'asc' },
         })!
         expect(result.query).toContain('PARTITION BY bi_grouping = 0')
+        expect(result.query).toContain('GROUPING SETS ((bi_row_number, bi_column_event), ())')
         expect(result.query).toContain('WHERE bi_grouping = 0 OR bi_rank <= 50')
         expect(result.query).toContain('ORDER BY bi_grouping DESC, bi_result.bi_row_number ASC LIMIT 100')
     })

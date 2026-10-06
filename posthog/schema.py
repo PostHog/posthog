@@ -953,16 +953,6 @@ class BIDataSource(BaseModel):
     table: str
 
 
-class BITopN(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count: float
-    fieldId: str
-    includeOther: bool
-    measureIndex: float
-
-
 class BITotals(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5039,10 +5029,20 @@ class BITableCalculation(BaseModel):
         description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
     )
     type: BITableCalculationType
-    window: float | None = Field(
+    window: conint(ge=1) | None = Field(
         default=None,
         description=("Number of points, including the current point, in a trailing moving average."),
     )
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: conint(ge=1)
+    fieldId: str
+    includeOther: bool
+    measureIndex: conint(ge=0)
 
 
 class BIValue(BaseModel):
@@ -30375,6 +30375,13 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
+    limit: conint(ge=1) | None = Field(
+        default=None,
+        description=(
+            "Cap returned rows and probe for hasMore when the execution limit permits"
+            " it. Overrides the outer SQL LIMIT."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str

@@ -1241,6 +1241,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
             source: {
                 kind: NodeKind.HogQLQuery,
                 query,
+                limit: config.limit,
                 connectionId: config.source.connectionId,
                 sendRawQuery: undefined,
                 filters: getBIQueryFilters(config),

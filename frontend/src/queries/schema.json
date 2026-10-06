@@ -6347,8 +6347,8 @@
                     "$ref": "#/definitions/BITableCalculationType"
                 },
                 "window": {
-                    "description": "Number of points, including the current point, in a trailing moving average.",
-                    "type": "number"
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Number of points, including the current point, in a trailing moving average."
                 }
             },
             "required": ["type"],
@@ -6362,7 +6362,7 @@
             "additionalProperties": false,
             "properties": {
                 "count": {
-                    "type": "number"
+                    "$ref": "#/definitions/positive_integer"
                 },
                 "fieldId": {
                     "type": "string"
@@ -6371,7 +6371,7 @@
                     "type": "boolean"
                 },
                 "measureIndex": {
-                    "type": "number"
+                    "$ref": "#/definitions/non_negative_integer"
                 }
             },
             "required": ["fieldId", "count", "measureIndex", "includeOther"],
@@ -29684,6 +29684,10 @@
                 "kind": {
                     "const": "HogQLQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Cap returned rows and probe for hasMore when the execution limit permits it. Overrides the outer SQL LIMIT."
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

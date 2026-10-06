@@ -717,6 +717,8 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
+    /** Cap returned rows and probe for hasMore when the execution limit permits it. Overrides the outer SQL LIMIT. */
+    limit?: positive_integer
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
