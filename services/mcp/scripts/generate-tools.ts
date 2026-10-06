@@ -2665,7 +2665,6 @@ ${spreads}
 
 // Export for testing
 export {
-    assertExclusionsNameRealFields,
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-    assertExclusionsNameRealFields,
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
@@ -2306,22 +2305,22 @@ describe('optional param with state fallback', () => {
     })
 })
 
-describe('assertExclusionsNameRealFields', () => {
-    const resolvedWithBody = makeResolved({
-        method: 'POST',
-        path: '/api/projects/{project_id}/things/',
-        operation: {
-            operationId: 'things_create',
-            parameters: [
-                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
-                { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
-            ],
-            requestBody: {
-                content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } },
+describe('generateCategoryFile exclude_params', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                post: {
+                    operationId: 'things_create',
+                    parameters: [
+                        { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
+                    ],
+                    requestBody: {
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } },
+                    },
+                },
             },
         },
-    })
-    const spec = makeSpec({
         components: {
             schemas: {
                 Thing: {
@@ -2341,18 +2340,33 @@ describe('assertExclusionsNameRealFields', () => {
             },
         },
     })
-    const withExclusions = (exclude_params: string[]): ToolConfig => ({
-        operation: 'things_create',
-        enabled: true,
-        exclude_params,
+
+    function generate(exclude_params: string[]): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: {
+                'things-create': {
+                    operation: 'things_create',
+                    enabled: true,
+                    scopes: ['thing:write'],
+                    annotations: { readOnly: false, destructive: false, idempotent: false },
+                    exclude_params,
+                } as ToolConfig,
+            },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
     })
 
     it.each([['dry_run'], ['secret'], ['steps.*.selector_regex'], ['steps.*.url'], ['inputs.*.bytecode']])(
         'accepts %s, which names a real field',
         (entry) => {
-            expect(() =>
-                assertExclusionsNameRealFields('things-create', withExclusions([entry]), resolvedWithBody, spec)
-            ).not.toThrow()
+            expect(() => generate([entry])).not.toThrow()
         }
     )
 
@@ -2366,9 +2380,16 @@ describe('assertExclusionsNameRealFields', () => {
         ['constructor'],
         ['project_id'],
     ])('rejects %s, which names no field and would leave the intended one exposed', (entry) => {
-        expect(() =>
-            assertExclusionsNameRealFields('things-create', withExclusions(['secret', entry]), resolvedWithBody, spec)
-        ).toThrow(
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate(['secret', entry])).toThrow('exit')
+        expect(errors.join('\n')).toContain(
             `Enabled tool "things-create": exclude_params entry "${entry}" names no query parameter or body field`
         )
     })
