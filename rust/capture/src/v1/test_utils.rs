@@ -184,7 +184,7 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
     let mut cfg: crate::v1::sinks::kafka::config::Config =
         envconfig::Envconfig::init_from_hashmap(&env).unwrap();
     // Mirrors production, where setup injects the deployment-level
-    // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC and CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into every sink config
+    // CAPTURE_OUTPUT_AI_MAIN_TOPIC and CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC into every sink config
     // after env loading.
     cfg.topic_ai = "ai_events".to_string();
     cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
@@ -870,7 +870,10 @@ impl TestStateBuilder {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
