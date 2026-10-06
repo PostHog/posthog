@@ -261,7 +261,7 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
+def compute_skill_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
     """Hash a team's `LLMSkill` row in the same shape as `_compute_canonical_hash` for direct compare."""
     payload = {
         "description": skill.description,
@@ -445,7 +445,7 @@ def _sync_canonicals(
             LLMSkill.objects.filter(pk=live.pk).update(category=category, updated_at=timezone.now())
 
         live_files = list(live.files.all())
-        live_hash = _compute_row_hash(live, live_files)
+        live_hash = compute_skill_row_hash(live, live_files)
         stored_hash = (live.metadata or {}).get("canonical_hash")
 
         if stored_hash is None:
@@ -483,7 +483,7 @@ def _sync_canonicals(
         ).exclude(name__in=canonical_names)
         for row in orphan_rows:
             stored_hash = (row.metadata or {}).get("canonical_hash")
-            if stored_hash is None or _compute_row_hash(row, list(row.files.all())) != stored_hash:
+            if stored_hash is None or compute_skill_row_hash(row, list(row.files.all())) != stored_hash:
                 diverged.append(row.name)
                 continue
             # `updated_at=now` matters: queryset updates bypass auto_now, and the marketplace plugin

@@ -32,7 +32,7 @@ async def test_cancellation_reaches_cursor_and_waits_for_cleanup(deadline_expire
         return 1
 
     with patch.object(execution.asyncio, "timeout", return_value=timeout):
-        task = asyncio.create_task(execution.run_trino_model(execute))
+        task = asyncio.create_task(execution.run_trino_model(execute, query_seconds=60))
         try:
             await asyncio.wait_for(entered.wait(), timeout=10)
             if deadline_expired:
@@ -42,7 +42,10 @@ async def test_cancellation_reaches_cursor_and_waits_for_cleanup(deadline_expire
             await asyncio.wait_for(canceled.wait(), timeout=10)
             assert not task.done()
             cleanup.set()
-            with pytest.raises(TimeoutError if deadline_expired else asyncio.CancelledError):
+            with pytest.raises(
+                TimeoutError if deadline_expired else asyncio.CancelledError,
+                match="Trino model execution exceeded its 1-minute deadline" if deadline_expired else None,
+            ):
                 await task
             cursor.cancel.assert_called()
         finally:
@@ -55,4 +58,4 @@ async def test_cancellation_reaches_cursor_and_waits_for_cleanup(deadline_expire
 
 @pytest.mark.asyncio
 async def test_success_preserves_result() -> None:
-    assert await execution.run_trino_model(lambda control: 42) == 42
+    assert await execution.run_trino_model(lambda control: 42, query_seconds=60) == 42

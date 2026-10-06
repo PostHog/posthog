@@ -38,6 +38,7 @@ from products.tasks.backend.facade.desktop_gateway import (
     DesktopGatewayMintError,
     desktop_gateway_base_url,
     desktop_gateway_configured,
+    desktop_limit_tier,
     desktop_rollout_enabled,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
@@ -239,7 +240,7 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if not desktop_gateway_configured():
             return _disabled("unconfigured")
-        if not desktop_rollout_enabled(organization, team, distinct_id):
+        if not desktop_rollout_enabled(organization, team, distinct_id, user.email):
             return _disabled("not_rolled_out")
 
         try:
@@ -281,7 +282,14 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         plan = posthog_code_plan(team)
         allowed_models = plan_allowed_models(plan)
         try:
-            minted = mint_desktop_gateway_token(team_id=team.id, user=distinct_id, allowed_models=allowed_models)
+            minted = mint_desktop_gateway_token(
+                team_id=team.id,
+                user=distinct_id,
+                allowed_models=allowed_models,
+                limit_tier=desktop_limit_tier(
+                    organization=organization, team=team, distinct_id=distinct_id, email=user.email
+                ),
+            )
         except DesktopGatewayMintError as e:
             if e.rate_limited:
                 # The shared mint ceiling is counted and logged at the mint, so skip the per-session capture.
