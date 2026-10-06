@@ -1,4 +1,5 @@
-import { latestRunPerWorkflow } from './ciExplorerGraph'
+import type { WorkflowJobApi } from '../generated/api.schemas'
+import { buildWorkflows, latestRunPerWorkflow } from './ciExplorerGraph'
 import type { WorkflowRun } from './lifecycle'
 
 function run(overrides: Partial<WorkflowRun>): WorkflowRun {
@@ -47,7 +48,38 @@ describe('ciExplorerGraph', () => {
             [run({ runId: 1, runAttempt: 2, conclusion: 'success' }), run({ runId: 1, conclusion: 'failure' })],
             [[1, 2]],
         ],
+        [
+            'a queued re-run has no start yet and still replaces the attempt before it',
+            [
+                run({ runId: 1, conclusion: 'failure' }),
+                run({ runId: 1, runAttempt: 2, conclusion: null, startedAt: null }),
+            ],
+            [[1, 2]],
+        ],
     ])('latestRunPerWorkflow: %s', (_, runs, expected) => {
         expect(latestRunPerWorkflow(runs).map((r) => [r.runId, r.runAttempt])).toEqual(expected)
     })
+
+    test.each(['failure', 'timed_out', 'startup_failure', 'stale'])(
+        'a matrix with a %s shard beside a passed one is failed',
+        (conclusion) => {
+            const shard = (id: number, shardConclusion: string): WorkflowJobApi =>
+                ({
+                    id,
+                    run_id: 1,
+                    name: `Jest (${id}/2)`,
+                    status: 'completed',
+                    conclusion: shardConclusion,
+                    started_at: '2026-06-01T00:00:00Z',
+                    completed_at: '2026-06-01T00:02:00Z',
+                    duration_seconds: 120,
+                    steps: [],
+                }) as unknown as WorkflowJobApi
+            const [workflow] = buildWorkflows([run({})], {
+                'github_actions:1:1': [shard(1, 'success'), shard(2, conclusion)],
+            })
+
+            expect(workflow.items?.map((item) => item.status)).toEqual(['failure'])
+        }
+    )
 })

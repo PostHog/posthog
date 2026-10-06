@@ -146,7 +146,10 @@ function itemsOf(workflowId: string, jobs: WorkflowJobApi[]): CIExplorerItem[] {
             id,
             name: single ? collapseTemplates(single.name) : group.base,
             kind: jobKind(group.base),
-            status: GROUP_STATUS[group.conclusion],
+            // The group's own rollup does not count every failing conclusion, so a failed shard decides first.
+            status: group.jobs.some((job) => statusOf(job.conclusion) === 'failure')
+                ? 'failure'
+                : GROUP_STATUS[group.conclusion],
             startedAt: Math.min(...group.jobs.map(startOf)),
             endedAt: Math.max(...group.jobs.map(endOf)),
             durationSeconds: single ? single.duration_seconds : elapsedSeconds(group.jobs),
@@ -205,16 +208,24 @@ function workflowKey(run: WorkflowRun): string {
     return `${run.ciEngine ?? ''}:${run.workflowId ?? run.workflow}`
 }
 
+// A queued attempt has no start time yet, so two attempts of one run compare by attempt number. Two runs
+// compare by start time, and a run that has not started is the newer one.
+function isNewerRun(run: WorkflowRun, than: WorkflowRun): boolean {
+    if (run.runId !== null && run.runId === than.runId) {
+        return (run.runAttempt ?? 0) > (than.runAttempt ?? 0)
+    }
+    if (run.startedAt === null || than.startedAt === null) {
+        return run.startedAt === null && than.startedAt !== null
+    }
+    return run.startedAt > than.startedAt
+}
+
 /** A re-run replaces the earlier attempt, as it does on GitHub's checks list. */
 export function latestRunPerWorkflow(runs: WorkflowRun[]): WorkflowRun[] {
     const latest = new Map<string, WorkflowRun>()
     for (const run of runs) {
         const seen = latest.get(workflowKey(run))
-        if (
-            !seen ||
-            (run.startedAt ?? '') > (seen.startedAt ?? '') ||
-            ((run.startedAt ?? '') === (seen.startedAt ?? '') && (run.runAttempt ?? 0) > (seen.runAttempt ?? 0))
-        ) {
+        if (!seen || isNewerRun(run, seen)) {
             latest.set(workflowKey(run), run)
         }
     }

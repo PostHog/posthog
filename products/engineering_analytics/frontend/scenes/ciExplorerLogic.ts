@@ -134,6 +134,7 @@ export interface ciExplorerLogicValues {
     currentView: CIExplorerView
     drawerOpen: boolean
     drawerTab: CIExplorerDrawerTab
+    failedJobRuns: WorkflowRun[]
     failureLogs: CIFailureLogsApi | null
     failureLogsFailed: boolean
     failureLogsLoading: boolean
@@ -300,6 +301,16 @@ export interface ciExplorerLogicActions {
     refresh: () => {
         value: true
     }
+    retryFailedJobs: () => {
+        value: true
+    }
+    setFailedJobRuns: (
+        asked: WorkflowRun[],
+        failed: WorkflowRun[]
+    ) => {
+        asked: WorkflowRun[]
+        failed: WorkflowRun[]
+    }
     setFocus: (
         nodeId: string | null,
         moveCamera?: boolean
@@ -419,10 +430,12 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
         openDrawer: (tab: CIExplorerDrawerTab) => ({ tab }),
         closeDrawer: true,
         toggleJobTime: true,
+        setFailedJobRuns: (asked: WorkflowRun[], failed: WorkflowRun[]) => ({ asked, failed }),
+        retryFailedJobs: true,
         refresh: true,
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         lifecycle: [
             null as PRLifecycleApi | null,
             {
@@ -460,22 +473,30 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
             {} as Record<string, WorkflowJobApi[]>,
             {
                 loadJobs: async (runs: WorkflowRun[]): Promise<Record<string, WorkflowJobApi[]>> => {
+                    const failed: WorkflowRun[] = []
                     const loaded = await Promise.all(
                         runs.map(async (run): Promise<[string, WorkflowJobApi[]] | null> => {
                             const cacheKey = runJobsKey(run)
                             if (cacheKey === null || run.runId === null) {
                                 return null
                             }
-                            const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
-                                run_id: run.runId,
-                                ci_engine: run.ciEngine ?? undefined,
-                                run_attempt: run.runAttempt ?? undefined,
-                                source_id: props.sourceId ?? undefined,
-                                repo: `${props.repoOwner}/${props.repoName}`,
-                            })
-                            return [cacheKey, jobs]
+                            // One run that cannot be read must not hide the jobs of the others.
+                            try {
+                                const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
+                                    run_id: run.runId,
+                                    ci_engine: run.ciEngine ?? undefined,
+                                    run_attempt: run.runAttempt ?? undefined,
+                                    source_id: props.sourceId ?? undefined,
+                                    repo: `${props.repoOwner}/${props.repoName}`,
+                                })
+                                return [cacheKey, jobs]
+                            } catch {
+                                failed.push(run)
+                                return null
+                            }
                         })
                     )
+                    actions.setFailedJobRuns(runs, failed)
                     // Read after the await, so two pushes loading at once do not overwrite each other.
                     return { ...values.jobsByRun, ...Object.fromEntries(loaded.filter((entry) => entry !== null)) }
                 },
@@ -515,15 +536,33 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
             {
                 loadLayouts: async (workflows: CIExplorerWorkflow[]): Promise<Record<string, CIExplorerLayout>> => {
                     const elk = await getElk()
+                    const focus = values.focusedNodeId
                     const placed = await Promise.all(
-                        workflows.map(
-                            async (workflow): Promise<[string, CIExplorerLayout]> => [
-                                workflow.id,
-                                await layoutWorkflow(elk, workflow, values.focusedNodeId, values.focusedBadgedSteps),
-                            ]
-                        )
+                        workflows.map(async (workflow): Promise<[string, CIExplorerLayout] | null> => {
+                            // One graph that cannot be placed must not hide the others.
+                            try {
+                                return [
+                                    workflow.id,
+                                    await layoutWorkflow(elk, workflow, focus, values.focusedBadgedSteps),
+                                ]
+                            } catch {
+                                return null
+                            }
+                        })
                     )
-                    return { ...values.layouts, ...Object.fromEntries(placed) }
+                    // A layout is sized for the focus it started with. When the focus moved meanwhile, the
+                    // workflows that held either focus are placed again by the newer request, and this result
+                    // must not overwrite that one.
+                    const moved = values.focusedNodeId
+                    const stale = (id: string): boolean =>
+                        moved !== focus &&
+                        [focus, moved].some((node) => node !== null && `${node}/`.startsWith(`${id}/`))
+                    return {
+                        ...values.layouts,
+                        ...Object.fromEntries(
+                            placed.filter((entry) => entry !== null && !stale(entry[0])) as [string, CIExplorerLayout][]
+                        ),
+                    }
                 },
             },
         ],
@@ -571,6 +610,16 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
         drawerTab: ['details' as CIExplorerDrawerTab, { persist: true }, { openDrawer: (_, { tab }) => tab }],
         // The share of job time is shown on request, so the page opens on the canvas.
         jobTimeOpen: [false, { persist: true }, { toggleJobTime: (open) => !open }],
+        // The runs whose jobs could not be read. A run leaves the list when a later request for it succeeds.
+        failedJobRuns: [
+            [] as WorkflowRun[],
+            {
+                setFailedJobRuns: (state, { asked, failed }) => {
+                    const askedKeys = new Set(asked.map(runJobsKey))
+                    return [...state.filter((run) => !askedKeys.has(runJobsKey(run))), ...failed]
+                },
+            },
+        ],
         loadFailed: [
             false,
             {
@@ -728,7 +777,11 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 failureLogs: CIFailureLogsApi | null
             ): CIJobFailureLogApi | null =>
                 failureLogs?.jobs.find(
-                    (log) => log.job_id === focusedJob?.job.id && log.run_id === focusedJob?.job.run_id
+                    (log) =>
+                        log.job_id === focusedJob?.job.id &&
+                        log.run_id === focusedJob?.job.run_id &&
+                        // Two CI engines can reuse a run id and a job id.
+                        (log.ci_engine ?? null) === (focusedJob?.job.ci_engine ?? null)
                 ) ?? null,
         ],
         pushDurationSeconds: [
@@ -865,6 +918,11 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 const failed = values.pushes.some((push) => push.runs.some((run) => isDecisiveFailure(run.conclusion)))
                 if (failed && (values.failureLogs === null || selectors.refreshing(previousState))) {
                     actions.loadFailureLogs()
+                }
+            },
+            retryFailedJobs: () => {
+                if (values.failedJobRuns.length) {
+                    actions.loadJobs(values.failedJobRuns)
                 }
             },
             refresh: () => {

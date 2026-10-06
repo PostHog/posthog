@@ -34,9 +34,23 @@ const STATUS_LABEL: Record<string, string> = {
 const LEVELS_SHOWN = 3
 const EXCERPT_LINES = 12
 
-/** One word for how a run, job, or step ended. A null conclusion means it has not ended. */
-export function statusLabel(conclusion: string | null | undefined): string {
-    return conclusion ? (STATUS_LABEL[conclusion] ?? conclusion) : 'Running'
+// Raw statuses of a job or step that has not started.
+const NOT_STARTED = new Set(['queued', 'waiting', 'pending', 'requested'])
+
+/**
+ * One word for how a run, job, or step ended. With no conclusion it has not ended, and the raw status tells
+ * a queued one from a running one.
+ */
+export function statusLabel(conclusion: string | null | undefined, status?: string | null): string {
+    if (conclusion) {
+        return STATUS_LABEL[conclusion] ?? conclusion
+    }
+    return status && NOT_STARTED.has(status) ? 'Queued' : 'Running'
+}
+
+/** A duration, or the status word of what has no duration yet. */
+export function elapsedLabel(seconds: number | null, status?: string | null): string {
+    return seconds === null ? statusLabel(null, status) : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
 /** The CI provider that ran the workflow. The runner hardware is a separate fact. */
@@ -121,8 +135,8 @@ function jobTip(name: string, job: WorkflowJobApi, kind: CIJobKind, containerSec
             : ''
     const rows: [string, string][] = [
         ['Kind', KIND_NAME[kind]],
-        ['Status', statusLabel(job.conclusion)],
-        ['Elapsed', duration(job.duration_seconds) + ofContainer],
+        ['Status', statusLabel(job.conclusion, job.status)],
+        ['Elapsed', elapsedLabel(job.duration_seconds, job.status) + ofContainer],
         ['Provider', providerName(job.ci_engine)],
         ['Runner', job.runner_label || 'Unknown'],
         ...costRow([job]),
