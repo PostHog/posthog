@@ -10721,6 +10721,9 @@ export namespace Schemas {
     export interface BIConfig {
       chartType: ChartDisplayType;
       columns: BIField[];
+      /** Column that receives the worksheet and dashboard date range. */
+      dateField?: BIField | null;
+      dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
       rows: BIField[];
