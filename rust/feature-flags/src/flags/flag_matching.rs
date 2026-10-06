@@ -1792,9 +1792,15 @@ impl FeatureFlagMatcher {
         // the flag.
         let mut group_lookup_error: Option<Arc<FlagError>> = None;
         let mut group_lookup_skip_can_exit_early = false;
+        // The handler copies every request group key into the overrides as `$group_key`, also an
+        // unusable one. An override map with only an unusable `$group_key` therefore names no group.
         let request_has_group_context = self.request_has_usable_group_key()
-            || group_property_overrides
-                .is_some_and(|overrides| overrides.values().any(|props| !props.is_empty()));
+            || group_property_overrides.is_some_and(|overrides| {
+                overrides
+                    .values()
+                    .flatten()
+                    .any(|(key, value)| key != "$group_key" || is_usable_group_key(value))
+            });
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level

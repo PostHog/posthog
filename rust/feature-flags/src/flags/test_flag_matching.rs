@@ -2280,7 +2280,7 @@ mod tests {
     /// was added. Group-property DB prep is deliberately never run, so
     /// `group_properties_pending(0)` holds unless the caller marks the index fetched.
     async fn group_matcher_without_group_prep(
-        with_group_key: bool,
+        organization_key: Option<serde_json::Value>,
         mapping_knows_organization: bool,
     ) -> (TestContext, FeatureFlagMatcher) {
         let context = TestContext::new(None).await;
@@ -2290,8 +2290,7 @@ mod tests {
             None,
         ));
         let organization_at_zero = HashMap::from([("organization".to_string(), 0)]);
-        let groups =
-            with_group_key.then(|| HashMap::from([("organization".to_string(), json!("acme"))]));
+        let groups = organization_key.map(|key| HashMap::from([("organization".to_string(), key)]));
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             None,
@@ -2395,8 +2394,11 @@ mod tests {
         #[case] expected_match: bool,
         #[case] scenario: &str,
     ) {
-        let (_context, mut matcher) =
-            group_matcher_without_group_prep(with_group_key, mapping_knows_organization).await;
+        let (_context, mut matcher) = group_matcher_without_group_prep(
+            with_group_key.then(|| json!("acme")),
+            mapping_knows_organization,
+        )
+        .await;
         let flag = mock!(FeatureFlag);
         if mark_fetched {
             matcher
@@ -2781,7 +2783,7 @@ mod tests {
             HashSet::from([0, 4])
         );
 
-        let (_context, matcher) = group_matcher_without_group_prep(true, true).await;
+        let (_context, matcher) = group_matcher_without_group_prep(Some(json!("acme")), true).await;
         let industry = HashMap::from([("industry".to_string(), json!("tech"))]);
         let overrides = Some(HashMap::from([(
             "organization".to_string(),
@@ -10866,6 +10868,7 @@ mod tests {
     #[derive(Debug, Clone, Copy)]
     enum RequestGroupContext {
         GroupKey,
+        UnusableGroupKey,
         PropertyOverrideOnly,
         Nothing,
     }
@@ -10901,6 +10904,11 @@ mod tests {
         RequestGroupContext::Nothing,
         Some((true, Some(0)))
     )]
+    #[case::unusable_group_key_matches_is_not(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::UnusableGroupKey,
+        Some((true, Some(0)))
+    )]
     #[case::later_person_match_settles_true(
         vec![organization_rollout_condition(), person_rollout_condition(100.0)],
         RequestGroupContext::GroupKey,
@@ -10928,18 +10936,26 @@ mod tests {
         #[case] request_groups: RequestGroupContext,
         #[case] expected_match: Option<(bool, Option<usize>)>,
     ) {
-        let (_context, mut matcher) = group_matcher_without_group_prep(
-            matches!(request_groups, RequestGroupContext::GroupKey),
-            true,
-        )
-        .await;
-        let group_property_overrides =
-            matches!(request_groups, RequestGroupContext::PropertyOverrideOnly).then(|| {
-                HashMap::from([(
-                    "organization".to_string(),
-                    HashMap::from([("tier".to_string(), json!("enterprise"))]),
-                )])
-            });
+        let organization_key = match request_groups {
+            RequestGroupContext::GroupKey => Some(json!("acme")),
+            RequestGroupContext::UnusableGroupKey => Some(json!("")),
+            RequestGroupContext::PropertyOverrideOnly | RequestGroupContext::Nothing => None,
+        };
+        let (_context, mut matcher) =
+            group_matcher_without_group_prep(organization_key.clone(), true).await;
+        let group_property_overrides = match request_groups {
+            RequestGroupContext::PropertyOverrideOnly => Some(HashMap::from([(
+                "organization".to_string(),
+                HashMap::from([("tier".to_string(), json!("enterprise"))]),
+            )])),
+            RequestGroupContext::UnusableGroupKey => {
+                crate::handler::properties::get_group_property_overrides(
+                    organization_key.map(|key| HashMap::from([("organization".to_string(), key)])),
+                    None,
+                )
+            }
+            RequestGroupContext::GroupKey | RequestGroupContext::Nothing => None,
+        };
         matcher.set_group_type_mapping_failed_for_test(FlagError::DatabaseUnavailable);
         let flag = mock!(FeatureFlag,
             filters: FlagFilters {
