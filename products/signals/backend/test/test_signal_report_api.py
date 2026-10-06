@@ -731,6 +731,7 @@ class TestSignalReportListAPI(APIBaseTest):
         scores: dict[str, float] | None = None,
         heads: list[dict] | None = None,
         lifts: dict[str, float] | None = None,
+        embedding_inserted_at: datetime | None = None,
     ) -> SignalReportArtefact:
         served = RankingModelResult(
             model_name="report_embeddings",
@@ -755,6 +756,7 @@ class TestSignalReportListAPI(APIBaseTest):
         if content is None:
             content = RankingScore(
                 scored_at=datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+                embedding_inserted_at=embedding_inserted_at,
                 manifest_version="manifest",
                 served_key=served.key,
                 results={served.key: served, challenger.key: challenger},
@@ -780,6 +782,7 @@ class TestSignalReportListAPI(APIBaseTest):
                     "scores": {"open": 0.5, "merged": 0.2},
                     "lifts": {"open": 2.5},
                     "readable_heads": ["open"],
+                    "stale": False,
                 },
             ),
             (
@@ -800,6 +803,7 @@ class TestSignalReportListAPI(APIBaseTest):
                     "scores": {"open": 0.5, "merged": 0.2},
                     "lifts": {"open": 2.0},
                     "readable_heads": ["open"],
+                    "stale": False,
                 },
             ),
             ("non_staff_sees_nothing", False, None, None, None, None),
@@ -825,6 +829,52 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["ranking"] == expected
+
+    @parameterized.expand(
+        [
+            ("edit_before_the_scored_vector", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 10, False),
+            ("edit_after_the_vector_before_scored_at", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 11, True),
+            ("edit_after_scored_at_without_a_vector_time", None, 13, True),
+            ("edit_before_scored_at_without_a_vector_time", None, 11, False),
+        ]
+    )
+    def test_ranking_score_is_stale_after_a_newer_edit(self, _name, embedding_inserted_at, edit_hour, expected_stale):
+        self.user.is_staff = True
+        self.user.save()
+        edited = self._create_report(title="Edited")
+        other = self._create_report(title="Other")
+        self._ranking_score_artefact(edited, scores={"open": 0.9}, embedding_inserted_at=embedding_inserted_at)
+        self._ranking_score_artefact(other, scores={"open": 0.1})
+        older_edit = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=edited,
+            type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+            content=json.dumps({"old_summary": "a", "new_summary": "b"}),
+        )
+        latest_edit = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=edited,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "Edited"}),
+        )
+        SignalReportArtefact.objects.filter(pk=older_edit.pk).update(created_at=datetime(2026, 9, 20, 9, 0, tzinfo=UTC))
+        SignalReportArtefact.objects.filter(pk=latest_edit.pk).update(
+            created_at=datetime(2026, 9, 20, edit_hour, 30, tzinfo=UTC)
+        )
+
+        list_response = self.client.get(self._list_url(status="ready", ordering="-ranking_open,status,-updated_at"))
+        assert list_response.status_code == status.HTTP_200_OK
+        rows = list_response.json()["results"]
+        by_id = {row["id"]: row for row in rows}
+        assert by_id[str(edited.id)]["ranking"]["stale"] is expected_stale
+        assert by_id[str(other.id)]["ranking"]["stale"] is False
+        ids = [row["id"] for row in rows]
+        expected_order = [str(other.id), str(edited.id)] if expected_stale else [str(edited.id), str(other.id)]
+        assert ids == expected_order
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["stale"] is expected_stale
 
     @parameterized.expand([("staff", True, ["ranking_score"]), ("non_staff", False, [])])
     def test_artefact_routes_show_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
