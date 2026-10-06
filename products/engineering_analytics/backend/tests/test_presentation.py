@@ -233,6 +233,9 @@ def _workflow_job() -> contracts.WorkflowJob:
     )
 
 
+_TIMING_PARAMS = {"repo": "PostHog/posthog", "ci_engine": "github_actions", "run_id": "9100", "run_attempt": "1"}
+
+
 class TestEngineeringAnalyticsAPI(APIBaseTest):
     @classmethod
     def setUpTestData(cls) -> None:
@@ -621,6 +624,23 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("job_log_insights_job_id_missing", "job_log_insights", {"repo": "PostHog/posthog", "run_id": "9100"}),
+            ("ci_data_freshness_repo_missing", "ci_data_freshness", {}),
+            ("ci_timing_context_job_without_job_ids", "ci_timing_context", {**_TIMING_PARAMS, "kind": "job"}),
+            (
+                "ci_timing_context_job_with_two_job_ids",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "job", "job_ids": "1,2"},
+            ),
+            (
+                "ci_timing_context_step_without_step_number",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "step", "job_ids": "1"},
+            ),
+            (
+                "ci_timing_context_run_attempt_zero",
+                "ci_timing_context",
+                {**_TIMING_PARAMS, "kind": "workflow", "run_attempt": "0"},
+            ),
             ("pr_lifecycle_pr_number_invalid", "pr_lifecycle", {"pr_number": "not-a-number"}),
             # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
             ("pr_lifecycle_repo_missing", "pr_lifecycle", {"pr_number": "10"}),

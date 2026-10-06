@@ -119,6 +119,11 @@ def _synthetic_repo_id(full_name: str) -> int:
     return zlib.crc32(full_name.encode())
 
 
+def _synthetic_event(head_branch: str) -> str:
+    pushed = head_branch in ("master", "main") or head_branch.startswith("trunk-merge/")
+    return "push" if pushed else "pull_request"
+
+
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
@@ -135,6 +140,10 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
     return {
         # .get() tolerates a pre-existing fixture captured before run_attempt / pull_requests were added.
         **{key: run.get(key) for key in scalar_keys},
+        # The fixture snapshot and the synthetic rows carry no workflow id or trigger event. A real run of
+        # a branch push is a 'push', and a merge queue pushes its gate branches too.
+        "workflow_id": run.get("workflow_id") or zlib.crc32(str(run.get("name") or "").encode()),
+        "event": run.get("event") or _synthetic_event(str(run.get("head_branch") or "")),
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),

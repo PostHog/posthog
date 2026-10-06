@@ -45,11 +45,12 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
+from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
+    resolve_ci_data_freshness,
     resolve_depot_job_attempts_tables,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
@@ -281,6 +282,13 @@ class CuratedGitHubSource:
             self._depot_job_attempts(),
             self._tables.pull_requests,
             self._tables.workflow_jobs,
+            optional_columns=self._tables.workflow_runs_optional_columns,
+        )
+
+    def ci_data_freshness(self) -> CIDataFreshness:
+        """When the runs and jobs this handle reads were last synced from their sources."""
+        return resolve_ci_data_freshness(
+            team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
 
     def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:

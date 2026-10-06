@@ -393,6 +393,19 @@ export interface CICardSummaryApi {
     failing_ci: number
 }
 
+export interface CIDataFreshnessApi {
+    /**
+     * When the last completed sync of the stored workflow runs started. Every stored run is at least this fresh. The older of the GitHub and Depot CI times when the repository syncs both. Null when a runs table has never synced.
+     * @nullable
+     */
+    runs_synced_at: string | null
+    /**
+     * The same time for the stored workflow jobs. Null when jobs are not synced.
+     * @nullable
+     */
+    jobs_synced_at: string | null
+}
+
 export interface CIFailureLogLineApi {
     /**
      * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
@@ -440,6 +453,139 @@ export interface CIFailureLogsApi {
     logs_available: boolean
     /** True when the overall line cap across all jobs was hit. */
     truncated: boolean
+}
+
+/**
+ * * `workflow_id` - Workflow id
+ * * `workflow_name` - Workflow name
+ */
+export type CITimingIdentityEnumApi = (typeof CITimingIdentityEnumApi)[keyof typeof CITimingIdentityEnumApi]
+
+export const CITimingIdentityEnumApi = {
+    WorkflowId: 'workflow_id',
+    WorkflowName: 'workflow_name',
+} as const
+
+/**
+ * * `default_branch_unknown` - Default branch unknown
+ * * `jobs_not_synced` - Jobs not synced
+ * * `not_executed` - Not executed
+ */
+export type CITimingUnavailableReasonEnumApi =
+    (typeof CITimingUnavailableReasonEnumApi)[keyof typeof CITimingUnavailableReasonEnumApi]
+
+export const CITimingUnavailableReasonEnumApi = {
+    DefaultBranchUnknown: 'default_branch_unknown',
+    JobsNotSynced: 'jobs_not_synced',
+    NotExecuted: 'not_executed',
+} as const
+
+/**
+ * * `success` - Success
+ * * `failure` - Failure
+ */
+export type CITimingSampleStatusEnumApi = (typeof CITimingSampleStatusEnumApi)[keyof typeof CITimingSampleStatusEnumApi]
+
+export const CITimingSampleStatusEnumApi = {
+    Success: 'success',
+    Failure: 'failure',
+} as const
+
+export interface CITimingSampleApi {
+    /** CI engine that ran the sampled run.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine: CIEngineEnumApi
+    /** 'success' when every matched job succeeded, or the matched step did. Otherwise 'failure'.
+     *
+     * * `success` - Success
+     * * `failure` - Failure */
+    status: CITimingSampleStatusEnumApi
+    /** Integer run id of the sampled run; unique only together with ci_engine. */
+    run_id: number
+    /** Run attempt the sample was taken from, which is the run's latest. */
+    run_attempt: number
+    /**
+     * Job id of the matched job. Null for a workflow or matrix sample, which spans jobs.
+     * @nullable
+     */
+    job_id: number | null
+    /**
+     * Number of the matched step in the sampled job. Steps match by name, so it can differ from the selected step's number. Null unless kind is 'step'.
+     * @nullable
+     */
+    step_number: number | null
+    /**
+     * Source-native run id; use with ci_engine to link to the run.
+     * @nullable
+     */
+    native_run_id: string | null
+    /**
+     * Source-native workflow run id; use with ci_engine to link to the run.
+     * @nullable
+     */
+    native_workflow_run_id: string | null
+    /**
+     * Source-native job id of the matched job. Null for a workflow or matrix sample.
+     * @nullable
+     */
+    native_job_id: string | null
+    /**
+     * Source-native job attempt id of the matched job. Null for a workflow or matrix sample.
+     * @nullable
+     */
+    native_attempt_id: string | null
+    /** For a workflow, matrix or job: seconds from the first matched job's start to the last one's end. For a step: the step's own duration. */
+    duration_seconds: number
+    /** When the last matched job finished. */
+    completed_at: string
+    /** Commit SHA the sampled run ran on. */
+    head_sha: string
+}
+
+export interface CITimingContextApi {
+    /** How runs of the same workflow were found: by 'workflow_id', which a rename keeps, or by 'workflow_name' when the run has no workflow id.
+     *
+     * * `workflow_id` - Workflow id
+     * * `workflow_name` - Workflow name */
+    identity: CITimingIdentityEnumApi
+    /** Why no comparison was made: 'default_branch_unknown' (no synced pull request names the repository's default branch), 'jobs_not_synced', or 'not_executed' (every selected job was skipped, so there is no duration to compare). Null when the comparison ran, even if it found no samples.
+     *
+     * * `default_branch_unknown` - Default branch unknown
+     * * `jobs_not_synced` - Jobs not synced
+     * * `not_executed` - Not executed */
+    unavailable_reason: CITimingUnavailableReasonEnumApi | null
+    /** The newest matched samples of any status, newest first. At most three. */
+    recent: CITimingSampleApi[]
+    /**
+     * The repository's default branch, which the samples ran on. Null when unknown.
+     * @nullable
+     */
+    default_branch: string | null
+    /** How many days back the comparison looks. */
+    window_days: number
+    /** How many default-branch runs of the workflow were checked for a match. */
+    runs_scanned: number
+    /** True when the window held more eligible runs than were checked, so the figures cover the newest runs only. */
+    sampled: boolean
+    /** How many checked runs matched the selection and succeeded. */
+    sample_count: number
+    /**
+     * Mean duration of the successful samples, in seconds. Null when there are none. A run counts only when it ran the same jobs on the same runners, so a null means no comparable run.
+     * @nullable
+     */
+    average_seconds: number | null
+    /**
+     * When the last completed sync of the stored workflow runs started. Null when unknown.
+     * @nullable
+     */
+    runs_synced_at: string | null
+    /**
+     * When the last completed sync of the stored workflow jobs started. Null when unknown.
+     * @nullable
+     */
+    jobs_synced_at: string | null
 }
 
 export interface CurrentBranchHealthApi {
@@ -1296,6 +1442,16 @@ export interface WorkflowRunDetailApi {
      * @nullable
      */
     native_workflow_run_id?: string | null
+    /**
+     * GitHub's numeric id of the workflow. It stays the same when the workflow is renamed, so use it to follow one workflow over time. Null for a Depot CI run, and for a run whose source does not carry the id.
+     * @nullable
+     */
+    workflow_id?: number | null
+    /**
+     * Event that triggered the run, such as 'push', 'pull_request' or 'schedule'. Null when unknown, as for a Depot CI run.
+     * @nullable
+     */
+    event?: string | null
 }
 
 export interface PullRequestFrictionBreakdownApi {
@@ -2536,6 +2692,18 @@ export type EngineeringAnalyticsCiCardsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsCiDataFreshnessParams = {
+    /**
+     * 'owner/name' repository to report on.
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsCiFailureLogsParams = {
     /**
      * Pull request number whose CI failure logs to fetch.
@@ -2550,6 +2718,72 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsCiTimingContextParams = {
+    /**
+     * CI engine that ran the run.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     * @minLength 1
+     */
+    ci_engine: EngineeringAnalyticsCiTimingContextCiEngine
+    /**
+     * Comma-separated job ids from workflow_jobs, at most 200. Required for 'matrix', 'job' and 'step'. Give exactly one id for 'job' and 'step'. Ignored for 'workflow'.
+     * @minLength 1
+     */
+    job_ids?: string
+    /**
+     * What to compare: the whole 'workflow', a 'matrix' (several jobs of the run), one 'job', or one 'step' of a job.
+     *
+     * * `workflow` - Workflow
+     * * `matrix` - Matrix
+     * * `job` - Job
+     * * `step` - Step
+     * @minLength 1
+     */
+    kind: EngineeringAnalyticsCiTimingContextKind
+    /**
+     * 'owner/name' repository the run belongs to.
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Run attempt that holds the selection.
+     * @minimum 1
+     */
+    run_attempt: number
+    /**
+     * Integer run id of the run that holds the selection.
+     */
+    run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the source connected for `repo`.
+     */
+    source_id?: string
+    /**
+     * Number of the step within the job. Required when kind is 'step'.
+     */
+    step_number?: number
+}
+
+export type EngineeringAnalyticsCiTimingContextCiEngine =
+    (typeof EngineeringAnalyticsCiTimingContextCiEngine)[keyof typeof EngineeringAnalyticsCiTimingContextCiEngine]
+
+export const EngineeringAnalyticsCiTimingContextCiEngine = {
+    GithubActions: 'github_actions',
+    DepotCi: 'depot_ci',
+} as const
+
+export type EngineeringAnalyticsCiTimingContextKind =
+    (typeof EngineeringAnalyticsCiTimingContextKind)[keyof typeof EngineeringAnalyticsCiTimingContextKind]
+
+export const EngineeringAnalyticsCiTimingContextKind = {
+    Workflow: 'workflow',
+    Matrix: 'matrix',
+    Job: 'job',
+    Step: 'step',
+} as const
 
 export type EngineeringAnalyticsCurrentBranchHealthParams = {
     /**

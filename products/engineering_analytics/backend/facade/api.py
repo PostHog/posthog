@@ -30,10 +30,13 @@ from products.engineering_analytics.backend.facade.contracts import (
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
+    CIDataFreshness,
     CIEngine,
     CIFailureLogs,
     CISignalsConfig,
     CITestRunner,
+    CITimingContext,
+    CITimingKind,
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
@@ -68,6 +71,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -438,6 +442,41 @@ def get_job_log_insights(
         run_id=run_id,
         job_id=job_id,
         ci_engine=ci_engine,
+    )
+
+
+def get_ci_data_freshness(
+    *,
+    team: Team,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIDataFreshness:
+    return logic.build_ci_data_freshness(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
+def get_ci_timing_context(
+    *,
+    team: Team,
+    repo: str,
+    ci_engine: CIEngine,
+    run_id: int,
+    run_attempt: int,
+    kind: CITimingKind,
+    job_ids: "Sequence[int]" = (),
+    step_number: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CITimingContext:
+    return logic.build_ci_timing_context(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
+        ci_engine=ci_engine,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        kind=kind,
+        job_ids=job_ids,
+        step_number=step_number,
     )
 
 

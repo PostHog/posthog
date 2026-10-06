@@ -395,6 +395,11 @@ class WorkflowRunDetail:
     ci_engine: CIEngine | None = None
     native_run_id: str | None = None
     native_workflow_run_id: str | None = None
+    # GitHub's numeric workflow id, which a rename of the workflow keeps. None for a Depot CI run and
+    # for a run whose source table does not carry the id.
+    workflow_id: int | None = None
+    # The event that triggered the run ('push', 'pull_request', 'schedule', ...). None when unknown.
+    event: str | None = None
 
 
 @dataclass(frozen=True)
@@ -526,6 +531,90 @@ class JobLogInsights:
     attributed_to_steps: bool
     job: list[JobLogBadge]
     steps: list[JobStepLogBadges]
+
+
+@dataclass(frozen=True)
+class CIDataFreshness:
+    """When the stored CI data was last synced from its source.
+
+    Each time is when the last completed sync of the table started, so every stored row is at least
+    that fresh. For a repository that also syncs Depot CI, it is the older of the GitHub and the Depot
+    time. None when a table never synced, or when the jobs table is not synced at all.
+    """
+
+    runs_synced_at: datetime | None
+    jobs_synced_at: datetime | None
+
+
+# A matrix selection names its jobs one by one, and the largest matrices hold fewer jobs than this.
+CI_TIMING_MAX_JOB_IDS = 200
+
+
+class CITimingKind(LabeledStrEnum):
+    WORKFLOW = "workflow", "Workflow"
+    MATRIX = "matrix", "Matrix"
+    JOB = "job", "Job"
+    STEP = "step", "Step"
+
+
+class CITimingIdentity(LabeledStrEnum):
+    WORKFLOW_ID = "workflow_id", "Workflow id"
+    WORKFLOW_NAME = "workflow_name", "Workflow name"
+
+
+class CITimingSampleStatus(LabeledStrEnum):
+    SUCCESS = "success", "Success"
+    FAILURE = "failure", "Failure"
+
+
+class CITimingUnavailableReason(LabeledStrEnum):
+    DEFAULT_BRANCH_UNKNOWN = "default_branch_unknown", "Default branch unknown"
+    JOBS_NOT_SYNCED = "jobs_not_synced", "Jobs not synced"
+    NOT_EXECUTED = "not_executed", "Not executed"
+
+
+@dataclass(frozen=True)
+class CITimingSample:
+    """One default-branch run that ran the same work as the selection, and how long that work took."""
+
+    run_id: int
+    run_attempt: int
+    # None for a workflow or matrix selection, which spans several jobs.
+    job_id: int | None
+    # None unless the selection is a step. Steps match by name, so this can differ from the selected number.
+    step_number: int | None
+    ci_engine: CIEngine
+    native_run_id: str | None
+    native_workflow_run_id: str | None
+    native_job_id: str | None
+    native_attempt_id: str | None
+    status: CITimingSampleStatus
+    duration_seconds: float
+    completed_at: datetime
+    head_sha: str
+
+
+@dataclass(frozen=True)
+class CITimingContext:
+    """How long a selected workflow, matrix, job or step took on the default branch in the last days.
+
+    ``sample_count`` and ``average_seconds`` cover the successful samples only. ``recent`` holds the
+    newest matched samples of any status. No sample is ever taken from a different workflow, job or
+    runner, so sparse history reads as a null average and never as a looser comparison.
+    """
+
+    default_branch: str | None
+    window_days: int
+    identity: CITimingIdentity
+    runs_scanned: int
+    # True when more eligible runs existed in the window than were scanned.
+    sampled: bool
+    sample_count: int
+    average_seconds: float | None
+    recent: list[CITimingSample]
+    runs_synced_at: datetime | None
+    jobs_synced_at: datetime | None
+    unavailable_reason: CITimingUnavailableReason | None
 
 
 @dataclass(frozen=True)
