@@ -7,6 +7,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import type { WorkflowProposalApi } from '../../generated/api.schemas'
 import { workflowLogic } from '../workflowLogic'
 import { SuggestedFieldChange, describeSuggestedChanges } from './suggestionChanges'
+import { isEmailHtmlChange } from './suggestionEmailText'
+import { WorkflowSuggestionEmailChange } from './WorkflowSuggestionEmailChange'
 
 function ChangedValue({ value }: { value: unknown }): JSX.Element {
     if (value === undefined) {
@@ -54,14 +56,23 @@ export function WorkflowSuggestionDetails({
     return (
         <div className="flex flex-col gap-3 text-sm">
             {nothingToShow && <span className="text-secondary">This suggestion changes nothing on the workflow.</span>}
-            {changes.steps.map((step) => (
-                <div key={step.stepId} className="flex flex-col gap-1">
-                    <span className="font-semibold">
-                        {step.stepName ? `Step: ${step.stepName}` : `New step: ${step.stepId}`}
-                    </span>
-                    <LemonTable size="small" columns={COLUMNS} dataSource={step.fields} rowKey="path" />
-                </div>
-            ))}
+            {changes.steps.map((step) => {
+                const emailChanges = step.fields.filter(isEmailHtmlChange)
+                const otherChanges = step.fields.filter((change) => !isEmailHtmlChange(change))
+                return (
+                    <div key={step.stepId} className="flex flex-col gap-1">
+                        <span className="font-semibold">
+                            {step.stepName ? `Step: ${step.stepName}` : `New step: ${step.stepId}`}
+                        </span>
+                        {otherChanges.length > 0 && (
+                            <LemonTable size="small" columns={COLUMNS} dataSource={otherChanges} rowKey="path" />
+                        )}
+                        {emailChanges.map((change) => (
+                            <WorkflowSuggestionEmailChange key={change.path} change={change} />
+                        ))}
+                    </div>
+                )
+            })}
             {changes.workflow.length > 0 && (
                 <div className="flex flex-col gap-1">
                     <span className="font-semibold">Workflow</span>
