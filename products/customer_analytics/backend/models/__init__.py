@@ -1,5 +1,11 @@
 from .account import Account
 from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
+from .account_property_sync import (
+    AccountPropertySyncPublication,
+    AccountPropertySyncRequest,
+    AccountPropertySyncState,
+    AccountPropertySyncValueState,
+)
 from .account_track_rule_run import AccountTrackRuleRun, AccountTrackRuleRunStatus, AccountTrackRuleRunTrigger
 from .account_view import AccountView
 from .announcement import Announcement
@@ -44,6 +50,10 @@ __all__ = [
     "Account",
     "AccountView",
     "AccountChannelSummary",
+    "AccountPropertySyncPublication",
+    "AccountPropertySyncRequest",
+    "AccountPropertySyncState",
+    "AccountPropertySyncValueState",
     "AccountTrackRuleRun",
     "AccountTrackRuleRunStatus",
     "AccountTrackRuleRunTrigger",
