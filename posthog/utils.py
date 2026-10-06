@@ -629,10 +629,8 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
-            if user.team and (
-                not user_access_control.check_access_level_for_object(user.team, "member")
-                and user_permissions.team(user.team).effective_membership_level is None
-            ):
+            team = user.team
+            if team and not user_access_control.has_project_access:
                 user.current_team = None
                 user.team = None
                 user.save(update_fields=["current_team"])

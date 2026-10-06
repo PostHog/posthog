@@ -46,6 +46,7 @@ from posthog.settings import SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -629,14 +630,26 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert self.user.current_team_id == self.second_team.pk
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
+        self.organization.uses_most_specific_access_resolution = True
         self.organization.save()
+        role = Role.objects.create(name="Project admins", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
         AccessControl.objects.create(
             team=self.second_team,
             resource="project",
             resource_id=str(self.second_team.pk),
             access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.second_team,
+            resource="project",
+            resource_id=str(self.second_team.pk),
+            access_level="admin",
+            role=role,
         )
 
         response = self.client.get(f"/project/{self.second_team.pk}/home")
