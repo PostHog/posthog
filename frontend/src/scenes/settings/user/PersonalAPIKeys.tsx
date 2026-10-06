@@ -22,8 +22,7 @@ import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { MAX_API_KEYS_PER_USER } from 'lib/scopes'
 
 import { PersonalAPIKeyType } from '~/types'
 
@@ -49,6 +48,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         filteredScopes,
         searchTerm,
         isDescriptionFieldVisible,
+        scopePresets,
     } = useValues(personalAPIKeysLogic)
     const {
         setEditingKeyId,
@@ -59,7 +59,6 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         rollKey,
         showDescriptionField,
     } = useActions(personalAPIKeysLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
 
@@ -178,7 +177,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             <LemonSelect
                                 size="small"
                                 placeholder="Select preset"
-                                options={API_KEY_SCOPE_PRESETS.filter((preset) => !preset.isCloudOnly || isCloudOrDev)}
+                                options={scopePresets}
                                 dropdownMatchSelectWidth={false}
                                 dropdownPlacement="bottom-end"
                             />
