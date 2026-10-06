@@ -12,8 +12,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import F, Min
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -41,18 +42,17 @@ class OrganizationOutcome(StrEnum):
     CREATE = "create"
     ALREADY_RECORDED = "already_recorded"
     SKIPPED_OTHER_PARTNER = "skipped_other_partner"
-    SKIPPED_CONFLICTING_PARTNERS = "skipped_conflicting_partners"
     SKIPPED_NOT_FIRST_TEAM = "skipped_not_first_team"
     SKIPPED_FIRST_TEAM_OTHER_APPLICATION = "skipped_first_team_other_application"
 
 
-Partner = OrganizationProvisioning.Partner
+Source = Organization.ProvisioningSource
 
 
 @frozen
 class _OrganizationClaim:
     organization_id: uuid.UUID
-    partner: Partner
+    source: Source
     application_id: uuid.UUID | None
 
 
@@ -145,13 +145,6 @@ def _provisioning_partner_teams(rows: Iterable[Mapping[str, str | None]]) -> dic
     return {team_id: partner_id for team_id, partner_id in pairs.items() if partner_id in partner_ids}
 
 
-def _vercel_marketplace_organization_ids() -> set[uuid.UUID]:
-    installations = OrganizationIntegration.objects.filter(
-        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
-    ).values_list("organization_id", "config")
-    return {organization_id for organization_id, config in installations if config.get("type") != "connectable"}
-
-
 def _first_team_claims(
     partner_by_team: Mapping[int, uuid.UUID], outcomes: Counter[OrganizationOutcome]
 ) -> list[_OrganizationClaim]:
@@ -186,64 +179,122 @@ def _first_team_claims(
         claims.append(
             _OrganizationClaim(
                 organization_id=team_organizations[team_id],
-                partner=Partner.PROVISIONING_API,
+                source=Source.PROVISIONING_API,
                 application_id=application_id,
             )
         )
     return claims
 
 
-def _record(claim: _OrganizationClaim) -> OrganizationOutcome:
-    record, created = OrganizationProvisioning.objects.get_or_create(
+def _log_organization_attribution(claim: _OrganizationClaim) -> None:
+    organization = Organization.objects.only("name").get(id=claim.organization_id)
+    changes = [
+        Change(type="Organization", action="created", field="provisioning_source", before=None, after=claim.source)
+    ]
+    if claim.application_id is not None:
+        application = OAuthApplication.objects.only("id", "name").get(id=claim.application_id)
+        changes.append(
+            Change(
+                type="Organization",
+                action="created",
+                field="provisioning_application",
+                before=None,
+                after={"id": str(application.id), "name": application.name},
+            )
+        )
+    log_activity(
         organization_id=claim.organization_id,
-        defaults={"partner": claim.partner, "application_id": claim.application_id},
+        team_id=None,
+        user=None,
+        item_id=claim.organization_id,
+        scope="Organization",
+        activity="updated",
+        was_impersonated=False,
+        detail=Detail(
+            name=organization.name,
+            changes=changes,
+            trigger=Trigger(
+                job_type="management_command", job_id="backfill_agentic_provisioning_attribution", payload={}
+            ),
+        ),
     )
-    if created:
+
+
+def _record(claim: _OrganizationClaim) -> OrganizationOutcome:
+    if Organization.objects.filter(
+        id=claim.organization_id, provisioning_source__isnull=True, provisioning_application__isnull=True
+    ).update(provisioning_source=claim.source, provisioning_application_id=claim.application_id):
+        _log_organization_attribution(claim)
         return OrganizationOutcome.CREATE
-    if (record.partner, record.application_id) == (claim.partner, claim.application_id):
+    current = (
+        Organization.objects.filter(id=claim.organization_id)
+        .values_list("provisioning_source", "provisioning_application_id")
+        .first()
+    )
+    if current == (claim.source, claim.application_id):
         return OrganizationOutcome.ALREADY_RECORDED
     return OrganizationOutcome.SKIPPED_OTHER_PARTNER
 
 
+def copy_organization_provisioning(*, live_run: bool) -> Counter[OrganizationOutcome]:
+    outcomes: Counter[OrganizationOutcome] = Counter()
+    records = OrganizationProvisioning.objects.values_list(
+        "organization_id",
+        "partner",
+        "application_id",
+        "organization__provisioning_source",
+        "organization__provisioning_application_id",
+    )
+    for organization_id, source, application_id, current_source, current_application_id in records.iterator():
+        claim = _OrganizationClaim(
+            organization_id=organization_id, source=Source(source), application_id=application_id
+        )
+        if live_run:
+            outcome = _record(claim)
+        elif current_source is None and current_application_id is None:
+            outcome = OrganizationOutcome.CREATE
+        elif (current_source, current_application_id) == (source, application_id):
+            outcome = OrganizationOutcome.ALREADY_RECORDED
+        else:
+            outcome = OrganizationOutcome.SKIPPED_OTHER_PARTNER
+        outcomes[outcome] += 1
+    return outcomes
+
+
 def backfill_organization_provisioning(
     rows: Iterable[Mapping[str, str | None]], *, live_run: bool
-) -> dict[Partner, Counter[OrganizationOutcome]]:
-    outcomes: dict[Partner, Counter[OrganizationOutcome]] = {
-        Partner.PROVISIONING_API: Counter(),
-        Partner.VERCEL: Counter(),
+) -> dict[Source, Counter[OrganizationOutcome]]:
+    outcomes: dict[Source, Counter[OrganizationOutcome]] = {
+        Source.PROVISIONING_API: Counter(),
     }
-    claims = _first_team_claims(_provisioning_partner_teams(rows), outcomes[Partner.PROVISIONING_API])
-    claims += [
-        _OrganizationClaim(organization_id=organization_id, partner=Partner.VERCEL, application_id=None)
-        for organization_id in _vercel_marketplace_organization_ids()
-    ]
-
-    claims_by_organization: defaultdict[uuid.UUID, set[_OrganizationClaim]] = defaultdict(set)
-    for claim in claims:
-        claims_by_organization[claim.organization_id].add(claim)
+    claims = _first_team_claims(_provisioning_partner_teams(rows), outcomes[Source.PROVISIONING_API])
+    organization_ids = {claim.organization_id for claim in claims}
     recorded = {
-        organization_id: (partner, application_id)
-        for organization_id, partner, application_id in OrganizationProvisioning.objects.filter(
-            organization_id__in=claims_by_organization
+        organization_id: (source, application_id)
+        for organization_id, source, application_id in OrganizationProvisioning.objects.filter(
+            organization_id__in=organization_ids
         ).values_list("organization_id", "partner", "application_id")
     }
+    recorded.update(
+        {
+            organization_id: (source, application_id)
+            for organization_id, source, application_id in Organization.objects.filter(
+                id__in=organization_ids, provisioning_source__isnull=False
+            ).values_list("id", "provisioning_source", "provisioning_application_id")
+        }
+    )
 
-    for organization_id, organization_claims in claims_by_organization.items():
-        if len(organization_claims) > 1:
-            for claim in organization_claims:
-                outcomes[claim.partner][OrganizationOutcome.SKIPPED_CONFLICTING_PARTNERS] += 1
-            continue
-        claim = next(iter(organization_claims))
-        existing = recorded.get(organization_id)
+    for claim in claims:
+        existing = recorded.get(claim.organization_id)
         if live_run and existing is None:
             outcome = _record(claim)
         elif existing is None:
             outcome = OrganizationOutcome.CREATE
-        elif existing == (claim.partner, claim.application_id):
+        elif existing == (claim.source, claim.application_id):
             outcome = OrganizationOutcome.ALREADY_RECORDED
         else:
             outcome = OrganizationOutcome.SKIPPED_OTHER_PARTNER
-        outcomes[claim.partner][outcome] += 1
+        outcomes[claim.source][outcome] += 1
     return outcomes
 
 
@@ -253,9 +304,9 @@ class Command(BaseCommand):
         "with team_id and partner_id (OAuthApplication id) columns. Creates a missing "
         "TeamProvisioningConfig row or fills a null application, and never replaces a different one. "
         "Also records the partner that created each organization: the CSV partner when the attributed "
-        "team is the organization's first team and is not attributed to a different application, and "
-        "Vercel for organizations with a Vercel marketplace installation. Never replaces an "
-        "organization's recorded partner."
+        "team is the organization's first team and is not attributed to a different application. Never replaces an "
+        "organization's recorded partner. Copies existing OrganizationProvisioning records to "
+        "the organization fields before inferring creators."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -276,6 +327,7 @@ class Command(BaseCommand):
                 raise CommandError(f"CSV is missing column(s): {', '.join(sorted(missing_columns))}")
             rows = list(reader)
 
+        copied_outcomes = copy_organization_provisioning(live_run=live_run)
         outcomes = backfill_partner_attribution(rows, live_run=live_run)
         organization_outcomes = backfill_organization_provisioning(rows, live_run=live_run)
 
@@ -283,11 +335,18 @@ class Command(BaseCommand):
         for outcome in Outcome:
             label = f"would {outcome}" if not live_run and outcome in WRITE_OUTCOMES else str(outcome)
             self.stdout.write(f"{label}: {outcomes[outcome]}")
-        for partner, partner_outcomes in organization_outcomes.items():
+        for copied_outcome, count in copied_outcomes.items():
+            label = (
+                f"would {copied_outcome}"
+                if not live_run and copied_outcome is OrganizationOutcome.CREATE
+                else str(copied_outcome)
+            )
+            self.stdout.write(f"Existing organization attribution, {label}: {count}")
+        for source, source_outcomes in organization_outcomes.items():
             for organization_outcome in OrganizationOutcome:
                 label = (
                     f"would {organization_outcome}"
                     if not live_run and organization_outcome is OrganizationOutcome.CREATE
                     else str(organization_outcome)
                 )
-                self.stdout.write(f"{partner} organizations, {label}: {partner_outcomes[organization_outcome]}")
+                self.stdout.write(f"{source} organizations, {label}: {source_outcomes[organization_outcome]}")

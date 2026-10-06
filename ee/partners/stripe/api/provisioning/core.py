@@ -24,7 +24,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -272,11 +272,10 @@ def handle_new_user(
                 password=None,
                 first_name=first_name,
                 is_email_verified=False,
-            )
-            OrganizationProvisioning.objects.create(
-                organization=organization,
-                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-                application=stripe_app,
+                organization_fields={
+                    "provisioning_source": Organization.ProvisioningSource.STRIPE_PROJECTS,
+                    "provisioning_application": stripe_app,
+                },
             )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)

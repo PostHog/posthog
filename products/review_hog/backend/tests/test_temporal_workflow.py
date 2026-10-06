@@ -21,6 +21,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
@@ -81,6 +82,9 @@ class StubResolvePRWorkflow:
     @temporalio.workflow.run
     async def run(self, inputs: ResolvePRWorkflowInputs) -> None:
         StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
+
+
+_TURN_MARKER = ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234")
 
 
 def _stage_kwargs() -> dict:
@@ -206,6 +210,12 @@ async def _run_full_review_pr_workflow(
     async def gen_schemas(input) -> None:
         return None
 
+    marker_calls: dict[str, ReviewHogMarker | None] = {}
+
+    @activity.defn(name="record_turn_marker_activity")
+    async def record_marker(input) -> ReviewHogMarker:
+        return _TURN_MARKER
+
     @activity.defn(name="split_chunks_activity")
     async def split(input) -> list[int]:
         split_calls.append(1)
@@ -301,6 +311,7 @@ async def _run_full_review_pr_workflow(
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        marker_calls["status"] = input.marker
         return None
 
     @activity.defn(name="fail_status_comment_activity")
@@ -324,6 +335,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        marker_calls["track"] = input.marker
         return None
 
     @activity.defn(name="track_review_started_activity")
@@ -352,6 +364,7 @@ async def _run_full_review_pr_workflow(
                 resolve_acting_user,
                 sync_skills,
                 gen_schemas,
+                record_marker,
                 split,
                 load_perspectives,
                 select_perspectives,
@@ -426,6 +439,7 @@ async def _run_full_review_pr_workflow(
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
         "efforts": effort_calls,
+        "markers": marker_calls,
     }
 
 
@@ -512,6 +526,8 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+    # The marker recorded at turn start reaches the completed event and the comment footer intact.
+    assert recorded["markers"] == {"track": _TURN_MARKER, "status": _TURN_MARKER}
 
 
 @pytest.mark.asyncio

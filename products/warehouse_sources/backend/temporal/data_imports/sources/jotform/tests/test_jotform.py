@@ -240,6 +240,139 @@ class TestListEndpoints:
         assert _rows(_source("reports", _make_manager())) == []
 
 
+class TestSinglePageEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, content, expected_params, expected_rows",
+        [
+            (
+                "usage",
+                {"submissions": "478", "uploads": "31246868", "views": "2014"},
+                {},
+                [{"submissions": "478", "uploads": "31246868", "views": "2014"}],
+            ),
+            (
+                "history",
+                [
+                    {"type": "userLogin", "username": "johnsmith", "timestamp": 1372145800},
+                    {"type": "formCreation", "formID": "31751954731962", "timestamp": 1372145854},
+                ],
+                {"date": "all", "sortBy": "ASC"},
+                [
+                    {"type": "userLogin", "username": "johnsmith", "timestamp": 1372145800},
+                    {"type": "formCreation", "formID": "31751954731962", "timestamp": 1372145854},
+                ],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_once_without_offset_pagination(
+        self, MockSession, endpoint, content, expected_params, expected_rows
+    ):
+        session = MockSession.return_value
+        capture = _wire(session, [_response(content)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert rows == expected_rows
+        assert session.send.call_count == 1
+        assert capture.params[0] == expected_params
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_labels_tree_is_flattened_to_one_row_per_label(self, MockSession):
+        session = MockSession.return_value
+        tree = {
+            "id": "root",
+            "owner": "johnsmith",
+            "sublabels": [
+                {
+                    "id": "finance",
+                    "parent_label_id": "root",
+                    "sublabels": [{"id": "hr", "parent_label_id": "finance", "sublabels": []}],
+                },
+                {"name": "no id", "sublabels": [{"id": "orphan", "parent_label_id": "missing"}]},
+                {"id": "it", "parent_label_id": "root", "sublabels": []},
+            ],
+        }
+        capture = _wire(session, [_response(tree)])
+
+        rows = _rows(_source("labels", _make_manager()))
+
+        assert rows == [
+            {"id": "root", "owner": "johnsmith"},
+            {"id": "finance", "parent_label_id": "root"},
+            {"id": "hr", "parent_label_id": "finance"},
+            {"id": "orphan", "parent_label_id": "missing"},
+            {"id": "it", "parent_label_id": "root"},
+        ]
+        assert capture.urls == [f"{US_BASE}/user/labels"]
+        assert capture.params[0] == {}
+
+
+class TestLabelResourcesFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_nested_labels_and_injects_label_id(self, MockSession):
+        session = MockSession.return_value
+        tree = {"id": "root", "sublabels": [{"id": "child", "parent_label_id": "root", "sublabels": []}]}
+        root_assets = [{"id": "251453058472053", "assetType": "form"}]
+        child_assets = [
+            {"id": "251453058472053", "assetType": "form"},
+            {"id": "251453701279861", "assetType": "workflow"},
+        ]
+        capture = _wire(session, [_response(tree), _response(root_assets), _response(child_assets)])
+
+        manager = _make_manager()
+        rows = _rows(_source("label_resources", manager))
+
+        assert [(r["label_id"], r["assetType"], r["id"]) for r in rows] == [
+            ("root", "form", "251453058472053"),
+            ("child", "form", "251453058472053"),
+            ("child", "workflow", "251453701279861"),
+        ]
+        assert all("_labels_id" not in r for r in rows)
+        assert capture.urls == [
+            f"{US_BASE}/user/labels",
+            f"{US_BASE}/label/root/resources",
+            f"{US_BASE}/label/child/resources",
+        ]
+        assert capture.params[1]["orderby"] == "created_at"
+        assert capture.params[1]["offset"] == 0
+        saved_states = [c.args[0].fanout_state for c in manager.save_state.call_args_list]
+        assert set(saved_states[-1]["completed"]) == {"/label/root/resources", "/label/child/resources"}
+        assert saved_states[-1]["current"] is None
+        assert saved_states[-1]["child_state"] is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_each_label_until_partial_page(self, MockSession):
+        session = MockSession.return_value
+        with mock.patch.object(JOTFORM_ENDPOINTS["label_resources"], "page_size", 2):
+            capture = _wire(
+                session,
+                [
+                    _response({"id": "root", "sublabels": []}),
+                    _response([{"id": "1", "assetType": "form"}, {"id": "2", "assetType": "form"}]),
+                    _response([{"id": "3", "assetType": "form"}]),
+                ],
+            )
+            rows = _rows(_source("label_resources", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["1", "2", "3"]
+        assert [p.get("offset") for p in capture.params[1:]] == [0, 2]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_and_skips_completed_labels(self, MockSession):
+        session = MockSession.return_value
+        tree = {"id": "root", "sublabels": [{"id": "child", "sublabels": []}]}
+        capture = _wire(session, [_response(tree), _response([{"id": "1", "assetType": "form"}])])
+
+        resume = JotformResumeConfig(
+            fanout_state={"completed": ["/label/root/resources"], "current": None, "child_state": None}
+        )
+        rows = _rows(_source("label_resources", _make_manager(resume)))
+
+        assert [r["label_id"] for r in rows] == ["child"]
+        assert capture.urls == [f"{US_BASE}/user/labels", f"{US_BASE}/label/child/resources"]
+
+
 class TestRetries:
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     @mock.patch("tenacity.nap.time.sleep", return_value=None)

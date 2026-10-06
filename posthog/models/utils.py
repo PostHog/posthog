@@ -563,7 +563,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "id": obj.id,
                 "media_location": obj.media_location,
             }
-        if hasattr(obj, "__class__") and obj.__class__.__name__ == "Role":
+        if hasattr(obj, "__class__") and obj.__class__.__name__ in ("Role", "OAuthApplication"):
             return {
                 "id": obj.id,
                 "name": obj.name,

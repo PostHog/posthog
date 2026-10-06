@@ -52,7 +52,9 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
     # that already has one keeps paying for itself, and keeps self-serve billing to manage it.
     if organization.customer_id:
         return None
-    return OAuthApplication.objects.filter(
-        provisioned_organizations__organization=organization,
-        _provisioning_config__pays_for_customers=True,
-    ).first()
+    applications = OAuthApplication.objects.filter(_provisioning_config__pays_for_customers=True)
+    if organization.provisioning_source is not None:
+        if organization.provisioning_application_id is None:
+            return None
+        return applications.filter(pk=organization.provisioning_application_id).first()
+    return applications.filter(provisioned_organizations__organization=organization).first()
