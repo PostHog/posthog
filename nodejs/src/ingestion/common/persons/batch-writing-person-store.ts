@@ -2072,8 +2072,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // Always pass all mutable fields for consistent query plans
         const updateFields = {
             properties: person.properties,
-            properties_last_updated_at: person.properties_last_updated_at,
-            properties_last_operation: person.properties_last_operation,
             is_identified: person.is_identified,
             created_at: person.created_at,
             last_seen_at: person.last_seen_at,

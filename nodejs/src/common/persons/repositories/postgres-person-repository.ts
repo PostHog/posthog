@@ -1938,7 +1938,7 @@ export class PostgresPersonRepository
         const updateKeys = Object.keys(unparsedUpdate)
         for (let i = 0; i < updateKeys.length; i++) {
             const key = updateKeys[i]
-            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+            if (key === 'properties') {
                 const sanitizedValue = values[i] // Already sanitized in the map above
                 if (typeof sanitizedValue === 'string') {
                     personJsonFieldSizeHistogram
@@ -2044,18 +2044,14 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person SET
                     properties = $1,
-                    properties_last_updated_at = $2,
-                    properties_last_operation = $3,
-                    is_identified = $4,
-                    last_seen_at = $5,
+                    is_identified = $2,
+                    last_seen_at = $3,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8 AND is_deleted = false
+                WHERE team_id = $4 AND uuid = $5 AND version = $6 AND is_deleted = false
                 RETURNING ${PERSON_COLUMNS}
                 `,
                 [
                     JSON.stringify(finalProperties),
-                    JSON.stringify(personUpdate.properties_last_updated_at),
-                    JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
                     personUpdate.last_seen_at?.toISO() ?? null,
                     personUpdate.team_id,
@@ -2123,8 +2119,6 @@ export class PostgresPersonRepository
         const uuids: string[] = []
         const teamIds: number[] = []
         const properties: string[] = []
-        const propertiesLastUpdatedAt: string[] = []
-        const propertiesLastOperation: string[] = []
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
@@ -2144,8 +2138,6 @@ export class PostgresPersonRepository
 
             // sanitizeJsonbValue already returns JSON.stringify(value) for objects, so don't double-stringify
             properties.push(sanitizeJsonbValue(finalProperties))
-            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
-            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
@@ -2160,8 +2152,6 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person AS p SET
                     properties = batch.new_properties::jsonb,
-                    properties_last_updated_at = batch.new_properties_last_updated_at::jsonb,
-                    properties_last_operation = batch.new_properties_last_operation::jsonb,
                     is_identified = batch.new_is_identified,
                     created_at = batch.new_created_at::timestamp with time zone,
                     last_seen_at = batch.new_last_seen_at::timestamp with time zone,
@@ -2170,26 +2160,15 @@ export class PostgresPersonRepository
                     $1::uuid[],
                     $2::integer[],
                     $3::text[],
-                    $4::text[],
+                    $4::boolean[],
                     $5::text[],
-                    $6::boolean[],
-                    $7::text[],
-                    $8::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
+                    $6::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                   AND p.team_id = ANY($2::integer[])
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
-                [
-                    uuids,
-                    teamIds,
-                    properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
-                    isIdentified,
-                    createdAt,
-                    lastSeenAt,
-                ],
+                [uuids, teamIds, properties, isIdentified, createdAt, lastSeenAt],
                 'updatePersonsBatch'
             )
 
