@@ -234,6 +234,7 @@ export class ToolDomainExtractor {
         'resume',
         'ship',
         'show',
+        'split',
         'start',
         'suggest',
         'test',

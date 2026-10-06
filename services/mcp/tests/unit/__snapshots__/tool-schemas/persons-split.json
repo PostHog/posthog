@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "distinct_ids_to_split": {
+            "description": "Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. Name only the IDs you want moved: the person must keep at least one distinct ID, so the API rejects a list naming every ID it holds.",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "A unique value identifying this person. Accepts both numeric ID and UUID.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "distinct_ids_to_split"],
+    "type": "object"
+}
