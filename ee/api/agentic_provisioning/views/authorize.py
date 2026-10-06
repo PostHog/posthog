@@ -30,7 +30,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.accounts import (
-    find_partner_organization_team,
+    find_partner_organization,
     get_callback_url,
     get_or_create_partner_organization_team,
     mint_pending_auth_code,
@@ -89,19 +89,20 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         return HttpResponseRedirect(f"{settings.SITE_URL.rstrip('/')}/agentic/account-mismatch?{mismatch_params}")
 
     user = request.user
-    memberships = list(user.organization_memberships.select_related("organization").all())
-    if not memberships:
-        capture_provisioning_event("authorize", "no_organization")
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
-
     partner_app = resolve_pending_partner(pending.get("partner_id", ""))
     paying_partner = _paying_partner(partner_app)
     if paying_partner is not None:
         # The confirm step puts this partner's project in an organization the partner pays
-        # for, so no project of the user's is created, picked, or auto-approved here.
+        # for, so no project of the user's is created, picked, or auto-approved here, and a
+        # user without an organization can still connect.
         if not paying_partner.provisioning.active:
             return _partner_deactivated_redirect(pending_key)
         return _consent_page_redirect(state)
+
+    memberships = list(user.organization_memberships.select_related("organization").all())
+    if not memberships:
+        capture_provisioning_event("authorize", "no_organization")
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
     # Only teams the user can actually reach are eligible: the auto-approve path
     # below mints a code for non_demo_teams[0] without further checks.
@@ -172,14 +173,14 @@ class AuthorizePendingView(APIView):
             return Response({"error": "email_mismatch"}, status=403)
 
         paying_partner = _paying_partner(resolve_pending_partner(pending.get("partner_id", "")))
-        partner_team = find_partner_organization_team(user, paying_partner) if paying_partner is not None else None
+        partner_organization = find_partner_organization(user, paying_partner) if paying_partner is not None else None
 
         return Response(
             {
                 "partner_name": pending.get("partner_name", "the requesting app"),
                 "scopes": pending.get("scopes", []),
                 "pays_for_customers": paying_partner is not None,
-                "partner_organization_name": partner_team.organization.name if partner_team is not None else None,
+                "partner_organization_name": partner_organization.name if partner_organization is not None else None,
             }
         )
 
@@ -195,7 +196,11 @@ class AuthorizeConfirmView(APIView):
 
         pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
         pending = cache.get(pending_key)
-        confirm_partner = resolve_pending_partner(pending.get("partner_id", "")) if pending is not None else None
+        if pending is None:
+            capture_provisioning_event("authorize_confirm", "expired_state")
+            return Response({"error": "expired_or_invalid_state"}, status=400)
+
+        confirm_partner = resolve_pending_partner(pending.get("partner_id", ""))
         paying_partner = _paying_partner(confirm_partner)
 
         # A paying partner's consent page has no project picker, so it sends no team_id, and
@@ -204,10 +209,6 @@ class AuthorizeConfirmView(APIView):
         if team_id is None and paying_partner is None:
             capture_provisioning_event("authorize_confirm", "invalid_request")
             return Response({"error": "state and team_id are required"}, status=400)
-
-        if pending is None:
-            capture_provisioning_event("authorize_confirm", "expired_state")
-            return Response({"error": "expired_or_invalid_state"}, status=400)
 
         user = cast(User, request.user)
 

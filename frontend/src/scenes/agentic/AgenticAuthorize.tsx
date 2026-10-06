@@ -68,8 +68,8 @@ export const AgenticAuthorize = (): JSX.Element => {
                                 <p className="m-0">
                                     {partnerOrganizationName ? (
                                         <>
-                                            {partnerName} connects to <strong>{partnerOrganizationName}</strong>, the
-                                            organization it already set up for you.
+                                            {partnerName} connects to <strong>{partnerOrganizationName}</strong>, an
+                                            organization you own that {partnerName} pays for.
                                         </>
                                     ) : (
                                         `PostHog creates a new organization for you. ${partnerName} pays for it.`

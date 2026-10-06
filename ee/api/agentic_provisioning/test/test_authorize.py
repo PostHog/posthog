@@ -157,13 +157,20 @@ class TestAgenticAuthorize(AuthorizeTestBase):
         assert "code=" not in res["Location"]
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_no_partner") is not None
 
-    def test_user_without_org_redirects_with_error(self):
+    @parameterized.expand(
+        [
+            ("partner_that_does_not_pay", False, "?error=no_organization"),
+            ("partner_that_pays_creates_the_organization_on_confirm", True, "/agentic/authorize?state=state_no_org"),
+        ]
+    )
+    def test_user_without_org(self, _name: str, partner_pays: bool, expected_location_end: str) -> None:
+        self.partner.update_provisioning(pays_for_customers=partner_pays)
         orphan = User.objects.create(email="orphan@example.com", first_name="Orphan")
         self.client.force_login(orphan)
         self._set_pending_auth("state_no_org", "orphan@example.com", scopes=[])
         res = self.client.get("/api/agentic/authorize?state=state_no_org")
         assert res.status_code == 302
-        assert "error=no_organization" in res["Location"]
+        assert res["Location"].endswith(expected_location_end)
 
     def test_full_authorize_flow_with_token_exchange(self):
         partner = self._make_skip_consent_partner()
@@ -283,6 +290,8 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert organization.memberships.get(user=self.user).level == OrganizationMembership.Level.OWNER
         assert get_billing_lock_partner(organization) == self.partner
         assert TeamProvisioningConfig.objects.get(team=team).application == self.partner
+        self.user.refresh_from_db()
+        assert (self.user.current_organization_id, self.user.current_team_id) == (self.organization.id, self.team.id)
 
     def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(self) -> None:
         self.partner.update_provisioning(pays_for_customers=True)
@@ -296,17 +305,53 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert self._code_data(again)["team_id"] == first_team_id
         assert Organization.objects.count() == organization_count
 
+    @parameterized.expand(
+        [
+            ("now_pays_for_itself", {"customer_id": "cus_example"}, OrganizationMembership.Level.OWNER),
+            ("pending_deletion", {"is_pending_deletion": True}, OrganizationMembership.Level.OWNER),
+            ("deactivated", {"is_active": False}, OrganizationMembership.Level.OWNER),
+            ("user_is_only_an_admin", {}, OrganizationMembership.Level.ADMIN),
+        ]
+    )
+    def test_paying_partner_confirm_creates_a_new_organization_instead_of_reusing_one(
+        self, _name: str, organization_changes: dict[str, object], membership_level: OrganizationMembership.Level
+    ) -> None:
+        self.partner.update_provisioning(pays_for_customers=True)
+        self._set_pending_auth("state_first", self.user.email)
+        first_organization_id = self._code_data(self._confirm("state_first", self.team.id))["org_id"]
+        Organization.objects.filter(id=first_organization_id).update(**organization_changes)
+        OrganizationMembership.objects.filter(user=self.user, organization_id=first_organization_id).update(
+            level=membership_level
+        )
+
+        self._set_pending_auth("state_again", self.user.email)
+        team = Team.objects.select_related("organization").get(
+            id=self._code_data(self._confirm("state_again", self.team2.id))["team_id"]
+        )
+
+        assert str(team.organization_id) != first_organization_id
+        assert get_billing_lock_partner(team.organization) == self.partner
+
     def test_paying_partner_confirm_never_reuses_a_project_the_partner_did_not_provision(self) -> None:
         self.partner.update_provisioning(pays_for_customers=True)
         self._set_pending_auth("state_first", self.user.email)
         partner_team = Team.objects.get(id=self._code_data(self._confirm("state_first", self.team.id))["team_id"])
         users_team = Team.objects.create_with_data(initiating_user=self.user, organization=partner_team.organization)
+        # What removing the partner's project link (ResourceRemoveView) leaves behind.
         TeamProvisioningConfig.objects.filter(team=partner_team).delete()
+        organization_count = Organization.objects.count()
 
         self._set_pending_auth("state_again", self.user.email)
         again = self._confirm("state_again", self.team2.id)
 
-        assert self._code_data(again)["team_id"] not in (partner_team.id, users_team.id)
+        team = Team.objects.select_related("organization").get(id=self._code_data(again)["team_id"])
+        assert team.id not in (partner_team.id, users_team.id)
+        assert (team.organization_id, Organization.objects.count()) == (
+            partner_team.organization_id,
+            organization_count,
+        )
+        assert get_billing_lock_partner(team.organization) == self.partner
+        assert TeamProvisioningConfig.objects.get(team=team).application == self.partner
 
     def test_confirm_consumes_pending_state(self):
         self._set_pending_auth("state_consume", self.user.email)
@@ -342,8 +387,18 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert res.status_code == 400
         assert res.json()["error"] == "missing_callback"
 
-    def test_confirm_rejects_expired_state(self):
-        res = self._confirm("nonexistent", self.team.id)
+    @parameterized.expand(
+        [
+            ("with_team_id", True),
+            # A paying partner's consent page sends no team_id, so an expired state must still read as expired.
+            ("without_team_id", False),
+        ]
+    )
+    def test_confirm_rejects_expired_state(self, _name: str, send_team_id: bool) -> None:
+        body: dict[str, object] = {"state": "nonexistent"}
+        if send_team_id:
+            body["team_id"] = self.team.id
+        res = self._post_api("/api/agentic/authorize/confirm/", body)
         assert res.status_code == 400
         assert res.json()["error"] == "expired_or_invalid_state"
 
@@ -376,5 +431,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert res.json()["error"] == "team_not_found"
 
     def test_confirm_rejects_missing_params(self):
-        res = self._post_api("/api/agentic/authorize/confirm/", {"state": "something"})
+        self._set_pending_auth("state_without_team", self.user.email)
+        res = self._post_api("/api/agentic/authorize/confirm/", {"state": "state_without_team"})
         assert res.status_code == 400
+        assert res.json()["error"] == "state and team_id are required"

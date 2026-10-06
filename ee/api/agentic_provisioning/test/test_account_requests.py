@@ -112,13 +112,27 @@ class TestAccountRequests(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("with_name", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
-            ("without_name", {"region": "US"}, "Test Provisioning Partner (orgname@example.com)"),
+            ("with_name", "orgname@example.com", {"region": "US", "organization_name": "Acme Corp"}, "Acme Corp"),
+            (
+                "without_name",
+                "orgname@example.com",
+                {"region": "US"},
+                "Test Provisioning Partner (orgname@example.com)",
+            ),
+            ("long_name_is_cut", "orgname@example.com", {"region": "US", "organization_name": "A" * 80}, "A" * 64),
+            (
+                "long_default_name_is_cut",
+                "a.long.mailbox.name.for.this.test@example.com",
+                {"region": "US"},
+                "Test Provisioning Partner (a.long.mailbox.name.for.this.test@exa",
+            ),
         ]
     )
-    def test_new_user_organization_name(self, _name, config, expected_org_name):
-        self._post_account_request(self._account_request_payload(email="orgname@example.com", configuration=config))
-        user = User.objects.get(email="orgname@example.com")
+    def test_new_user_organization_name(
+        self, _name: str, email: str, config: dict[str, str], expected_org_name: str
+    ) -> None:
+        self._post_account_request(self._account_request_payload(email=email, configuration=config))
+        user = User.objects.get(email=email)
         org = user.organization
         assert org is not None
         assert org.name == expected_org_name

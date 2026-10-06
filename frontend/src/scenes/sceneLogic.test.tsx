@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -41,6 +42,7 @@ const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
 const testScenes: Record<string, () => any> = {
+    [Scene.AgenticAuthorize]: sceneImport,
     [Scene.Alerts]: sceneImport,
     [Scene.AIObservabilityEvaluations]: sceneImport,
     [Scene.Billing]: sceneImport,
@@ -270,6 +272,22 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(1)
 
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
+    })
+
+    it('keeps a signed-in user without an organization on the agentic consent page', async () => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess(null)
+        const originalPath = window.location.pathname
+        // openScene reads window.location, which the test router's memory history never moves.
+        window.history.replaceState(null, '', urls.agenticAuthorize())
+        try {
+            router.actions.push(urls.agenticAuthorize())
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.agenticAuthorize())
+            expect(logic.values.sceneId).toEqual(Scene.AgenticAuthorize)
+        } finally {
+            window.history.replaceState(null, '', originalPath)
+        }
     })
 
     it('persists the loaded scenes', async () => {

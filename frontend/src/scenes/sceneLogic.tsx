@@ -923,7 +923,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
-                            !location.pathname.startsWith(urls.settings('user'))
+                            !location.pathname.startsWith(urls.settings('user')) &&
+                            // A partner that pays for its customers creates the organization when
+                            // the user approves it here, so approving must not require one first.
+                            !location.pathname.startsWith(urls.agenticAuthorize())
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
