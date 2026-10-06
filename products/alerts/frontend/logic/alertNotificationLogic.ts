@@ -10,11 +10,16 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
+import type {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
 import type { AlertTestDeliveryResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
@@ -28,6 +33,7 @@ export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
     { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
     { label: 'Microsoft Teams', value: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS },
+    { label: 'PagerDuty', value: ALERT_NOTIFICATION_TYPE_PAGERDUTY },
     { label: 'Webhook', value: ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 
@@ -44,6 +50,9 @@ export interface alertNotificationLogicValues {
     existingHogFunctions: HogFunctionType[]
     existingHogFunctionsLoading: boolean
     integrationsFailed: boolean
+    pagerDutyRegion: AlertPagerDutyRegion
+    pagerDutyRoutingKey: string
+    pagerDutySeverity: AlertPagerDutySeverity
     pendingNotifications: PendingAlertNotification[]
     selectedSlackIntegration: IntegrationType | undefined
     selectedSlackIntegrationId: number | null
@@ -120,6 +129,15 @@ export interface alertNotificationLogicActions {
         testDeliveryResult: AlertTestDeliveryResponseApi
         payload?: any
     }
+    setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
+        pagerDutyRegion: AlertPagerDutyRegion
+    }
+    setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => {
+        pagerDutyRoutingKey: string
+    }
+    setPagerDutySeverity: (pagerDutySeverity: AlertPagerDutySeverity) => {
+        pagerDutySeverity: AlertPagerDutySeverity
+    }
     setPendingNotifications: (notifications: PendingAlertNotification[]) => {
         notifications: PendingAlertNotification[]
     }
@@ -178,6 +196,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
+        setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => ({ pagerDutyRoutingKey }),
+        setPagerDutySeverity: (pagerDutySeverity: AlertPagerDutySeverity) => ({ pagerDutySeverity }),
+        setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => ({ pagerDutyRegion }),
     }),
 
     reducers({
@@ -218,6 +239,25 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             {
                 setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
                 setSelectedType: () => '',
+            },
+        ],
+        pagerDutyRoutingKey: [
+            '' as string,
+            {
+                setPagerDutyRoutingKey: (_, { pagerDutyRoutingKey }) => pagerDutyRoutingKey,
+                setSelectedType: () => '',
+            },
+        ],
+        pagerDutySeverity: [
+            'critical' as AlertPagerDutySeverity,
+            {
+                setPagerDutySeverity: (_, { pagerDutySeverity }) => pagerDutySeverity,
+            },
+        ],
+        pagerDutyRegion: [
+            'us' as AlertPagerDutyRegion,
+            {
+                setPagerDutyRegion: (_, { pagerDutyRegion }) => pagerDutyRegion,
             },
         ],
         selectedType: [

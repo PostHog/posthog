@@ -8,15 +8,22 @@ import {
 
 import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import type {
+    AlertPagerDutyRegion,
+    AlertPagerDutySeverity,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+
 export const ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
 export const ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS = 'microsoft_teams' as const
+export const ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
 export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_SLACK
     | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+    | typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
 const webhookUrlSchema = z.string().url()
 
@@ -24,7 +31,8 @@ export function getAlertNotificationAddDisabledReason(
     selectedType: AlertNotificationType,
     hasSlackIntegration: boolean,
     slackChannelValue: string | null,
-    webhookUrl: string
+    webhookUrl: string,
+    pagerDutyRoutingKey: string = ''
 ): string | undefined {
     if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
         if (!hasSlackIntegration) {
@@ -34,6 +42,10 @@ export function getAlertNotificationAddDisabledReason(
             return 'Select a Slack channel'
         }
         return undefined
+    }
+
+    if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+        return pagerDutyRoutingKey.trim() ? undefined : 'Enter a PagerDuty integration key'
     }
 
     if (!webhookUrl) {
@@ -67,6 +79,7 @@ const TEMPLATE_ID_BY_NOTIFICATION_TYPE: Record<AlertNotificationType, string> = 
     [ALERT_NOTIFICATION_TYPE_DISCORD]: 'template-discord',
     [ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS]: 'template-microsoft-teams',
     [ALERT_NOTIFICATION_TYPE_WEBHOOK]: 'template-webhook',
+    [ALERT_NOTIFICATION_TYPE_PAGERDUTY]: 'template-pagerduty',
 }
 
 // Maps a destination HogFunction's template_id back to the notification type, so analytics and
@@ -129,6 +142,12 @@ export type PendingAlertNotification =
           type: typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
           webhookUrl: string
       }
+    | {
+          type: typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY
+          routingKey: string
+          severity: AlertPagerDutySeverity
+          region: AlertPagerDutyRegion
+      }
 
 export function buildHogFunctionPayload(
     alertId: string,
@@ -178,6 +197,17 @@ function buildAlertDestination(
                 inputs: {
                     ...subTemplateInputs(TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS]),
                     webhookUrl: { value: notification.webhookUrl },
+                },
+            }
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
+            return {
+                name: `${alertName}: PagerDuty`,
+                template_id: TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_PAGERDUTY],
+                inputs: {
+                    ...subTemplateInputs(TEMPLATE_ID_BY_NOTIFICATION_TYPE[ALERT_NOTIFICATION_TYPE_PAGERDUTY]),
+                    routing_key: { value: notification.routingKey.trim() },
+                    severity: { value: notification.severity },
+                    region: { value: notification.region },
                 },
             }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
