@@ -129,6 +129,9 @@ describe('expandScheduleOccurrences', () => {
         const schedules = [
             change({ payload: conditionPayload(100, [PERSON_FILTER]), scheduled_at: NOW.add(1, 'day').toISOString() }),
             change({ payload: conditionPayload(50), scheduled_at: NOW.add(2, 'day').toISOString() }),
+            // A narrowed add is still judged on its raw percentage, because it buckets on the same
+            // hash as the untargeted set that already covers it.
+            change({ payload: conditionPayload(25, [PERSON_FILTER]), scheduled_at: NOW.add(3, 'day').toISOString() }),
         ]
 
         const occurrences = expandScheduleOccurrences(
@@ -145,8 +148,8 @@ describe('expandScheduleOccurrences', () => {
             NOW
         )
 
-        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false])
-        expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([10, 50])
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, false, true])
+        expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([10, 50, 50])
     })
 
     const aggregationCases: {
