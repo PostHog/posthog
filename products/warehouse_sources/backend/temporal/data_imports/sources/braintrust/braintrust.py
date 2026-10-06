@@ -141,4 +141,10 @@ def braintrust_source(
         resume_hook=save_checkpoint,
         initial_paginator_state={"cursor": resume.cursor} if resume else None,
     )
-    return SourceResponse(name=endpoint, items=lambda: resource, primary_keys=["id"], sort_mode="desc")
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["id"],
+        sort_mode="desc",
+        on_complete=resumable_source_manager.clear_state,
+    )

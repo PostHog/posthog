@@ -1,5 +1,5 @@
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -68,7 +68,7 @@ def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: st
     http.get(url, json={"objects": []})
     manager = make_manager()
     result = braintrust_source(make_config(), table, 123, "job", manager)
-    pages = iter(result.items())
+    pages = iter(cast(Iterable[Any], result.items()))
     assert next(pages) == [{"id": "new"}, {"id": "middle"}]
     assert list(pages) == [[{"id": "old"}]]
     assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["middle", "old"]
@@ -78,6 +78,9 @@ def test_pagination_auth_and_checkpoints(http: responses.RequestsMock, table: st
         {"limit": ["100"], "starting_after": ["old"]},
     ]
     assert all(call.request.headers["Authorization"] == "Bearer fake-braintrust-key" for call in http.calls)
+    assert result.on_complete is not None
+    result.on_complete()
+    manager.clear_state.assert_called_once_with()
 
 
 @pytest.mark.parametrize("cursor", [None, "saved"])
@@ -85,7 +88,7 @@ def test_empty_page_and_resume(http: responses.RequestsMock, cursor: str | None)
     http.get(f"{API_URL}/v1/project", json={"objects": []})
     manager = make_manager(cursor)
     result = braintrust_source(make_config(), "projects", 123, "job", manager)
-    assert list(result.items()) == []
+    assert list(cast(Iterable[Any], result.items())) == []
     expected = {"limit": ["100"]}
     if cursor:
         expected["starting_after"] = [cursor]
@@ -99,7 +102,7 @@ def test_repeated_cursor_fails(http: responses.RequestsMock, resumed: bool) -> N
     http.get(f"{API_URL}/v1/project", json={"objects": [{"id": "same"}]})
     result = braintrust_source(make_config(), "projects", 123, "job", make_manager("same" if resumed else None))
     with pytest.raises(ValueError, match="not advancing"):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     assert len(http.calls) == (1 if resumed else 2)
 
 
@@ -108,7 +111,7 @@ def test_malformed_page_does_not_succeed(http: responses.RequestsMock, body: dic
     http.get(f"{API_URL}/v1/project", json=body)
     result = braintrust_source(make_config(), "projects", 123, "job", make_manager())
     with pytest.raises(RESTClientRetryableError):
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
 
 
 @pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
@@ -140,7 +143,7 @@ def test_sync_auth_errors_match_non_retryable_messages(http: responses.RequestsM
     http.get(f"{API_URL}/v1/project", status=status)
     result = braintrust_source(make_config(), "projects", 123, "job", make_manager())
     with pytest.raises(HTTPError) as error:
-        list(result.items())
+        list(cast(Iterable[Any], result.items()))
     messages = [
         message
         for pattern, message in BraintrustSource().get_non_retryable_errors().items()
