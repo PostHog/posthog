@@ -5,6 +5,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.workflows.backend.facade.enums import WorkflowProposalStatus
+
 
 class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     """A change to a workflow that an agent proposes and a human resolves.
@@ -17,11 +19,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     row it already made.
     """
 
-    class Status(models.TextChoices):
-        SUGGESTED = "suggested", "Suggested"
-        APPROVED = "approved", "Approved"
-        REJECTED = "rejected", "Rejected"
-        APPLIED = "applied", "Applied"
+    Status = WorkflowProposalStatus
 
     OPEN_STATUSES = (Status.SUGGESTED,)
 
@@ -80,7 +78,7 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
         ),
     )
 
-    status = models.CharField(max_length=20, choices=Status, default=Status.SUGGESTED)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SUGGESTED.value)
     source_id = models.CharField(
         max_length=200,
         null=True,
