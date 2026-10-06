@@ -30,8 +30,8 @@ export function SourceDestinationsBanner(): JSX.Element | null {
                 'data-attr': 'warehouse-destinations-cross-sell',
             }}
         >
-            Batch exports send the events PostHog captured. A data warehouse source can write what it imports, like your
-            Stripe charges or HubSpot contacts, to the same warehouse.
+            PostHog also runs ELT pipelines. A pipeline imports tables from a source like Stripe or HubSpot, and can write
+            them to the same warehouse you export to, over the same connection.
         </LemonBanner>
     )
 }
