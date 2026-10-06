@@ -1527,7 +1527,10 @@ class BatchQueue:
         # milliseconds, and JIT compilation then costs far more than the statement. The
         # setting must be in place before the statement is planned, so it cannot be part of
         # it. The transaction holds only this one statement, so the lease upsert commits
-        # as it does in autocommit.
+        # as it does in autocommit. Consumer connections run with autocommit=True, so this
+        # is the common case; a caller holding its own transaction gets a SAVEPOINT here
+        # instead (psycopg nests `transaction()` blocks that way), so that caller's own
+        # commit or rollback still governs the claim.
         async with conn.transaction():
             await conn.execute("SET LOCAL jit = off")
             async with conn.cursor(row_factory=dict_row) as cur:
