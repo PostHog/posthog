@@ -13,6 +13,7 @@ from typing import Any, cast
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -24,11 +25,11 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.marketing_analytics.backend.services.native_integrations import (
-    EXTERNAL_SOURCE_TYPE_TO_NATIVE,
     NATIVE_TO_KEY,
     NativeIntegration,
     build_combined_alias_map,
     display_name_for_key,
+    get_enabled_native_integrations,
     lookup_in,
     normalize,
 )
@@ -137,9 +138,12 @@ async def get_attribution_health(
     else:
         alias_map = build_combined_alias_map(custom_source_mappings)
 
-    targets = list(NATIVE_TO_KEY.values())
+    enabled_integrations = await sync_to_async(get_enabled_native_integrations, thread_sensitive=False)(team)
+    targets = [NATIVE_TO_KEY[native] for native in enabled_integrations.values()]
+    enabled_keys = set(targets)
+    alias_map = {alias: key for alias, key in alias_map.items() if key in enabled_keys}
     if source_type is not None:
-        native = EXTERNAL_SOURCE_TYPE_TO_NATIVE.get(source_type)
+        native = enabled_integrations.get(source_type)
         targets = [NATIVE_TO_KEY[native]] if native else []
 
     allowed = set(targets)
