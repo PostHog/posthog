@@ -1149,6 +1149,7 @@ from .sprig.source import SprigSource
 from .sprinklr.source import SprinklrSource
 from .sprinto.source import SprintoSource
 from .sprout_social.source import SproutSocialSource
+from .sqlite.source import SQLiteSource
 from .squadcast.source import SquadcastSource
 from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
@@ -1309,6 +1310,7 @@ from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
 from .wisprflow.source import WisprFlowSource
+from .wistia.source import WistiaSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource

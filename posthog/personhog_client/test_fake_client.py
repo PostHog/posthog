@@ -623,21 +623,31 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert resp == person_pb2.DeleteTombstonedPersonsResponse()
         assert self._present("tombstoned")
 
-    def test_delete_persons_still_removes_tombstoned_and_live_alike(self):
-        resp = self.client.delete_persons(
-            person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["tombstoned", "live", "blocked"])
-        )
+    @pytest.mark.parametrize(
+        "mode,message",
+        [
+            (person_pb2.DELETE_PERSONS_MODE_HARD, "HARD"),
+            (99, "Unknown DeletePersonsMode 99"),
+        ],
+    )
+    def test_delete_persons_rejects_hard_and_unknown_modes(self, mode, message):
+        with pytest.raises(ValueError, match=message):
+            self.client.delete_persons(
+                person_pb2.DeletePersonsRequest(team_id=self.TEAM_ID, person_uuids=["live"], mode=mode)
+            )
 
-        assert resp.deleted_count == 3
-        for uuid in ("tombstoned", "live", "blocked"):
-            assert not self._present(uuid)
+        stored = self.client.stored_person(self.TEAM_ID, "live")
+        assert stored is not None and not stored.is_deleted
 
-    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self):
+    @pytest.mark.parametrize(
+        "mode", [person_pb2.DELETE_PERSONS_MODE_UNSPECIFIED, person_pb2.DELETE_PERSONS_MODE_TOMBSTONE]
+    )
+    def test_delete_persons_tombstone_mode_keeps_rows_and_reports_versions(self, mode):
         resp = self.client.delete_persons(
             person_pb2.DeletePersonsRequest(
                 team_id=self.TEAM_ID,
                 person_uuids=["live", "tombstoned"],
-                mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE,
+                mode=mode,
             )
         )
 
@@ -652,18 +662,6 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         stored = self.client.stored_person(self.TEAM_ID, "live")
         assert stored is not None and stored.is_deleted
         assert stored.version == 1
-
-        hard = self.client.delete_persons(
-            person_pb2.DeletePersonsRequest(
-                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_HARD
-            )
-        )
-        assert hard.deleted_count == 1
-        assert not hard.tombstoned
-        assert (
-            self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
-            is False
-        )
 
 
 class TestFakePersonHogClientVersionRpcs:

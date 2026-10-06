@@ -188,10 +188,10 @@ message UpdatePersonPropertiesResponse {
 
 // How DeletePersons removes the rows.
 enum DeletePersonsMode {
-  // Same as HARD.
+  // Same as TOMBSTONE.
   DELETE_PERSONS_MODE_UNSPECIFIED = 0;
-  // Remove the rows, tombstoned ones included. For callers that publish no
-  // ClickHouse tombstones and want nothing left behind, such as a purge.
+  // Rejected with INVALID_ARGUMENT, because a hard delete leaves the live ClickHouse rows above a
+  // re-created person's version 0. A deleted team's persons go through DeletePersonsBatchForTeam.
   DELETE_PERSONS_MODE_HARD = 1;
   // Keep the rows as tombstones and report the versions written. The caller
   // owns the prerequisite: ingestion must revive tombstones for the team.
@@ -221,14 +221,13 @@ message TombstonedPerson {
 
 message DeletePersonsResponse {
   int64 deleted_count = 1;
-  // True when the rows were tombstoned rather than removed.
+  // True when the rows were tombstoned rather than removed, which is every successful call.
   bool tombstoned = 2;
   // One entry per requested person that is tombstoned after the call, with the
   // versions its rows hold, so the caller can publish its ClickHouse tombstones
   // at exactly those versions. Persons tombstoned before the call are included
   // too, so a retry after a lost response gets the same versions again;
-  // deleted_count counts only the rows this call tombstoned. Empty on a hard
-  // delete.
+  // deleted_count counts only the rows this call tombstoned.
   repeated TombstonedPerson tombstones = 3;
 }
 
