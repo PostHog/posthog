@@ -511,6 +511,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 context: RemoteContext
             ): Record<string, string> => {
                 const queries: Record<string, string> = {}
+                // Every request searches the current project, so none runs before one is known.
+                if (context.currentTeamId === null) {
+                    return queries
+                }
                 for (const request of REMOTE_REQUESTS) {
                     const query =
                         request.query === 'objects' ? (mode === 'empty' ? '' : resolved.backendSearch) : localQuery
