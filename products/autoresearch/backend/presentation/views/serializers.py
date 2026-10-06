@@ -47,6 +47,10 @@ AGENT_DESCRIPTION_MAX_LENGTH = 2000
 OBJECT_JSON_MAX_BYTES = 64 * 1024
 MODEL_SPEC_MAX_BYTES = 4 * 1024
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
+MAX_TOP_FEATURES = api.MAX_TOP_FEATURES
+FEATURE_DIRECTION_CHOICES = api.FEATURE_DIRECTION_CHOICES
+FEATURE_NAME_MAX_LENGTH = 200
+EXPLANATION_TEXT_MAX_LENGTH = 500
 
 # The target event is interpolated into the sandboxed training agent's prompt brief, so reject
 # characters that could break out of it (control chars incl. newlines, backticks, template braces)
@@ -347,18 +351,61 @@ class ModelRecipeField(serializers.JSONField):
     pass
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "description": (
-            "Global feature importance bundle: top features by gain, directionality "
-            "(positive/negative impact on predicted probability), stability across runs, "
-            "and leakage warning annotations."
-        ),
-    }
-)
-class ModelExplanationField(ObjectJSONField):
-    pass
+class FeatureImportanceSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=FEATURE_NAME_MAX_LENGTH,
+        help_text="Feature column name, as returned by the feature SQL.",
+    )
+    importance = serializers.FloatField(
+        min_value=0,
+        help_text="Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.",
+    )
+    direction = serializers.ChoiceField(
+        choices=FEATURE_DIRECTION_CHOICES,
+        help_text="'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.",
+    )
+
+    def validate_importance(self, value: float) -> float:
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number.")
+        return value
+
+
+class ModelExplanationField(serializers.Serializer):
+    """Global feature importances for the model card."""
+
+    top_features = serializers.ListField(
+        child=FeatureImportanceSerializer(),
+        max_length=MAX_TOP_FEATURES,
+        required=False,
+        default=list,
+        help_text=f"At most {MAX_TOP_FEATURES} features, strongest first.",
+    )
+    method = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=EXPLANATION_TEXT_MAX_LENGTH,
+        help_text="Short description of how the importances were computed, e.g. 'permutation importance on holdout'.",
+    )
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=EXPLANATION_TEXT_MAX_LENGTH,
+        help_text="Optional caveat shown under the chart.",
+    )
+
+    def to_internal_value(self, data: Any) -> Any:
+        # DRF drops unknown keys, so an older list key would otherwise store an empty explanation and return 200.
+        if isinstance(data, dict) and "top_features" not in data:
+            legacy_key = next((key for key in ("features", "feature_importances") if key in data), None)
+            if legacy_key is not None:
+                raise serializers.ValidationError(
+                    {"top_features": [f"Send the features as 'top_features', not '{legacy_key}'."]}
+                )
+        return super().to_internal_value(data)
+
+    def validate_top_features(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted((dict(f) for f in value), key=lambda f: f["importance"], reverse=True)
 
 
 @extend_schema_field(

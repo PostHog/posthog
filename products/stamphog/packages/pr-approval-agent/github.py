@@ -45,6 +45,9 @@ class PRData:
     # Set by the hosted server from GitHub's compare API. Its shallow checkout holds no history, so
     # git cannot compute the merge base there (see diff_range).
     merge_base_sha: str = ""
+    # Every path the diff touches, unquoted: a rename's old and new name both. `files` names a
+    # rename once, so a deny pattern would miss code moved out of a protected directory.
+    touched_paths: list[str] = field(default_factory=list)
 
     @property
     def stacked(self) -> bool:
@@ -54,6 +57,11 @@ class PRData:
     @property
     def file_paths(self) -> list[str]:
         return [f["filename"] for f in self.files]
+
+    @property
+    def deny_paths(self) -> list[str]:
+        """The paths the deny-list matches: the changed files plus every touched path."""
+        return list(dict.fromkeys([*self.file_paths, *self.touched_paths]))
 
     @property
     def lines_added(self) -> int:
@@ -505,6 +513,24 @@ def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path, merge_base_sh
     return files
 
 
+def git_touched_paths(base_sha: str, head_sha: str, repo_root: Path, merge_base_sha: str = "") -> list[str]:
+    """Every path the diff touches, with renames split into their old and new names.
+
+    `-z` keeps git from quoting a path with a newline or a quote in it, which would put a `"` in
+    front of the path and defeat every anchored deny pattern.
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", "-z", diff_range(base_sha, head_sha, merge_base_sha)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"git diff --name-only failed: {result.stderr.strip()}")
+    return [path for path in result.stdout.split("\0") if path]
+
+
 def new_diff_file(directory: Path) -> Path:
     """Create a fresh, empty diff file under an unpredictable name inside ``directory``.
 
@@ -690,6 +716,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     git_root = repo_root or Path.cwd()
     ensure_commits(pr_number, head_sha, base_ref, base_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
+    touched_paths = git_touched_paths(base_sha, head_sha, git_root)
 
     review_comments, pr_reactions = _fetch_threads_and_reactions(repo, pr_number, pr["user"]["login"])
 
@@ -706,6 +733,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
@@ -717,11 +745,11 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     )
 
 
-def check_team_membership(author: str, team_slug: str) -> bool:
-    """Check if author is an active member of the given GitHub team."""
+def check_team_membership(org: str, author: str, team_slug: str) -> bool:
+    """Check if author is an active member of the given GitHub team in ``org``."""
     try:
         result = subprocess.run(
-            ["gh", "api", f"orgs/PostHog/teams/{team_slug}/memberships/{author}"],
+            ["gh", "api", f"orgs/{org}/teams/{team_slug}/memberships/{author}"],
             capture_output=True,
             text=True,
             timeout=10,

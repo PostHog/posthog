@@ -202,12 +202,23 @@ export const MetricsExplainCreateBody = /* @__PURE__ */ zod.object({
                 .datetime({ offset: true })
                 .describe("Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601."),
             interval: zod
-                .enum(['second', 'minute', 'minute_5', 'minute_15', 'hour', 'hour_6', 'day', 'week'])
+                .enum([
+                    'second_15',
+                    'second_30',
+                    'minute',
+                    'minute_5',
+                    'minute_15',
+                    'minute_30',
+                    'hour',
+                    'hour_6',
+                    'day',
+                    'week',
+                ])
                 .describe(
-                    '\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                    '\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                 )
                 .describe(
-                    'Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.\n\n\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                    'Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.\n\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                 ),
         })
         .describe('The chart point to take apart.'),
@@ -339,15 +350,26 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
             interval: zod
                 .union([
                     zod
-                        .enum(['second', 'minute', 'minute_5', 'minute_15', 'hour', 'hour_6', 'day', 'week'])
+                        .enum([
+                            'second_15',
+                            'second_30',
+                            'minute',
+                            'minute_5',
+                            'minute_15',
+                            'minute_30',
+                            'hour',
+                            'hour_6',
+                            'day',
+                            'week',
+                        ])
                         .describe(
-                            '\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                            '\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                 ),
             clauses: zod
                 .array(
