@@ -22,8 +22,8 @@ from pathlib import Path
 #
 # The generated source configs are watched one module at a time. Watching the whole package
 # would re-run the Django suite for every source, including the ones only this product's tests
-# exercise. A config must be watched when the contract reaches it: the facade re-exports it, or
-# a watched vendor imports it. The second test fails when such a config is not an input.
+# exercise. A config is part of the contract when a watched file refers to it, by an import or
+# by a lazy re-export string. The second test holds the watched configs to exactly that set.
 #
 # Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
 # does not descend products/warehouse_sources/backend/temporal/data_imports/ (an implicit namespace package — no
@@ -39,7 +39,8 @@ _FACADE_MODULES = frozenset({_SOURCE_MGMT, _SOURCES})
 _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
 
 _INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
-_GENERATED_CONFIGS = "generated_configs"
+_GENERATED_CONFIGS_DIR = f"{_INPUTS_PREFIX}generated_configs/"
+_GENERATED_CONFIGS_PACKAGE = "sources.generated_configs"
 
 
 def _repo_root() -> Path:
@@ -73,26 +74,14 @@ def _vendor_from_target(dotted: str) -> str | None:
     return None
 
 
-def _generated_config_module(dotted: str) -> str | None:
-    """The generated config module a dotted module path names, or None if it names none.
-
-    "sources.generated_configs.stripe" -> "stripe"; "...sources.generated_configs" (the
-    hand-written resolver) -> "__init__"; "sources.postgres.source" -> None.
-    """
-    parts = dotted.split(".")
-    if _GENERATED_CONFIGS not in parts:
-        return None
-    i = parts.index(_GENERATED_CONFIGS)
-    return parts[i + 1] if i + 1 < len(parts) else "__init__"
-
-
-def _facade_symbol_to_target(root: Path) -> dict[str, str]:
-    """Map each facade re-exported symbol to the dotted module it comes from, across the two
-    facade modules that re-export source internals."""
+def _facade_symbol_to_vendor(root: Path) -> dict[str, str]:
+    """Map each facade re-exported symbol to the source vendor it resolves to, across the two
+    facade modules that re-export source internals. Symbols whose target isn't a source module
+    (SourceRegistry, cdc adapters, NamingConvention) are omitted."""
     mapping: dict[str, str] = {}
 
     # source_management.py: `_LAZY = {"Symbol": "sources.<vendor>...."}` (relative to the
-    # data_imports package).
+    # data_imports package). Resolve each entry's target to its vendor.
     sm_tree = ast.parse((root / _FACADE_DIR / "source_management.py").read_text())
     for node in ast.walk(sm_tree):
         if not (
@@ -108,27 +97,21 @@ def _facade_symbol_to_target(root: Path) -> dict[str, str]:
                 and isinstance(value.value, str)
             ):
                 continue
-            mapping[key.value] = value.value
+            vendor = _vendor_from_target(value.value)
+            if vendor:
+                mapping[key.value] = vendor
 
     # sources.py: `from products.warehouse_sources...sources.<vendor>... import (A, B, ...)`.
     src_tree = ast.parse((root / _FACADE_DIR / "sources.py").read_text())
     for node in ast.walk(src_tree):
         if not isinstance(node, ast.ImportFrom) or not node.module:
             continue
+        vendor = _vendor_from_target(node.module)
+        if not vendor:
+            continue
         for alias in node.names:
-            mapping[alias.asname or alias.name] = node.module
+            mapping[alias.asname or alias.name] = vendor
 
-    return mapping
-
-
-def _facade_symbol_to_vendor(root: Path) -> dict[str, str]:
-    """Map each facade re-exported symbol to the source vendor it resolves to. Symbols whose
-    target isn't a source module (SourceRegistry, cdc adapters, NamingConvention) are omitted."""
-    mapping = {
-        symbol: vendor
-        for symbol, target in _facade_symbol_to_target(root).items()
-        if (vendor := _vendor_from_target(target))
-    }
     assert mapping, "parsed no source re-exports from the warehouse_sources facade"
     return mapping
 
@@ -215,44 +198,74 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
     )
 
 
-def _contract_covered_generated_configs(root: Path) -> set[str] | None:
-    """Generated config modules the contract-check inputs watch, or None when they watch the
-    whole package."""
-    inputs = _contract_check_inputs(root)
+def _input_matches(glob: str, rel: str) -> bool:
+    return rel.startswith(glob.removesuffix("**")) if glob.endswith("/**") else rel == glob
+
+
+def _watched_files(product_dir: Path, inputs: list[str]) -> list[Path]:
+    """The Python files the contract-check inputs watch, outside the generated configs."""
+    positive = [glob for glob in inputs if not glob.startswith("!")]
+    negative = [glob.removeprefix("!") for glob in inputs if glob.startswith("!")]
+    # _input_matches reads two shapes only: an exact file and `dir/**`.
+    unsupported = [glob for glob in positive + negative if "*" in glob.removesuffix("/**")]
+    assert not unsupported, f"contract-check inputs use a glob shape this guard cannot read: {unsupported}"
+    watched = []
+    for file in (product_dir / "backend").rglob("*.py"):
+        rel = file.relative_to(product_dir).as_posix()
+        if rel.startswith(_GENERATED_CONFIGS_DIR):
+            continue
+        if any(_input_matches(g, rel) for g in positive) and not any(_input_matches(g, rel) for g in negative):
+            watched.append(file)
+    return watched
+
+
+def _generated_configs_referenced(tree: ast.AST, config_modules: set[str]) -> set[str]:
+    """The generated config modules a file refers to: by `from`-import, by plain import, or by a
+    dotted-path string such as a lazy re-export target. A reference to the package itself is the
+    hand-written resolver, `__init__`."""
+    dotted: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            dotted.append(node.module)
+            if node.module.endswith(_GENERATED_CONFIGS_PACKAGE):
+                dotted.extend(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            dotted.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and " " not in node.value:
+            dotted.append(node.value)
+
+    referenced: set[str] = set()
+    for path in dotted:
+        _, found, rest = path.partition(_GENERATED_CONFIGS_PACKAGE)
+        if not found or (rest and not rest.startswith(".")):
+            continue
+        module = rest.removeprefix(".").split(".")[0]
+        referenced.add(module if module in config_modules else "__init__")
+    return referenced
+
+
+def test_watched_generated_configs_are_exactly_the_ones_the_contract_refers_to():
+    product_dir = _repo_root() / "products" / "warehouse_sources"
+    inputs = _contract_check_inputs(product_dir.parent.parent)
     if inputs is None:
-        return None
-    prefix = f"{_INPUTS_PREFIX}{_GENERATED_CONFIGS}/"
-    names = {entry[len(prefix) :] for entry in inputs if entry.startswith(prefix)}
-    if "**" in names:
-        return None
-    return {name.removesuffix(".py") for name in names}
-
-
-def test_generated_configs_the_contract_reaches_are_covered_by_contract_check():
-    root = _repo_root()
-    covered_configs = _contract_covered_generated_configs(root)
-    covered_vendors = _contract_covered_sources(root)
-    if covered_configs is None or covered_vendors is None:
+        return
+    watched_configs = {
+        glob.removeprefix(_GENERATED_CONFIGS_DIR) for glob in inputs if glob.startswith(_GENERATED_CONFIGS_DIR)
+    }
+    if "**" in watched_configs:
         return
 
-    reached = {
-        module for target in _facade_symbol_to_target(root).values() if (module := _generated_config_module(target))
-    }
-    sources_dir = root / "products" / "warehouse_sources" / _INPUTS_PREFIX
-    for vendor in covered_vendors - {_GENERATED_CONFIGS}:
-        for file in (sources_dir / vendor).rglob("*.py"):
-            for node in ast.walk(ast.parse(file.read_text(), filename=str(file))):
-                if (
-                    isinstance(node, ast.ImportFrom)
-                    and node.module
-                    and (module := _generated_config_module(node.module))
-                ):
-                    reached.add(module)
+    config_modules = {file.stem for file in (product_dir / _GENERATED_CONFIGS_DIR).glob("*.py")}
+    referred: set[str] = set()
+    for file in _watched_files(product_dir, inputs):
+        referred |= _generated_configs_referenced(ast.parse(file.read_text(), filename=str(file)), config_modules)
+    assert referred, "found no generated config reference in the watched warehouse_sources files"
 
-    missing = reached - covered_configs
-    assert not missing, (
-        f"The warehouse_sources contract reaches generated configs {sorted(missing)}, through a facade "
-        f"re-export or a watched vendor, but they are not backend:contract-check inputs in "
-        f"products/warehouse_sources/turbo.json. A change to those configs would skip the Django suite. "
-        f"Add {_INPUTS_PREFIX}{_GENERATED_CONFIGS}/<module>.py to the contract-check inputs."
+    expected = {f"{module}.py" for module in referred}
+    missing = sorted(_GENERATED_CONFIGS_DIR + name for name in expected - watched_configs)
+    stale = sorted(_GENERATED_CONFIGS_DIR + name for name in watched_configs - expected)
+    assert not missing and not stale, (
+        "products/warehouse_sources/turbo.json backend:contract-check inputs do not match the generated "
+        "configs the watched files refer to. A missing config skips the Django suite when it changes. "
+        f"A stale one re-runs the suite for nothing. Add: {missing}. Remove: {stale}."
     )
