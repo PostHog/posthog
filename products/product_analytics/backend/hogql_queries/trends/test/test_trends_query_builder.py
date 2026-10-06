@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -74,12 +74,11 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
 
         query = query_builder.build_query()
 
-        return execute_hogql_query(
-            query_type="TrendsQuery",
+        return HogQLQueryExecutor(
             query=query,
             team=self.team,
             timings=timings,
-        )
+        ).execute()
 
     def test_column_names(self):
         trends_query = TrendsQuery(
