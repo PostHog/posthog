@@ -33,6 +33,7 @@ def build_metric_query_runner(
     interval: str | None = None,
     quantile: float | None = None,
     metric_type: str | None = None,
+    min_interval: str | None = None,
 ) -> MetricQueryRunner:
     """Return the runner for the table that holds all points of the range."""
     runner = MetricQueryRunner(
@@ -46,6 +47,7 @@ def build_metric_query_runner(
         interval=interval,
         quantile=quantile,
         metric_type=metric_type,
+        min_interval=min_interval,
     )
     if not reads_metrics4_only(runner.scan_from):
         return runner
@@ -60,4 +62,5 @@ def build_metric_query_runner(
         interval=interval,
         quantile=quantile,
         metric_type=metric_type,
+        min_interval=min_interval,
     )
