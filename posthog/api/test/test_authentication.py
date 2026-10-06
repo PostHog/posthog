@@ -846,7 +846,9 @@ class TestDevLoginAPI(APIBaseTest):
 
 
 class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
-    def _authenticator_and_request(self, kind: str) -> tuple[authentication.BaseAuthentication, HttpRequest]:
+    def _authenticator_and_request(
+        self, kind: str
+    ) -> tuple[ExportRendererAuthentication | JwtAuthentication, HttpRequest]:
         if kind == "export_renderer":
             asset = ExportedAsset.objects.create(
                 team=self.team,
@@ -857,7 +859,7 @@ class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
             token = mint_export_renderer_token(
                 user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
             )
-            authenticator: authentication.BaseAuthentication = ExportRendererAuthentication()
+            authenticator: ExportRendererAuthentication | JwtAuthentication = ExportRendererAuthentication()
         else:
             token = encode_jwt({"id": self.user.id}, timedelta(minutes=5), PosthogJwtAudience.IMPERSONATED_USER)
             authenticator = JwtAuthentication()
