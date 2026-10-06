@@ -30300,12 +30300,6 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    biConfig: BIConfig | None = Field(
-        default=None,
-        description=(
-            "Visual worksheet definition, retained on the source so saved views and insights can reopen in BI."
-        ),
-    )
     connectionId: str | None = Field(
         default=None,
         description=(
@@ -30557,6 +30551,19 @@ class TraceSpansTreeQuery(BaseModel):
         ),
     )
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class BIVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: ChartSettings | None = None
+    config: BIConfig
+    display: ChartDisplayType | None = None
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: HogQLQuery
+    tableSettings: TableSettings | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -31188,6 +31195,10 @@ class SessionsQuery(BaseModel):
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
+
+
+class VisualizationNode(RootModel[DataVisualizationNode | BIVisualizationNode]):
+    root: DataVisualizationNode | BIVisualizationNode
 
 
 class CalendarHeatmapQuery(BaseModel):
@@ -33535,6 +33546,7 @@ class MaxInsightContext(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33680,6 +33692,7 @@ class QueryRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33817,6 +33830,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33924,6 +33938,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34036,6 +34051,7 @@ class QueryUpgradeRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34148,6 +34164,7 @@ class QueryUpgradeResponse(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34305,6 +34322,7 @@ class VisualizationArtifactContent(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode

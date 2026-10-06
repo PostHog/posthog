@@ -1,6 +1,15 @@
 import { ChartDisplayType } from '~/types'
 
-import { DatabaseSerializedFieldType } from './schema-general'
+import { ChartSettings, DatabaseSerializedFieldType, HogQLQuery, Node, NodeKind, TableSettings } from './schema-general'
+
+export interface BIVisualizationNode extends Node<never> {
+    kind: NodeKind.BIVisualizationNode
+    source: HogQLQuery
+    config: BIConfig
+    display?: ChartDisplayType
+    chartSettings?: ChartSettings
+    tableSettings?: TableSettings
+}
 
 export type BIAggregation = 'count' | 'count_distinct' | 'sum' | 'average' | 'minimum' | 'maximum' | 'custom'
 

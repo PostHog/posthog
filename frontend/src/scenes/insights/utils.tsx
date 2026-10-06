@@ -42,7 +42,7 @@ import {
 import {
     containsHogQLQuery,
     isDataTableNode,
-    isDataVisualizationNode,
+    isBIVisualizationNode,
     isAnyDataWarehouseNode,
     isEventsNode,
     isGroupNode,
@@ -859,7 +859,7 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
 }
 
 export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
-    if (isDataVisualizationNode(query) && query.source.biConfig) {
+    if (isBIVisualizationNode(query)) {
         return 'business_intelligence'
     }
     if (!query?.kind) {

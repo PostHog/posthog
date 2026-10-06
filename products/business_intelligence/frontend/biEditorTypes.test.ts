@@ -218,7 +218,6 @@ describe('BI editor query generation', () => {
                     kind: NodeKind.HogQLQuery,
                     query: expectedQuery,
                     connectionId: undefined,
-                    biConfig: config,
                 },
                 display: ChartDisplayType.ActionsBar,
             },

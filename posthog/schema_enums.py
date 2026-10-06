@@ -2231,6 +2231,7 @@ class NodeKind(StrEnum):
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
+    BI_VISUALIZATION_NODE = "BIVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
     INSIGHT_VIZ_NODE = "InsightVizNode"
     TRENDS_QUERY = "TrendsQuery"

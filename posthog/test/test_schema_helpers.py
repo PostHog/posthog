@@ -7,15 +7,14 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     BaseMathType,
+    BIVisualizationNode,
     BreakdownAttributionType,
-    DataVisualizationNode,
     EventPropertyFilter,
     EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     FunnelsQuery,
     FunnelVizType,
-    HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
     RetentionQuery,
@@ -43,10 +42,13 @@ class TestBIQuerySchema(SimpleTestCase):
             "limit": 1000,
             "sort": {"key": "event", "direction": "asc"},
         }
-        source_query = {"kind": "HogQLQuery", "query": "SELECT event FROM events", "biConfig": config}
-        self.assertEqual(to_dict(HogQLQuery.model_validate(source_query))["biConfig"], config)
-        insight_query = DataVisualizationNode.model_validate({"kind": "DataVisualizationNode", "source": source_query})
-        self.assertEqual(to_dict(insight_query)["source"]["biConfig"], config)
+        source_query = {"kind": "HogQLQuery", "query": "SELECT event FROM events"}
+        insight_query = BIVisualizationNode.model_validate(
+            {"kind": "BIVisualizationNode", "source": source_query, "config": config}
+        )
+        serialized = to_dict(insight_query)
+        self.assertEqual(serialized["config"], config)
+        self.assertEqual(serialized["source"], {"query": source_query["query"]})
 
 
 class TestSchemaHelpers(TestCase):

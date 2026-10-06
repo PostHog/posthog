@@ -27,7 +27,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
@@ -1652,6 +1652,11 @@ export const productUrls = {
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
+        if (isBIVisualizationNode(query)) {
+            return combineUrl(urls.businessIntelligence(), dashboardId ? { dashboard: dashboardId } : {}, {
+                q: JSON.stringify(query),
+            }).url
+        }
         if (isHogQLQuery(query)) {
             return urls.sqlEditor({ query: query.query })
         }

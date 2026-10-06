@@ -6331,6 +6331,36 @@
             "required": ["field", "aggregation"],
             "type": "object"
         },
+        "BIVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "chartSettings": {
+                    "$ref": "#/definitions/ChartSettings"
+                },
+                "config": {
+                    "$ref": "#/definitions/BIConfig"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "kind": {
+                    "const": "BIVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["config", "kind", "source"],
+            "type": "object"
+        },
         "BaseAssistantMessage": {
             "additionalProperties": false,
             "properties": {
@@ -29551,10 +29581,6 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
-                "biConfig": {
-                    "$ref": "#/definitions/BIConfig",
-                    "description": "Visual worksheet definition, retained on the source so saved views and insights can reopen in BI."
-                },
                 "connectionId": {
                     "description": "Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled.",
                     "type": "string"
@@ -39620,6 +39646,7 @@
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
+                "BIVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -50443,6 +50470,9 @@
                     "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
+                    "$ref": "#/definitions/BIVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
@@ -57069,6 +57099,16 @@
             },
             "required": ["answer", "query", "type"],
             "type": "object"
+        },
+        "VisualizationNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/BIVisualizationNode"
+                }
+            ]
         },
         "VizSpecificOptions": {
             "additionalProperties": false,

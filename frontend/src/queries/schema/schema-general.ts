@@ -60,7 +60,7 @@ import {
     TrendsFilterType,
 } from '~/types'
 
-import { BIConfig } from './schema-business-intelligence'
+import { BIVisualizationNode } from './schema-business-intelligence'
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
@@ -124,6 +124,7 @@ export enum NodeKind {
     // Interface nodes
     DataTableNode = 'DataTableNode',
     DataVisualizationNode = 'DataVisualizationNode',
+    BIVisualizationNode = 'BIVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -370,6 +371,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataVisualizationNode
+    | BIVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -713,8 +715,6 @@ export interface HogQLVariable {
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
-    /** Visual worksheet definition, retained on the source so saved views and insights can reopen in BI. */
-    biConfig?: BIConfig
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
     /** Run the selected connection query directly without translating it through HogQL first */
@@ -1612,6 +1612,8 @@ export interface DataVisualizationNode extends Node<never> {
     chartSettings?: ChartSettings
     tableSettings?: TableSettings
 }
+
+export type VisualizationNode = DataVisualizationNode | BIVisualizationNode
 
 export type DataTableNodeViewPropsContextType = 'event_definition' | 'team_columns'
 

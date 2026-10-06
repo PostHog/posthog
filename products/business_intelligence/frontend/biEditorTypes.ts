@@ -84,6 +84,10 @@ export function mergeBIChartSettings(
     generated: ChartSettings | undefined
 ): ChartSettings | undefined {
     if (!generated) {
+        if (current?.seriesBreakdownColumn) {
+            const { xAxis, xAxisLabel, yAxis, seriesBreakdownColumn, showLegend, ...settings } = current
+            return settings
+        }
         return current
     }
     return {
@@ -1060,7 +1064,6 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 kind: NodeKind.HogQLQuery,
                 query,
                 connectionId: config.source.connectionId,
-                biConfig: config,
             },
             display: config.chartType,
             ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),

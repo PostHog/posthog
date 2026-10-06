@@ -3,20 +3,22 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode } from '~/queries/utils'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLoading, insightMode, dashboardId } = useValues(insightSceneLogic)
+    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
 
     useAttachedContext(
         insight?.short_id && insight?.query
@@ -25,8 +27,17 @@ export function InsightScene(): JSX.Element {
     )
 
     useEffect(() => {
-        if (insightId && isDataVisualizationNode(insight?.query) && insightMode === ItemMode.Edit) {
-            const editorUrl = insight.query.source.biConfig ? urls.businessIntelligence : urls.sqlEditor
+        if (
+            insightId &&
+            insightId !== 'new' &&
+            isDataVisualizationNode(insight?.query) &&
+            insightMode === ItemMode.Edit
+        ) {
+            if (isBIVisualizationNode(insight.query) && !biEnabled) {
+                router.actions.replace(urls.insightView(insightId))
+                return
+            }
+            const editorUrl = isBIVisualizationNode(insight.query) ? urls.businessIntelligence : urls.sqlEditor
             router.actions.push(
                 editorUrl({
                     insightShortId: insightId,
@@ -34,7 +45,7 @@ export function InsightScene(): JSX.Element {
                 })
             )
         }
-    }, [insightId, insight?.query, insightMode, dashboardId])
+    }, [insightId, insight?.query, insightMode, dashboardId, biEnabled])
 
     if (
         insightId === 'new' ||
@@ -42,7 +53,7 @@ export function InsightScene(): JSX.Element {
         (insightId &&
             insight?.id &&
             insight?.short_id &&
-            (insight?.query?.kind !== NodeKind.DataVisualizationNode || insightMode !== ItemMode.Edit))
+            (!isDataVisualizationNode(insight.query) || insightMode !== ItemMode.Edit))
     ) {
         return <InsightAsScene insightId={insightId} attachTo={insightSceneLogic} />
     }

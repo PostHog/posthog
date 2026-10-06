@@ -392,9 +392,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         forceBackTo,
                         name: activeTab?.name || editingInsight.derived_name || '',
                         description: activeTab?.description ?? editingInsight.description ?? '',
-                        resourceType: {
-                            type: editorUrl === urls.businessIntelligence() ? 'business_intelligence' : 'insight/hog',
-                        },
+                        resourceType: { type: 'insight/hog' },
                     }
                 }
 

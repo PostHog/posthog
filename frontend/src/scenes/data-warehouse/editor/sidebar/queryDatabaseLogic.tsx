@@ -1,3 +1,10 @@
+import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+export { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import {
+    createVirtualTableField,
+    resolveFieldTraverserTarget,
+} from 'products/data_warehouse/frontend/shared/fieldTraversal'
+export { resolveFieldTraverserTarget } from 'products/data_warehouse/frontend/shared/fieldTraversal'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -8,7 +15,6 @@ import {
     IconDatabase,
     IconDocument,
     IconEndpoints,
-    IconFolder,
     IconGraph,
     IconPlug,
     IconPlus,
@@ -553,128 +559,6 @@ const createPropertyDefinitionFieldNode = (
             options.loadPropertyDefinitions
         ),
     }
-}
-
-const createVirtualTableField = (
-    fieldName: string,
-    parentField: DatabaseSchemaField,
-    tableLookup?: TableLookup
-): DatabaseSchemaField => {
-    const referencedTable = parentField.table ? tableLookup?.[parentField.table] : undefined
-    const referencedField = referencedTable?.fields?.[fieldName]
-
-    if (referencedField) {
-        return referencedField
-    }
-
-    return {
-        name: fieldName,
-        hogql_value: fieldName,
-        type: 'unknown',
-        schema_valid: true,
-    }
-}
-
-const formatTraversalChain = (chain?: (string | number)[]): string | null => {
-    if (!chain || chain.length === 0) {
-        return null
-    }
-
-    return chain.map((segment) => String(segment)).join('.')
-}
-
-export const resolveFieldTraverserTarget = (
-    tableName: string,
-    field: DatabaseSchemaField,
-    tableLookup?: TableLookup,
-    visitedChains: Set<string> = new Set(),
-    onUnloadedTable?: (tableName: string) => void
-): DatabaseSchemaField | null => {
-    if (!field.chain || !tableLookup) {
-        return null
-    }
-
-    const traversalKey = JSON.stringify([tableName, field.chain])
-    if (visitedChains.has(traversalKey)) {
-        return null
-    }
-    visitedChains.add(traversalKey)
-
-    const baseTable = tableLookup[tableName]
-    if (!baseTable) {
-        return null
-    }
-
-    let currentTable: TableLookupEntry | null = baseTable
-    let currentField: DatabaseSchemaField | null = null
-    let index = 0
-
-    while (index < field.chain.length) {
-        const segment: string | number = field.chain[index]
-        const segmentKey = String(segment)
-
-        if (segmentKey === '..') {
-            return null
-        }
-
-        if (!currentField) {
-            const nextField: DatabaseSchemaField | undefined = currentTable?.fields?.[segmentKey]
-            if (!nextField) {
-                if (currentTable && Object.keys(currentTable.fields ?? {}).length === 0) {
-                    onUnloadedTable?.(currentTable.name)
-                }
-                return null
-            }
-            currentField = nextField
-            index += 1
-            continue
-        }
-
-        if (currentField.type === 'lazy_table') {
-            currentTable = currentField.table ? (tableLookup[currentField.table] ?? null) : null
-            currentField = null
-            continue
-        }
-
-        if (currentField.type === 'virtual_table') {
-            if (!currentField.fields?.includes(segmentKey)) {
-                return null
-            }
-            currentField = createVirtualTableField(segmentKey, currentField, tableLookup)
-            index += 1
-            continue
-        }
-
-        if (currentField.type === 'field_traverser' && currentField.chain) {
-            const chainKey = formatTraversalChain(currentField.chain)
-            if (!chainKey || visitedChains.has(chainKey)) {
-                return null
-            }
-            visitedChains.add(chainKey)
-            currentField = resolveFieldTraverserTarget(
-                tableName,
-                currentField,
-                tableLookup,
-                visitedChains,
-                onUnloadedTable
-            )
-            if (!currentField) {
-                return null
-            }
-            continue
-        }
-
-        return null
-    }
-
-    if (currentField?.type === 'field_traverser') {
-        return (
-            resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains, onUnloadedTable) ??
-            currentField
-        )
-    }
-
-    return currentField
 }
 
 const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
@@ -1682,87 +1566,6 @@ const flattenViewNodes = (nodes: TreeDataItem[], flattenedViews: TreeDataItem[])
             flattenViewNodes(node.children ?? [], flattenedViews)
         }
     })
-}
-
-const getDirectConnectionSchemaName = (tableNode: TreeDataItem, defaultSchemaName?: string | null): string | null => {
-    const tableName =
-        tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
-
-    if (dotIndex > 0) {
-        return tableName.slice(0, dotIndex)
-    }
-
-    if (defaultSchemaName && defaultSchemaName.trim()) {
-        return defaultSchemaName.trim()
-    }
-
-    return null
-}
-
-const getDirectConnectionDisplayTableName = (tableNode: TreeDataItem): string => {
-    const tableName =
-        tableNode.record?.type === 'table' ? (tableNode.record.table?.name ?? tableNode.name) : tableNode.name
-    const dotIndex = tableName.indexOf('.')
-
-    return dotIndex > 0 ? tableName.slice(dotIndex + 1) : tableName
-}
-
-export const groupDirectConnectionTableNodesBySchema = (
-    tableNodes: TreeDataItem[],
-    isSearch: boolean,
-    defaultSchemaName?: string | null
-): TreeDataItem[] => {
-    const tablesBySchema = new Map<string, TreeDataItem[]>()
-    const ungroupedTables: TreeDataItem[] = []
-
-    tableNodes.forEach((tableNode) => {
-        const schemaName = getDirectConnectionSchemaName(tableNode, defaultSchemaName)
-
-        if (!schemaName) {
-            ungroupedTables.push(tableNode)
-            return
-        }
-
-        const currentNodes = tablesBySchema.get(schemaName) ?? []
-        currentNodes.push({
-            ...tableNode,
-            displayName: getDirectConnectionDisplayTableName(tableNode),
-        })
-        tablesBySchema.set(schemaName, currentNodes)
-    })
-
-    const schemaFolders = Array.from(tablesBySchema.entries())
-        .sort(([leftSchema], [rightSchema]) => leftSchema.localeCompare(rightSchema))
-        .map(([schemaName, schemaTables]) => ({
-            id: `${isSearch ? 'search-' : ''}schema-${schemaName}`,
-            name: schemaName,
-            type: 'node' as const,
-            icon: <IconFolder />,
-            record: {
-                type: 'source-folder',
-                sourceType: schemaName,
-            },
-            children: [...schemaTables].sort((leftTable, rightTable) => leftTable.name.localeCompare(rightTable.name)),
-        }))
-
-    if (ungroupedTables.length > 0) {
-        schemaFolders.push({
-            id: `${isSearch ? 'search-' : ''}schema-ungrouped`,
-            name: defaultSchemaName?.trim() || 'Tables',
-            type: 'node',
-            icon: <IconFolder />,
-            record: {
-                type: 'source-folder',
-                sourceType: defaultSchemaName?.trim() || 'Tables',
-            },
-            children: [...ungroupedTables].sort((leftTable, rightTable) =>
-                leftTable.name.localeCompare(rightTable.name)
-            ),
-        })
-    }
-
-    return schemaFolders
 }
 
 export const getDefaultExpandedRootIds = (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] => {

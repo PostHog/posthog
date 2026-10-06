@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import { NodeKind } from '~/queries/schema/schema-general'
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
@@ -204,7 +205,7 @@ export const LoadingInsight: Story = {
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/insights/': async () => {
+                    '/api/:scope/:team_id/insights/': async () => {
                         await delay('infinite')
                         return [200, { results: [] }]
                     },
@@ -259,7 +260,7 @@ const discardMocks = {
     get: {
         '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: [DISCARD_VIEW] }],
         '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, DISCARD_VIEW],
-        '/api/environments/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
+        '/api/:scope/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
         '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
         '/api/projects/:team_id/data_modeling_nodes/lineage/': [200, { nodes: [], edges: [] }],
         '/api/projects/:team_id/query_tab_state/user/': [200, { state: {} }],
@@ -428,12 +429,19 @@ export const BIEmptyWorksheet: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
-        pageUrl: urls.businessIntelligence(),
+        pageUrl: `${urls.businessIntelligence()}#q=`,
         testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Select a table to list its fields.')
     },
 }
 
-const BI_SAVED_QUERY = buildBIQuery(BI_WORKSHEET_CONFIG)!.node
+const BI_SAVED_QUERY = {
+    ...buildBIQuery(BI_WORKSHEET_CONFIG)!.node,
+    kind: NodeKind.BIVisualizationNode as const,
+    config: BI_WORKSHEET_CONFIG,
+}
 BI_SAVED_QUERY.chartSettings!.yAxis![0].settings = { formatting: { prefix: '$', suffix: '' } }
 BI_SAVED_QUERY.tableSettings = {
     columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'].map((column) => ({
@@ -460,7 +468,7 @@ export const BISavedInsight: Story = {
                 ...BIModeWorksheet.parameters?.msw.mocks,
                 get: {
                     ...BIModeWorksheet.parameters?.msw.mocks.get,
-                    '/api/environments/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
+                    '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
                     '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
                     '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
                 },
