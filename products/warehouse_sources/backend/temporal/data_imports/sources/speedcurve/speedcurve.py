@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from requests.exceptions import HTTPError
 from urllib3.util.retry import Retry
@@ -16,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint, PaginatorConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -116,11 +116,14 @@ def speedcurve_source(
             "start_timestamp": start_timestamp,
             "end_timestamp": end_timestamp,
         }
-        endpoint_config["paginator"] = {
-            "type": "page_number",
-            "base_page": 1,
-            "total_path": "meta.last_page" if endpoint == "tests" else None,
-        }
+        endpoint_config["paginator"] = cast(
+            PaginatorConfig,
+            {
+                "type": "page_number",
+                "base_page": 1,
+                "total_path": "meta.last_page" if endpoint == "tests" else None,
+            },
+        )
 
     config: RESTAPIConfig = {
         "client": {
