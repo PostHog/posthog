@@ -107,7 +107,7 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
-USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack")
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
 
 
 class RuntimeAdapter(StrEnum):
@@ -1561,7 +1561,7 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if run_state.pr_authorship_mode is not None:
         return run_state.pr_authorship_mode
 
-    if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
+    if task.origin_product in (TaskModel.OriginProduct.SIGNAL_REPORT, TaskModel.OriginProduct.POSTHOG_AI):
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
