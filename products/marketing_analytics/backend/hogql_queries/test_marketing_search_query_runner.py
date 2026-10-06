@@ -171,7 +171,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert previous_year.previous is not None and previous_year.previous.clicks == 8
         assert not any(row.keyword == "previous only" for row in year_compared)
 
-    def test_google_landing_pages_exclude_non_search_traffic_and_keep_currencies(self) -> None:
+    @parameterized.expand([("GoogleAds",), ("BingAds",)])
+    def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(self, platform: str) -> None:
         table = self._table(
             "paid_landing_pages",
             {
@@ -190,9 +191,29 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "2023-01-10,https://example.com/a,SEARCH,EUR,3,30,6000000,1\n"
             "2023-01-10,https://example.com/a,CONTENT,USD,900,9000,90000000,90\n",
         )
+        if platform == "BingAds":
+            table = self._table(
+                "bing_landing_pages",
+                {
+                    "time_period": "Date",
+                    "destination_url": "String",
+                    "ad_distribution": "String",
+                    "currency_code": "String",
+                    "clicks": "Float64",
+                    "impressions": "Float64",
+                    "spend": "Float64",
+                    "conversions_qualified": "Float64",
+                },
+                "time_period,destination_url,ad_distribution,currency_code,clicks,impressions,spend,conversions_qualified\n"
+                "2023-01-10,https://example.com/a,Search,USD,10,100,20,2\n"
+                "2023-01-11,https://example.com/a,Search,USD,5,50,10,0.5\n"
+                "2023-01-10,https://example.com/a,Search,EUR,3,30,6,1\n"
+                "2023-01-10,https://example.com/a,Audience,USD,900,9000,90,90\n"
+                "2022-01-10,https://example.com/a,Search,USD,900,9000,90,90\n",
+            )
         query = MarketingAnalyticsSearchQuery(
             breakdown="page",
-            sources=[MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=table)],
+            sources=[MarketingAnalyticsSearchSource(sourceType=platform, statsTable=table)],
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
         )
         rows = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results

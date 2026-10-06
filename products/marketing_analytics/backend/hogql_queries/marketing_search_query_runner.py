@@ -99,6 +99,22 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                 """,
                 placeholders=placeholders,
             )
+        if self.query.breakdown == "page" and source.sourceType == "BingAds":
+            return parse_select(
+                """
+                SELECT {period} AS period, NULL AS keyword, nullIf(destination_url, '') AS page,
+                    'BingAds' AS platform, NULL AS matchType,
+                    nullIf(upper(currency_code), '') AS currency,
+                    sum(toFloat(clicks)) AS click_count, sum(toFloat(impressions)) AS impression_count,
+                    sum(toFloat(spend)) AS total_cost,
+                    sum(toFloat(conversions_qualified)) AS conversion_count, 0 AS position_total
+                FROM {stats}
+                WHERE toDate(time_period) >= toDate({date_from}) AND toDate(time_period) <= toDate({date_to})
+                    AND ad_distribution = 'Search'
+                GROUP BY page, currency
+                """,
+                placeholders=placeholders,
+            )
         if self.query.breakdown == "page":
             if source.sourceType != "GoogleAds":
                 raise ValueError("Landing pages are supported by Google Ads and Google Search Console")

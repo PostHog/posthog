@@ -46,7 +46,12 @@ const SOURCES = [
         description: 'Example Bing Ads',
         prefix: 'example',
         status: 'Completed',
-        schemas: ['campaigns', 'campaign_performance_report', 'keyword_performance_report'].map((name) => ({
+        schemas: [
+            'campaigns',
+            'campaign_performance_report',
+            'keyword_performance_report',
+            'destination_url_performance_report',
+        ].map((name) => ({
             id: `example-bing-${name}`,
             name,
             should_sync: true,
