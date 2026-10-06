@@ -14,10 +14,13 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
+from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
+from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -37,9 +40,14 @@ LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
 # team live only when its alerts use no such type. Nothing checks this in code, and one alert
-# delivering natively to Slack and through a HogFunction to Discord would send two differently
-# worded messages for one event.
-_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {DestinationType.SLACK: SlackTransport}
+# delivering natively to one destination and through a HogFunction to another would send two
+# differently worded messages for one event.
+_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
+    DestinationType.SLACK: SlackTransport,
+    DestinationType.WEBHOOK: WebhookTransport,
+    DestinationType.TEAMS: TeamsTransport,
+    DestinationType.DISCORD: DiscordTransport,
+}
 
 
 @frozen
