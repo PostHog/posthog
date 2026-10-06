@@ -12,6 +12,8 @@ import requests
 from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -326,21 +328,27 @@ def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def _date_windows(start_date: str, end: date) -> Iterator[tuple[str, str]]:
+@frozen
+class DateWindow:
+    start: str
+    end: str
+
+
+def _date_windows(start_date: str, end: date) -> Iterator[DateWindow]:
     current = datetime.strptime(start_date, "%Y-%m-%d").date()
     while current <= end:
         window_end = min(current + timedelta(days=DATE_WINDOW_SIZE_DAYS - 1), end)
-        yield current.isoformat(), window_end.isoformat()
+        yield DateWindow(start=current.isoformat(), end=window_end.isoformat())
         current = window_end + timedelta(days=1)
 
 
 def _date_windowed_pages(
     client: RESTClient, config: InstantlyEndpointConfig, start_date: str
 ) -> Iterator[list[dict[str, Any]]]:
-    for window_start, window_end in _date_windows(start_date, _today()):
+    for window in _date_windows(start_date, _today()):
         for page in client.paginate(
             path=f"/api/v2{config.path}",
-            params={**config.params, "start_date": window_start, "end_date": window_end},
+            params={**config.params, "start_date": window.start, "end_date": window.end},
             paginator=SinglePagePaginator(),
             data_selector=config.data_selector,
         ):
