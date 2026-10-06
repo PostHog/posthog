@@ -46,6 +46,10 @@ from products.conversations.backend.reply_dedupe import (
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
+TICKET_METADATA_MAX_KEYS = 50
+TICKET_METADATA_MAX_KEY_LENGTH = 100
+TICKET_METADATA_MAX_VALUE_LENGTH = 1000
+
 
 class TicketActionUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
@@ -61,6 +65,19 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    metadata = serializers.DictField(
+        child=serializers.CharField(max_length=TICKET_METADATA_MAX_VALUE_LENGTH, allow_blank=True, allow_null=True),
+        required=False,
+        help_text="Keys to merge into the ticket metadata. Other keys stay. A null value removes the key.",
+    )
+
+    def validate_metadata(self, value: dict[str, str | None]) -> dict[str, str | None]:
+        for key in value:
+            if not key or len(key) > TICKET_METADATA_MAX_KEY_LENGTH:
+                raise serializers.ValidationError(
+                    f"Metadata keys must be 1 to {TICKET_METADATA_MAX_KEY_LENGTH} characters"
+                )
+        return value
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -357,6 +374,7 @@ def handle_ticket_get(
         "email_to": ticket.email_config.from_email if ticket.email_config else None,
         "cc_participants": ticket.cc_participants,
         "tags": tags,
+        "metadata": ticket.metadata or {},
     }
 
     if include_first_customer_message_text:
@@ -505,6 +523,36 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                             action="changed",
                         )
                     )
+
+    if "metadata" in serializer.validated_data:
+        # Lock the row so that concurrent workflow runs that write different keys do not drop each other's keys.
+        with transaction.atomic():
+            old_metadata = (
+                Ticket.objects.select_for_update().filter(id=ticket.id).values_list("metadata", flat=True).get() or {}
+            )
+            new_metadata = dict(old_metadata)
+            for key, value in serializer.validated_data["metadata"].items():
+                if value is None:
+                    new_metadata.pop(key, None)
+                else:
+                    new_metadata[key] = value
+            if len(new_metadata) > TICKET_METADATA_MAX_KEYS:
+                return Response(
+                    {"error": {"metadata": [f"A ticket can have at most {TICKET_METADATA_MAX_KEYS} metadata keys"]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if new_metadata != old_metadata:
+                ticket.metadata = new_metadata
+                Ticket.objects.filter(id=ticket.id).update(metadata=new_metadata, updated_at=timezone.now())
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="metadata",
+                        before=old_metadata,
+                        after=new_metadata,
+                        action="changed",
+                    )
+                )
 
     if update_fields:
         ticket.save(update_fields=[*update_fields, "updated_at"])

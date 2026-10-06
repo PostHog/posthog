@@ -72848,6 +72848,11 @@ export namespace Schemas {
      };
 
     /**
+     * Key-value pairs that workflows store on the ticket, such as external IDs.
+     */
+    export type TicketMetadata = {[key: string]: string};
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface Ticket {
@@ -72935,6 +72940,8 @@ export namespace Schemas {
       readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
+      /** Key-value pairs that workflows store on the ticket, such as external IDs. */
+      readonly metadata: TicketMetadata;
       /**
          * The effective access level the user has for this object
          * @nullable
