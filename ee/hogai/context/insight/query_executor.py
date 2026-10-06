@@ -485,7 +485,7 @@ class AssistantQueryExecutor:
                         raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
                     if error_message := query_status.get("error_message"):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
-                        raise MaxToolRetryableError(error_message, error_type="internal", error_code=error_code)
+                        raise MaxToolRetryableError(error_message, error_type="internal")
                     raise Exception("Query failed")
 
                 # Use the completed query results

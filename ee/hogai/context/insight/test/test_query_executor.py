@@ -422,6 +422,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             ("timeout", "Query timed out", "error"),
             ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
             ("warehouse_connection", "Warehouse connection failed", None),
+            ("unrecognized_code", "Query input is invalid", '{"property":"synthetic-private-value"}'),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -455,7 +456,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), error_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
-        self.assertEqual(context.exception.error_code, error_code)
+        self.assertIsNone(context.exception.error_code)
 
     @parameterized.expand(
         [
