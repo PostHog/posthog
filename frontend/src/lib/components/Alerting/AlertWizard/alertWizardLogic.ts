@@ -606,7 +606,10 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     (s) =>
                         s.required &&
                         !prefilledKeys.has(s.key) &&
-                        (s.type === 'integration' || s.type === 'integration_field' || s.type === 'string')
+                        (s.type === 'integration' ||
+                            s.type === 'integration_field' ||
+                            s.type === 'string' ||
+                            s.type === 'choice')
                 )
             },
         ],
@@ -732,13 +735,23 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
+                // A failed delivery still answers 200, with the failure in `status` and `errors`, so
+                // only `success` means the destination accepted the event. The generated client's
+                // invocation type declares no `errors`, so it cannot carry the failure reason.
+                // nosemgrep: prefer-codegen-api-namespaced-cdp
+                const result = await api.hogFunctions.createTestInvocation('new', {
                     configuration,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                if (result.status === 'error') {
+                    lemonToast.error(result.errors?.[0] || 'Test invocation failed')
+                } else if (result.status === 'skipped') {
+                    lemonToast.warning('The test event did not match this alert, so nothing was sent')
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
                 lemonToast.error(e.detail || 'Test invocation failed')
