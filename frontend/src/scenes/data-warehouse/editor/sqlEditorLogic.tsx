@@ -105,6 +105,7 @@ import {
 } from 'products/data_catalog/frontend/generated/api'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
+import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
@@ -124,6 +125,7 @@ import {
     getBIFilterValidationError,
     parseBIEditorState,
 } from 'products/business_intelligence/frontend/biEditorTypes'
+import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
@@ -131,7 +133,6 @@ import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
-import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
@@ -462,7 +463,8 @@ export function getCurrentVisualizationQuery(
         key: dataLogicKey,
     } as any)
 
-    const visualizationQuery = mountedVisualizationLogic?.values.query ?? fallbackQuery
+    const mountedQuery = mountedVisualizationLogic?.values.query
+    const visualizationQuery = mountedQuery?.kind === NodeKind.DataVisualizationNode ? mountedQuery : fallbackQuery
     return {
         ...visualizationQuery,
         source: { ...visualizationQuery.source, query: queryInput ?? visualizationQuery.source.query },
@@ -1247,25 +1249,6 @@ export type sqlEditorLogicType = MakeLogicType<
     SqlEditorLogicProps,
     sqlEditorLogicMeta
 >
-
-// Which mounted editors currently want the shared schema catalog scoped to a connection, keyed by
-// tab id. Several editors can be mounted at once (notebook SQL nodes, metrics, endpoints) on the
-// same connection, so the last one out is the one that hands the catalog back unscoped.
-const connectionScopeOwners = new Map<string, string>()
-
-function claimConnectionScope(tabId: string, connectionId: string | null | undefined): void {
-    if (connectionId) {
-        connectionScopeOwners.set(tabId, connectionId)
-    } else {
-        connectionScopeOwners.delete(tabId)
-    }
-}
-
-// Drops this tab's claim and reports whether the scoped connection is now unclaimed.
-function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
-    connectionScopeOwners.delete(tabId)
-    return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
-}
 
 function hasSavedQueryDetails(view: DataWarehouseSavedQuerySummary): view is DataWarehouseSavedQuery {
     return 'columns' in view && Array.isArray(view.columns)
@@ -2098,7 +2081,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     insight,
                     name: tabName,
                     description: tabDescription,
-                    sourceQuery: insightVisualizationQuery,
+                    sourceQuery: insightVisualizationQuery ?? (view ? hogQLEditorSourceQuery(view.query) : undefined),
                     draft,
                     metricName,
                     biEditorState:
@@ -2117,6 +2100,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
+                } else if (view) {
+                    actions.setSourceQuery(hogQLEditorSourceQuery(view.query))
                 }
                 if (query !== undefined) {
                     actions.setQueryInput(query)
@@ -4020,6 +4005,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     } else {
                         actions.editView(queryToOpen, view, biEditorStateFromUrl ?? undefined)
                     }
+                    if (hasFiltersHashParam) {
+                        actions.setSourceQuery(applyFiltersFromUrl(values.sourceQuery))
+                    }
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
                     tabAdded = true
@@ -4072,6 +4060,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         return
                     }
 
+                    if (insight.query?.kind === NodeKind.BIVisualizationNode) {
+                        router.actions.replace(
+                            values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
+                                ? urls.businessIntelligence({ insightShortId: insight.short_id })
+                                : urls.insightView(insight.short_id),
+                            searchParams,
+                            hashParams
+                        )
+                        return
+                    }
                     const insightVisualizationQuery = toDataVisualizationNode(insight.query)
                     const query = insightVisualizationQuery?.source.query ?? ''
 
