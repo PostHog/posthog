@@ -66,7 +66,7 @@ export function CouponRedemption({
         couponsOverviewLoading,
         getClaimedCouponForCampaign,
     } = useValues(logic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, billingPartnerName, isBillingManagedByPartner } = useValues(billingLogic)
     const alreadyClaimed = getClaimedCouponForCampaign(campaign)
 
     if (!config) {
@@ -155,67 +155,106 @@ export function CouponRedemption({
                 </div>
 
                 {/* Right: Steps */}
-                <div className="space-y-4">
-                    {/* Step 1: Add billing details (conditional) */}
-                    {requiresBilling && (
+                {isBillingManagedByPartner ? (
+                    <div className="space-y-4">
+                        <LemonBanner type="info">
+                            {`Billing for this organization is managed by ${billingPartnerName}. Contact them about this coupon.`}
+                        </LemonBanner>
+                        {renderFooter && <div className="flex gap-2">{renderFooter()}</div>}
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {/* Step 1: Add billing details (conditional) */}
+                        {requiresBilling && (
+                            <div className="bg-surface-secondary rounded-lg p-6">
+                                <h2 className="text-xl mb-4">Step 1: Add billing details</h2>
+                                {billingLoading ? (
+                                    <div className="flex items-center gap-2">
+                                        <Spinner className="text-lg" />
+                                        <span>Checking if you're on a paid plan</span>
+                                    </div>
+                                ) : billing?.has_active_subscription ? (
+                                    <div className="flex items-center gap-2 text-success">
+                                        <IconCheck className="shrink-0" />
+                                        <span>You're on a paid plan</span>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-start gap-2">
+                                        <p className="text-muted mb-2">
+                                            To claim this coupon, you need to be on a paid plan.
+                                        </p>
+                                        <p className="text-muted mb-2">
+                                            Don't worry - you'll only pay for what you use and can set billing limits as
+                                            low as $0 to control your spend.
+                                        </p>
+                                        <p className="text-muted mb-2 italic">
+                                            P.S. You still keep the monthly free allowance for every product!
+                                        </p>
+                                        {platformAndSupportProduct && (
+                                            <BillingUpgradeCTAWrapper
+                                                platformAndSupportProduct={platformAndSupportProduct}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Step 2: Redeem coupon */}
                         <div className="bg-surface-secondary rounded-lg p-6">
-                            <h2 className="text-xl mb-4">Step 1: Add billing details</h2>
-                            {billingLoading ? (
+                            <h2 className="text-xl mb-4">{requiresBilling ? 'Step 2: ' : ''}Redeem your coupon</h2>
+
+                            {couponsOverviewLoading || (billingLoading && !billing) ? (
                                 <div className="flex items-center gap-2">
                                     <Spinner className="text-lg" />
-                                    <span>Checking if you're on a paid plan</span>
+                                    <span>Checking coupon status...</span>
                                 </div>
-                            ) : billing?.has_active_subscription ? (
-                                <div className="flex items-center gap-2 text-success">
-                                    <IconCheck className="shrink-0" />
-                                    <span>You're on a paid plan</span>
-                                </div>
-                            ) : (
-                                <div className="flex flex-col items-start gap-2">
-                                    <p className="text-muted mb-2">
-                                        To claim this coupon, you need to be on a paid plan.
+                            ) : claimed ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-success">
+                                        <IconCheck className="shrink-0" />
+                                        <span>Coupon redeemed successfully!</span>
+                                    </div>
+                                    <p className="text-muted">
+                                        Your organization now has access to {config.name} benefits.
+                                        {claimedDetails?.expires_at &&
+                                            ` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}
                                     </p>
-                                    <p className="text-muted mb-2">
-                                        Don't worry - you'll only pay for what you use and can set billing limits as low
-                                        as $0 to control your spend.
-                                    </p>
-                                    <p className="text-muted mb-2 italic">
-                                        P.S. You still keep the monthly free allowance for every product!
-                                    </p>
-                                    {platformAndSupportProduct && (
-                                        <BillingUpgradeCTAWrapper
-                                            platformAndSupportProduct={platformAndSupportProduct}
-                                        />
+                                    {renderSuccessActions ? (
+                                        renderSuccessActions()
+                                    ) : (
+                                        <div className="flex gap-2">
+                                            <LemonButton
+                                                type="primary"
+                                                to={urls.organizationBilling()}
+                                                disableClientSideRouting
+                                            >
+                                                View in billing
+                                            </LemonButton>
+                                            <LemonButton
+                                                type="secondary"
+                                                to={urls.projectHomepage()}
+                                                disableClientSideRouting
+                                            >
+                                                Return to PostHog
+                                            </LemonButton>
+                                        </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Step 2: Redeem coupon */}
-                    <div className="bg-surface-secondary rounded-lg p-6">
-                        <h2 className="text-xl mb-4">{requiresBilling ? 'Step 2: ' : ''}Redeem your coupon</h2>
-
-                        {couponsOverviewLoading ? (
-                            <div className="flex items-center gap-2">
-                                <Spinner className="text-lg" />
-                                <span>Checking coupon status...</span>
-                            </div>
-                        ) : claimed ? (
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-success">
-                                    <IconCheck className="shrink-0" />
-                                    <span>Coupon redeemed successfully!</span>
-                                </div>
-                                <p className="text-muted">
-                                    Your organization now has access to {config.name} benefits.
-                                    {claimedDetails?.expires_at &&
-                                        ` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}
-                                </p>
-                                {renderSuccessActions ? (
-                                    renderSuccessActions()
-                                ) : (
-                                    <div className="flex gap-2">
+                            ) : alreadyClaimed ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-success">
+                                        <IconCheck className="shrink-0" />
+                                        <span>You've already claimed this offer!</span>
+                                    </div>
+                                    <p className="text-muted">
+                                        Your organization has already claimed {config.name} coupon.
+                                        {alreadyClaimed.expires_at &&
+                                            ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}
+                                    </p>
+                                    {renderSuccessActions ? (
+                                        renderSuccessActions()
+                                    ) : (
                                         <LemonButton
                                             type="primary"
                                             to={urls.organizationBilling()}
@@ -223,79 +262,49 @@ export function CouponRedemption({
                                         >
                                             View in billing
                                         </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            to={urls.projectHomepage()}
-                                            disableClientSideRouting
-                                        >
-                                            Return to PostHog
-                                        </LemonButton>
-                                    </div>
-                                )}
-                            </div>
-                        ) : alreadyClaimed ? (
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-success">
-                                    <IconCheck className="shrink-0" />
-                                    <span>You've already claimed this offer!</span>
+                                    )}
                                 </div>
-                                <p className="text-muted">
-                                    Your organization has already claimed {config.name} coupon.
-                                    {alreadyClaimed.expires_at &&
-                                        ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}
-                                </p>
-                                {renderSuccessActions ? (
-                                    renderSuccessActions()
-                                ) : (
-                                    <LemonButton
-                                        type="primary"
-                                        to={urls.organizationBilling()}
-                                        disableClientSideRouting
-                                    >
-                                        View in billing
-                                    </LemonButton>
-                                )}
-                            </div>
-                        ) : (
-                            <Form
-                                logic={couponLogic}
-                                formKey="coupon"
-                                enableFormOnSubmit
-                                className="space-y-3"
-                                props={{ campaign }}
-                            >
-                                <LemonField
-                                    name="organization_name"
-                                    label="PostHog organization"
-                                    info="To claim for a different organization, switch to that organization first"
+                            ) : (
+                                <Form
+                                    logic={couponLogic}
+                                    formKey="coupon"
+                                    enableFormOnSubmit
+                                    className="space-y-3"
+                                    props={{ campaign }}
                                 >
-                                    <LemonInput disabled />
-                                </LemonField>
-
-                                <LemonField name="code" label="Coupon code">
-                                    <LemonInput placeholder="XXX-XXXXXXXXXXX" />
-                                </LemonField>
-
-                                <div className="flex gap-2 mt-4">
-                                    <LemonButton
-                                        type="primary"
-                                        htmlType="submit"
-                                        loading={isCouponSubmitting}
-                                        disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                                    <LemonField
+                                        name="organization_name"
+                                        label="PostHog organization"
+                                        info="To claim for a different organization, switch to that organization first"
                                     >
-                                        Redeem coupon
-                                    </LemonButton>
-                                    {renderFooter && renderFooter()}
-                                </div>
+                                        <LemonInput disabled />
+                                    </LemonField>
 
-                                {/* Form-level error */}
-                                <LemonField name="_form">
-                                    <span />
-                                </LemonField>
-                            </Form>
-                        )}
+                                    <LemonField name="code" label="Coupon code">
+                                        <LemonInput placeholder="XXX-XXXXXXXXXXX" />
+                                    </LemonField>
+
+                                    <div className="flex gap-2 mt-4">
+                                        <LemonButton
+                                            type="primary"
+                                            htmlType="submit"
+                                            loading={isCouponSubmitting}
+                                            disabledReason={isCouponSubmitting ? 'Redeeming coupon...' : undefined}
+                                        >
+                                            Redeem coupon
+                                        </LemonButton>
+                                        {renderFooter && renderFooter()}
+                                    </div>
+
+                                    {/* Form-level error */}
+                                    <LemonField name="_form">
+                                        <span />
+                                    </LemonField>
+                                </Form>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     )

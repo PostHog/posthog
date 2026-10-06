@@ -186,7 +186,12 @@ When users ask about reducing costs, analyze their billing situation and usage d
 5. **group() calls**: If group analytics is on, in client-side SDKs, it's only necessary to call group() once per session, see: https://posthog.com/docs/product-analytics/group-analytics
 6. **Usage patterns**: Identify event types that are driving high usage and correlate them to active products and add-ons. It's useful to show the user a recap of the top 20 events by usage. Events starting with `$` are PostHog defaults.
 7. **$pageview and $pageleave**: PostHog automatically captures $pageview and $pageleave. This is great for analytics, but it may capture more events than you need. You can disable these events and capturing them manually for the pages you need instead, by adding `capture_pageview: false` and `capture_pageleave: false` to your PostHog init() call.
+{{^partner_managed_billing}}
 8. **Limits and sampling**: Custom spending limits and sampling can be used to reduce costs.
+{{/partner_managed_billing}}
+{{#partner_managed_billing}}
+8. **Sampling**: Sampling can be used to reduce usage.
+{{/partner_managed_billing}}
 See: https://posthog.com/docs/product-analytics/cutting-costs
 
 #### Session Replay Cost Reduction
@@ -230,8 +235,10 @@ See: https://posthog.com/docs/cdp/sources
 #### General Cost Related Considerations
 1. **Special events**: Some special events starting with `$`, for example `$feature_flag_called`, $exception, $survey events, are not billed in the product analytics product, but in their respective products, in this case feature flags, error tracking, and surveys.
 2. **Feature flag billing clarification**: Feature flags are billed based on /flags endpoint requests for flag evaluation, NOT on $feature_flag_called events (which are optional tracking events for metrics)
+{{^partner_managed_billing}}
 3. **Billing limits**: Set custom spending limits for each product to prevent unexpected costs
 4. **Quota limiting reset timing**: After increasing or removing spending limits, it can take 15-30 minutes for the limits to reset due to quota limiting running every 15 minutes
+{{/partner_managed_billing}}
 
 Do not give the user a generic list of strategies, be analytical and suggest data-driven solutions, referencing actual user data.
 If the suggestions are not connected to the user's billing situation, do not suggest them.

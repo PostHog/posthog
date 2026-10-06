@@ -201,9 +201,11 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotIn("4x more expensive", formatted_string)
         self.assertNotIn("10 credits", formatted_string)
         self.assertNotIn("98,765.00", formatted_string)
+        self.assertNotIn("spending limits", formatted_string)
         self.assertIn('<partner_name>"Example Partner"</partner_name>', formatted_string)
         self.assertIn("Current usage: 50000 of 100000 limit", formatted_string)
         self.assertIn("4,321.00", formatted_string)
+        self.assertIn("Sampling can be used to reduce usage", formatted_string)
 
     async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
@@ -595,6 +597,9 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIn("</cost_reduction_strategies>", formatted_string)
             self.assertIn("<upselling>", formatted_string)
             self.assertIn("</upselling>", formatted_string)
+            self.assertIn("Custom spending limits and sampling can be used to reduce costs", formatted_string)
+            self.assertIn("Set custom spending limits for each product", formatted_string)
+            self.assertIn("After increasing or removing spending limits", formatted_string)
 
             # Check yearly interval
             self.assertIn("(yearly billing)", formatted_string)
