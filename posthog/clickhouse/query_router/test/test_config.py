@@ -30,10 +30,12 @@ def fresh_settings() -> Iterator[None]:
 
 def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:
     with patch("posthog.models.instance_setting.get_instance_settings", return_value=DEFAULT_SETTINGS):
-        assert config.get_mode(Pool.OFFLINE, QueryClass.BACKGROUND) == RouterMode.ENFORCE
-        assert config.get_mode(Pool.OFFLINE, QueryClass.API) == RouterMode.OBSERVE
-        assert config.get_mode(Pool.ONLINE, QueryClass.BACKGROUND) == RouterMode.OBSERVE
-        assert config.get_pool_limit(Pool.ONLINE) == 40
+        settings = config.get_settings()
+
+    assert settings.mode_for(Pool.OFFLINE, QueryClass.BACKGROUND) == RouterMode.ENFORCE
+    assert settings.mode_for(Pool.OFFLINE, QueryClass.API) == RouterMode.OBSERVE
+    assert settings.mode_for(Pool.ONLINE, QueryClass.BACKGROUND) == RouterMode.OBSERVE
+    assert settings.limits[Pool.ONLINE] == 40
 
 
 @pytest.mark.parametrize(
@@ -79,7 +81,7 @@ def test_bad_settings_fail_open_visibly_and_are_read_once_a_minute(
     ):
         client.__enter__.return_value = client
         for _ in range(3):
-            assert config.get_mode(Pool.OFFLINE, QueryClass.BACKGROUND) == expected_mode
+            assert config.get_settings().mode_for(Pool.OFFLINE, QueryClass.BACKGROUND) == expected_mode
             assert sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE) == [(1,)]
 
     assert get_instance_settings.call_count == 1

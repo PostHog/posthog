@@ -31,6 +31,7 @@ from posthog.clickhouse.query_router.config import (
     waiting_key,
     waiting_seen_key,
 )
+from posthog.clickhouse.query_router.test.fakes import FakeClock, router_settings
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
 
@@ -47,21 +48,10 @@ def _sample_value(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
-class _FakeClock:
-    def __init__(self) -> None:
-        self.now = 1_700_000_000.0
-
-    def time(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += seconds
-
-
 class _ParkedWaiter:
     # Runs admit() on its own thread and stops it at every poll sleep until the test steps it, so a
     # test chooses which of several queued queries polls next.
-    def __init__(self, clock: _FakeClock, query_class: QueryClass) -> None:
+    def __init__(self, clock: FakeClock, query_class: QueryClass) -> None:
         self._query_class = query_class
         self.sleeps: list[float] = []
         self._events: queue.Queue[str] = queue.Queue()
@@ -101,11 +91,12 @@ class _ParkedWaiter:
 class TestQueryRouterAdmission(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.clock = _FakeClock()
+        self.clock = FakeClock()
         self.redis = get_client()
         self.router = QueryRouter(redis_client=self.redis, get_time=self.clock.time, sleep=self.clock.sleep)
-        self.get_mode = self._start_patch("posthog.clickhouse.query_router.config.get_mode", RouterMode.ENFORCE)
-        self.get_pool_limit = self._start_patch("posthog.clickhouse.query_router.config.get_pool_limit", SMALL_LIMIT)
+        self.get_settings = self._start_patch(
+            "posthog.clickhouse.query_router.config.get_settings", router_settings(limit=SMALL_LIMIT)
+        )
         self.addCleanup(self._delete_router_keys)
 
     def _start_patch(self, target: str, return_value: object) -> MagicMock:
@@ -139,14 +130,12 @@ class TestQueryRouterAdmission(SimpleTestCase):
         return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
 
     def test_every_class_starts_while_the_pool_is_under_the_limit(self) -> None:
-        self.get_pool_limit.return_value = 10
+        self.get_settings.return_value = router_settings(limit=10)
 
         with ExitStack() as held:
             self._hold(held, 9)
             with self._admit(QueryClass.BACKGROUND) as admission:
                 assert admission.outcome == AdmissionOutcome.ADMITTED
-                assert admission.total == 9
-                assert admission.limit == 10
 
     @parameterized.expand(
         [
@@ -257,7 +246,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         # With a limit of 3 and three API queries running, the next query needs one freed slot. At 4 seconds
         # per query the pool frees 0.75 slots a second, enough for an API query, but the three API arrivals
         # in the window take 0.6 of those from a BACKGROUND query.
-        self.get_pool_limit.return_value = 3
+        self.get_settings.return_value = router_settings(limit=3)
         if duration_seconds is not None:
             self._finish(duration_seconds)
         with ExitStack() as held:
@@ -294,7 +283,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_held_slot_counts_only_while_its_process_renews_it(
         self, _name: str, renewed: bool, held_seconds: int, next_outcome: AdmissionOutcome
     ) -> None:
-        self.get_mode.return_value = RouterMode.OBSERVE
+        self.get_settings.return_value = router_settings(mode=RouterMode.OBSERVE, limit=SMALL_LIMIT)
         with self._admit(QueryClass.BACKGROUND):
             for _ in range(held_seconds // _SLOT_RENEW_INTERVAL_SECONDS):
                 self.clock.now += _SLOT_RENEW_INTERVAL_SECONDS
@@ -333,7 +322,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_observe_mode_admits_over_the_limit_and_holds_a_slot(
         self, _name: str, duration_seconds: float, expected_outcome: AdmissionOutcome
     ) -> None:
-        self.get_mode.return_value = RouterMode.OBSERVE
+        self.get_settings.return_value = router_settings(mode=RouterMode.OBSERVE, limit=SMALL_LIMIT)
         self._finish(duration_seconds)
         with ExitStack() as held:
             self._hold(held, SMALL_LIMIT)
@@ -370,7 +359,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         assert _sample_value(*admission_errors) == admission_errors_before + 1
 
         server.connected = True
-        self.get_pool_limit.side_effect = ValueError("invalid literal for int()")
+        self.get_settings.return_value = router_settings(mode=RouterMode.ERROR, limit=SMALL_LIMIT)
         with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ERROR
 

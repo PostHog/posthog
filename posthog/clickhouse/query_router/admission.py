@@ -4,7 +4,7 @@ import uuid
 import random
 import threading
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from enum import StrEnum
 from typing import Literal
@@ -144,7 +144,7 @@ if total + ahead < limit then
     redis.call('ZADD', KEYS[my_class], now + ttl_ms, slot)
     redis.call('ZREM', waiting, slot)
     redis.call('ZREM', waiting_seen, slot)
-    return {'admitted', total, limit, ahead}
+    return {'admitted', total, ahead}
 end
 
 -- The estimate runs once, on arrival. A query already in the queue keeps its place until its deadline.
@@ -172,18 +172,18 @@ end
 if not enforcing then
     redis.call('ZADD', KEYS[my_class], now + ttl_ms, slot)
     if refused then
-        return {'would_drop', total, limit, ahead}
+        return {'would_drop', total, ahead}
     end
-    return {'would_wait', total, limit, ahead}
+    return {'would_wait', total, ahead}
 end
 
 if refused then
-    return {'refused', total, limit, ahead}
+    return {'refused', total, ahead}
 end
 
 redis.call('ZADD', waiting, rank, slot)
 redis.call('ZADD', waiting_seen, now, slot)
-return {'wait', total, limit, ahead}
+return {'wait', total, ahead}
 """
 
 # KEYS are the slot's running set, waiting, waiting_seen and durations. One script for release and for
@@ -232,12 +232,9 @@ _DROPPED_OUTCOMES = frozenset({AdmissionOutcome.DROPPED_WAIT_TIMEOUT, AdmissionO
 class Admission:
     outcome: AdmissionOutcome
     waited_ms: int
-    # Queries running in the pool and the pool limit at the last poll. None when no poll answered.
-    total: int | None
-    limit: int | None
 
 
-_ROUTER_OFF = Admission(outcome=AdmissionOutcome.OFF, waited_ms=0, total=None, limit=None)
+_ROUTER_OFF = Admission(outcome=AdmissionOutcome.OFF, waited_ms=0)
 
 _SlotOperation = Literal["release", "renew"]
 
@@ -254,7 +251,6 @@ class _Answer(StrEnum):
 class _Reply:
     answer: _Answer
     total: int
-    limit: int
     # Waiters ranked before this one.
     ahead: int
 
@@ -318,7 +314,7 @@ class QueryRouter:
             outcome=AdmissionOutcome.ERROR.value,
         ).inc()
         self._log_error("query_router_failed_open", pool=slot.pool.value, query_class=_class_label(slot.query_class))
-        return Admission(outcome=AdmissionOutcome.ERROR, waited_ms=self._elapsed_ms(started_at), total=None, limit=None)
+        return Admission(outcome=AdmissionOutcome.ERROR, waited_ms=self._elapsed_ms(started_at))
 
     def _record_slot_error(self, operation: _SlotOperation) -> None:
         SLOT_ERRORS_COUNTER.labels(operation=operation).inc()
@@ -342,7 +338,7 @@ class QueryRouter:
             self._record_slot_error("release")
 
     def _try_enter(self, slot: _Slot, *, rank: int, limit: int, enforcing: bool, first_attempt: bool) -> _Reply:
-        answer, total, limit, ahead = self._try_enter_script(
+        answer, total, ahead = self._try_enter_script(
             keys=[
                 *(running_key(slot.pool, query_class) for query_class in QueryClass),
                 waiting_key(slot.pool),
@@ -365,7 +361,7 @@ class QueryRouter:
                 round(MAX_WAIT_SECONDS * 1000 * QUEUE_WAIT_MARGIN),
             ],
         )
-        return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
+        return _Reply(answer=_Answer(answer.decode()), total=int(total), ahead=int(ahead))
 
     def _poll(
         self,
@@ -409,21 +405,18 @@ class QueryRouter:
                 self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
-    def _enter(self, slot: _Slot, *, mode: RouterMode, cancellation_key: str | None) -> Admission:
+    def _enter(
+        self, slot: _Slot, *, mode: RouterMode, limits: Mapping[Pool, int], cancellation_key: str | None
+    ) -> Admission:
         started_at = self.get_time()
         if mode == RouterMode.ERROR:
-            return self._fail_open(slot, started_at)
-        try:
-            limit = config.get_pool_limit(slot.pool)
-        except Exception:
-            # A malformed or unreadable instance setting must not fail every query.
             return self._fail_open(slot, started_at)
 
         try:
             decision = self._poll(
                 slot,
                 enforcing=mode == RouterMode.ENFORCE,
-                limit=limit,
+                limit=limits[slot.pool],
                 started_at=started_at,
                 cancellation_key=cancellation_key,
             )
@@ -454,12 +447,7 @@ class QueryRouter:
             )
         if decision.outcome in _DROPPED_OUTCOMES:
             raise ClickHouseAtCapacity(wait=random.randint(*_RETRY_AFTER_SECONDS))
-        return Admission(
-            outcome=decision.outcome,
-            waited_ms=waited_ms,
-            total=decision.reply.total,
-            limit=decision.reply.limit,
-        )
+        return Admission(outcome=decision.outcome, waited_ms=waited_ms)
 
     @contextmanager
     def admit(self, *, pool: Pool, query_class: QueryClass, cancellation_key: str | None = None) -> Iterator[Admission]:
@@ -468,13 +456,14 @@ class QueryRouter:
         Raises ClickHouseAtCapacity when the query is dropped and propagates cancellation.
         Redis and settings failures let the query run without a slot.
         """
-        mode = config.get_mode(pool, query_class)
+        settings = config.get_settings()
+        mode = settings.mode_for(pool, query_class)
         if mode == RouterMode.OFF:
             yield _ROUTER_OFF
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(slot, mode=mode, cancellation_key=cancellation_key)
+        admission = self._enter(slot, mode=mode, limits=settings.limits, cancellation_key=cancellation_key)
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
         if holds_slot:

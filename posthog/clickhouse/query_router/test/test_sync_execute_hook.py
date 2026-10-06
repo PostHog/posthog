@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from types import TracebackType
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -27,6 +27,7 @@ from posthog.clickhouse.query_router.config import (
     waiting_key,
     waiting_seen_key,
 )
+from posthog.clickhouse.query_router.test.fakes import FakeClock, router_settings
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
@@ -34,17 +35,6 @@ from posthog.redis import get_client
 
 # One held slot fills the pool.
 SMALL_LIMIT = 1
-
-
-class _FakeClock:
-    def __init__(self) -> None:
-        self.now = 1_700_000_000.0
-
-    def time(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += seconds
 
 
 def _running_slots(redis: Redis, pool: Pool) -> int:
@@ -80,20 +70,20 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         super().setUp()
         self.redis = get_client()
         self.addCleanup(self._delete_router_keys)
-        self.clock = _FakeClock()
+        self.clock = FakeClock()
         router = get_query_router()
         self.enterContext(patch.object(router, "get_time", self.clock.time))
         self.enterContext(patch.object(router, "sleep", self.clock.sleep))
-        self.get_global_mode = self._start_patch("get_global_mode", RouterMode.OBSERVE)
-        self.get_mode = self._start_patch("get_mode", RouterMode.OBSERVE)
-        self._start_patch("get_pool_limit", SMALL_LIMIT)
+        self.get_settings = self.enterContext(
+            patch(
+                "posthog.clickhouse.query_router.config.get_settings",
+                return_value=router_settings(mode=RouterMode.OBSERVE, limit=SMALL_LIMIT),
+            )
+        )
         self.ch_client = _FakeClient(self.redis)
         self.client_from_pool = self.enterContext(
             patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=self.ch_client)
         )
-
-    def _start_patch(self, name: str, return_value: object) -> MagicMock:
-        return self.enterContext(patch(f"posthog.clickhouse.query_router.config.{name}", return_value=return_value))
 
     def _delete_router_keys(self) -> None:
         for pool in Pool:
@@ -106,8 +96,7 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
             )
 
     def _enforce_with_a_full_pool(self) -> str:
-        self.get_global_mode.return_value = RouterMode.ENFORCE
-        self.get_mode.return_value = RouterMode.ENFORCE
+        self.get_settings.return_value = router_settings(mode=RouterMode.ENFORCE, limit=SMALL_LIMIT)
         held_key = running_key(Pool.OFFLINE, QueryClass.INTERACTIVE)
         self.redis.zadd(held_key, {"held": (self.clock.now + 3600) * 1000})
         return held_key

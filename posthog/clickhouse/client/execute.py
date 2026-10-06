@@ -384,7 +384,7 @@ class _RouterTarget:
 def _query_router_target(
     *, workload: Workload, team_id: Optional[int], explicit_client: bool, tags: QueryTags, ch_user: ClickHouseUser
 ) -> Optional[_RouterTarget]:
-    if router_config.get_global_mode() == router_config.RouterMode.OFF:
+    if router_config.get_settings().mode == router_config.RouterMode.OFF:
         return None
     pool = router_classify.pool_for(workload=workload, team_id=team_id, explicit_client=explicit_client)
     query_class = router_classify.classify_query(tags, ch_user)

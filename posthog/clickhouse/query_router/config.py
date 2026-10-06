@@ -92,10 +92,19 @@ def arrivals_key(pool: Pool) -> str:
 
 
 @frozen
-class _RouterSettings:
+class RouterSettings:
     mode: RouterMode
     enforced: frozenset[tuple[Pool, QueryClass]]
     limits: Mapping[Pool, int]
+
+    def mode_for(self, pool: Pool, query_class: QueryClass) -> RouterMode:
+        if self.mode != RouterMode.ENFORCE:
+            return self.mode
+        return RouterMode.ENFORCE if (pool, query_class) in self.enforced else RouterMode.OBSERVE
+
+
+_OFF = RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), limits={})
+_ERROR = RouterSettings(mode=RouterMode.ERROR, enforced=frozenset(), limits={})
 
 
 def _enforced_pairs(raw: str) -> frozenset[tuple[Pool, QueryClass]]:
@@ -124,11 +133,11 @@ _SETTING_KEYS = [
 ]
 
 
-# Every ClickHouse query asks for the mode, so the settings are read from Postgres at most once a
+# Every ClickHouse query asks for the settings, so they are read from Postgres at most once a
 # minute per process. A failed read is cached for the same minute, which keeps a Postgres outage
 # from adding a failed Postgres call to every ClickHouse query.
 @lru_cache(maxsize=1)
-def _load_settings(_minute: int) -> _RouterSettings:
+def _load_settings(_minute: int) -> RouterSettings:
     # posthog.models imports the ClickHouse client, and the client imports this package, so a
     # module-level import here is circular.
     from posthog.models.instance_setting import get_instance_settings  # noqa: PLC0415
@@ -137,34 +146,20 @@ def _load_settings(_minute: int) -> _RouterSettings:
         values = get_instance_settings(_SETTING_KEYS)
         mode = RouterMode(values["QUERY_ROUTER_MODE"])
         if mode == RouterMode.OFF:
-            return _RouterSettings(mode=mode, enforced=frozenset(), limits={})
+            return _OFF
         limits = _limits_from(values)
         enforced = _enforced_pairs(values["QUERY_ROUTER_ENFORCE"])
-        return _RouterSettings(mode=mode, enforced=enforced, limits=limits)
+        return RouterSettings(mode=mode, enforced=enforced, limits=limits)
     except Exception:
         # The settings table does not exist during the first Postgres migrations, and a mistyped
         # value must not take queries down. Distinguish this from an intentional off switch so
         # queries that bypass admission still count toward the failed-open alert.
         logger.warning("query_router_settings_unreadable", exc_info=True)
-        return _RouterSettings(mode=RouterMode.ERROR, enforced=frozenset(), limits={})
+        return _ERROR
 
 
-def _settings() -> _RouterSettings:
-    return _load_settings(int(time.time() // 60))
-
-
-def get_pool_limit(pool: Pool) -> int:
-    return _settings().limits[pool]
-
-
-def get_global_mode() -> RouterMode:
+def get_settings() -> RouterSettings:
+    """The settings as of this minute. A query reads them once, so its mode and its limit agree."""
     if TEST:
-        return RouterMode.OFF
-    return _settings().mode
-
-
-def get_mode(pool: Pool, query_class: QueryClass) -> RouterMode:
-    mode = get_global_mode()
-    if mode != RouterMode.ENFORCE:
-        return mode
-    return RouterMode.ENFORCE if (pool, query_class) in _settings().enforced else RouterMode.OBSERVE
+        return _OFF
+    return _load_settings(int(time.time() // 60))
