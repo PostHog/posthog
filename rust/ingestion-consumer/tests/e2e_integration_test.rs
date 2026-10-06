@@ -28,6 +28,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
+use ingestion_consumer::batcher::packer::PackTargets;
 use ingestion_consumer::batcher::BatcherObserver;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
@@ -67,6 +68,14 @@ async fn create_topic(name: &str, partitions: i32) {
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
 }
+
+/// The `INGESTION_PACK_*` defaults: requests close at 500 events and nothing
+/// is held for more keys.
+const PRODUCTION_PACK_TARGETS: PackTargets = PackTargets {
+    events: 500,
+    bytes: 0,
+    latency_budget: Duration::ZERO,
+};
 
 fn make_producer() -> FutureProducer {
     ClientConfig::new()
@@ -503,6 +512,7 @@ struct Harness {
     pub ledger: Arc<TopicOffsetLedger>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
+    pack_targets: PackTargets,
 }
 
 /// Build a Kafka consumer subscribed to `topic` in `group_id`, configured like
@@ -601,6 +611,34 @@ impl Harness {
             registry_config,
             0,
             ComponentOptions::new(),
+            common::ONE_KEY_PER_REQUEST,
+        )
+        .await
+    }
+
+    /// Like `start`, with the key table's pack targets set.
+    #[allow(clippy::too_many_arguments)]
+    async fn start_with_pack_targets(
+        kind: SchedulerKind,
+        topic: &str,
+        partitions: i32,
+        worker_count: usize,
+        max_in_flight: usize,
+        deferred_flush_timeout: Duration,
+        registry_config: WorkerRegistryConfig,
+        pack_targets: PackTargets,
+    ) -> Self {
+        Self::start_inner(
+            kind,
+            topic,
+            partitions,
+            worker_count,
+            max_in_flight,
+            deferred_flush_timeout,
+            registry_config,
+            0,
+            ComponentOptions::new(),
+            pack_targets,
         )
         .await
     }
@@ -625,6 +663,7 @@ impl Harness {
             ComponentOptions::new()
                 .with_liveness_deadline(liveness_deadline)
                 .with_stall_threshold(stall_threshold),
+            common::ONE_KEY_PER_REQUEST,
         )
         .await
     }
@@ -643,6 +682,7 @@ impl Harness {
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
+            common::ONE_KEY_PER_REQUEST,
         )
         .await
     }
@@ -658,6 +698,7 @@ impl Harness {
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
+        pack_targets: PackTargets,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -699,6 +740,7 @@ impl Harness {
             handle.clone(),
             deferred_flush_timeout,
             Duration::from_millis(200),
+            pack_targets,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -743,6 +785,7 @@ impl Harness {
             ledger,
             max_in_flight,
             deferred_flush_timeout,
+            pack_targets,
         }
     }
 
@@ -786,6 +829,7 @@ impl Harness {
             handle.clone(),
             self.deferred_flush_timeout,
             Duration::from_millis(200),
+            self.pack_targets,
         );
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -927,12 +971,16 @@ fn sole_arrived_worker(harness: &Harness) -> usize {
 /// the Dispatcher's ref-counted pins keep the assignment alive across overlapping
 /// in-flight batches. That invariant is tested in the concurrent-batches suite.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::pin_stash(SchedulerKind::PinStash, common::ONE_KEY_PER_REQUEST)]
+#[case::key_table(SchedulerKind::KeyTable, common::ONE_KEY_PER_REQUEST)]
+#[case::key_table_packed(SchedulerKind::KeyTable, PRODUCTION_PACK_TARGETS)]
 #[tokio::test]
-async fn messages_per_distinct_id_arrive_in_order(#[case] kind: SchedulerKind) {
+async fn messages_per_distinct_id_arrive_in_order(
+    #[case] kind: SchedulerKind,
+    #[case] pack_targets: PackTargets,
+) {
     let topic = format!("e2e-ordering-{}", Uuid::new_v4());
-    let harness = Harness::start(
+    let harness = Harness::start_with_pack_targets(
         kind,
         &topic,
         3,
@@ -940,6 +988,7 @@ async fn messages_per_distinct_id_arrive_in_order(#[case] kind: SchedulerKind) {
         1,
         Duration::from_secs(60),
         fast_registry_config(),
+        pack_targets,
     )
     .await;
 
@@ -1717,12 +1766,16 @@ async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout(#[case] ki
 /// A failed multi-key sub-batch replays every key, each in its own Kafka order,
 /// once a worker is available.
 #[rstest]
-#[case::pin_stash(SchedulerKind::PinStash)]
-#[case::key_table(SchedulerKind::KeyTable)]
+#[case::pin_stash(SchedulerKind::PinStash, common::ONE_KEY_PER_REQUEST)]
+#[case::key_table(SchedulerKind::KeyTable, common::ONE_KEY_PER_REQUEST)]
+#[case::key_table_packed(SchedulerKind::KeyTable, PRODUCTION_PACK_TARGETS)]
 #[tokio::test]
-async fn multi_key_send_failure_replays_every_key_in_order(#[case] kind: SchedulerKind) {
+async fn multi_key_send_failure_replays_every_key_in_order(
+    #[case] kind: SchedulerKind,
+    #[case] pack_targets: PackTargets,
+) {
     let topic = format!("e2e-replay-multikey-{}", Uuid::new_v4());
-    let harness = Harness::start(
+    let harness = Harness::start_with_pack_targets(
         kind,
         &topic,
         3,
@@ -1730,6 +1783,7 @@ async fn multi_key_send_failure_replays_every_key_in_order(#[case] kind: Schedul
         1,
         Duration::from_secs(60),
         fast_registry_config(),
+        pack_targets,
     )
     .await;
     let producer = make_producer();
@@ -2770,6 +2824,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] kind: 
         handle2.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
+        common::ONE_KEY_PER_REQUEST,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -2892,6 +2947,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] kind: Sche
         handle2.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
+        common::ONE_KEY_PER_REQUEST,
     );
     let consumer2 = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &harness.group_id, None),
@@ -3019,6 +3075,7 @@ async fn fenced_static_member_exits_on_fatal_error(#[case] kind: SchedulerKind) 
         handle.clone(),
         Duration::from_secs(60),
         Duration::from_millis(200),
+        common::ONE_KEY_PER_REQUEST,
     );
     let consumer = IngestionConsumer::from_parts(
         make_kafka_consumer(&topic, &group, Some("pod-1")),

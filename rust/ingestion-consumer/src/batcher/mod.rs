@@ -17,6 +17,7 @@
 mod driver;
 pub mod in_flight;
 pub mod key_queues;
+pub mod packer;
 pub mod request;
 pub mod retry_policy;
 pub mod state_machine;
@@ -222,8 +223,9 @@ impl Batcher {
         }
     }
 
-    /// The consumer stopped polling. The state machine takes no new groups
-    /// and stops once nothing is pending or in flight.
+    /// The consumer stopped polling. The state machine seals its held batches
+    /// at once, so in-flight polls complete without waiting for the pack
+    /// budget.
     pub fn begin_shutdown(&self) {
         if let Backend::StateMachine(driver) = &self.backend {
             driver.begin_shutdown();

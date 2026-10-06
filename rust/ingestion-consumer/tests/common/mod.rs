@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ingestion_consumer::batcher::packer::{PackTargets, Packer};
 use ingestion_consumer::batcher::retry_policy::RetryPolicy;
 use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
 use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
@@ -15,8 +16,16 @@ use ingestion_consumer::routing::Router;
 use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
+/// The request shape the placement and replay assertions in these suites
+/// expect.
+pub const ONE_KEY_PER_REQUEST: PackTargets = PackTargets {
+    events: 1,
+    bytes: 0,
+    latency_budget: Duration::ZERO,
+};
+
 /// `stall_timeout` is the deferred-flush timeout for pin-stash and the stall
-/// timeout for the state machine.
+/// timeout for the state machine; `pack_targets` applies to the state machine.
 pub fn batcher(
     kind: SchedulerKind,
     dispatcher: &Arc<Dispatcher>,
@@ -24,14 +33,19 @@ pub fn batcher(
     handle: Handle,
     stall_timeout: Duration,
     retry_delay: Duration,
+    pack_targets: PackTargets,
 ) -> (Batcher, BatcherOutputs) {
     match kind {
         SchedulerKind::PinStash => {
             Batcher::new(Arc::clone(dispatcher), transport, handle, stall_timeout)
         }
-        SchedulerKind::KeyTable => {
-            key_table_batcher(dispatcher, transport, stall_timeout, retry_delay)
-        }
+        SchedulerKind::KeyTable => packing_key_table_batcher(
+            dispatcher,
+            transport,
+            stall_timeout,
+            retry_delay,
+            pack_targets,
+        ),
     }
 }
 
@@ -41,12 +55,34 @@ pub fn key_table_batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
 ) -> (Batcher, BatcherOutputs) {
+    packing_key_table_batcher(
+        dispatcher,
+        transport,
+        stall_timeout,
+        retry_delay,
+        ONE_KEY_PER_REQUEST,
+    )
+}
+
+fn packing_key_table_batcher(
+    dispatcher: &Dispatcher,
+    transport: Arc<GrpcTransport>,
+    stall_timeout: Duration,
+    retry_delay: Duration,
+    pack_targets: PackTargets,
+) -> (Batcher, BatcherOutputs) {
     let pool_source = dispatcher.worker_pool_source();
     let assigner =
         WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
             .expect("valid request cap");
     let retry = RetryPolicy::uniform(retry_delay).expect("valid retry delay");
-    let state_machine = BatcherStateMachine::new(assigner, retry, stall_timeout, Instant::now())
-        .expect("valid stall timeout");
+    let state_machine = BatcherStateMachine::new(
+        Packer::new(pack_targets),
+        assigner,
+        retry,
+        stall_timeout,
+        Instant::now(),
+    )
+    .expect("valid stall timeout");
     Batcher::with_state_machine(state_machine, pool_source, transport)
 }

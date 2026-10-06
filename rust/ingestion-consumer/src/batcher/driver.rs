@@ -387,6 +387,7 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::*;
+    use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
     use crate::batcher::test_support::{message, offsets};
     use crate::batcher::worker_assigner::WorkerAssigner;
@@ -485,7 +486,13 @@ mod tests {
             .expect("valid request cap");
             let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
                 .expect("valid retry policy");
+            let packer = Packer::new(PackTargets {
+                events: 1,
+                bytes: 0,
+                latency_budget: Duration::ZERO,
+            });
             let state = BatcherStateMachine::new(
+                packer,
                 assigner,
                 retry,
                 STALL,
