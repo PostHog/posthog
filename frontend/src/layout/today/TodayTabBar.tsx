@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { Button, cn } from '@posthog/quill'
+import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
 import { TODAY_TAB_BAR_ITEMS } from './todayRailItems'
 import { TODAY_MORE_PANES, todayShellLogic } from './todayShellLogic'
+
+const TAB_CLASS =
+    'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md text-xxs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5'
 
 export function TodayTabBar(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
@@ -15,10 +18,7 @@ export function TodayTabBar(): JSX.Element {
 
     return (
         <div className="TodayTabBar" data-quill>
-            <nav
-                aria-label="Main"
-                className="flex h-15 min-w-0 flex-1 rounded-full border border-[var(--border)] bg-[var(--card)] p-1 shadow-md"
-            >
+            <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
                 {TODAY_TAB_BAR_ITEMS.map(({ pane, label, icon }) => {
                     const active = activePane === pane || (pane === 'more' && TODAY_MORE_PANES.includes(activePane))
                     return (
@@ -29,9 +29,8 @@ export function TodayTabBar(): JSX.Element {
                             data-attr={`today-rail-${pane}`}
                             onClick={() => pickPane(pane)}
                             className={cn(
-                                'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-full text-[11px] leading-3 font-medium outline-none',
-                                'focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5.5',
-                                active ? 'bg-[var(--fill-selected)] text-foreground' : 'text-muted-foreground'
+                                TAB_CLASS,
+                                active ? 'bg-fill-selected text-foreground' : 'text-muted-foreground'
                             )}
                         >
                             {icon}
@@ -39,17 +38,16 @@ export function TodayTabBar(): JSX.Element {
                         </button>
                     )
                 })}
+                <button
+                    type="button"
+                    data-attr="today-rail-search"
+                    onClick={() => toggleCommand('nav-search-button')}
+                    className={cn(TAB_CLASS, 'text-muted-foreground')}
+                >
+                    <IconSearch />
+                    <span className="max-w-full truncate">Search</span>
+                </button>
             </nav>
-            <Button
-                variant="outline"
-                size="icon-lg"
-                aria-label="Search"
-                data-attr="today-rail-search"
-                onClick={() => toggleCommand('nav-search-button')}
-                className="size-15 shrink-0 rounded-full bg-[var(--card)] shadow-md [&_svg]:size-5.5"
-            >
-                <IconSearch />
-            </Button>
         </div>
     )
 }

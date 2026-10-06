@@ -308,6 +308,13 @@ export interface UnquarantineQueryApi {
     identifier: string
 }
 
+export interface ErrorDetailApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
+}
+
 export interface TolerationPileupEntryApi {
     /** Snapshot identifier, for example a Storybook story id plus theme. */
     identifier: string

@@ -56,6 +56,14 @@ export class PersonMergeUnsettledError extends PersonMergeError {
     readonly type = 'UNSETTLED' as const
 }
 
+/** A merge outcome over the properties size limit. Its statement aborted the merge's transaction. */
+export class MergeOutcomeOversizedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'MergeOutcomeOversizedError'
+    }
+}
+
 export class PersonMergeRaceConditionError extends PersonMergeError {
     readonly type = 'RACE_CONDITION' as const
 

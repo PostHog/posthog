@@ -5,7 +5,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLFilters,
     ProductKey,
     SharingConfigurationSettings,
@@ -86,7 +86,7 @@ export const urls = {
         metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
-        query?: string | DataVisualizationNode | DataTableNode
+        query?: string | VisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -206,7 +206,6 @@ export const urls = {
     credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
-    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here

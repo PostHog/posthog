@@ -9,7 +9,6 @@ import {
     IconBook,
     IconBrackets,
     IconBrowser,
-    IconBug,
     IconCheckbox,
     IconCircleDashed,
     IconClock,
@@ -48,6 +47,7 @@ import {
     IconMessage,
     IconNotebook,
     IconNotification,
+    IconPageChart,
     IconPencil,
     IconPeople,
     IconPerson,
@@ -82,7 +82,7 @@ import {
 } from '@posthog/icons'
 
 import {
-    IconBracketsChart,
+    IconSQL,
     IconInsightFunnels,
     IconInsightLifecycle,
     IconInsightRetention,
@@ -154,6 +154,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     endpoints: {
         icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
+    },
+    business_intelligence: {
+        icon: <IconPageChart />,
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
     },
     sql_editor: {
         icon: <IconServer />,
@@ -251,10 +258,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotebook />,
         iconColor: ['var(--color-product-notebooks-light)', 'var(--color-product-notebooks-dark)'],
     },
-    live_debugger: {
-        icon: <IconBug />,
-        iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
-    },
     action: {
         icon: <IconPlay />,
     },
@@ -318,7 +321,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconBracketsChart />,
+        icon: <IconSQL />,
     },
     team_activity: {
         icon: <IconNotification />,

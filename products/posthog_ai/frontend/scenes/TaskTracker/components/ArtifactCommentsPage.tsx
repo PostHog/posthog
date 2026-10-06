@@ -73,9 +73,7 @@ export function ArtifactCommentsPage({
                             onCheckedChange={(checked: boolean) => setShowResolved(checked)}
                             data-attr="task-artifact-comments-show-resolved"
                         />
-                        <Label htmlFor={switchId} className="text-xs">
-                            {`Resolved (${resolvedCount})`}
-                        </Label>
+                        <Label htmlFor={switchId}>{`Resolved (${resolvedCount})`}</Label>
                     </div>
                 )}
             </div>
