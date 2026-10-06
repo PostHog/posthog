@@ -193,3 +193,5 @@ def parse_change_data(kind: str, data: dict[str, Any]) -> IssueChangeData:
                 computed_baseline=float(data["computed_baseline"]),
                 current_bucket_value=int(data["current_bucket_value"]),
             )
+    # Unreachable while every kind has a case above. It turns a kind added without one into an error.
+    raise ValueError(f"Unhandled issue change kind: {kind}")
