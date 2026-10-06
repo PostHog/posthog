@@ -730,6 +730,7 @@ class TestSignalReportListAPI(APIBaseTest):
         content: str | None = None,
         scores: dict[str, float] | None = None,
         heads: list[dict] | None = None,
+        lifts: dict[str, float] | None = None,
     ) -> SignalReportArtefact:
         served = RankingModelResult(
             model_name="report_embeddings",
@@ -739,6 +740,7 @@ class TestSignalReportListAPI(APIBaseTest):
             feature_schema_version=1,
             status="scored",
             scores=scores or {"open": 0.5, "merged": 0.2},
+            lifts=lifts or {},
             metadata={"heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
         )
         challenger = RankingModelResult(
@@ -768,6 +770,7 @@ class TestSignalReportListAPI(APIBaseTest):
                 True,
                 None,
                 None,
+                {"open": 2.5},
                 {
                     "served_key": "report_embeddings@2026-09-01",
                     "model_name": "report_embeddings",
@@ -775,21 +778,42 @@ class TestSignalReportListAPI(APIBaseTest):
                     "manifest_version": "manifest",
                     "scored_at": "2026-09-20T12:00:00Z",
                     "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.5},
                     "readable_heads": ["open"],
                 },
             ),
-            ("non_staff_sees_nothing", False, None, None, None),
-            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None),
-            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None),
+            (
+                "legacy_score_without_lifts_computes_them_from_the_metadata",
+                True,
+                None,
+                [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False, "refit_classification_threshold": 0.0},
+                ],
+                None,
+                {
+                    "served_key": "report_embeddings@2026-09-01",
+                    "model_name": "report_embeddings",
+                    "model_version": "2026-09-01",
+                    "manifest_version": "manifest",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.0},
+                    "readable_heads": ["open"],
+                },
+            ),
+            ("non_staff_sees_nothing", False, None, None, None, None),
+            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None, None),
+            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None, None),
         ]
     )
-    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, expected):
+    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, lifts, expected):
         self.user.is_staff = is_staff
         self.user.save()
         report = self._create_report()
         stale = self._ranking_score_artefact(report, scores={"open": 0.9})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
-        self._ranking_score_artefact(report, content=content, heads=heads)
+        self._ranking_score_artefact(report, content=content, heads=heads, lifts=lifts)
         unscored = self._create_report(title="Unscored")
 
         list_response = self.client.get(self._list_url())
@@ -1213,16 +1237,39 @@ class TestSignalReportListAPI(APIBaseTest):
             )
             return report
 
-        waiting = report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
-        report_naming_me("Names me as reviewer", SignalReport.Status.READY)
+        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
         self._create_report(title="Someone else's report")
 
         response = self.client.get(f"{self._list_url()}for_you/?limit=1")
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert [row["id"] for row in body["results"]] == [str(waiting.id)]
+        # Neither report has a score or a priority, so the newest comes first.
+        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
+
+    def test_for_you_excludes_unowned_p0_reports_when_asked(self):
+        mine = self._create_report(title="Names me as reviewer")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=mine,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
+        self._priority_artefact(unowned, priority="P0")
+
+        with_unowned = self.client.get(f"{self._list_url()}for_you/")
+        without_unowned = self.client.get(f"{self._list_url()}for_you/?include_unowned=false")
+
+        assert with_unowned.status_code == status.HTTP_200_OK
+        assert without_unowned.status_code == status.HTTP_200_OK
+        # The P0 leads by default, because priority is the first ranking key.
+        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
+        assert with_unowned.json()["count"] == 2
+        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
+        assert without_unowned.json()["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

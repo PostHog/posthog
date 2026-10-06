@@ -12,8 +12,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { DataQualityOverview } from 'products/data_quality/frontend/overview/DataQualityOverview'
-
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { MonitoringTab } from './tabs/MonitoringTab'
 import { OverviewTab } from './tabs/OverviewTab'
@@ -29,7 +27,6 @@ const TAB_LABELS: Record<DataWarehouseTab, string> = {
     [DataWarehouseTab.OVERVIEW]: 'Overview',
     [DataWarehouseTab.MONITORING]: 'Monitoring',
     [DataWarehouseTab.SETTINGS]: 'Settings',
-    [DataWarehouseTab.DATA_QUALITY]: 'Data quality',
 }
 
 function tabContent(tab: DataWarehouseTab): JSX.Element {
@@ -40,8 +37,6 @@ function tabContent(tab: DataWarehouseTab): JSX.Element {
             return <MonitoringTab />
         case DataWarehouseTab.SETTINGS:
             return <SettingsTab />
-        case DataWarehouseTab.DATA_QUALITY:
-            return <DataQualityOverview />
     }
 }
 

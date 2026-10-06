@@ -409,7 +409,6 @@ async def _prepare_double_buffered(
     existing: str | None,
     history: QueryFolderPointerHistory | None,
     file_uris: list[str],
-    double_buffer: bool = True,
 ) -> str:
     with (
         patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
@@ -420,7 +419,7 @@ async def _prepare_double_buffered(
             table_name="my_table",
             file_uris=file_uris,
             existing_queryable_folder=existing,
-            double_buffer=double_buffer,
+            double_buffer=True,
             pointer_history=history,
         )
 
@@ -576,25 +575,19 @@ class TestDoubleBufferedQueryFolders:
         assert self._copied(s3) == {f"{_JOB_URI}/{folder}/p1", f"{_JOB_URI}/{folder}/p2"}
         s3._rm.assert_not_awaited()
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
-    async def test_age_based_cleanup_never_removes_the_slot_folders(self, _name: str, double_buffer: bool):
-        # Turning the flag off after a table moved onto the slots returns it to timestamped folders;
-        # the cleanup must still take the stale timestamped folders and must leave every slot alone,
-        # because one of them is what readers are on right now.
+    async def test_age_based_cleanup_never_removes_the_slot_folders(self):
+        # The cleanup must still take the stale timestamped folders a table left behind before it
+        # moved onto the slots, and must leave every slot alone, because one of them is what readers
+        # are on right now.
         stale = f"my_table__query_{_stale_epoch()}_0badf00d"
         s3 = _fake_s3(
             _ls=AsyncMock(return_value=_job_folder_listing(_SLOT_A, _SLOT_B, _SLOT_C, stale)),
             _find=_find_returning({}),
         )
 
-        folder = await _prepare_double_buffered(
-            s3, existing=_SLOT_A, history=_history(_SLOT_A), file_uris=_live("p1"), double_buffer=double_buffer
-        )
+        folder = await _prepare_double_buffered(s3, existing=_SLOT_A, history=_history(_SLOT_A), file_uris=_live("p1"))
 
-        if double_buffer:
-            assert folder == _SLOT_B
-        else:
-            assert _TIMESTAMPED_FOLDER.match(folder)
+        assert folder == _SLOT_B
         s3._rm.assert_awaited_once_with(f"{_JOB_KEY}/{stale}", recursive=True)
 
     async def test_a_failed_stale_file_delete_raises_instead_of_returning_the_standby(self):

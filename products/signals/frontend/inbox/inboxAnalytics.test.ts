@@ -127,6 +127,7 @@ describe('inboxAnalytics', () => {
                         manifest_version: 'manifest',
                         scored_at: '2026-09-30T12:00:00Z',
                         scores: { pr_merged: 0.4 },
+                        lifts: {},
                         readable_heads: ['pr_merged'],
                     },
                 }),

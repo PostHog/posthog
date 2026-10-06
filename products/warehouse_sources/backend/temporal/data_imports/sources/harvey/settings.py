@@ -27,6 +27,7 @@ HISTORY_WINDOW_SECONDS = 24 * 60 * 60
 # to 1 year old. Stay a day under the limit so a request built "now" can't drift past it.
 MAX_LOOKBACK_DAYS = 364
 VAULT_PROJECTS_PAGE_SIZE = 100  # `per_page` max on GET /api/v1/vault/workspace/projects
+VAULT_PROJECT_FILES_PAGE_SIZE = 100  # `limit` max on GET /api/v1/vault/projects/{project_id}/files
 
 
 @dataclass
@@ -105,6 +106,28 @@ HARVEY_ENDPOINTS: dict[str, HarveyEndpointConfig] = {
     "vault_projects": HarveyEndpointConfig(
         name="vault_projects",
         primary_keys=["id"],
+    ),
+    # The endpoints below fan out over every Vault project. None has a server-side time filter that
+    # also catches updates (access levels, processing status, cell edits), so all are full refresh.
+    "vault_project_users": HarveyEndpointConfig(
+        name="vault_project_users",
+        primary_keys=["project_id", "user_id"],
+    ),
+    "vault_project_files": HarveyEndpointConfig(
+        name="vault_project_files",
+        primary_keys=["project_id", "id"],
+        partition_key="uploaded_at",
+    ),
+    "review_tables": HarveyEndpointConfig(
+        name="review_tables",
+        primary_keys=["review_table_id"],
+    ),
+    # One request per (review table, file) pair, so it's opt-in. Cells carry extracted document
+    # content; relies on the capture-off default.
+    "review_table_rows": HarveyEndpointConfig(
+        name="review_table_rows",
+        primary_keys=["review_table_id", "file_id"],
+        should_sync_default=False,
     ),
 }
 

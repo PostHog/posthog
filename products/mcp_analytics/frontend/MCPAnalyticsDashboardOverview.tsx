@@ -59,7 +59,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         canShowFeedback,
         feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
     const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
@@ -194,7 +194,12 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <h2 className="mb-0 text-xl font-semibold text-primary">Reliability</h2>
                     <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
                         {showToolErrors && (
-                            <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />
+                            <ToolErrorRateChart
+                                rows={toolRows}
+                                loading={toolRowsLoading}
+                                theme={theme}
+                                onToolClick={openToolReport}
+                            />
                         )}
                         {showNotableSessions && (
                             <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
