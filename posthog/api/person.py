@@ -90,10 +90,10 @@ from products.ai_training.backend.facade.api import queue_person_training_deleti
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.facade.message_assets import fetch_message_assets_for_person
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
-    fetch_message_assets_for_person,
 )
 
 logger = structlog.get_logger(__name__)
