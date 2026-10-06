@@ -3336,7 +3336,13 @@ export async function onEventImplementation(
                 status: 'completed',
             })
         } else {
-            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
+            // Streamed chunks carry temp- IDs and empty args, so only the final message runs static tools
+            if (
+                isAssistantMessage(parsedResponse) &&
+                parsedResponse.id &&
+                !parsedResponse.id.startsWith('temp-') &&
+                parsedResponse.tool_calls?.length
+            ) {
                 for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
                     if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Non-static tools (contextual) operate via ui_payload instead
