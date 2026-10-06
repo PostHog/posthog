@@ -76,6 +76,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
             'Poke',
             'opencode',
@@ -102,6 +103,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Manus',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
         ])('resolves a logo for the %s category', (category) => {
             expect(harnessLogo(category)?.src).toBeTruthy()
