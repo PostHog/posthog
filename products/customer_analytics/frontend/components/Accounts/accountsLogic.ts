@@ -577,11 +577,11 @@ export interface accountsLogicActions {
     setCustomPropertyOverride: (
         accountId: string,
         definitionId: string,
-        value: CustomPropertyValueWriteApi['value'] | null
+        value: CustomPropertyValueWriteApi['value'] | undefined
     ) => {
         accountId: string
         definitionId: string
-        value: boolean | number | string | null
+        value: boolean | number | string | null | undefined
     }
     setDraftRestored: (restored: boolean) => {
         restored: boolean
@@ -892,7 +892,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setCustomPropertyOverride: (
             accountId: string,
             definitionId: string,
-            value: CustomPropertyValueWriteApi['value'] | null
+            value: CustomPropertyValueWriteApi['value'] | undefined
         ) => ({ accountId, definitionId, value }),
         updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
@@ -1039,7 +1039,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 setCustomPropertyOverride: (state, { accountId, definitionId, value }) => {
                     const next = { ...state }
                     const key = customPropertySavingKey(accountId, definitionId)
-                    if (value === null) {
+                    if (value === undefined) {
                         delete next[key]
                     } else {
                         next[key] = value
@@ -1982,7 +1982,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 return
             }
             const key = customPropertySavingKey(accountId, definition.id)
-            const previous = values.customPropertyOverrides[key] ?? null
+            const previous = values.customPropertyOverrides[key]
             actions.customPropertyUpdateStarted(accountId, definition.id)
             actions.setCustomPropertyOverride(accountId, definition.id, value)
             try {
