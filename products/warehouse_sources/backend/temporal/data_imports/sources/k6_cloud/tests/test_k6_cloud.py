@@ -45,6 +45,14 @@ def _response(
     return resp
 
 
+def _raw_response(url: str, body: Any, *, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp.url = url
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
 def _make_manager(resume_state: K6CloudResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -170,6 +178,7 @@ class TestPagination:
 
         _rows(_source("test_runs", _make_manager()))
         assert params[0]["$top"] == "1000"
+        assert session.send.call_args.kwargs["timeout"] == (10, 60)
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_load_zones_has_no_top_param(self, MockSession: mock.MagicMock) -> None:
@@ -220,6 +229,127 @@ class TestPagination:
 
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(_source("load_zones", _make_manager()))
+
+
+class TestDistributionFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_explodes_each_run_into_one_row_per_load_zone(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        params, urls = _wire(
+            session,
+            [
+                _response(
+                    runs_url,
+                    [
+                        {"id": 11, "created": "2026-03-04T02:58:14Z"},
+                        {"id": 12, "created": "2026-03-05T08:00:00Z"},
+                        {"id": 13, "created": "2026-03-06T09:00:00Z"},
+                    ],
+                ),
+                _raw_response(
+                    f"{runs_url}/11/distribution",
+                    {
+                        "distribution": {
+                            "amazon:us:ashburn": {
+                                "percentage": 60,
+                                "nodes": [{"size": "m5.large", "public_ip": "192.0.2.1"}],
+                            },
+                            "amazon:eu:dublin": {
+                                "percentage": 40,
+                                "nodes": [{"size": "m5.large", "public_ip": "192.0.2.2"}],
+                            },
+                        }
+                    },
+                ),
+                # A run without distribution data answers 404; the fan-out must skip it, not fail.
+                _raw_response(
+                    f"{runs_url}/12/distribution",
+                    {"error": {"message": "Resource matching query does not exist."}},
+                    status=404,
+                ),
+                _raw_response(
+                    f"{runs_url}/13/distribution",
+                    {"distribution": {"amazon:us:ashburn": {"percentage": 100, "nodes": []}}},
+                ),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("test_run_distribution", manager))
+
+        assert rows == [
+            {
+                "test_run_id": 11,
+                "test_run_created": "2026-03-04T02:58:14Z",
+                "load_zone": "amazon:us:ashburn",
+                "percentage": 60,
+                "nodes": [{"size": "m5.large", "public_ip": "192.0.2.1"}],
+            },
+            {
+                "test_run_id": 11,
+                "test_run_created": "2026-03-04T02:58:14Z",
+                "load_zone": "amazon:eu:dublin",
+                "percentage": 40,
+                "nodes": [{"size": "m5.large", "public_ip": "192.0.2.2"}],
+            },
+            {
+                "test_run_id": 13,
+                "test_run_created": "2026-03-06T09:00:00Z",
+                "load_zone": "amazon:us:ashburn",
+                "percentage": 100,
+                "nodes": [],
+            },
+        ]
+        assert urls == [
+            runs_url,
+            f"{K6_CLOUD_BASE_URL}/test_runs/11/distribution",
+            f"{K6_CLOUD_BASE_URL}/test_runs/12/distribution",
+            f"{K6_CLOUD_BASE_URL}/test_runs/13/distribution",
+        ]
+        # `$top` pages the parent listing only; the distribution endpoint takes no query params.
+        assert params[0]["$top"] == "1000"
+        assert all(not p for p in params[1:])
+        assert all(call.kwargs["timeout"] == (10, 60) for call in session.send.call_args_list)
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_parent_next_link(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        next_url = "https://api.k6.io/cloud/v6/test_runs?$skip=1000&$top=1000"
+        zone = {"distribution": {"amazon:us:ashburn": {"percentage": 100, "nodes": []}}}
+        _params, urls = _wire(
+            session,
+            [
+                _response(runs_url, [{"id": 1, "created": "2026-03-04T00:00:00Z"}], next_link=next_url),
+                _raw_response(f"{runs_url}/1/distribution", zone),
+                _response(next_url, [{"id": 2, "created": "2026-03-05T00:00:00Z"}]),
+                _raw_response(f"{runs_url}/2/distribution", zone),
+            ],
+        )
+
+        rows = _rows(_source("test_run_distribution", _make_manager()))
+
+        assert [row["test_run_id"] for row in rows] == [1, 2]
+        assert urls[2] == next_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_success_body_without_distribution_raises(self, MockSession: mock.MagicMock) -> None:
+        # A 200 without the required key is a shape change; silently emitting no rows would drop the
+        # run from a full refresh.
+        session = MockSession.return_value
+        runs_url = "https://api.k6.io/cloud/v6/test_runs"
+        _wire(
+            session,
+            [
+                _response(runs_url, [{"id": 1, "created": "2026-03-04T00:00:00Z"}]),
+                _raw_response(f"{runs_url}/1/distribution", {}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="has no `distribution`"):
+            _rows(_source("test_run_distribution", _make_manager()))
 
 
 class TestIncremental:
@@ -349,6 +479,14 @@ class TestValidateCredentials:
         with mock.patch(K6_SESSION_PATCH) as mock_session:
             mock_session.return_value.get.side_effect = Exception("boom")
             assert validate_credentials("tok", "1") == (False, False)
+
+    def test_fan_out_schema_probes_parent_listing(self) -> None:
+        response = mock.MagicMock()
+        response.status_code = 200
+        with mock.patch(K6_SESSION_PATCH) as mock_session:
+            mock_session.return_value.get.return_value = response
+            validate_credentials("tok", "1", "test_run_distribution")
+        assert mock_session.return_value.get.call_args[0][0] == f"{K6_CLOUD_BASE_URL}/test_runs?%24top=1"
 
     def test_schemaless_probe_hits_auth_endpoint(self) -> None:
         response = mock.MagicMock()

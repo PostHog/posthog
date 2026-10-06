@@ -712,7 +712,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/jenkins.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/jfrog_artifactory.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/jira.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/jobnimbus.py
@@ -728,7 +727,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/justsift/justsift.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/justsift/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/k6_cloud/k6_cloud.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/k6_cloud/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kandji/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/katana.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/settings.py

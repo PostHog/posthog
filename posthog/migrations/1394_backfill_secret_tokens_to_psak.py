@@ -19,10 +19,10 @@ def _fallback_label(label: str, secure_value: str) -> str:
     return f"{label} {secure_value[-8:]}"
 
 
-def _flush(ProjectSecretAPIKey, db, pending: list) -> int:
+def _flush(ProjectSecretAPIKey, db, pending: list, revoked: set) -> int:
     """Insert one chunk with three queries, so row locks last seconds overall instead
     of one round trip per token."""
-    existing = set(
+    existing = revoked | set(
         ProjectSecretAPIKey.objects.using(db)
         .filter(secure_value__in=[key.secure_value for key in pending])
         .values_list("secure_value", flat=True)
@@ -63,9 +63,13 @@ def backfill_tokens(apps, schema_editor):
     """
     Team = apps.get_model("posthog", "Team")
     ProjectSecretAPIKey = apps.get_model("posthog", "ProjectSecretAPIKey")
+    RevokedTeamSecretToken = apps.get_model("posthog", "RevokedTeamSecretToken")
     # Production applies migrations on a dedicated alias; unpinned managers would write
     # to "default", outside this migration's transaction.
     db = schema_editor.connection.alias
+    # A mirror row deleted by leak revocation must stay dead: recreating it would
+    # revive a leaked token nobody rotated yet.
+    revoked = set(RevokedTeamSecretToken.objects.using(db).values_list("secure_value", flat=True))
 
     teams = (
         Team.objects.using(db)
@@ -94,16 +98,16 @@ def backfill_tokens(apps, schema_editor):
                 )
             )
         if len(pending) >= BATCH_SIZE:
-            created_total += _flush(ProjectSecretAPIKey, db, pending)
+            created_total += _flush(ProjectSecretAPIKey, db, pending, revoked)
             pending = []
     if pending:
-        created_total += _flush(ProjectSecretAPIKey, db, pending)
+        created_total += _flush(ProjectSecretAPIKey, db, pending, revoked)
 
     logger.info("backfilled_secret_tokens_to_psak", created_rows=created_total)
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1392_organization_member_notice")]
+    dependencies = [("posthog", "1393_revokedteamsecrettoken")]
 
     operations = [
         migrations.RunPython(backfill_tokens, migrations.RunPython.noop, elidable=True),

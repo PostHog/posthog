@@ -10,12 +10,13 @@ from posthog.models.utils import hash_key_value
 PRIMARY = "phs_backfill_test_primary_token"
 BACKUP = "phs_backfill_test_backup_token"
 COLLIDING = "phs_backfill_test_label_collision_token"
+LEAK_REVOKED = "phs_backfill_test_leak_revoked_token"
 DOUBLE_COLLIDING = "phs_backfill_test_double_collision_token"
 
 
 class TestBackfillSecretTokensToPsak(TestMigrations):
-    migrate_from = "1392_organization_member_notice"
-    migrate_to = "1393_backfill_secret_tokens_to_psak"
+    migrate_from = "1393_revokedteamsecrettoken"
+    migrate_to = "1394_backfill_secret_tokens_to_psak"
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         Team = apps.get_model("posthog", "Team")
@@ -60,6 +61,16 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
                 secure_value=hash_key_value(f"phs_backfill_test_unrelated_{label[-4:]}"),
                 scopes=["feature_flag:read"],
             )
+
+        self.leaked_team_id = Team.objects.create(
+            organization_id=self.organization.id,
+            project_id=self.team.project_id,
+            name="leak revoked",
+            secret_api_token=LEAK_REVOKED,
+        ).id
+        apps.get_model("posthog", "RevokedTeamSecretToken").objects.create(
+            team_id=self.leaked_team_id, secure_value=hash_key_value(LEAK_REVOKED)
+        )
 
         self.empty_team_id = Team.objects.create(
             organization_id=self.organization.id,
@@ -109,6 +120,10 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
         assert ProjectSecretAPIKey.objects.filter(team_id=self.double_collision_team_id).count() == 2
         skip_logs = [log for log in self.logs if log.get("event") == "backfill_label_collision_skipped"]
         assert [log["team_id"] for log in skip_logs] == [self.double_collision_team_id]
+
+        # A leak-revoked hash stays dead: no fresh mirror row for a still-leaked token.
+        assert find_project_secret_api_key(LEAK_REVOKED) is None
+        assert not ProjectSecretAPIKey.objects.filter(team_id=self.leaked_team_id).exists()
 
         # A team with an empty or NULL legacy token gets nothing.
         assert not ProjectSecretAPIKey.objects.filter(team_id=self.empty_team_id).exists()
