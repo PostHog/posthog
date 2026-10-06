@@ -83,14 +83,31 @@ export const PaymentForm = (): JSX.Element => {
     )
 }
 
+export const PaymentCompletion = (): JSX.Element | null => {
+    const { completedPaymentOrganization } = useValues(paymentEntryLogic)
+    const { viewCompletedPaymentOrganization } = useActions(paymentEntryLogic)
+    if (!completedPaymentOrganization) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonBanner type="success">Payment setup completed for {completedPaymentOrganization.name}</LemonBanner>
+            <LemonButton type="primary" onClick={viewCompletedPaymentOrganization}>
+                View {completedPaymentOrganization.name}’s billing
+            </LemonButton>
+        </div>
+    )
+}
+
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlowId } = useValues(paymentEntryLogic)
+    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlowId, completedPaymentOrganization } =
+        useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
         // Only load Stripe.js when the modal is opened
-        if (paymentEntryModalOpen && !stripePromise) {
+        if (paymentEntryModalOpen && !completedPaymentOrganization && !stripePromise) {
             const loadStripeJs = async (): Promise<void> => {
                 const { loadStripe } = await stripeJs()
                 const publicKey = window.STRIPE_PUBLIC_KEY!
@@ -106,24 +123,26 @@ export const PaymentEntryModal = (): JSX.Element => {
                 setStripeError(STRIPE_UNAVAILABLE_MESSAGE)
             })
         }
-    }, [paymentEntryModalOpen, stripePromise, setStripeError])
+    }, [paymentEntryModalOpen, completedPaymentOrganization, stripePromise, setStripeError])
 
     useEffect(() => {
-        if (paymentEntryModalOpen) {
+        if (paymentEntryModalOpen && !completedPaymentOrganization) {
             initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, paymentFlowId, initiateAuthorization])
+    }, [paymentEntryModalOpen, paymentFlowId, completedPaymentOrganization, initiateAuthorization])
 
     return (
         <LemonModal
             onClose={hidePaymentEntryModal}
             width="max(44vw)"
             isOpen={paymentEntryModalOpen}
-            title="Add your payment details to subscribe"
+            title={completedPaymentOrganization ? 'Payment setup completed' : 'Add your payment details to subscribe'}
             description=""
         >
             <div>
-                {clientSecret ? (
+                {completedPaymentOrganization ? (
+                    <PaymentCompletion />
+                ) : clientSecret ? (
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
                         <PaymentForm />
                     </Elements>

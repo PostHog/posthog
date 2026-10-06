@@ -22,6 +22,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_extensions.settings import extensions_api_settings
 
+from posthog.api.fields import OptionalBooleanField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
@@ -554,7 +556,7 @@ class BillingPaymentOrganizationSerializer(serializers.Serializer):
 
 class BillingOverviewRequestSerializer(serializers.Serializer):
     organization_id = serializers.UUIDField(required=False, help_text="Explicit organization to refresh after payment.")
-    include_forecasting = serializers.BooleanField(required=False, help_text="Whether to include usage forecasting.")
+    include_forecasting = OptionalBooleanField(required=False, help_text="Whether to include usage forecasting.")
 
 
 class BillingActivationRequestSerializer(BillingPaymentOrganizationSerializer):
@@ -629,11 +631,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
-    @extend_schema(
-        parameters=[BillingOverviewRequestSerializer],
+    @validated_request(
+        query_serializer=BillingOverviewRequestSerializer,
         responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)},
     )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
             raise NotFound("Billing is not supported for this license type")
@@ -650,8 +652,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         billing_manager = self.get_billing_manager()
         query = {}
-        if "include_forecasting" in request.query_params:
-            query["include_forecasting"] = request.query_params.get("include_forecasting")
+        include_forecasting = request.validated_query_data.get("include_forecasting")
+        if include_forecasting is not None:
+            query["include_forecasting"] = str(include_forecasting).lower()
         response = billing_manager.get_billing(org, query)
 
         vercel_integration = OrganizationIntegration.objects.filter(

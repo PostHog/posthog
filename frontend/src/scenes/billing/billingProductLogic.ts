@@ -223,6 +223,7 @@ export interface billingProductLogicActions {
         redirectPath?: string | null | undefined
     ) => {
         organizationId: string
+        organizationName: string | null
         redirectPath: string | null
     } // paymentEntryLogic
     showPaymentEntryModal: () => {
@@ -1220,8 +1221,20 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 }
 
                 if (response.success) {
-                    await paymentEntryLogic.asyncActions.refreshPaymentOrganization(organizationId)
+                    try {
+                        await paymentEntryLogic.asyncActions.refreshPaymentOrganization(organizationId)
+                    } catch {
+                        // The upgrade succeeded even if its billing or entitlement refresh fails.
+                    }
                     if (flowId !== values.paymentFlowId) {
+                        return
+                    }
+                    if (organizationLogic.values.currentOrganization?.id !== organizationId) {
+                        await paymentEntryLogic.asyncActions.completePaymentFlow(
+                            organizationId,
+                            'upgraded',
+                            redirectPath || null
+                        )
                         return
                     }
                     if (redirectPath) {

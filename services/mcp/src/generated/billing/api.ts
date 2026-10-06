@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 export const BillingListQueryParams = () => zod.object({
-    include_forecasting: zod.boolean().optional().describe('Whether to include usage forecasting.'),
+    include_forecasting: zod.boolean().nullish().describe('Whether to include usage forecasting.'),
     organization_id: zod.string().optional().describe('Explicit organization to refresh after payment.'),
 })
 

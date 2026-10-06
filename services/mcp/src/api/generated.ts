@@ -111443,8 +111443,9 @@ export namespace Schemas {
     export type BillingListParams = {
     /**
      * Whether to include usage forecasting.
+     * @nullable
      */
-    include_forecasting?: boolean;
+    include_forecasting?: boolean | null;
     /**
      * Explicit organization to refresh after payment.
      */

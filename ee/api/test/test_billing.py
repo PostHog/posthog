@@ -896,9 +896,20 @@ class TestBillingAPI(APILicensedTest):
             "surveys": 0,
         }
 
+    @parameterized.expand(
+        [
+            (None, {}),
+            ("true", {"include_forecasting": "true"}),
+            ("false", {"include_forecasting": "false"}),
+            ("1", {"include_forecasting": "true"}),
+            ("0", {"include_forecasting": "false"}),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_billing_with_supported_params(self, mock_get):
-        """Test that the include_forecasting param is passed through to the billing service."""
+    def test_billing_with_supported_params(
+        self, include_forecasting: str | None, expected_params: dict[str, str], mock_get: MagicMock
+    ) -> None:
+        """Normalize explicit forecasting values and preserve the downstream default when omitted."""
 
         def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
@@ -915,7 +926,8 @@ class TestBillingAPI(APILicensedTest):
 
         mock_get.side_effect = mock_implementation
 
-        response = self.client.get("/api/billing/?include_forecasting=true")
+        params = {} if include_forecasting is None else {"include_forecasting": include_forecasting}
+        response = self.client.get("/api/billing/", params)
         assert response.status_code == 200
 
         # Verify the billing service was called with the correct query param
@@ -925,7 +937,14 @@ class TestBillingAPI(APILicensedTest):
             if "api/billing" in call[0][0] and "api/billing/portal" not in call[0][0]
         ]
         assert len(billing_calls) == 1
-        assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
+        assert billing_calls[0].kwargs["params"] == expected_params
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    def test_billing_rejects_malformed_forecasting_param(self, mock_get_billing: MagicMock) -> None:
+        response = self.client.get("/api/billing/", {"include_forecasting": "invalid"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_get_billing.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.BillingManager.update_billing")

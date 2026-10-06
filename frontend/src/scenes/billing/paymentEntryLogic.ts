@@ -25,10 +25,15 @@ export interface paymentEntryLogicValues {
     apiError: string | null
     authorizationStatus: string | null
     clientSecret: string | null
+    completedPaymentOrganization: {
+        id: string
+        name: string
+    } | null
     isLoading: boolean
     paymentEntryModalOpen: boolean
     paymentFlowId: number
     paymentOrganizationId: string | null
+    paymentOrganizationName: string | null
     redirectPath: string | null
     stripeError: string | null
     stripeReturnUrl: string | null
@@ -41,10 +46,20 @@ export interface paymentEntryLogicActions {
         redirectPath?: string | null
     ) => {
         organizationId: string
+        organizationName: string | null
         redirectPath: string | null
     }
     clearErrors: () => {
         value: true
+    }
+    completePaymentFlow: (
+        organizationId: string,
+        successParam: 'success' | 'upgraded',
+        redirectPath: string | null
+    ) => {
+        organizationId: string
+        redirectPath: string | null
+        successParam: 'success' | 'upgraded'
     }
     hidePaymentEntryModal: () => {
         value: true
@@ -67,6 +82,12 @@ export interface paymentEntryLogicActions {
     setClientSecret: (clientSecret: string | null) => {
         clientSecret: string | null
     }
+    setCompletedPaymentOrganization: (organization: { id: string; name: string }) => {
+        organization: {
+            id: string
+            name: string
+        }
+    }
     setLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -85,6 +106,9 @@ export interface paymentEntryLogicActions {
     ) => {
         product: BillingProductV2Type | null | undefined
         redirectPath: string | null | undefined
+    }
+    viewCompletedPaymentOrganization: () => {
+        value: true
     }
 }
 
@@ -115,8 +139,19 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
         beginPaymentFlow: (organizationId: string, redirectPath: string | null = null) => ({
             organizationId,
             redirectPath,
+            organizationName:
+                organizationLogic.values.currentOrganization?.id === organizationId
+                    ? organizationLogic.values.currentOrganization.name
+                    : null,
         }),
         refreshPaymentOrganization: (organizationId: string) => ({ organizationId }),
+        completePaymentFlow: (
+            organizationId: string,
+            successParam: 'success' | 'upgraded',
+            redirectPath: string | null
+        ) => ({ organizationId, successParam, redirectPath }),
+        setCompletedPaymentOrganization: (organization: { id: string; name: string }) => ({ organization }),
+        viewCompletedPaymentOrganization: true,
         initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
@@ -130,6 +165,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
     }),
     reducers({
         paymentOrganizationId: [null as string | null, { beginPaymentFlow: (_, { organizationId }) => organizationId }],
+        paymentOrganizationName: [
+            null as string | null,
+            { beginPaymentFlow: (_, { organizationName }) => organizationName },
+        ],
+        completedPaymentOrganization: [
+            null as { id: string; name: string } | null,
+            {
+                setCompletedPaymentOrganization: (_, { organization }) => organization,
+                beginPaymentFlow: () => null,
+                hidePaymentEntryModal: () => null,
+            },
+        ],
         paymentFlowId: [0, { beginPaymentFlow: (id) => id + 1, hidePaymentEntryModal: (id) => id + 1 }],
         clientSecret: [
             null as string | null,
@@ -218,6 +265,62 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 // Keep the selected organization if its entitlement refresh fails.
             }
         },
+        completePaymentFlow: async ({ organizationId, successParam, redirectPath }) => {
+            const flowId = values.paymentFlowId
+            const active = (): boolean => !cache.disposables.isDisposed && flowId === values.paymentFlowId
+            try {
+                await asyncActions.refreshPaymentOrganization(organizationId)
+            } catch {
+                // Payment is confirmed even if its billing or entitlement refresh fails.
+            }
+            if (!active()) {
+                return
+            }
+            if (organizationLogic.values.currentOrganization?.id !== organizationId) {
+                const name = values.paymentOrganizationName || 'the original organization'
+                actions.setCompletedPaymentOrganization({ id: organizationId, name })
+                actions.setLoading(false)
+                actions.setClientSecret(null)
+                actions.setRedirectPath(null)
+                actions.clearErrors()
+                if (router.values.location.pathname !== urls.billingAuthorizationStatus()) {
+                    actions.showPaymentEntryModal()
+                }
+                if (!values.paymentOrganizationName) {
+                    try {
+                        const organization = await retrieveOrganization(organizationId)
+                        if (
+                            active() &&
+                            values.completedPaymentOrganization?.id === organizationId &&
+                            organization.id === organizationId &&
+                            organization.name
+                        ) {
+                            actions.setCompletedPaymentOrganization({ id: organizationId, name: organization.name })
+                        }
+                    } catch {
+                        // Keep the truthful fallback rather than reporting a confirmed payment as failed.
+                    }
+                }
+                return
+            }
+            const destination =
+                redirectPath ||
+                (router.values.location.pathname === urls.billingAuthorizationStatus()
+                    ? urls.organizationBilling()
+                    : router.values.location.pathname)
+            const url = new URL(destination, window.location.origin)
+            router.actions.push(url.pathname, {
+                ...Object.fromEntries(url.searchParams.entries()),
+                [successParam]: successParam === 'upgraded' ? 'true' : true,
+            })
+            actions.hidePaymentEntryModal()
+        },
+        viewCompletedPaymentOrganization: () => {
+            const organization = values.completedPaymentOrganization
+            if (organization) {
+                userLogic.actions.updateCurrentOrganization(organization.id, urls.organizationBilling())
+            }
+        },
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
             const { billing, billingManagedByPartnerNotice } = billingLogic.values
             if (billingManagedByPartnerNotice) {
@@ -246,15 +349,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                         return
                     }
                     if (response.success) {
-                        await asyncActions.refreshPaymentOrganization(organizationId)
-                        if (flowId !== values.paymentFlowId) {
-                            return
-                        }
-                        const url = new URL(redirectPath || router.values.location.pathname, window.location.origin)
-                        router.actions.push(url.pathname, {
-                            ...Object.fromEntries(url.searchParams.entries()),
-                            upgraded: 'true',
-                        })
+                        await asyncActions.completePaymentFlow(organizationId, 'upgraded', redirectPath || null)
                     } else if (response.must_setup_payment) {
                         actions.showPaymentEntryModal()
                     } else {
@@ -281,6 +376,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             actions.showPaymentEntryModal()
         },
         initiateAuthorization: async () => {
+            if (values.completedPaymentOrganization) {
+                return
+            }
             const organizationId = values.paymentOrganizationId
             const flowId = values.paymentFlowId
             if (!organizationId) {
@@ -339,21 +437,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     const status = response.status || (response.success ? 'success' : 'failed')
                     actions.setAuthorizationStatus(status)
                     if (status === 'success') {
-                        await asyncActions.refreshPaymentOrganization(organizationId)
-                        if (!active()) {
-                            return
-                        }
-                        const destination =
-                            redirectPath ||
-                            (router.values.location.pathname === urls.billingAuthorizationStatus()
-                                ? urls.organizationBilling()
-                                : router.values.location.pathname)
-                        const url = new URL(destination, window.location.origin)
-                        router.actions.push(url.pathname, {
-                            ...Object.fromEntries(url.searchParams.entries()),
-                            success: true,
-                        })
-                        actions.hidePaymentEntryModal()
+                        await asyncActions.completePaymentFlow(organizationId, 'success', redirectPath)
                     } else if (status === 'failed') {
                         actions.setApiError(response.error || 'Payment failed. Please try again.')
                     } else if (++attempts < 30) {

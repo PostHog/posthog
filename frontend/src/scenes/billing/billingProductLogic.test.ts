@@ -1,4 +1,6 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -9,6 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -260,6 +263,37 @@ describe('billingProductLogic — confirm purchase modal', () => {
             organization_id: organizationLogic.values.currentOrganization!.id,
             products: `${scaleAddon.type}:${scaleAddon.plans[0].plan_key}`,
         })
+    })
+
+    it('keeps another selected organization after the original product activation succeeds', async () => {
+        const original = organizationLogic.values.currentOrganization!
+        const selected = { ...original, id: '00000000-0000-4000-8000-000000000002', name: 'Selected organization' }
+        let resolveActivation!: (response: [number, { success: boolean }]) => void
+        const response = new Promise<[number, { success: boolean }]>((resolve) => {
+            resolveActivation = resolve
+        })
+        const activate = jest.fn(() => response)
+        useMocks({ post: { '/api/billing/activate': activate } })
+        logic = billingProductLogic({ product: scaleAddon })
+        logic.mount()
+        const push = jest.spyOn(router.actions, 'push')
+        try {
+            logic.actions.handleProductUpgrade('scale:scale', '/project/1/replay')
+            await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+            organizationLogic.actions.loadCurrentOrganizationSuccess(selected)
+            resolveActivation([200, { success: true }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(organizationLogic.values.currentOrganization?.id).toBe(selected.id)
+            expect(push).not.toHaveBeenCalled()
+            expect(paymentEntryLogic.values.completedPaymentOrganization).toEqual({
+                id: original.id,
+                name: original.name,
+            })
+            expect(toastErrorSpy).not.toHaveBeenCalled()
+        } finally {
+            push.mockRestore()
+        }
     })
 
     it('auto-closes the modal once activation finishes', async () => {

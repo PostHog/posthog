@@ -2,8 +2,15 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "include_forecasting": {
-            "description": "Whether to include usage forecasting.",
-            "type": "boolean"
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to include usage forecasting."
         },
         "organization_id": {
             "description": "Explicit organization to refresh after payment.",
