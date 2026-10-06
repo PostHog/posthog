@@ -1,11 +1,19 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
+import {
+    IconCopy,
+    IconDatabase,
+    IconOpenSidebar,
+    IconQuestion,
+    IconServer,
+    IconShieldLock,
+    IconSparkles,
+} from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
+import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -59,7 +67,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         tooltip={
                             iconOnly ? (
                                 <>
-                                    More
+                                    Help and support
                                     <RenderKeybind keybind={[keyBinds.helpMenu]} className="ml-1" />
                                 </>
                             ) : undefined
@@ -79,12 +87,12 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                 status={triggerBadgeStatus}
                                 className="flex"
                             >
-                                <IconMenu className="size-[17px]" />
+                                <IconQuestion className="size-[17px]" />
                             </IconWithBadge>
                         </span>
                         {!iconOnly && (
                             <>
-                                <span className="-ml-px">More</span>
+                                <span className="-ml-px">Help</span>
                                 <MenuOpenIndicator direction="up" />
                             </>
                         )}
@@ -167,7 +175,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-status-button"
                                         >
-                                            Status Page
+                                            Status page
                                             {postHogStatusBadgeStatus !== 'success' && (
                                                 <LemonBadge
                                                     content={postHogStatusBadgeContent}
