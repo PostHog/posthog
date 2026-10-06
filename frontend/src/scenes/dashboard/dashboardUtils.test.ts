@@ -492,7 +492,7 @@ describe('getInsightQueryError', () => {
                 error_message: 'Query ran out of memory',
                 error_code: errorCode,
             },
-        } as unknown as QueryBasedInsightModel)
+        } as unknown as InsightModel)
 
         expect(error?.status).toBe(expectedStatus)
         expect(error?.data?.code).toBe(errorCode)
@@ -506,13 +506,13 @@ describe('getInsightQueryError', () => {
                 error_message:
                     "[ErrorDetail(string='Query ran out of memory', code='clickhouse_memory_limit_exceeded')]",
             },
-        } as unknown as QueryBasedInsightModel)
+        } as unknown as InsightModel)
 
         expect(error?.status).toBe(513)
         expect(error?.data?.code).toBe('clickhouse_memory_limit_exceeded')
     })
 
     it('returns null when the query did not error', () => {
-        expect(getInsightQueryError({} as QueryBasedInsightModel)).toBeNull()
+        expect(getInsightQueryError({} as InsightModel)).toBeNull()
     })
 })
