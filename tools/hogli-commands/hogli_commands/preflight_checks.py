@@ -15,6 +15,7 @@ from typing import Literal
 
 import yaml
 from hogli.manifest import REPO_ROOT
+from hogli.telemetry import is_ci
 
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.size_lint import _rename_map
@@ -147,22 +148,26 @@ _SEMGREP_DOWNLOAD_RETRY_SECONDS = 600
 Finding = tuple[str, str, str]
 
 
+def _semgrep_spec() -> str | None:
+    """The semgrep version CI pins, as a requirement. None when the workflow pins none."""
+    try:
+        workflow = (REPO_ROOT / SEMGREP_WORKFLOW).read_text()
+    except OSError:
+        return None
+    pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
+    return f"semgrep=={pin.group(1)}" if pin else None
+
+
 def _semgrep_command(*, offline: bool = True) -> list[str] | None:
     """The command that runs the semgrep version CI pins. None when it cannot be built.
 
     uv runs that version from its cache, in an environment of its own, so the scan does not
     depend on a semgrep the developer installed. Only preparation downloads the package.
     """
-    if shutil.which("uv") is None:
+    spec = _semgrep_spec()
+    if spec is None or shutil.which("uv") is None:
         return None
-    try:
-        workflow = (REPO_ROOT / SEMGREP_WORKFLOW).read_text()
-    except OSError:
-        return None
-    pin = re.search(r"^\s*SEMGREP_IMAGE:\s*semgrep/semgrep:(\d+\.\d+\.\d+)@", workflow, re.MULTILINE)
-    if pin is None:
-        return None
-    return ["uv", "tool", "run", *(["--offline"] if offline else []), "--from", f"semgrep=={pin.group(1)}", "semgrep"]
+    return ["uv", "tool", "run", *(["--offline"] if offline else []), "--from", spec, "semgrep"]
 
 
 class SemgrepUnavailable(RuntimeError):
@@ -209,32 +214,32 @@ def _run_semgrep(command: list[str], *, cwd: Path, timeout: float) -> subprocess
     return result
 
 
-def _download_missing_semgrep(command: list[str]) -> str | None:
+def _download_missing_semgrep(command: list[str], *, deadline: float) -> str | None:
     """Start caching the pinned semgrep when it is absent, without waiting for the download.
 
     Returns the reason the scan is skipped, or None when the tool is already cached.
     """
     try:
-        _run_semgrep([*command, "--version"], cwd=REPO_ROOT, timeout=5)
+        _run_semgrep([*command, "--version"], cwd=REPO_ROOT, timeout=min(5, _semgrep_remaining(deadline)))
         return None
-    except SemgrepUnavailable:
+    except SemgrepExited:
         pass
-    spec = command[command.index("--from") + 1]
+    except SemgrepUnavailable:
+        return None
+    spec = _semgrep_spec()
     manual = f"{spec} is not cached. Run `hogli ci:preflight --prepare-semgrep` to cache it"
+    # A cloud task or CI job starts with an empty cache, so it would download on every session.
+    if is_ci() or os.environ.get("POSTHOG_TASK_RUN_ID"):
+        return manual
     hogli = shutil.which("hogli")
     marker = _git("rev-parse", "--git-path", f"hogli-preflight-{spec}")
-    # A cloud task or CI job starts with an empty cache, so it would download on every session.
-    if hogli is None or marker is None or os.environ.get("CI") or os.environ.get("POSTHOG_TASK_RUN_ID"):
+    if hogli is None or marker is None:
         return manual
     started = REPO_ROOT / marker.decode().strip()
+    # The marker stops a machine that cannot download from starting one on every run.
+    if started.exists() and time.time() - started.stat().st_mtime < _SEMGREP_DOWNLOAD_RETRY_SECONDS:
+        return f"{manual} if the background download that started recently does not finish"
     try:
-        # The marker stops a machine that cannot download from starting one on every run.
-        if time.time() - started.stat().st_mtime < _SEMGREP_DOWNLOAD_RETRY_SECONDS:
-            return f"{spec} is not cached yet. A background download started recently"
-    except OSError:
-        pass
-    try:
-        started.touch()
         # A child that holds the hook's output or its session keeps `git push` waiting.
         subprocess.Popen(
             [hogli, "ci:preflight", "--prepare-semgrep"],
@@ -244,9 +249,10 @@ def _download_missing_semgrep(command: list[str]) -> str | None:
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+        started.touch()
     except OSError:
         return manual
-    return f"{spec} is not cached, so its download started in the background. The next run scans"
+    return f"{spec} is not cached, so its download started in the background and the next run scans"
 
 
 def prepare_semgrep() -> Outcome:
@@ -369,7 +375,8 @@ def check_semgrep_devex(scope: Scope) -> Outcome:
     try:
         return _check_semgrep_devex(scope, command, deadline=deadline)
     except SemgrepExited as error:
-        return "skipped", _download_missing_semgrep(command) or f"{error}; CI will run the check"
+        reason = _download_missing_semgrep(command, deadline=deadline)
+        return "skipped", reason or f"{error}; CI will run the check"
     except SemgrepUnavailable as error:
         return "skipped", str(error)
     except subprocess.TimeoutExpired:

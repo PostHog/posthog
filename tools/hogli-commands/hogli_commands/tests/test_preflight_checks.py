@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from hogli.telemetry import _CI_ENV_VARS
 from hogli_commands.preflight_checks import (
     Finding,
     Scope,
@@ -268,7 +269,7 @@ class TestSemgrepDevex:
         )
         (tmp_path / "posthog").mkdir()
         (tmp_path / "posthog/a.py").write_text("value = 1\n")
-        for name in ("CI", "POSTHOG_TASK_RUN_ID"):
+        for name in (*_CI_ENV_VARS, "POSTHOG_TASK_RUN_ID"):
             monkeypatch.delenv(name, raising=False)
         for name, value in environment.items():
             monkeypatch.setenv(name, value)
