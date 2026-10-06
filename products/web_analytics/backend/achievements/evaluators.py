@@ -191,6 +191,9 @@ class ConversionBootstrap:
     next_start: datetime
     end: datetime
     created_until: datetime
+    phase: str = "initial"
+    created_since: datetime | None = None
+    chunk_hours: int = CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
 
 
 def _action_event_filter_expr(actions: list[Action]) -> ast.Expr:
@@ -235,9 +238,28 @@ def _conversion_bootstrap_state(checkpoint: dict[str, object]) -> ConversionBoot
     next_start = parse_zoned_datetime_string(bootstrap.get("next_start"))
     end = parse_zoned_datetime_string(bootstrap.get("end"))
     created_until = parse_zoned_datetime_string(bootstrap.get("created_until"))
-    if next_start is None or end is None or created_until is None or next_start >= end:
+    phase = bootstrap.get("phase", "initial")
+    created_since = parse_zoned_datetime_string(bootstrap.get("created_since"))
+    chunk_hours = bootstrap.get("chunk_hours", CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24)
+    if (
+        next_start is None
+        or end is None
+        or created_until is None
+        or next_start >= end
+        or phase not in ("initial", "catchup")
+        or (phase == "catchup" and created_since is None)
+        or not isinstance(chunk_hours, int)
+        or not 1 <= chunk_hours <= CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
+    ):
         return None
-    return ConversionBootstrap(next_start=next_start, end=end, created_until=created_until)
+    return ConversionBootstrap(
+        next_start=next_start,
+        end=end,
+        created_until=created_until,
+        phase=phase,
+        created_since=created_since,
+        chunk_hours=chunk_hours,
+    )
 
 
 def _add_conversion_counts(
@@ -249,6 +271,7 @@ def _add_conversion_counts(
     earliest_timestamp: datetime,
     latest_timestamp: datetime | None = None,
 ) -> None:
+    chunk_daily: dict[str, list[int]] = {}
     for team in _project_environment_teams(ctx.team):
         query = parse_select(
             "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
@@ -266,9 +289,75 @@ def _add_conversion_counts(
         ]
         response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
         for row in response.results or []:
-            day_counts = daily.setdefault(row[0].isoformat(), [0] * len(actions))
+            day_counts = chunk_daily.setdefault(row[0].isoformat(), [0] * len(actions))
             for index, value in enumerate(row[1:]):
                 day_counts[index] += int(value or 0)
+    for day, counts in chunk_daily.items():
+        day_counts = daily.setdefault(day, [0] * len(actions))
+        for index, value in enumerate(counts):
+            day_counts[index] += value
+
+
+def _advance_conversion_bootstrap(
+    ctx: EvalContext,
+    actions: list[Action],
+    daily: dict[str, list[int]],
+    bootstrap: ConversionBootstrap,
+    window_start: datetime,
+    until: datetime,
+) -> ConversionBootstrap | None:
+    next_start = max(bootstrap.next_start, window_start)
+    if next_start >= bootstrap.end:
+        daily.clear()
+        bootstrap = ConversionBootstrap(
+            next_start=window_start,
+            end=window_start + timedelta(days=CONVERSIONS_LOOKBACK_DAYS),
+            created_until=until,
+        )
+        next_start = window_start
+
+    chunk_hours = bootstrap.chunk_hours
+    chunk_end = min(next_start + timedelta(hours=chunk_hours), bootstrap.end)
+    while True:
+        try:
+            _add_conversion_counts(
+                ctx,
+                actions,
+                daily,
+                bootstrap.created_since,
+                bootstrap.created_until,
+                next_start,
+                chunk_end if chunk_end < bootstrap.end else None,
+            )
+            break
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+            if chunk_hours <= 1:
+                raise
+            chunk_hours = max(1, chunk_hours // 2)
+            chunk_end = min(next_start + timedelta(hours=chunk_hours), bootstrap.end)
+
+    if chunk_end < bootstrap.end:
+        return ConversionBootstrap(
+            next_start=chunk_end,
+            end=bootstrap.end,
+            created_until=bootstrap.created_until,
+            phase=bootstrap.phase,
+            created_since=bootstrap.created_since,
+            chunk_hours=chunk_hours,
+        )
+
+    if bootstrap.created_until < until:
+        try:
+            _add_conversion_counts(ctx, actions, daily, bootstrap.created_until, until, window_start)
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+            return ConversionBootstrap(
+                next_start=window_start,
+                end=bootstrap.end,
+                created_since=bootstrap.created_until,
+                created_until=until,
+                phase="catchup",
+            )
+    return None
 
 
 def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluation:
@@ -290,6 +379,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
     bootstrap = _conversion_bootstrap_state(prior.checkpoint) if daily is not None and since is None else None
     if daily is None:
         daily = {}
+        since = None
     if since is None and bootstrap is None:
         daily = {}
 
@@ -308,38 +398,20 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
                     created_until=until,
                 )
         if bootstrap is not None:
-            next_start, end, created_until = bootstrap.next_start, bootstrap.end, bootstrap.created_until
-            next_start = max(next_start, window_start)
-            if next_start >= end:
-                daily = {}
-                next_start, end, created_until = (
-                    window_start,
-                    window_start + timedelta(days=CONVERSIONS_LOOKBACK_DAYS),
-                    until,
-                )
-            chunk_end = min(next_start + timedelta(days=CONVERSIONS_BOOTSTRAP_CHUNK_DAYS), end)
-            _add_conversion_counts(
-                ctx, actions, daily, None, created_until, next_start, chunk_end if chunk_end < end else None
-            )
-            if chunk_end == end and created_until < until:
-                _add_conversion_counts(
-                    ctx,
-                    actions,
-                    daily,
-                    created_until,
-                    until,
-                    max(window_start, created_until - LATE_ARRIVAL_LOOKBACK),
-                )
+            bootstrap = _advance_conversion_bootstrap(ctx, actions, daily, bootstrap, window_start, until)
 
     oldest_kept_day = window_start.date().isoformat()
     daily = {day: counts for day, counts in daily.items() if day >= oldest_kept_day and any(counts)}
     per_action_totals = [sum(counts[index] for counts in daily.values()) for index in range(len(actions))]
     checkpoint: dict[str, object] = {"actions": fingerprints, "daily": daily}
-    if bootstrap is not None and chunk_end < end:
+    if bootstrap is not None:
         checkpoint["bootstrap"] = {
-            "next_start": chunk_end.isoformat(),
-            "end": end.isoformat(),
-            "created_until": created_until.isoformat(),
+            "next_start": bootstrap.next_start.isoformat(),
+            "end": bootstrap.end.isoformat(),
+            "created_until": bootstrap.created_until.isoformat(),
+            "phase": bootstrap.phase,
+            "created_since": bootstrap.created_since.isoformat() if bootstrap.created_since is not None else None,
+            "chunk_hours": bootstrap.chunk_hours,
         }
     else:
         checkpoint["counted_through"] = until.isoformat()

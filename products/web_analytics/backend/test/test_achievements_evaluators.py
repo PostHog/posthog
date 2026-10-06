@@ -91,9 +91,11 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             steps_json=[{"event": event, "tag_name": "button", "text": "Pay $10"}],
         )
 
-    def _pay_click(self, timestamp: datetime | None = None, created_at: datetime | None = None) -> None:
+    def _pay_click(
+        self, timestamp: datetime | None = None, created_at: datetime | None = None, team: Team | None = None
+    ) -> None:
         _create_event(
-            team=self.team,
+            team=team or self.team,
             event="$autocapture",
             distinct_id="d1",
             elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
@@ -154,11 +156,14 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307)),
-            ("timeout", ClickHouseQueryTimeOut()),
+            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307), False),
+            ("timeout", ClickHouseQueryTimeOut(), False),
+            ("catchup_limit", CHQueryErrorTooManyBytes("read limit", code=307), True),
         ]
     )
-    def test_conversions_resume_a_bounded_initial_scan_after_limit(self, _name: str, failure: Exception) -> None:
+    def test_conversions_resume_a_bounded_initial_scan_after_limit(
+        self, _name: str, failure: Exception, catchup_fails: bool
+    ) -> None:
         self._pay_action("$autocapture")
         first_now = timezone.now()
         old_timestamp = first_now - timedelta(days=10)
@@ -174,7 +179,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         def fail_full_window_once(*args: object, **kwargs: object):
             nonlocal attempts
             attempts += 1
-            if attempts == 1:
+            if attempts == 1 or (catchup_fails and attempts == 4):
                 raise failure
             return execute_hogql_query(*args, **kwargs)
 
@@ -192,15 +197,32 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             assert first.checkpoint is not None
             self.assertNotIn("counted_through", first.checkpoint)
 
-            self._pay_click(timestamp=first_now - timedelta(hours=2), created_at=first_now)
+            self._pay_click(timestamp=old_timestamp, created_at=first_now)
             flush_persons_and_events()
             with patch(
                 "products.web_analytics.backend.achievements.evaluators.timezone.now",
                 return_value=first_now + timedelta(hours=2),
             ):
-                final = evaluate_conversions(
+                second = evaluate_conversions(
                     self._ctx(), PriorProgress(value=first.value, last_computed_at=None, checkpoint=first.checkpoint)
                 )
+                if catchup_fails:
+                    self.assertFalse(second.complete)
+                    assert second.checkpoint is not None
+                    bootstrap = second.checkpoint["bootstrap"]
+                    assert isinstance(bootstrap, dict)
+                    self.assertEqual(bootstrap["phase"], "catchup")
+                    final = second
+                    for _ in range(3):
+                        assert final.checkpoint is not None
+                        final = evaluate_conversions(
+                            self._ctx(),
+                            PriorProgress(value=final.value, last_computed_at=None, checkpoint=final.checkpoint),
+                        )
+                        if final.complete:
+                            break
+                else:
+                    final = second
 
         self.assertEqual(final.value, 4)
         self.assertTrue(final.complete)
@@ -223,11 +245,49 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(incremental.value, 5)
         self.assertTrue(incremental.complete)
 
+    def test_conversions_split_a_failed_chunk_without_duplicate_environment_counts(self) -> None:
+        self._pay_action("$autocapture")
+        second_env = Team.objects.create(organization=self.organization, project=self.team.project, name="env 2")
+        now = timezone.now()
+        timestamp = now - timedelta(days=10)
+        self._pay_click(timestamp=timestamp, created_at=timestamp)
+        self._pay_click(timestamp=timestamp, created_at=timestamp, team=second_env)
+        flush_persons_and_events()
+
+        attempts = 0
+
+        def fail_second_environment_twice(*args: object, **kwargs: object):
+            nonlocal attempts
+            attempts += 1
+            if attempts in (2, 4):
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            patch("products.web_analytics.backend.achievements.evaluators.CONVERSIONS_LOOKBACK_DAYS", 14),
+            patch(
+                "products.web_analytics.backend.achievements.evaluators.execute_hogql_query",
+                side_effect=fail_second_environment_twice,
+            ),
+            patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=now),
+        ):
+            prior = EMPTY_PRIOR
+            for _ in range(5):
+                evaluation = evaluate_conversions(self._ctx(), prior)
+                assert evaluation.checkpoint is not None
+                if evaluation.complete:
+                    break
+                prior = PriorProgress(value=evaluation.value, last_computed_at=None, checkpoint=evaluation.checkpoint)
+
+        self.assertTrue(evaluation.complete)
+        self.assertEqual(evaluation.value, 2)
+        self.assertGreater(attempts, 6)
+
     @parameterized.expand(
         [
             ("unchanged_actions_add_new_arrivals", "unchanged", 5),
-            ("edited_steps_rebuild", "edited_steps", 3),
-            ("other_actions_rebuild", "other_actions", 3),
+            ("edited_steps_rebuild", "edited_steps", 4),
+            ("other_actions_rebuild", "other_actions", 4),
         ]
     )
     def test_conversions_keep_a_rolling_ninety_day_window(self, _name: str, change: str, expected: int) -> None:
@@ -247,6 +307,8 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self._pay_click()
         self._pay_click()
         self._pay_click(timestamp=now - timedelta(days=2), created_at=now - timedelta(hours=2))
+        if change != "unchanged":
+            self._pay_click(timestamp=now - timedelta(days=10), created_at=now - timedelta(days=10))
         flush_persons_and_events()
         prior = PriorProgress(
             value=0,
