@@ -250,6 +250,12 @@ export const personCreateConflictResolvedCounter = new Counter({
     labelNames: ['resolved_by'],
 })
 
+export const personStrayDistinctIdTombstonedCounter = new Counter({
+    name: 'person_stray_distinct_id_tombstoned_total',
+    help: 'Live distinct id mappings on a tombstoned person that a write tombstoned so it could reuse the distinct id',
+    labelNames: ['operation'],
+})
+
 export const personJsonFieldSizeHistogram = new Histogram({
     name: 'person_json_field_size_bytes',
     help: 'Approximate size in bytes of serialized JSON fields (using string length as proxy for performance)',
