@@ -209,7 +209,7 @@ class MetricSamplesTable(Table):
 
 
 class MetricNamesTable(Table):
-    description: str = "One row per metric name and UTC hour with labeled data points. Use it to find the metric names of a time range."
+    description: str = "One row per metric name, service and UTC hour with labeled data points. Use it to find the metric names of a time range."
     workload: Workload | None = Workload.LOGS
 
     fields: dict[str, FieldOrTable] = {
@@ -223,6 +223,9 @@ class MetricNamesTable(Table):
         ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the row leaves retention."
+        ),
+        "service_name": StringDatabaseField(
+            name="service_name", nullable=False, description="Name of the service that emitted the metric."
         ),
     }
 
@@ -270,6 +273,9 @@ class MetricSeriesTable(Table):
         "attributes": MapStringDatabaseField(name="attributes", nullable=False),
         "last_seen": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="Most recent sample timestamp seen for this series."
+        ),
+        "time_bucket": DateTimeDatabaseField(
+            name="time_bucket", nullable=False, description="Start of the UTC hour that contains `last_seen`."
         ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the series leaves retention."

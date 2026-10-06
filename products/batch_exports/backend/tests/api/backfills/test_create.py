@@ -423,7 +423,10 @@ def test_batch_export_earliest_backfill_rejected_without_feature_flag(
     batch_export = _create_batch_export_ok(client, team, aws_s3_integration.id, "persons")
     batch_export_id = batch_export["id"]
 
-    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=False):
+    with patch(
+        "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+        return_value=False,
+    ):
         response = backfill_batch_export(
             client,
             team.pk,
@@ -566,7 +569,10 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
     batch_export = _create_batch_export_ok(client, team, aws_s3_integration.id, "persons")
     batch_export_id = batch_export["id"]
 
-    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True):
+    with patch(
+        "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
         response = backfill_batch_export(
             client,
             team.pk,
@@ -653,9 +659,12 @@ def test_batch_export_backfill_hogql_interval_validation(
         )
 
     with (
-        patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True),
-        patch("products.batch_exports.backend.api.batch_export.sync_connect") as connect,
-        patch("products.batch_exports.backend.api.batch_export.backfill_export") as backfill,
+        patch(
+            "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+            return_value=True,
+        ),
+        patch("products.batch_exports.backend.presentation.views.batch_export.sync_connect") as connect,
+        patch("products.batch_exports.backend.presentation.views.batch_export.backfill_export") as backfill,
     ):
         response = backfill_batch_export(client, team.pk, str(batch_export.pk), start_at, "2021-01-01T01:00:00+00:00")
 

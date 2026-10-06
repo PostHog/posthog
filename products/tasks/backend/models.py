@@ -11,7 +11,7 @@ from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.utils.functional import Promise
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -57,6 +57,9 @@ from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_use
 from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
+
+SCOUT_TRIAL_ORIGIN_KEY_PREFIX = "scout-trial:"
+SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX = "scout-trial-judge:"
 
 
 def execute_after_commit(callback: Callable[[], object]) -> None:
@@ -605,7 +608,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         super().save(*args, **kwargs)
 
         if is_new:
-            self._track_task_created()
+            transaction.on_commit(self._track_task_created)
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
@@ -644,9 +647,31 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @classmethod
+    def scout_experiment_q(cls, *, relation: Literal["", "task"] = "") -> models.Q:
+        prefix = {"": "", "task": "task__"}[relation]
+        return models.Q(**{f"{prefix}origin_product": cls.OriginProduct.SIGNALS_SCOUT}) & (
+            models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_ORIGIN_KEY_PREFIX})
+            | models.Q(**{f"{prefix}origin_key__startswith": SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX})
+        )
+
+    @property
+    def is_scout_experiment(self) -> bool:
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
+            (SCOUT_TRIAL_ORIGIN_KEY_PREFIX, SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX)
+        )
+
+    @property
+    def is_scout_trial_judge(self) -> bool:
+        return self.origin_product == self.OriginProduct.SIGNALS_SCOUT and (self.origin_key or "").startswith(
+            SCOUT_TRIAL_JUDGE_ORIGIN_KEY_PREFIX
+        )
+
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
+        if self.is_scout_experiment:
+            return
         # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
         # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
@@ -861,6 +886,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
                 if resume_source is None or not resume_source.matches_task_ownership(task):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
+                if "analytics_query_context" in (resume_source.state or {}):
+                    state["analytics_query_context"] = resume_source.state["analytics_query_context"]
                 if resume_source.task_summary:
                     state.setdefault(PRIOR_RUN_SUMMARY_STATE_KEY, resume_source.task_summary)
                 if resume_source.task_tags:
@@ -1111,7 +1138,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
-        """Create the Task row and assemble the initial run's `extra_state`.
+        """Prepare an unsaved Task and the initial run's `extra_state`.
 
         Shared by `create_and_run` (which then creates and dispatches the run) and
         `create_without_run` (which discards the run state). One path keeps the
@@ -1231,7 +1258,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
 
-        task = Task.objects.create(
+        task = Task(
             team=team,
             title=title,
             title_manually_set=title_manually_set,
@@ -1440,6 +1467,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
+        task.save()
         return task
 
     @staticmethod
@@ -1495,6 +1523,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
     ) -> "Task":
         from products.tasks.backend.logic.services.workflow_dispatch import (
             WorkflowDispatchOptions,
@@ -1576,8 +1605,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             "slack_thread_context": _normalize_slack_context(slack_thread_context),
             "workflow_id_prefix": workflow_id_prefix,
         }
+        if run_extra_state.get("use_dedicated_stream") is None:
+            distinct_id = (task.created_by.distinct_id if task.created_by else None) or f"team_{task.team_id}"
+            run_extra_state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
+                organization_id=str(task.team.organization_id),
+                distinct_id=distinct_id,
+            )
 
         with transaction.atomic():
+            task.save()
             task_run = task.create_run(
                 mode=mode,
                 extra_state=run_extra_state or None,
@@ -1585,6 +1621,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
             )
+            if before_task_dispatch is not None:
+                initial_state = before_task_dispatch(task_run.id)
+                if initial_state is not None:
+                    task_run.state = {**task_run.state, **initial_state}
+                    task_run.save(update_fields=["state", "updated_at"])
 
             if start_workflow and scheduled_at is None:
                 # Defer the fire-and-forget workflow start until the creating transaction commits.
@@ -2734,14 +2775,14 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+    def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
 
         from products.tasks.backend.redis import get_tasks_cache
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        if not get_tasks_cache().add(cache_key, True, timeout=60) and not force:
             return
 
         import asyncio
@@ -3132,6 +3173,8 @@ class TaskRun(models.Model):
         work — but the outcome is reported so callers tracking event loss can count it.
         """
         try:
+            if self.task.is_scout_experiment:
+                return False
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
             distinct_id = distinct_id_override or (
@@ -4237,6 +4280,7 @@ class TeamTasksConfig(models.Model):
     # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
     # (see logic/services/ai_run_defaults.py).
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4255,6 +4299,8 @@ class UserTasksConfig(TeamScopedRootMixin):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # Same shape and validation as TeamTasksConfig.ai_run_preferences.
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
+    task_defaults = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

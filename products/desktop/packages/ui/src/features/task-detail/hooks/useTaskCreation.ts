@@ -19,10 +19,12 @@ import {
   ANALYTICS_EVENTS,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
+  SERVER_AGENT_INSTRUCTIONS_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
@@ -63,6 +65,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -269,6 +275,10 @@ export function useTaskCreation({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const serverInstructionsEnabled = useFeatureFlag(
+    SERVER_AGENT_INSTRUCTIONS_FLAG,
+  );
+  const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
   const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
@@ -503,7 +513,20 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
-            customInstructions: getEffectiveCustomInstructions(settings),
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
+            customInstructions:
+              workspaceMode === "cloud" &&
+              !cloudTaskCarriesLocalInstructions({
+                flagEnabled: serverInstructionsEnabled,
+                projectId: currentProjectId,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
+              })
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
+                : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
             allowNoRepo,
@@ -677,6 +700,8 @@ export function useTaskCreation({
     [
       canSubmit,
       canSubmitBase,
+      serverInstructionsEnabled,
+      currentProjectId,
       editorRef,
       sessionId,
       selectedDirectory,

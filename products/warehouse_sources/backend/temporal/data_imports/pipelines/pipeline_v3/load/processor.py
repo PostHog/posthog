@@ -2,6 +2,7 @@ import uuid
 import socket
 import dataclasses
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from typing import Any, Literal
 
 from django.conf import settings
@@ -51,6 +52,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.aut
     maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
@@ -60,6 +63,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    post_load_phase,
+    record_post_load_phases,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
@@ -440,6 +447,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
+        del pa_table
 
         prepared_queryable_folder = await run_post_load_operations(
             job=job,
@@ -775,6 +783,43 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     _release_pipeline_lock_for_job(export_signal)
 
 
+def _post_load_rss_sampler() -> RssPeakSampler | None:
+    try:
+        return get_governor().rss_sampler
+    except Exception:
+        logger.debug("post_load_rss_sampler_unavailable", exc_info=True)
+        return None
+
+
+def _record_post_load_phases(run_signal: ExportSignalMessage) -> AbstractContextManager[Any]:
+    return record_post_load_phases(
+        logger,
+        _post_load_rss_sampler(),
+        team_id=run_signal.team_id,
+        external_data_schema_id=run_signal.schema_id,
+        external_data_job_id=run_signal.job_id,
+        source_id=run_signal.source_id,
+        resource_name=run_signal.resource_name,
+        run_uuid=run_signal.run_uuid,
+        batch_index=run_signal.batch_index,
+        sync_type=run_signal.sync_type,
+    )
+
+
+def _complete_run(run_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
+    """Mark the job completed, then start the DuckLake registration and post-import workflows."""
+    report_phase("finalize")
+    with post_load_phase("job_completion"):
+        _mark_job_completed(run_signal)
+
+    if prepared_queryable_folder:
+        with post_load_phase("ducklake_trigger"):
+            _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
+
+    with post_load_phase("post_import_trigger"):
+        _trigger_post_import_workflow(run_signal)
+
+
 def _load_job(job_id: str) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(id=job_id)
 
@@ -809,31 +854,26 @@ def _finalize_run(
     if verify_ownership is not None:
         verify_ownership()
 
-    report_phase("post_load")
-    prepared_queryable_folder = async_to_sync(run_post_load_operations)(
-        job=job,
-        schema=schema,
-        source=schema.source,
-        delta_table_ref=delta_table_ref,
-        row_count=run_signal.total_rows or 0,
-        table_schema_dict=internal_schema.to_hogql_types(),
-        resource_name=run_signal.resource_name,
-        logger=logger,
-        cdc_write_mode=run_signal.cdc_write_mode,
-    )
+    with _record_post_load_phases(run_signal):
+        report_phase("post_load")
+        prepared_queryable_folder = async_to_sync(run_post_load_operations)(
+            job=job,
+            schema=schema,
+            source=schema.source,
+            delta_table_ref=delta_table_ref,
+            row_count=run_signal.total_rows or 0,
+            table_schema_dict=internal_schema.to_hogql_types(),
+            resource_name=run_signal.resource_name,
+            logger=logger,
+            cdc_write_mode=run_signal.cdc_write_mode,
+        )
 
-    # Post-load can run minutes (compaction, S3 prep) — re-check before
-    # completion promotes the cursor and releases the lock under a new owner.
-    if verify_ownership is not None:
-        verify_ownership()
+        # Post-load can run minutes (compaction, S3 prep) — re-check before
+        # completion promotes the cursor and releases the lock under a new owner.
+        if verify_ownership is not None:
+            verify_ownership()
 
-    report_phase("finalize")
-    _mark_job_completed(run_signal)
-
-    if prepared_queryable_folder:
-        _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
-
-    _trigger_post_import_workflow(run_signal)
+        _complete_run(run_signal, prepared_queryable_folder)
 
     logger.debug("post_load_operations_complete", external_data_job_id=run_signal.job_id)
 
@@ -1096,17 +1136,14 @@ def _process_message_reported(
             )
             if verify_ownership is not None:
                 verify_ownership()
-            report_phase("post_load")
-            prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
-            # Post-load can run minutes (compaction, S3 prep) — re-check before
-            # completion promotes the cursor and releases the lock under a new owner.
-            if verify_ownership is not None:
-                verify_ownership()
-            report_phase("finalize")
-            _mark_job_completed(export_signal)
-            if prepared_queryable_folder:
-                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-            _trigger_post_import_workflow(export_signal)
+            with _record_post_load_phases(export_signal):
+                report_phase("post_load")
+                prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
+                # Post-load can run minutes (compaction, S3 prep) — re-check before
+                # completion promotes the cursor and releases the lock under a new owner.
+                if verify_ownership is not None:
+                    verify_ownership()
+                _complete_run(export_signal, prepared_queryable_folder)
             return
 
         logger.debug(
@@ -1298,6 +1335,10 @@ def _process_message_reported(
             previous_file_uris=previous_file_uris,
             internal_schema=internal_schema,
         )
+
+        # Post-load compaction owns a full governor slot. Drop the input batch before entering it so
+        # Arrow's buffers do not remain resident alongside the compaction working set.
+        del pa_table
 
         # Every run whose final batch landed in this write completes now, in load order.
         if constituents is not None:
