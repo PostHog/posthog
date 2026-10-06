@@ -1266,7 +1266,7 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
  * @summary Report and revoke a leaked PostHog API key or token
@@ -1278,7 +1278,7 @@ export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(revokeLeakedKeyCreateBodyTokenMax)
         .describe(
-            'The leaked PostHog personal API key, project secret API key, or OAuth access\/refresh token to revoke.'
+            'The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access\/refresh token to revoke.'
         ),
 })
 
