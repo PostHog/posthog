@@ -65,6 +65,21 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
+# RELEASE VERSION, one per review mode, because Full and Flash evolve on separate designs.
+# Bump a mode's (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# change the turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSIONS: dict[str, tuple[int, int]] = {
+    REVIEW_MODE_FULL: (1, 1),
+    REVIEW_MODE_FLASH: (1, 1),
+}
+
+
+def reviewhog_version_for_mode(review_mode: str) -> str:
+    """The version id a turn of this mode reports, like a model id: `reviewhog-flash-1-0`."""
+    major, minor = REVIEWHOG_VERSIONS[review_mode]
+    return f"reviewhog-{review_mode}-{major}-{minor}"
+
+
 # Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
 FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
@@ -73,13 +88,9 @@ FLASH_ARM = ReviewArm(
     initial_permission_mode="full-access",
 )
 
-# Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
-# starts with this, so a reader can tell a flash review from a full one at a glance.
-FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
-
-
-def message_prefix_for_mode(review_mode: str) -> str:
-    return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
+# Flash comments posted before reviewhog-flash-1-1 open with this banner. Comments on old pull
+# requests keep it, so the matchers that read them back still remove it.
+LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:

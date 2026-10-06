@@ -3,7 +3,7 @@
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Annotated, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -12,11 +12,19 @@ from posthog.dataclasses import frozen
 from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
+if TYPE_CHECKING:
+    from products.replay_vision.backend.temporal.video_clock import VideoClock
+
 # `(t 123)` / `(t 123, 456)` / `(t 12, t 34)` citation markers. The prompt asks for one moment per parens, but the
 # model leaks comma-joined variants too, so match leniently (whitespace, comma-joined times, optional repeated `t`).
 # Shared by the signal-description stripper below and the chip extractor in `call_scanner_provider` so the two
 # parsers can't drift apart. The group captures the comma-joined seconds list.
 TIMESTAMP_CITATION_RE = re.compile(r"\s*\(\s*t\s*(\d+(?:\s*,\s*t?\s*\d+)*)\s*\)")
+
+
+def strip_citation_markers(value: str) -> str:
+    """Remove leaked `(t …)` markers, and the double spaces they leave, from a field meant to carry none."""
+    return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
 
 
 # Sited here rather than `temporal/types.py`: `types.py` imports from this module, so siting Segment in types.py would close the cycle.
@@ -105,15 +113,14 @@ class SignalFinding(BaseModel, frozen=True):
         # The model leaks `(t 123)` markers into this embedded, free-text-searchable field despite the prompt — strip
         # them so the timing stays only in start_time/end_time and the prose reads cleanly. Collapse any double space
         # the removal (or the model) leaves so the prose stays clean.
-        return re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
+        return strip_citation_markers(value)
 
     @field_validator("headline", mode="after")
     @classmethod
     def _shorten_headline(cls, value: str) -> str:
         # Same timestamp-marker leak as the description, plus a hard length bound — the prompt asks for 8 words
         # and the model sometimes answers with a sentence, which would reflow the card it lands on.
-        cleaned = re.sub(r"\s{2,}", " ", TIMESTAMP_CITATION_RE.sub("", value)).strip()
-        return cleaned[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
+        return strip_citation_markers(value)[:SIGNAL_HEADLINE_MAX_LENGTH].rstrip()
 
 
 class SignalsResponse(BaseModel, frozen=True):
@@ -264,6 +271,9 @@ class BaseScanner(BaseModel, frozen=True):
 
     prompt: str
     emits_signals: bool = False
+    # Learned from the team's ratings and loaded per scan. `exclude=True` keeps them out of every dump.
+    project_rules: list[str] = Field(default_factory=list, exclude=True)
+    scanner_rules: list[str] = Field(default_factory=list, exclude=True)
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
@@ -271,6 +281,8 @@ class BaseScanner(BaseModel, frozen=True):
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
+    # Fields set per scan, which a saved scanner config must never carry.
+    session_fields: ClassVar[frozenset[str]] = frozenset({"project_rules", "scanner_rules"})
     # Persisted output class — subclasses override to stamp their `scanner_type` discriminator.
     output_cls: ClassVar[type["BaseScannerOutput"] | None] = None
 
@@ -296,6 +308,7 @@ class BaseScanner(BaseModel, frozen=True):
         event_descriptions: dict[str, str] | None = None,
         tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
         network_state: Literal["available", "clean", "none"] = "none",
+        touch: bool = False,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
@@ -303,6 +316,7 @@ class BaseScanner(BaseModel, frozen=True):
         return render_prompt(
             self.preamble_template,
             team_name=team_name,
+            project_rules=self.project_rules,
             session_metadata=session_metadata or {},
             session_identity=session_identity or None,
             navigation=navigation or [],
@@ -313,13 +327,16 @@ class BaseScanner(BaseModel, frozen=True):
             tool_budget=tool_budget,
             default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
             network_state=network_state,
+            touch=touch,
         )
 
     def core_steps(self) -> list[MissionStep]:
         """The task turn(s) that produce this scanner's primary output. Default: one `core` step."""
         if not self.core_step_template:
             raise NotImplementedError(f"{type(self).__name__} must set `core_step_template`")
-        instruction = render_prompt(self.core_step_template, user_prompt=self.prompt, **self.prompt_context())
+        instruction = render_prompt(
+            self.core_step_template, user_prompt=self.prompt, scanner_rules=self.scanner_rules, **self.prompt_context()
+        )
         return [
             MissionStep(
                 name=STEP_CORE,
@@ -360,6 +377,16 @@ class BaseScanner(BaseModel, frozen=True):
         if self.output_cls is None:
             raise NotImplementedError(f"{type(self).__name__} must set `output_cls`")
         return self.output_cls(**llm_response.model_dump())
+
+    def bind_session(self, clock: "VideoClock", duration_ms: int) -> Self:
+        """This scanner with the facts of one session the prompt needs. Default: none."""
+        return self
+
+    def resolve_session_clock(
+        self, output: "BaseScannerOutput", core_response: BaseModel | None, clock: "VideoClock", duration_ms: int
+    ) -> "BaseScannerOutput":
+        """Move the output's video-clock fields onto the session clock. Default: the output has none."""
+        return output
 
     def validate_semantics(self, output: "BaseScannerOutput") -> str | None:
         """Scanner-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""

@@ -8,8 +8,11 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
-import { Composer, QueuedMessageList, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { QueuedMessageList, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSlashCommandsLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
@@ -19,7 +22,6 @@ import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schema
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
-import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
@@ -33,6 +35,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
@@ -114,9 +117,15 @@ export function TaskRunComposer({
     const skin = useThreadSkin()
     const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
 
-    const placeholder = isTerminal
-        ? 'Send a message to start a new run, or type / for commands…'
-        : 'Send a follow-up message, or type / for commands…'
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const placeholder =
+        todayRailEnabled && phoneLayout
+            ? isTerminal
+                ? 'Start a new run…'
+                : 'Reply…'
+            : isTerminal
+              ? 'Send a message to start a new run, or type / for commands…'
+              : 'Send a follow-up message, or type / for commands…'
     // Selection lives in the bound runInteractionLogic and is applied when the message is sent — synced to the
     // running agent on a follow-up, or used to seed the next run once terminal.
     const modePicker = (
@@ -139,6 +148,7 @@ export function TaskRunComposer({
         lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
         onOpenDefaultSettings: () =>
             router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+        phoneSheet: todayRailEnabled && phoneLayout,
     }
     const modelPicker = codexBillingEnabled ? (
         <ComposerCodexBillingPickers
@@ -260,10 +270,7 @@ export function TaskRunComposer({
                         controls={
                             <>
                                 <QuillComposerAttachButton attachmentsKey={attachmentsKey} dropTargetRef={groupRef} />
-                                {/* The picker is Lemon, so it keeps Lemon's colors inside the quill row. */}
-                                <div data-not-quill className="flex">
-                                    <AttachedContextPicker className="flex-shrink-0" />
-                                </div>
+                                <QuillAttachedContextPicker />
                                 {pickers(modelPicker, modePicker)}
                             </>
                         }

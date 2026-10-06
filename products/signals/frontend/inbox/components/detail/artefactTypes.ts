@@ -113,7 +113,7 @@ export interface CheckResultContent {
     check_id?: string
     kind?: string
     title?: string
-    outcome?: 'passed' | 'failed' | 'errored'
+    outcome?: 'passed' | 'failed' | 'errored' | 'inconclusive'
     explanation?: string
     observed_value?: number | null
     baseline_value?: number | null
@@ -143,7 +143,7 @@ export interface CheckExpiredContent extends CheckLifecycleContent {
 }
 
 export interface CheckCancelledContent extends CheckLifecycleContent {
-    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research'
+    reason?: 'stopped_by_person' | 'stopped_by_scout' | 'replaced_by_research' | 'replaced_by_request'
 }
 
 export interface TitleChangeContent {
@@ -189,10 +189,14 @@ export const WORK_RELEASE_REASON_LABELS: Record<NonNullable<WorkReleaseContent['
 
 // ── Ranking scores (staff only) ──────────────────────────────────────────────────────────────
 
-/** One outcome head of a ranking model. `readable` is false when the head has no holdout AUC yet. */
+/**
+ * One outcome head of a ranking model. `readable` is false when the head has no holdout AUC yet.
+ * `lift` is the probability over the head's base rate, or null when the model saved no base rate.
+ */
 export interface RankingHead {
     name: string
     probability: number
+    lift: number | null
     readable: boolean
 }
 
@@ -201,7 +205,7 @@ export interface RankingModel {
     roles: string[]
     status: 'scored' | 'skipped'
     skipReason: string | null
-    /** Highest probability first. */
+    /** Highest lift first. Heads without a lift come last, highest probability first. */
     heads: RankingHead[]
 }
 
@@ -220,15 +224,53 @@ function readableHeadNames(metadata: unknown): Set<string> {
     )
 }
 
+/** Mirrors `classification_thresholds` in `ranking/model_contract.py`. */
+function classificationThresholds(metadata: unknown): Map<string, number> {
+    const heads = isObject(metadata) && Array.isArray(metadata.heads) ? metadata.heads : []
+    const thresholds = new Map<string, number>()
+    for (const entry of heads) {
+        if (isObject(entry) && typeof entry.refit_classification_threshold === 'number') {
+            thresholds.set(String(entry.head), entry.refit_classification_threshold)
+        }
+    }
+    return thresholds
+}
+
+/** Reads the stored lift first. Otherwise mirrors `head_lifts` in `ranking/model_contract.py`. */
+function headLift(name: string, probability: number, lifts: unknown, thresholds: Map<string, number>): number | null {
+    const stored = isObject(lifts) ? lifts[name] : undefined
+    if (typeof stored === 'number' && Number.isFinite(stored)) {
+        return stored
+    }
+    const threshold = thresholds.get(name) ?? 0
+    return threshold > 0 ? probability / threshold : null
+}
+
+function compareRankingHeads(a: RankingHead, b: RankingHead): number {
+    if (a.lift !== null && b.lift !== null) {
+        return b.lift - a.lift
+    }
+    if (a.lift !== null || b.lift !== null) {
+        return a.lift === null ? 1 : -1
+    }
+    return b.probability - a.probability
+}
+
 function readRankingModel(key: string, value: unknown): RankingModel | null {
     if (!isObject(value) || (value.status !== 'scored' && value.status !== 'skipped')) {
         return null
     }
     const readable = readableHeadNames(value.metadata)
+    const thresholds = classificationThresholds(value.metadata)
     const heads = Object.entries(isObject(value.scores) ? value.scores : {})
         .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]))
-        .map(([name, probability]) => ({ name, probability, readable: readable.has(name) }))
-        .sort((a, b) => b.probability - a.probability)
+        .map(([name, probability]) => ({
+            name,
+            probability,
+            lift: headLift(name, probability, value.lifts, thresholds),
+            readable: readable.has(name),
+        }))
+        .sort(compareRankingHeads)
     return {
         key,
         roles: Array.isArray(value.roles) ? value.roles.filter((role): role is string => typeof role === 'string') : [],

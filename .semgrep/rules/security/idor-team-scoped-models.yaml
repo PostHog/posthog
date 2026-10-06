@@ -322,9 +322,12 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -334,7 +337,7 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
+                              |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -388,6 +391,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -755,9 +759,12 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -767,7 +774,7 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
+                        |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
@@ -821,6 +828,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -969,6 +977,8 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
@@ -1046,6 +1056,8 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument

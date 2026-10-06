@@ -63,24 +63,145 @@
     }
 }
 
+.TodayAppLayout--phone {
+    --today-phone-header-height: 52px;
+    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+    padding-top: var(--today-phone-header-height);
+    padding-bottom: var(--today-tab-bar-height);
+
+    &.TodayAppLayout--no-phone-header {
+        --today-phone-header-height: 0px;
+    }
+}
+
+.TodayPhoneHeader {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    height: var(--today-phone-header-height);
+    padding: 0 12px 0 8px;
+    color: var(--today-ink);
+    background: var(--today-paper);
+    border-bottom: 1px solid transparent;
+    transition: border-color 200ms var(--today-ease);
+
+    &[data-scrolled='true'] {
+        border-bottom-color: var(--today-line);
+    }
+}
+
+.TodayPhoneHeader__title {
+    opacity: 0;
+    transition:
+        opacity 200ms var(--today-ease),
+        transform 200ms var(--today-ease);
+    transform: translateY(4px);
+
+    .TodayPhoneHeader[data-scrolled='true'] & {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.TodayShell--phone {
+    display: contents;
+}
+
+@media (pointer: coarse) {
+    .TodayAppLayout--phone:has(:is(input, textarea, [contenteditable='true']):focus) {
+        --today-tab-bar-height: 0px;
+
+        .TodayTabBar {
+            display: none;
+        }
+    }
+}
+
+body.has-today-phone-layout :is(input, textarea, select) {
+    font-size: 1rem;
+}
+
+body.has-today-phone-layout .Toastify__toast-container--bottom-right {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+.TodayShell__page {
+    position: fixed;
+    inset: 0 0 var(--today-tab-bar-height);
+    z-index: var(--z-layout-navbar);
+    height: auto;
+    visibility: hidden;
+    background: var(--today-paper);
+    opacity: 0;
+    transition:
+        transform 240ms var(--today-ease),
+        opacity 180ms var(--today-ease),
+        visibility 240ms;
+    transform: translateY(8px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+
+    .quill-button--size-row {
+        -webkit-touch-callout: none;
+        height: 2.75rem;
+    }
+
+    .quill-input-group {
+        height: 2.5rem;
+    }
+}
+
+.TodayTabBar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: var(--today-tab-bar-height);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    user-select: none;
+    background: var(--today-paper);
+    border-top: 1px solid var(--border);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .TodayShell__scrim,
-    .TodayShell__drawer {
+    .TodayShell__drawer,
+    .TodayShell__page,
+    .TodayPhoneHeader,
+    .TodayPhoneHeader__title {
         transition: none;
     }
 }
 
 .TodayShell__pane {
+    display: flex;
     flex: 1 1 auto;
+    flex-direction: column;
     min-height: 0;
 }
 
 .TodayPane {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
-    height: 100%;
     min-height: 0;
-    padding: 18px 12px 0;
+    padding: 8px 8px 0;
 }
 
 .TodayPane__filters {
@@ -92,16 +213,11 @@
 .TodayPane__scroll {
     flex: 1 1 auto;
     min-height: 0;
-    padding: 0 4px 24px;
+    padding: 0 0 24px;
     margin-top: 6px;
     overflow-y: auto;
     scrollbar-color: var(--today-input-border) transparent;
     scrollbar-width: thin;
-}
-
-.TodayPane__heading {
-    margin: 26px 8px 8px;
-    letter-spacing: 0.08em;
 }
 
 .TodayPane__state {
@@ -115,92 +231,7 @@
     color: var(--today-muted);
 }
 
-.TodayPaneRow {
-    display: flex;
-    gap: 9px;
-    align-items: center;
-    width: 100%;
-    min-height: 32px;
-    padding: 6px 8px;
-    font-size: 12.5px;
-    color: var(--today-body-text);
-    text-align: left;
-    border-radius: 8px;
-
-    &[data-active='true'] {
-        color: var(--today-ink);
-        background: var(--today-soft);
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            background: var(--today-soft);
-        }
-    }
-}
-
-.TodayPaneRow__icon {
-    display: flex;
-    flex: 0 0 18px;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-
-    svg {
-        width: 16px;
-        height: 16px;
-    }
-}
-
-.TodayPaneRow__label {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.TodayPaneRow__meta {
-    flex: 0 0 auto;
-    max-width: 40%;
-    overflow: hidden;
-    font-size: 10.5px;
-    color: var(--today-faint);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.TodayPaneRow__wrap:has(.TodayPaneRow__meta) {
-    .TodayPaneRow--withAction {
-        padding-right: 8px;
-    }
-
-    &:hover .TodayPaneRow__meta,
-    &:focus-within .TodayPaneRow__meta {
-        visibility: hidden;
-    }
-}
-
-.TodayPaneRow__wrap {
-    position: relative;
-
-    .TodayPaneRow--withAction {
-        padding-right: 36px;
-    }
-}
-
-.TodayPaneRow__action {
-    position: absolute;
-    top: 50%;
-    right: 4px;
-    opacity: 0;
-    transition: opacity 0.16s;
-    transform: translateY(-50%);
-
-    .TodayPaneRow__wrap:hover &,
-    .TodayPaneRow__wrap:focus-within & {
-        opacity: 1;
-    }
+// While the keyboard highlights a row, a row under a resting pointer would look active too, so its hover tint drops.
+.TodayPaneSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
+    background: transparent;
 }

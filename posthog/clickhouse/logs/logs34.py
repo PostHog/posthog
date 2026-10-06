@@ -49,8 +49,6 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_record_count` UInt64,
     `pattern` String,
     `pattern_version` UInt8,
-    `_source_topic` String,
-    `_source_partition` UInt32,
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -149,9 +147,7 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_bytes_compressed` UInt64,
     `_record_count` UInt64,
     `pattern` String,
-    `pattern_version` UInt8,
-    `_source_topic` String,
-    `_source_partition` UInt32
+    `pattern_version` UInt8
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -316,7 +312,7 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-    observed_timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
+    timestamp + toIntervalDay(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15)))) AS original_expiry_timestamp,
     _partition,
     _topic,
     _offset,
@@ -324,9 +320,7 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-    _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
-    toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
@@ -362,9 +356,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8,
-    `_source_topic` String,
-    `_source_partition` UInt32
+    `pattern_version` UInt8
 )
 AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """
@@ -439,35 +431,6 @@ AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
 """
 
 
-def KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT():
-    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # Each row counts toward the clickhouse_logs partition and the logs_ingestion partition it came
-    # from, because both topics use random partitioning and the lag checkpoint needs both. A row
-    # without the source header has an empty source topic, and the WHERE skips it. The source
-    # offset is not known, so it counts as 0.
-    return f"""SELECT
-    kafka_partition AS _partition,
-    kafka_topic AS _topic,
-    maxSimpleState(kafka_offset) AS max_offset,
-    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-    maxSimpleState(timestamp) AS max_timestamp,
-    maxSimpleState(now()) AS max_created_at,
-    maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM
-(
-    SELECT
-        kafka_source.1 AS kafka_topic,
-        kafka_source.2 AS kafka_partition,
-        kafka_source.3 AS kafka_offset,
-        observed_timestamp,
-        timestamp
-    FROM {db}.{TABLE_NAME}
-    ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
-    WHERE kafka_topic != ''
-)
-GROUP BY kafka_partition, kafka_topic"""
-
-
 def KAFKA_LOGS_AVRO_KAFKA_METRICS_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
@@ -481,7 +444,16 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs_avro_kafka_metrics_mv TO 
     `max_created_at` SimpleAggregateFunction(max, DateTime),
     `max_lag` SimpleAggregateFunction(max, Decimal(18, 6))
 )
-AS {KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT()}
+AS SELECT
+    _partition,
+    _topic,
+    maxSimpleState(_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(timestamp) AS max_timestamp,
+    maxSimpleState(now()) AS max_created_at,
+    maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM {db}.{TABLE_NAME}
+GROUP BY _partition, _topic
 """
 
 
