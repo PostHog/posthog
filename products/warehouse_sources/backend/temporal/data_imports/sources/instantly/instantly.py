@@ -3,7 +3,7 @@ import hashlib
 import secrets
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import orjson
@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.settings import (
     ANALYTICS_HISTORY_START_DATE,
+    ANALYTICS_WINDOW_DAYS,
     BASE_URL,
     DEFAULT_PAGE_SIZE,
     EMAILS_REQUEST_INTERVAL_SECONDS,
@@ -322,14 +323,40 @@ def _campaign_fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) 
 def _date_windowed_pages(
     client: RESTClient, config: InstantlyEndpointConfig, start_date: str
 ) -> Iterator[list[dict[str, Any]]]:
-    for page in client.paginate(
-        path=f"/api/v2{config.path}",
-        params={**config.params, "start_date": start_date},
-        paginator=SinglePagePaginator(),
-        data_selector=config.data_selector,
-    ):
-        # Row order is undocumented; sort so the asc watermark never passes an unwritten date.
-        yield sorted(page, key=lambda row: str(row.get("date") or ""))
+    """Walk from start_date to today in bounded windows.
+
+    One request for all history returns one row per day per account, which Instantly rejects
+    with a 413 for large workspaces. A window that still gets a 413 is halved and retried.
+    """
+    window_start = date.fromisoformat(start_date)
+    today = datetime.now(UTC).date()
+    window_days = ANALYTICS_WINDOW_DAYS
+    while window_start <= today:
+        window_end = min(window_start + timedelta(days=window_days - 1), today)
+        try:
+            rows = [
+                row
+                for page in client.paginate(
+                    path=f"/api/v2{config.path}",
+                    params={
+                        **config.params,
+                        "start_date": window_start.isoformat(),
+                        "end_date": window_end.isoformat(),
+                    },
+                    paginator=SinglePagePaginator(),
+                    data_selector=config.data_selector,
+                )
+                for row in page
+            ]
+        except requests.HTTPError as e:
+            if e.response is None or e.response.status_code != 413 or window_days == 1:
+                raise
+            window_days = max(1, window_days // 2)
+            continue
+        if rows:
+            # Row order is undocumented; sort so the asc watermark never passes an unwritten date.
+            yield sorted(rows, key=lambda row: str(row.get("date") or ""))
+        window_start = window_end + timedelta(days=1)
 
 
 def _webhook_events_source(webhook_source_manager: Optional[WebhookSourceManager]) -> SourceResponse:

@@ -125,6 +125,7 @@ Instantly webhooks require the Hypergrowth plan or above, and automatic creation
             "401 Client Error: Unauthorized for url: https://api.instantly.ai": "Instantly rejected your API key. Check the key is correct and has not been revoked, then reconnect.",
             "402 Client Error: Payment Required for url: https://api.instantly.ai": "Your Instantly workspace does not have an active plan with API access (the API requires the Growth plan or above).",
             "403 Client Error: Forbidden for url: https://api.instantly.ai": "Your Instantly API key does not have the scope required for this table. Grant the matching read scope (or use an `all:read` key), then reconnect.",
+            "413 Client Error: Payload Too Large for url: https://api.instantly.ai": "Instantly rejected an analytics request as too large, even for a single day. Disable the account daily analytics table, or contact support if it keeps failing.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

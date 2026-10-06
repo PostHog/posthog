@@ -1,10 +1,11 @@
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+import time_machine
 from unittest import mock
 
-from requests import Request
+from requests import HTTPError, Request
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.instantly import (
@@ -41,6 +42,20 @@ class _FakeClient:
     def paginate(self, *, path, params, paginator, data_selector):
         self.calls.append((path, params))
         yield from self.pages_by_path.get(path, [])
+
+
+class _DailyAnalyticsFakeClient:
+    def __init__(self, rows: list[dict], max_window_days: int):
+        self.rows = rows
+        self.max_window_days = max_window_days
+        self.calls: list[dict] = []
+
+    def paginate(self, *, path, params, paginator, data_selector):
+        self.calls.append(params)
+        start, end = date.fromisoformat(params["start_date"]), date.fromisoformat(params["end_date"])
+        if (end - start).days + 1 > self.max_window_days:
+            raise HTTPError("413 Client Error: Payload Too Large", response=_response(status_code=413))
+        yield [row for row in self.rows if params["start_date"] <= row["date"] <= params["end_date"]]
 
 
 def _response(body=None, status_code=200):
@@ -230,22 +245,26 @@ class TestInstantly:
         assert client.calls == [("/api/v2/campaigns", {"limit": 100}), (child_path, expected_params)]
 
     @pytest.mark.parametrize(
-        "should_use_incremental_field,last_value,expected_start_date",
+        "should_use_incremental_field,last_value,max_window_days,expected_start_date",
         [
             # The API defaults to the last 30 days without start_date, so full refresh asks for all history.
-            (False, None, ANALYTICS_HISTORY_START_DATE),
-            (True, None, ANALYTICS_HISTORY_START_DATE),
-            (True, date(2026, 3, 4), "2026-03-04"),
+            (False, None, 30, ANALYTICS_HISTORY_START_DATE),
+            (True, None, 30, ANALYTICS_HISTORY_START_DATE),
+            (True, date(2026, 1, 4), 30, "2026-01-04"),
+            # A workspace too large for a 30-day window gets smaller windows instead of a failed sync.
+            (True, date(2026, 1, 4), 5, "2026-01-04"),
         ],
     )
-    def test_account_daily_analytics_windows_by_start_date_and_sorts_rows(
-        self, should_use_incremental_field, last_value, expected_start_date
+    @time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False)
+    def test_account_daily_analytics_walks_bounded_windows_and_sorts_rows(
+        self, should_use_incremental_field, last_value, max_window_days, expected_start_date
     ):
         rows = [
             {"date": "2026-03-05", "email_account": "a@example.com"},
+            {"date": "2026-01-20", "email_account": "a@example.com"},
             {"date": "2026-03-04", "email_account": "b@example.com"},
         ]
-        client = _FakeClient({"/api/v2/accounts/analytics/daily": [rows]})
+        client = _DailyAnalyticsFakeClient(rows, max_window_days)
 
         with mock.patch(f"{MODULE}._make_client", return_value=client):
             response = instantly_source(
@@ -261,10 +280,36 @@ class TestInstantly:
             assert isinstance(items, Iterable)
             pages = list(items)
 
-        assert client.calls == [("/api/v2/accounts/analytics/daily", {"start_date": expected_start_date})]
+        accepted = [
+            (date.fromisoformat(call["start_date"]), date.fromisoformat(call["end_date"]))
+            for call in client.calls
+            if (date.fromisoformat(call["end_date"]) - date.fromisoformat(call["start_date"])).days < max_window_days
+        ]
+        assert accepted[0][0].isoformat() == expected_start_date
+        assert accepted[-1][1] == date(2026, 3, 10)
+        assert all(start <= end for start, end in accepted)
+        assert all(next_start == end + timedelta(days=1) for (_, end), (next_start, _) in zip(accepted, accepted[1:]))
         # Ascending date order keeps the asc incremental watermark from skipping unwritten days.
-        assert [row["date"] for row in pages[0]] == ["2026-03-04", "2026-03-05"]
+        assert [row["date"] for page in pages for row in page] == ["2026-01-20", "2026-03-04", "2026-03-05"]
         assert response.primary_keys == ["date", "email_account"]
+
+    def test_account_daily_analytics_raises_when_a_single_day_is_too_large(self):
+        client = _DailyAnalyticsFakeClient([], max_window_days=0)
+
+        with mock.patch(f"{MODULE}._make_client", return_value=client):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_daily_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            with pytest.raises(HTTPError):
+                list(items)
+
+        assert client.calls[-1]["start_date"] == client.calls[-1]["end_date"]
 
     def test_probe_sends_required_campaign_id_for_subsequences(self):
         session = mock.MagicMock()

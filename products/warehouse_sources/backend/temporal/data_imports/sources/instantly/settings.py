@@ -17,6 +17,9 @@ EMAILS_REQUEST_INTERVAL_SECONDS = 3.0
 # Date-windowed analytics endpoints default to the last 30 days when start_date is omitted, so
 # full refresh asks for everything since before Instantly's API existed.
 ANALYTICS_HISTORY_START_DATE = "2020-01-01"
+# Days per date-windowed analytics request. One row per day per account makes all history in
+# one request too large for big workspaces.
+ANALYTICS_WINDOW_DAYS = 30
 
 # Placeholder parent id for scope probes against endpoints that require a campaign id.
 PROBE_CAMPAIGN_ID = "00000000-0000-0000-0000-000000000000"
