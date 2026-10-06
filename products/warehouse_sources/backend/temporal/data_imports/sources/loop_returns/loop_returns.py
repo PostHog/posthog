@@ -75,8 +75,8 @@ def start_date_error(start_date: str, now: Optional[datetime] = None) -> Optiona
     """Why a configured start date is unusable, or None if it's fine.
 
     Rejects a date we can't parse, and one reaching back further than `MAX_BACKFILL_DAYS`: the
-    returns endpoint walks history one 120-day window per state pass, so an unbounded lookback
-    would turn a single sync into thousands of empty-window requests.
+    returns endpoint walks history one window per state pass, so an unbounded lookback would turn
+    a single sync into thousands of empty-window requests.
     """
     try:
         parsed = parse_datetime(start_date)
@@ -162,10 +162,10 @@ class LoopReturnsResumeConfig:
 
 
 class LoopReturnsPaginator(BasePaginator):
-    """Walks `state` passes, then 120-day windows within each pass, then cursor pages in a window.
+    """Walks `state` passes, then date windows within each pass, then cursor pages in a window.
 
-    Loop caps a list request at a 120-day range and its `state` filter takes a single value, so a
-    full history needs several requests along both axes. Pages are ordered oldest window first;
+    Loop caps a list request's date range and its `state` filter takes a single value, so a full
+    history needs several requests along both axes. Pages are ordered oldest window first;
     within a window Loop documents no ordering, which is why the source declares `sort_mode="desc"`
     for incremental syncs and lets the watermark land only once a run completes.
     """

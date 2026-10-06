@@ -366,7 +366,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 name: cohortName,
             }
             // The generated `cohortsCreate` posts to the project-scoped route, which all four callers must move to.
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
             const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
             cohortsModel.actions.cohortCreated(cohort)
             lemonToast.success('Cohort saved', {

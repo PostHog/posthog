@@ -35,7 +35,6 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
-import { ScanningPausedBanner } from '../components/ScanningPausedBanner'
 import { replayVisionEmptyState } from '../emptyState/replayVisionEmptyState'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { ObservationSearch } from '../search/ObservationSearch'
@@ -51,16 +50,11 @@ import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
-    SCANNER_TYPE_OPTIONS,
+    scannerTypeOptions,
     ScannerType,
     ReplayScanner,
     homeRedesignVariant,
 } from './types'
-
-const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
-    value,
-    label,
-}))
 
 function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { deletingIds } = useValues(replayScannersLogic)
@@ -177,7 +171,10 @@ export function ReplayScannersScene(): JSX.Element {
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
                         {scanner.name || '(untitled)'}
                     </Link>
-                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
+                    {/* The creator's own description wins; the question fills in for scanners that have none. */}
+                    {(scanner.description || scanner.prompt_question) && (
+                        <div className="text-muted text-sm">{scanner.description || scanner.prompt_question}</div>
+                    )}
                 </div>
             ),
         },
@@ -317,9 +314,7 @@ export function ReplayScannersScene(): JSX.Element {
                 <VisionUsageTab />
             ) : (
                 <>
-                    {isRedesign ? (
-                        <ScanningPausedBanner />
-                    ) : (scannerStats?.total ?? 0) > 0 ? (
+                    {(scannerStats?.total ?? 0) > 0 ? (
                         <VisionMetrics />
                     ) : scannerStatsLoading ? (
                         <div className="flex items-center justify-center h-72 bg-bg-light rounded">
@@ -341,24 +336,31 @@ export function ReplayScannersScene(): JSX.Element {
                                 />
                                 <FilterPill<EnabledFilter>
                                     label="Status"
+                                    dataAttr="vision-scanners-status-filter"
                                     options={ENABLED_OPTIONS}
                                     value={enabledFilter}
                                     onChange={(v) => setScannersFilters({ enabledFilter: v })}
                                 />
                                 <FilterPill<ScannerType>
                                     label="Type"
-                                    options={TYPE_OPTIONS}
+                                    dataAttr="vision-scanners-type-filter"
+                                    options={scannerTypeOptions(
+                                        !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER] ||
+                                            !!scannerStats?.by_type?.experiment?.total
+                                    ).map(({ value, label }) => ({ value, label }))}
                                     value={scannerTypeFilter}
                                     onChange={(v) => setScannersFilters({ scannerTypeFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Created by"
+                                    dataAttr="vision-scanners-created-by-filter"
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Tags"
+                                    dataAttr="vision-scanners-tags-filter"
                                     searchable
                                     options={tagOptions}
                                     value={tagsFilter}

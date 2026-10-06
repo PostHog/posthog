@@ -218,9 +218,9 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                     }
                     return crumbs
                 }
-                // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
-                // Edit button lives) as an intermediate crumb so the back arrow returns there, not to the list.
-                crumbs.push(scannerBreadcrumb(scannerId, null, { tab: 'configuration' }), {
+                // Editing an existing scanner: surface the detail page (its Overview, where the Setup card's
+                // Edit link lives) as an intermediate crumb so the back arrow returns there, not to the list.
+                crumbs.push(scannerBreadcrumb(scannerId, null, { tab: 'overview' }), {
                     key: `scanner-${scannerId}-edit`,
                     name: 'Edit',
                     path: urls.replayVisionScannerConfigure(scannerId),

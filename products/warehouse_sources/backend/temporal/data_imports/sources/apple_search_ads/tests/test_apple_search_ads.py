@@ -108,7 +108,7 @@ class _FakeResponse:
     def raise_for_status(self) -> None:
         if not self.ok:
             kind = "Client Error" if self.status_code < 500 else "Server Error"
-            raise HTTPError(f"{self.status_code} {kind}: for url: {self.url}", response=cast(Any, None))
+            raise HTTPError(f"{self.status_code} {kind}: for url: {self.url}", response=cast(Any, self))
 
 
 def _token_response(token: str = "access-token") -> _FakeResponse:
@@ -274,6 +274,18 @@ class TestAppleSearchAdsTransport:
         assert "cryptography.io" not in message
         assert "PEM file" not in message
         assert raised.value.__cause__ is not None
+
+    @parameterized.expand(
+        [
+            ("pem", PUBLIC_KEY_PEM),
+            ("pem_with_escaped_newlines", PUBLIC_KEY_PEM.replace("\n", "\\n")),
+        ]
+    )
+    def test_client_secret_names_a_pasted_public_key(self, _name: str, public_key: str) -> None:
+        with pytest.raises(AppleSearchAdsAuthError) as raised:
+            build_client_secret(_with_key(public_key))
+
+        assert "You entered the public key" in str(raised.value)
 
     @parameterized.expand([(V5, "orgId=555"), (V1, "adAccountId=123456789")])
     def test_requests_carry_the_bearer_token_and_the_versions_context_id(
@@ -938,7 +950,30 @@ class TestValidateCredentials:
         assert session.api_calls[0]["url"] == expected_url
         assert session.api_calls[0]["headers"]["X-AP-Context"] == expected_context
 
-    def test_a_missing_ad_account_id_names_the_accounts_the_client_can_read(self) -> None:
+    def test_a_blank_ad_account_id_leads_with_the_several_accounts_it_found(self) -> None:
+        credentials = dataclasses.replace(CREDENTIALS, ad_account_id=None)
+        session = _FakeSession(
+            [
+                _acls_page(
+                    [
+                        {"adAccount": {"id": 123456789, "name": "Account A"}, "roles": []},
+                        {"adAccount": {"id": 987654321, "name": "Account B"}, "roles": []},
+                    ]
+                )
+            ]
+        )
+
+        with mock.patch(SESSION_PATCH, return_value=session):
+            is_valid, message = validate_credentials(credentials, V1)
+
+        assert is_valid is False
+        assert message is not None
+        assert message.startswith("These credentials can read these ad accounts:")
+        assert "123456789 (Account A)" in message
+        assert "987654321 (Account B)" in message
+        assert "connect again" in message
+
+    def test_a_blank_ad_account_id_names_the_single_account_as_the_value_to_enter(self) -> None:
         credentials = dataclasses.replace(CREDENTIALS, ad_account_id=None)
         session = _FakeSession([_acls_page([{"adAccount": {"id": 123456789, "name": "Account A"}, "roles": []}])])
 
@@ -947,19 +982,35 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert message is not None
-        assert "ad account ID" in message
-        # The ACL lookup carries no context id, so it can answer before one is entered.
+        assert message.startswith("These credentials can read one ad account:")
         assert "123456789 (Account A)" in message
+        assert "Enter 123456789 in Ad account ID" in message
 
-    def test_a_missing_ad_account_id_is_still_reported_when_the_acl_lookup_fails(self) -> None:
+    def test_a_blank_ad_account_id_with_no_readable_account_names_the_role_to_grant(self) -> None:
         credentials = dataclasses.replace(CREDENTIALS, ad_account_id=None)
-        session = _FakeSession([_FakeResponse(500, url=BASE_URL[V1]), _FakeResponse(500, url=BASE_URL[V1])])
+        session = _FakeSession([_acls_page([])])
 
         with mock.patch(SESSION_PATCH, return_value=session):
             is_valid, message = validate_credentials(credentials, V1)
 
         assert is_valid is False
-        assert message is not None and "ad account ID" in message
+        assert message is not None
+        assert message.startswith("These credentials cannot read any ad account yet.")
+        assert "API Account Read Only" in message
+        assert "connect again" in message
+
+    def test_a_blank_ad_account_id_falls_back_to_the_self_service_path_when_the_lookup_fails(self) -> None:
+        credentials = dataclasses.replace(CREDENTIALS, ad_account_id=None)
+        session = _FakeSession([_FakeResponse(500, url=BASE_URL[V1])])
+
+        with mock.patch(SESSION_PATCH, return_value=session):
+            is_valid, message = validate_credentials(credentials, V1)
+
+        assert is_valid is False
+        assert message is not None
+        assert message.startswith("Enter the ad account ID.")
+        assert "https://api.ads.apple.com/v1/acls" in message
+        assert "connect again" in message
 
     def test_a_missing_org_id_is_reported_for_the_older_api(self) -> None:
         credentials = dataclasses.replace(CREDENTIALS, org_id=None)
@@ -983,14 +1034,24 @@ class TestValidateCredentials:
         assert message is not None and "private key" in message
         assert session.calls == []
 
-    def test_a_token_endpoint_rejection_is_reported(self) -> None:
-        session = _FakeSession([], token_responses=[_FakeResponse(400, url=APPLE_OAUTH_TOKEN_URL)])
+    @parameterized.expand(
+        [
+            ("rejected_credentials", 400, "Apple rejected these API credentials"),
+            ("apple_unavailable", 503, "couldn't reach Apple"),
+            ("still_rate_limited", 429, "couldn't reach Apple"),
+        ]
+    )
+    def test_a_token_endpoint_failure_is_reported_without_the_raw_http_error(
+        self, _name: str, status: int, expected: str
+    ) -> None:
+        session = _FakeSession([], token_responses=[_FakeResponse(status, url=APPLE_OAUTH_TOKEN_URL)])
 
         with mock.patch(SESSION_PATCH, return_value=session):
             is_valid, message = validate_credentials(CREDENTIALS, V5)
 
         assert is_valid is False
-        assert message is not None
+        assert message is not None and expected in message
+        assert APPLE_OAUTH_TOKEN_URL not in message
 
     def test_a_token_response_without_an_access_token_is_reported(self) -> None:
         session = _FakeSession([], token_responses=[_FakeResponse(200, {}, url=APPLE_OAUTH_TOKEN_URL)])

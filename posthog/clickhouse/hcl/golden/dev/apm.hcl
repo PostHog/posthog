@@ -68,84 +68,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_metrics_avro" {
-    settings = {
-      input_format_avro_allow_missing_fields = "1"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Nullable(Int32)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_name" {
-      type = "Nullable(String)"
-    }
-    column "metric_type" {
-      type = "Nullable(String)"
-    }
-    column "value" {
-      type = "Nullable(Float64)"
-    }
-    column "count" {
-      type = "Nullable(Int64)"
-    }
-    column "histogram_bounds" {
-      type = "Array(Float64)"
-    }
-    column "histogram_counts" {
-      type = "Array(Int64)"
-    }
-    column "unit" {
-      type = "Nullable(String)"
-    }
-    column "aggregation_temporality" {
-      type = "Nullable(String)"
-    }
-    column "is_monotonic" {
-      type = "Nullable(UInt8)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "instrumentation_scope" {
-      type = "Nullable(String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "series_fingerprint" {
-      type = "Nullable(Int64)"
-    }
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 4
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
   table "kafka_metrics_avro4" {
     settings = {
       input_format_avro_allow_missing_fields = "1"
@@ -297,16 +219,18 @@ database "posthog" {
     column "status_code" {
       type = "Int32"
     }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
       collection           = "warpstream_traces"
       topic_list           = "clickhouse_traces"
       group_name           = "clickhouse-traces-avro"
       format               = "Avro"
-      num_consumers        = 4
+      num_consumers        = 8
       skip_broken_messages = 100
-      poll_timeout_ms      = 10000
+      poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
-      flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
   }
@@ -750,6 +674,9 @@ database "posthog" {
     column "original_expiry_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -1166,7 +1093,7 @@ SELECT
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -1397,50 +1324,23 @@ SQL
     }
   }
 
-  materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
-    to_table = "posthog.writable_metrics_kafka_metrics"
-    query    = <<SQL
-SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic
-SQL
-
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime)"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
-    }
-  }
-
   materialized_view "kafka_trace_spans_avro_mv" {
     to_table = "posthog.writable_trace_spans"
     query    = <<SQL
 SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -1450,9 +1350,13 @@ SELECT
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
@@ -1623,11 +1527,12 @@ SELECT
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+  service_name
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
 SQL
 
     column "team_id" {
@@ -1644,6 +1549,9 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
     }
   }
 

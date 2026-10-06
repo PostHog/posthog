@@ -48,11 +48,12 @@ logger = logging.getLogger(__name__)
 # Canonical review-hog-perspective-* skills live on disk under `products/review_hog/skills/`.
 _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 
-# Mirrors the frontmatter regex used by the scout sync + `build_skills.py` so parsing stays
+# Mirrors the frontmatter regex used by the scout sync + `build_skills/frontmatter.py` so parsing stays
 # consistent across consumers.
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Bundled subdirs walked recursively, in lockstep with the scout sync's `_ALLOWED_BUNDLE_SUBDIRS`.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+_BYTECODE_CACHE_DIR = "__pycache__"
 # Per-skill contract limits, mirroring `products/skills/backend/api/skill_services.py` (the seed
 # bypasses the service layer, so they're checked at parse time).
 _MAX_SKILL_BODY_BYTES = 1_000_000
@@ -165,7 +166,7 @@ def _parse_canonical_skill(skill_dir: Path, *, prefix: str) -> CanonicalSkill:
         if not subdir.is_dir():
             continue
         for file_path in sorted(subdir.rglob("*")):
-            if not file_path.is_file():
+            if not file_path.is_file() or _BYTECODE_CACHE_DIR in file_path.relative_to(subdir).parts:
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
             if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:
@@ -260,7 +261,7 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
+def compute_skill_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
     """Hash a team's `LLMSkill` row in the same shape as `_compute_canonical_hash` for direct compare."""
     payload = {
         "description": skill.description,
@@ -444,7 +445,7 @@ def _sync_canonicals(
             LLMSkill.objects.filter(pk=live.pk).update(category=category, updated_at=timezone.now())
 
         live_files = list(live.files.all())
-        live_hash = _compute_row_hash(live, live_files)
+        live_hash = compute_skill_row_hash(live, live_files)
         stored_hash = (live.metadata or {}).get("canonical_hash")
 
         if stored_hash is None:
@@ -482,7 +483,7 @@ def _sync_canonicals(
         ).exclude(name__in=canonical_names)
         for row in orphan_rows:
             stored_hash = (row.metadata or {}).get("canonical_hash")
-            if stored_hash is None or _compute_row_hash(row, list(row.files.all())) != stored_hash:
+            if stored_hash is None or compute_skill_row_hash(row, list(row.files.all())) != stored_hash:
                 diverged.append(row.name)
                 continue
             # `updated_at=now` matters: queryset updates bypass auto_now, and the marketplace plugin

@@ -15,8 +15,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -31,6 +29,11 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+)
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run

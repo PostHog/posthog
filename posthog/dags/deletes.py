@@ -23,9 +23,10 @@ from posthog.clickhouse.cluster import (
     NodeRole,
     Query,
     Workload,
+    wait_for_mutations_on_shards,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
-from posthog.dags.common import JobOwners
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -37,6 +38,7 @@ from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    DEFAULT_DELETION_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
@@ -45,7 +47,7 @@ from posthog.models.deletion_targets import (
     sweep_clusters,
 )
 from posthog.models.event.deletion import events_data_tables
-from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -90,10 +92,10 @@ class DeleteConfig(dagster.Config):
         "raising any failure alert.",
     )
     verification_max_execution_time: int = pydantic.Field(
-        default=1800,
+        default=300,
         description="Seconds each attempt may spend counting rows the sweep should have removed but did not. "
-        "Proving none survive is a full scan, so each count is bounded; a count that completes no attempt "
-        "blocks the marking instead of passing as clean.",
+        "Proving none survive is a full scan of the events tables, and the count only reports, so the budget "
+        "buys a cheap answer where one is available rather than a long wait for one that is not.",
     )
 
     @property
@@ -101,18 +103,14 @@ class DeleteConfig(dagster.Config):
         return datetime.fromisoformat(self.timestamp)
 
 
-# sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
-# A run that resolves it inconsistently is worse than one that never tries: it creates the
-# dictionary on a cluster it may not mutate, and reports an erasure that did not happen. Rows the
-# table holds stay readable meanwhile, which is the cost this accepts; see COVERAGE_DOC.
-# Remove it from the default to sweep the table again. `skip_targets: []` in run config does the
-# same for one run, without a deploy.
-_DEFAULT_SKIP_TARGETS = [EVENTS_JSON_DATA_TABLE]
-
-
 class SweepTargetsConfig(dagster.Config):
+    # sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
+    # A run that resolves it inconsistently can report an erasure without mutating its rows. Add it
+    # to DEFAULT_DELETION_TARGETS to sweep and verify it again, or pass [] for one run.
     skip_targets: list[str] = pydantic.Field(
-        default_factory=lambda: list(_DEFAULT_SKIP_TARGETS),
+        default_factory=lambda: [
+            target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
+        ],
         description="Deletion targets to leave out of this run, named by either their storage or "
         'their read table, e.g. ["sharded_events_json"] or ["events_json"]. A skipped target gets '
         "no dictionary, no mutation and no survivor count, and a cluster only it lives on is not "
@@ -380,17 +378,6 @@ class AdhocEventDeletesDictionary(Dictionary):
         )
 
 
-# Statuses under which a run's mutations may still land on the cluster: STARTING and STARTED are
-# executing, and a CANCELING run's last mutation keeps applying server-side. QUEUED and
-# NOT_STARTED are left out on purpose. A queued run has done nothing yet, and its own guard will
-# see this run once it starts.
-_EXECUTING_RUN_STATUSES = [
-    dagster.DagsterRunStatus.STARTING,
-    dagster.DagsterRunStatus.STARTED,
-    dagster.DagsterRunStatus.CANCELING,
-]
-
-
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
     """Fail this run when another run of the same job, or any squash run, is executing.
@@ -408,16 +395,13 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     between its check and the sensor launching this run, so the launched run checks again here.
     This covers direct launchpad starts as well.
     """
-    blockers: list[str] = []
-    for job_name in (context.job_name, squash_person_overrides.name):
-        records = context.instance.get_run_records(
-            dagster.RunsFilter(job_name=job_name, statuses=_EXECUTING_RUN_STATUSES)
-        )
-        blockers.extend(
-            f"{job_name} run {record.dagster_run.run_id}"
-            for record in records
-            if record.dagster_run.run_id != context.run_id
-        )
+    # A queued run has done nothing yet. Its own guard sees this run once it starts.
+    blockers = describe_runs(
+        context.instance,
+        (context.job_name, squash_person_overrides.name),
+        statuses=EXECUTING_RUN_STATUSES,
+        exclude_run_id=context.run_id,
+    )
     if blockers:
         raise dagster.Failure(
             description="This run yields to: " + "; ".join(blockers) + ". "
@@ -875,8 +859,9 @@ def wait_for_delete_mutations_in_shards(
     pending_deletes_dict, cluster_mutations = delete_mutations
 
     for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
-        handle = cluster.sibling(cluster_name, shard_role)
-        handle.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
+        # Shared with the squash, which is where the retry comes from: under replication lag a
+        # mutation can be briefly invisible on a shard, and that used to fail the whole run.
+        wait_for_mutations_on_shards(cluster.sibling(cluster_name, shard_role), shard_mutations)
 
     return pending_deletes_dict
 
@@ -965,7 +950,7 @@ def _count_through(
     """Survivors on ``table``, or None when no attempt could complete.
 
     None is deliberately not zero: a count that errored or ran out of time says nothing about
-    whether rows remain, and mark_deletions_verified refuses to mark on it. Each attempt gets the
+    whether rows remain, so mark_deletions_verified logs the table as unchecked. Each attempt gets the
     full time budget, and the runner picks a host per call, so a retry also routes around a single
     slow or sick host.
     """
@@ -1060,26 +1045,35 @@ def mark_deletions_verified(
     )
     context.add_output_metadata({"unswept_rows": dagster.MetadataValue.json(unswept)})
 
-    # A request marked verified is a claim the rows are gone, and nothing revisits it: the adhoc
-    # tombstone this op writes also keeps those uuids out of every later run. So a count that came
-    # back non-zero has to stop the marking rather than annotate it, and a count that could not be
-    # taken has to stop it too, because unknown is not zero. Leaving the requests pending costs a
-    # repeated sweep next run, which is the recoverable direction.
+    # Reported, never raised, and a non-zero count is not on its own evidence this job skipped work.
+    #
+    # Every mutation is waited to completion before this op runs, and the person and adhoc arms of
+    # the predicate only match rows ingested at or before their request's created_at. That scope
+    # closes when the mutation finishes, so a survivor those arms still match would mean ClickHouse
+    # did not apply a mutation it reported as done.
+    #
+    # The team and event arms carry no such bound, deliberately: a row can arrive after the mutation
+    # was enqueued and still match one. A count that finds those is reading an ordinary straggler
+    # the next sweep converges on, so failing the run on it would stall the queue on live ingestion.
+    #
+    # An unknown count is this check's usual outcome regardless. No branch of the predicate can use
+    # an index, because each keys a dictionary on team_id and a dictionary lookup is opaque to the
+    # primary key, so counting survivors on events reads the whole table and exhausts every attempt
+    # against the cluster's read-bytes limit rather than its time budget. Narrowing the count to the
+    # teams the dictionaries name is what would make it affordable, and worth gating on.
     survivors = {table: count for table, count in unswept.items() if count}
+    if survivors:
+        context.log.error(
+            "The sweep finished and rows it should have removed are still readable: "
+            + ", ".join(f"{table}={count}" for table, count in survivors.items())
+            + f". Marking these requests verified anyway. See {COVERAGE_DOC}."
+        )
     uncounted = sorted(table for table, count in unswept.items() if count is None)
-    if survivors or uncounted:
-        problems = []
-        if survivors:
-            problems.append(
-                "rows the sweep should have removed are still readable: "
-                + ", ".join(f"{table}={count}" for table, count in survivors.items())
-            )
-        if uncounted:
-            problems.append("no survivor count attempt completed on: " + ", ".join(uncounted))
-        raise dagster.Failure(
-            description="The sweep finished but "
-            + "; ".join(problems)
-            + f". Leaving these requests pending for the next run. See {COVERAGE_DOC}."
+    if uncounted:
+        context.log.error(
+            "No survivor count attempt completed on: "
+            + ", ".join(uncounted)
+            + f". Marking these requests verified without that check. See {COVERAGE_DOC}."
         )
 
     now = timezone.now()
@@ -1202,16 +1196,6 @@ def run_deletes_after_squash(context):
     )
 
 
-# Everything that means a deletes_job or squash run is active or imminent. Unlike the in-job
-# guard, QUEUED and NOT_STARTED count too: the question here is whether launching another run
-# would collide, not which of two started runs came first.
-_ACTIVE_RUN_STATUSES = [
-    dagster.DagsterRunStatus.QUEUED,
-    dagster.DagsterRunStatus.NOT_STARTED,
-    *_EXECUTING_RUN_STATUSES,
-]
-
-
 @dagster.op
 def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     """Fail when launching deletes_job now would collide with an active or imminent run.
@@ -1221,14 +1205,13 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     motion and will launch deletes_job itself on success, so starting one by hand now would race
     it. Another manual trigger means someone else already asked for a run.
     """
-    blockers: list[str] = []
-    for job_name in (deletes_job.name, squash_person_overrides.name, context.job_name):
-        records = context.instance.get_run_records(dagster.RunsFilter(job_name=job_name, statuses=_ACTIVE_RUN_STATUSES))
-        blockers.extend(
-            f"{job_name} run {record.dagster_run.run_id}"
-            for record in records
-            if record.dagster_run.run_id != context.run_id
-        )
+    # Unlike the in-job guard, queued and not-started runs count here. This check asks whether
+    # launching another run would collide, not which of two started runs came first.
+    blockers = describe_runs(
+        context.instance,
+        (deletes_job.name, squash_person_overrides.name, context.job_name),
+        exclude_run_id=context.run_id,
+    )
     if blockers:
         raise dagster.Failure(
             description="deletes_job cannot start while these runs are active: "

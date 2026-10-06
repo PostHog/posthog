@@ -6,6 +6,8 @@ from typing import Optional, TypedDict, Union
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AmazonAdsDefaultSources,
+    AppleSearchAdsDefaultSources,
     BingAdsDefaultSources,
     DefaultChannelTypes,
     GoogleAdsDefaultSources,
@@ -24,18 +26,26 @@ from posthog.schema import (
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
+    MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
+    MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources,
     NativeMarketingSource,
     NodeKind,
+    OpenAIAdsDefaultSources,
     PinterestAdsDefaultSources,
     RedditAdsDefaultSources,
+    RoktAdsDefaultSources,
     SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
     TikTokAdsDefaultSources,
+    TwitterAdsDefaultSources,
     WebAnalyticsItemKind,
 )
 
@@ -501,6 +511,10 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 # Map generated config models to NativeMarketingSource using sourceType field
 _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
+    MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
+    MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -508,6 +522,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
 ]
 
 
@@ -537,6 +552,11 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.AMAZON_ADS: AmazonAdsDefaultSources,
+    NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
+    NativeMarketingSource.OPEN_AI_ADS: OpenAIAdsDefaultSources,
+    NativeMarketingSource.ROKT_ADS: RoktAdsDefaultSources,
+    NativeMarketingSource.TWITTER_ADS: TwitterAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,
@@ -549,17 +569,21 @@ _DEFAULT_SOURCES_ENUMS = {
 
 # Derived constants from generated types
 NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
-    source: [
-        _get_field_default(config, "campaignTableName"),
-        _get_field_default(config, "statsTableName"),
-    ]
+    source: list(
+        dict.fromkeys(
+            [
+                _get_field_default(config, "campaignTableName"),
+                _get_field_default(config, "statsTableName"),
+            ]
+        )
+    )
     for source, config in _CONFIG_MODELS.items()
 }
 
 TABLE_PATTERNS = {
     source: {
-        "stats_table_keywords": [_get_field_default(config, "statsTableName")],
-        "campaign_table_name": _get_field_default(config, "campaignTableName"),
+        "stats_table_keywords": [_get_field_default(config, "statsTableName").lower()],
+        "campaign_table_name": _get_field_default(config, "campaignTableName").lower(),
     }
     for source, config in _CONFIG_MODELS.items()
 }

@@ -17,6 +17,7 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
 
@@ -24,12 +25,14 @@ from ee.partners.stripe.api.provisioning.core import is_stripe_oauth_app
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
 
 
-class StripeBearerAuthentication(BaseAuthentication):
+class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticate the Stripe orchestrator via an OAuth bearer token.
 
     Returns ``(user, access_token)`` so views read the token off ``request.auth``.
     Raises :class:`SpecError` (rendered in the view's envelope) on failure.
     """
+
+    activity_credential_type = "oauth"
 
     def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         auth_header = request.headers.get("authorization", "")
@@ -63,6 +66,9 @@ class StripeBearerAuthentication(BaseAuthentication):
         if user is None or not user.is_active:
             raise SpecError("unauthorized", "Authentication failed", status=401)
 
+        self.record_activity_actor(
+            user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
+        )
         return user, access_token
 
     def authenticate_header(self, request: Request) -> str:

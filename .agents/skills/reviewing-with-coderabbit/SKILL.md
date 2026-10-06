@@ -2,12 +2,11 @@
 name: reviewing-with-coderabbit
 description: >
   Run a CodeRabbit review over the branch from the terminal, with the `coderabbit` CLI, and record the
-  pass in the PR description. Use before `gh pr create`, and whenever a review of a branch is asked for:
-  a local review, a self-review, a CodeRabbit review, or a pre-PR review. Run it once per branch. Checks
-  the sign-in state before the review and asks the person whether to sign in or skip, because a
-  signed-out review opens a browser tab on its own. When the CLI is unavailable, the PR opens without a local pass, and no
-  agent review takes its place. Trigger terms: coderabbit, cr review, local review, self-review, review
-  my branch, pre-PR review.
+  pass in the PR description. Before `gh pr create` or a requested branch review, first check
+  `POSTHOG_TASK_RUN_ID` and `CI`: a cloud or CI task skips this skill without a CLI probe or user message.
+  Otherwise, use this skill to check `cr` and its authentication, and offer setup or skip when a person can answer.
+  Run the review once per branch. Never substitute an agent review.
+  Trigger terms: coderabbit, cr review, local review, self-review, review my branch, pre-PR review.
 ---
 
 # Reviewing with CodeRabbit
@@ -21,16 +20,14 @@ It still takes time and rate limits still apply, so run it once per branch, afte
 
 ## Never substitute an agent review
 
-If the CLI is absent or rate limited, or the person chooses to skip the review, **say so and continue to `gh pr create`**.
-The PR opens without a local pass.
+In cloud and CI tasks, skip the CLI probe and local review without an announcement. Otherwise, offer setup or a skip only if a person can answer. If nobody can answer, the person declines, or the CLI is rate limited, continue without a local pass.
 
 Do not run `/code-review`, review subagents, or a fan-out over the diff in its place.
 The CodeRabbit run is covered by our plan; an agent review of a large diff bills a person's tokens and can reach hundreds of dollars on one branch.
 
 ## Setup
 
-For a person at the terminal, once per machine.
-An agent never runs the sign-in command: it opens a browser.
+For a person at the terminal, once per machine. An agent does not run the sign-in command: it opens a browser.
 
 Flox activation installs the pinned CLI and puts `coderabbit` and `cr` on PATH.
 Outside flox, install it with `brew install coderabbit`.
@@ -45,36 +42,44 @@ cr auth status                   # confirms the session and the organization
 
 ## The flow
 
-1. Finish the work and commit.
-   The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
-2. Check the sign-in state before any review command:
+1. Check for a cloud or CI task before loading this skill:
 
    ```sh
-   cr auth status --agent
+   test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"
    ```
 
-   It prints one JSON line and never opens anything.
-   `"status":"authenticated"` means continue to step 3.
-   `"status":"not_authenticated"` means stop here and ask the person.
+   If the check succeeds, skip the local review and continue the task. Do not probe `cr`, load this skill, or announce the skip.
+   `POSTHOG_TASK_RUN_ID` is set in PostHog cloud tasks. Absence of these markers does not prove that a person can answer.
+   In any other run, check the CLI and sign-in state:
 
-   Do not run `cr review` while signed out.
-   It starts the OAuth login itself: it opens a browser tab at the CodeRabbit sign-in page and blocks until the person completes the login or the command times out.
-   Ask the person which they want, with `AskUserQuestion` when it is available and a plain question otherwise:
+   ```sh
+   command -v cr >/dev/null 2>&1 && cr auth status --agent
+   ```
 
-   - **Sign in and run CodeRabbit.**
-     The person runs `cr auth login` themselves (`! cr auth login` in Claude Code), then tells you it is done.
-     Re-run `cr auth status --agent` to confirm, then continue to step 3.
-   - **Skip it this time.**
-     Skip to step 6, which records why, and continue from there.
+   The status command prints one JSON line and never opens anything. Continue when it succeeds and the JSON status is `authenticated`.
+   If the CLI is missing or signed out and a person can answer, ask whether they want to set it up or skip this review.
+   The person runs `cr auth login` themselves; the agent can tell them how to install `cr` from Setup.
+   After setup, check `cr auth status --agent` again. If they decline or cannot answer, skip to step 6.
+   Do not run `cr review` while signed out. It opens an OAuth browser tab and waits for sign-in.
 
-   When nobody can answer, in an unattended run, skip it and record that.
-
+2. Finish the work and commit.
+   The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
 3. Run the review, scoped to the branch's base:
 
    ```sh
    cr review --agent --base master
    ```
 
+   Decide whether to add `--deep` before you run it, because the branch gets one run.
+   `--deep` applies the full pull request review policy, so the findings match what the bot would post, except the PR-only pre-merge checks.
+   Without it the CLI applies a narrower policy, and it does less work.
+
+   - **Add `--deep`** when the diff changes behavior a mistake would hurt: auth, permissions, tenant scoping, migrations, raw SQL or HogQL, money, data deletion, concurrency, or a public API contract.
+     Add it too for a large or cross-cutting diff, or when the person asks for a thorough or full review.
+   - **Leave it off** for docs, comments, skill text, config bumps, renames, generated files, and other small mechanical diffs.
+   - When you cannot tell, add it.
+
+   Record the choice with the findings in step 6.
    `--agent` emits structured findings for an agent to read.
    Drop it when a person reads the output.
    `cr review findings` reprints the last run's findings, so re-reading them costs no review.
@@ -84,8 +89,8 @@ cr auth status                   # confirms the session and the organization
    Findings can be false positives, and rejecting one with a reason is a valid outcome.
 5. Fix what holds, and commit the fixes.
 6. Record the outcome under Agent context in the PR description, as the PR template asks.
-   After a run, that is each finding's disposition.
-   After a skip, that is why: the CLI was absent, signed out, rate limited, or the person chose to skip.
+   After a run, that is whether it ran with `--deep`, and each finding's disposition.
+   After a local skip, record why: CLI missing, signed out with no person available, setup declined, or rate limited. Cloud and CI skips need no entry.
 7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
 
 ## After the PR opens

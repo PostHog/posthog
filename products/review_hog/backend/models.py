@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewWorkingStateContent,
     TaskRunArtefact,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -63,16 +64,18 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # turn START. Read paths pairing stats/links with the completed turn's findings anchor here, so an
     # in-flight or crashed turn's metadata never splices onto the previous turn's findings.
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Only a successful publish or no-findings turn suppresses automatic retries.
+    automatic_reviewed_head_sha = models.CharField(max_length=64, null=True, blank=True)
     # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
     # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
     # so the detail view buckets published vs held-back findings truthfully even when the acting
     # user's settings later change. Null for pre-column turns (readers fall back to the viewer's
     # own setting as an approximation).
     run_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
-    # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
-    # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
-    # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
+    # Latest published head for outcome tracking and compatibility reads.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Each mode has its own marker so a Flash review cannot suppress Full publication.
+    published_heads_by_mode = models.JSONField(null=True, blank=True)
     # The urgency threshold in force at each publish, keyed by the `run_index` that published, as
     # `{"1": "consider", "2": "must_fix"}`. Outcome classification reconstructs the published finding
     # set from this, since the user's live setting can change after publish. Keyed per turn rather
@@ -193,6 +196,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
         PR_SNAPSHOT = "pr_snapshot"
+        # One per executed turn: the ReviewHog version and input fingerprint the turn ran with.
+        TURN_MARKER = "turn_marker"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -306,6 +311,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def add_turn_marker(
+        cls, *, team_id: int, report_id: str, content: TurnMarkerArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `turn_marker` (one per executed turn; the newest row of a retried turn wins)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: ReviewLogArtefactContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -379,6 +391,9 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     StamphogRepoConfig covering the PR's repository.
     `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
     when on, every published review of the user's PRs chains into the resolution stage.
+    `review_authored_prs` opts into automatic Flash reviews of the user's own PRs independently of
+    the inbox and label triggers. `flash_reasoning_effort` also applies to manually requested Flash
+    reviews, so disabling the automatic trigger preserves that preference.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -386,6 +401,10 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         CONSIDER = "consider"  # "All issues"
         SHOULD_FIX = "should_fix"
         MUST_FIX = "must_fix"
+
+    class FlashReasoningEffort(models.TextChoices):
+        MEDIUM = "medium", "Medium"
+        XHIGH = "xhigh", "Extra high"
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on the parents (app-level enforcement only).
@@ -395,6 +414,15 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     resolve_comments = models.BooleanField(default=True, db_default=True)
+    # Opt-out of the clean-review media in the PR status comment ("Nothing worth raising this time").
+    celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
+    review_authored_prs = models.BooleanField(default=False, db_default=False)
+    flash_reasoning_effort = models.CharField(
+        max_length=10,
+        choices=FlashReasoningEffort.choices,
+        default=FlashReasoningEffort.MEDIUM,
+        db_default=FlashReasoningEffort.MEDIUM.value,
+    )
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,

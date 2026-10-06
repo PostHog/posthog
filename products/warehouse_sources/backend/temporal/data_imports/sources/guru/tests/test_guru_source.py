@@ -39,8 +39,8 @@ class TestGuruSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the card search surface supports a server-side date filter.
-        assert incremental == {"cards"}
+        # Only card search and the analytics export support a server-side date filter.
+        assert incremental == {"cards", "analytics_events"}
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
@@ -44,11 +44,10 @@ from posthog.api.services.flags_service import (
     PropertyMatchingVersionConflictError,
     batch_evaluate_flag_for_team,
 )
-from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.utils import action, parse_actor_property_filters
+from posthog.api.shared import SearchMatchTypeSerializerMixin, SerializedPersonActorSerializer, UserBasicSerializer
+from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import LIMIT, OFFSET
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -75,9 +74,9 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
@@ -112,6 +111,8 @@ from products.cohorts.backend.realtime_state import (
     has_realtime_state,
     resolve_realtime_readiness,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
+from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -121,25 +122,8 @@ from products.feature_flags.backend.realtime_targeting import is_realtime_cohort
 from products.product_analytics.backend.facade.models import Insight
 
 
-# Mirrors SerializedPerson in posthog/hogql_queries/serialized_actors.py.
-# Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
-# and value_at_data_point are always present in the response (always-set keys), even if empty/None.
-class CohortPersonResultSerializer(serializers.Serializer):
-    id = serializers.CharField()
-    uuid = serializers.UUIDField()
-    type = serializers.ChoiceField(choices=["person"])
-    name = serializers.CharField()
-    distinct_ids = serializers.ListField(child=serializers.CharField())
-    properties = serializers.DictField()
-    created_at = serializers.DateTimeField(allow_null=True)
-    last_seen_at = serializers.DateTimeField(allow_null=True)
-    is_identified = serializers.BooleanField(allow_null=True)
-    matched_recordings = serializers.ListField(child=serializers.DictField())
-    value_at_data_point = serializers.FloatField(allow_null=True)
-
-
 class CohortPersonsResponseSerializer(serializers.Serializer):
-    results = CohortPersonResultSerializer(many=True)
+    results = SerializedPersonActorSerializer(many=True)
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
 
@@ -640,14 +624,6 @@ class CSVConfig:
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
-
-
-class CohortMinimalSerializer(serializers.ModelSerializer):
-    """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
-
-    class Meta:
-        model = Cohort
-        fields = ["id", "name", "count"]
 
 
 @extend_schema_field(CohortFilters)  # type: ignore[arg-type]
@@ -1361,7 +1337,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         try:
             if properties:
                 HogQLCohortQuery(
-                    filter=Filter(data={"properties": properties}, team=team), team=team
+                    property_groups=expand_cohort_properties(parse_property_group_data(properties), team), team=team
                 ).get_query_executor(user=user).generate_clickhouse_sql()
             if query:
                 context = HogQLContext(team_id=team.pk, team=team, user=user, enable_select_queries=True)
@@ -1422,7 +1398,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if self.context["request"].method != "PATCH":
             return
 
-        parsed_filter = Filter(data=request_filters)
+        parsed_filter = parse_property_group_data(request_filters.get("properties"))
         instance = cast(Cohort, self.instance)
         if instance.is_static and cohort_will_be_static:
             return
@@ -1430,12 +1406,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         cohort_id = instance.pk
 
         flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = any(cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True) for flag in flags)
+        cohort_used_in_flags = any(
+            cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True)
+            for flag in _flags_with_readable_config(flags)
+        )
 
         if not cohort_used_in_flags:
             return
 
-        for prop in parsed_filter.property_groups.flat:
+        for prop in parsed_filter.flat:
             if prop.type == "behavioral":
                 raise serializers.ValidationError(
                     detail="Behavioral filters cannot be added to cohorts used in feature flags.",
@@ -1667,19 +1646,22 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
     )
 
 
-def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
-    """Cohort ids each flag references directly in its filter conditions.
+def _flags_with_readable_config(flags: Iterable[FeatureFlag]) -> Iterator[FeatureFlag]:
+    """Rows whose stored config the cohort walks below can read: config version 1 or 2.
 
-    Mirrors the cohort-property walk in ``FeatureFlag.get_cohort_ids``, used to bulk-load
-    those cohorts so the expansion doesn't point-query them one at a time.
+    A document in no readable format is skipped rather than read as a flag with no
+    conditions. Lazy, so a caller that short-circuits stops at the first match.
     """
-    return {
-        int(prop["value"])
-        for flag in flags
-        for condition in flag.conditions
-        for prop in condition.get("properties", [])
-        if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit()
-    }
+    return (flag for flag in flags if not isinstance(decode_config(flag.filters), UnsupportedConfig))
+
+
+def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
+    """Cohort ids each flag references directly, the ones ``FeatureFlag.get_cohort_ids`` starts from.
+
+    Used to bulk-load those cohorts so the expansion doesn't point-query them one at a time.
+    An id that is not an integer is left to the expansion, which rejects it in v1 and skips it in v2.
+    """
+    return {cohort_id for flag in flags for cohort_id in references(decode_config(flag.filters)).cohort_ids}
 
 
 def _filter_flags_referencing_cohort(
@@ -1693,7 +1675,7 @@ def _filter_flags_referencing_cohort(
     target still resolves: ``used_in`` reports flags referencing a deleted cohort, which
     matches the insights and cohorts blocks (neither checks the target's deleted state).
     """
-    flag_list = list(flags)
+    flag_list = list(_flags_with_readable_config(flags))
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
     direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
     if direct_ids:
@@ -1969,14 +1951,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def persons(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
-        filter = Filter(request=request, team=self.team)
         assert request.user.is_authenticated
 
+        paging = paging_params(request)
+        limit = paging.limit
+        offset = paging.offset
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
-        if is_csv_request and not filter.limit:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: 100})
+        if is_csv_request and not limit:
+            limit, offset = CSV_EXPORT_LIMIT, 0
+        elif not limit:
+            limit = 100
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
@@ -1989,22 +1973,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # Match the legacy PersonQuery ordering (created_at DESC, id DESC) so pagination
             # leads with the newest members; ActorsQuery otherwise defaults to id ASC.
             orderBy=["created_at DESC", "id DESC"],
-            limit=filter.limit,
-            offset=filter.offset,
+            limit=limit,
+            offset=offset,
         )
         actors_response = ActorsQueryRunner(team=team, query=actors_query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         actor_ids = [row[0] for row in actors_response.results]
         with personhog_caller_tag("cohorts/persons"):
             serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
-        _should_paginate = len(actor_ids) >= filter.limit
+        _should_paginate = len(actor_ids) >= limit
 
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
-        )
+        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
         if is_csv_request:
             KEYS_ORDER = [
                 "id",
@@ -2405,7 +2385,19 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
-    if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
+    if not feature_flag.active:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
+        return
+
+    try:
+        aggregates_by_group = feature_flag.aggregation_group_type_index is not None
+    except ConfigFormatError:
+        cohort._safe_save_cohort_state(
+            team_id=team_id, processing_error="This flag uses a configuration format that cannot populate a cohort."
+        )
+        return
+
+    if aggregates_by_group:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 

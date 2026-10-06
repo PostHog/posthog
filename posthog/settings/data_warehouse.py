@@ -114,6 +114,21 @@ DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES = get_from_env(
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
 DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
+# A lite vacuum also runs once this many hours have passed since the last vacuum, whatever the commit
+# count. A checkpoint drops tombstones older than delta's 7-day `deletedFileRetentionDuration`, and a lite
+# vacuum cannot find a dead file without its tombstone. This interval plus the 24-hour vacuum retention
+# must stay below 7 days, so a table that commits slowly does not leak its dead files.
+DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS = get_from_env("DATA_WAREHOUSE_VACUUM_MAX_INTERVAL_HOURS", 120, type_cast=int)
+# A full vacuum lists the whole table and deletes the files that the log does not name, with the same
+# 24-hour retention. It collects the files that a lite vacuum never finds: files that a crashed writer
+# left, and files whose tombstone a checkpoint dropped.
+DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS = get_from_env(
+    "DATA_WAREHOUSE_FULL_VACUUM_INTERVAL_HOURS", 168, type_cast=int
+)
+# Compact Delta tables with deltalite's native `DeltaLiteTable.compact` instead of delta-rs
+# `optimize.compact`. deltalite streams each bin under the load slot's memory budget. A deltalite build
+# without `compact`, a table that deltalite refuses, or a deltalite failure falls back to delta-rs.
+DATA_WAREHOUSE_DELTALITE_COMPACTION = get_from_env("DATA_WAREHOUSE_DELTALITE_COMPACTION", False, type_cast=str_to_bool)
 
 # delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
 # can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
@@ -145,8 +160,13 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_SHEETS
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
 GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI")
 
+# Only a local setup has a Redis on localhost. In a deployed environment nothing listens there,
+# so an environment that sets neither of these turned every warehouse Redis call into a connection
+# error. Leave the host unset instead, which lets the callers fall back to the shared REDIS_URL or
+# say that the feature is not configured.
+_DEFAULT_DATA_WAREHOUSE_REDIS_HOST = "localhost" if DEBUG or TEST else None
 DATA_WAREHOUSE_REDIS_HOST: str | None = os.getenv(
-    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", "localhost")
+    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", _DEFAULT_DATA_WAREHOUSE_REDIS_HOST)
 )
 DATA_WAREHOUSE_REDIS_PORT: str | None = os.getenv("DATA_WAREHOUSE_REDIS_PORT", os.getenv("POSTHOG_REDIS_PORT", "6379"))
 
@@ -163,3 +183,16 @@ WAREHOUSE_SOURCES_DATABASE_URL: str = (
 # Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
 # (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`
 # or via the back-compat top-level names that settings/kafka.py exposes.
+
+# Bounds on a set of queued batches the V3 loader writes to a Delta table as one commit. The loader
+# holds the whole set decoded in Arrow, then copies it once more while it deduplicates and partitions,
+# so a set must stay inside the memory slice the deltalite governor sizes per concurrent upsert
+# (memory_governor.py): with a 29 GiB pod, 16 groups in flight and a 2 GiB reserve, that slice is
+# about 1.3 GiB, of which 750 MiB goes to four partition workers. The row cap equals one extraction
+# chunk, the largest single batch the loader already takes, and the byte cap counts parquet on disk,
+# which decodes to Arrow several times its size. The count cap is only a backstop.
+DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES", 128, type_cast=int)
+DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS = get_from_env("DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS", 500_000, type_cast=int)
+DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
+    "DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES", 64 * 1024 * 1024, type_cast=int
+)

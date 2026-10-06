@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
@@ -38,7 +39,6 @@ class TestDagsterCloudSourceConfig:
 class TestDagsterCloudSchemas:
     def test_schema_incremental_flags(self) -> None:
         schemas = {s.name: s for s in DagsterCloudSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"runs", "backfills", "assets"}
         assert schemas["runs"].supports_incremental is True
         assert {f["field"] for f in schemas["runs"].incremental_fields} == {"updateTime", "creationTime"}
         assert schemas["backfills"].supports_incremental is False
@@ -53,8 +53,9 @@ class TestDagsterCloudSchemas:
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials=True — the static catalog must surface in public docs.
         tables = {t["name"]: t for t in DagsterCloudSource().get_documented_tables()}
-        assert set(tables) == {"runs", "backfills", "assets"}
-        assert tables["runs"]["description"]  # canonical description present
+        assert set(tables) == set(ENDPOINTS)
+        # Every table carries a curated description rather than falling back to the LLM.
+        assert all(tables[name]["description"] for name in ENDPOINTS)
         assert "Incremental" in tables["runs"]["sync_methods"]
         assert "Incremental" not in tables["assets"]["sync_methods"]
 

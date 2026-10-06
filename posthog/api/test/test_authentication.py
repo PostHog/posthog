@@ -1,6 +1,7 @@
 import json
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -27,7 +28,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
 from httpx import ASGITransport, AsyncClient
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import authentication, status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -40,13 +41,16 @@ from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
+    SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
 )
-from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -56,6 +60,7 @@ from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -1605,7 +1610,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -2343,6 +2348,77 @@ class TestTimeSensitivePermissions(APIBaseTest):
             )
             assert res.status_code == 200
 
+    @parameterized.expand(
+        [
+            ("passkey_register_begin", "post", "/api/webauthn/register/begin/"),
+            ("passkey_register_complete", "post", "/api/webauthn/register/complete/"),
+            ("passkey_rename", "patch", "/api/webauthn/credentials/1/"),
+            ("passkey_delete", "delete", "/api/webauthn/credentials/1/"),
+            ("passkey_verify", "post", "/api/webauthn/credentials/1/verify/"),
+            ("connected_app_revoke", "post", "/api/oauth/connected-apps/00000000-0000-0000-0000-000000000001/revoke/"),
+            ("github_start", "post", "/api/users/@me/integrations/github/start/"),
+            ("github_prepare_callback", "post", "/api/users/@me/integrations/github/prepare_callback/"),
+            ("github_disconnect", "delete", "/api/users/@me/integrations/github/123/"),
+            ("slack_start", "post", "/api/users/@me/integrations/slack/start/"),
+            ("slack_disconnect", "delete", "/api/users/@me/integrations/slack/U0123ABC/"),
+        ]
+    )
+    def test_credential_writes_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
+    @parameterized.expand(
+        [
+            ("passkey_list", "get", "/api/webauthn/credentials/"),
+            ("connected_app_list", "get", "/api/oauth/connected-apps"),
+            ("personal_integration_list", "get", "/api/users/@me/integrations/"),
+            ("github_repos_refresh", "post", "/api/users/@me/integrations/github/123/repos/refresh/"),
+            (
+                "github_install_request_cancel",
+                "delete",
+                "/api/users/@me/integrations/github/install_requests/00000000-0000-0000-0000-000000000001/",
+            ),
+        ]
+    )
+    def test_credential_reads_do_not_require_recent_authentication(self, _name, method, url):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            assert res.status_code != 403, res.content
+
+    @parameterized.expand(
+        [
+            ("personal_posthog_connection", "posthog", True),
+            ("team_slack_integration", "slack", False),
+        ]
+    )
+    def test_integration_removal_needs_recent_authentication_only_for_personal_connections(
+        self, _name, kind, needs_reauth
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind=kind, config={}, created_by=self.user)
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.pk}/")
+            if needs_reauth:
+                assert res.status_code == 403, res.content
+                assert res.json()["code"] == "sensitive_action_required_reauth"
+            else:
+                assert res.status_code != 403, res.content
+
+    def test_creating_a_personal_posthog_connection_needs_recent_authentication(self):
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = self.client.post(
+                f"/api/environments/{self.team.pk}/integrations/", {"kind": "posthog", "config": {}}, format="json"
+            )
+            assert res.status_code == 403, res.content
+            assert res.json()["code"] == "sensitive_action_required_reauth"
+
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
@@ -2464,6 +2540,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         user, _ = result
         self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
+
+
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
 
 
 class TestSyntheticUser(SimpleTestCase):
@@ -2659,6 +2744,36 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         assert self.psak.last_used_at is not None
         # Should have updated to a recent timestamp
         self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
+
+
+class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ordinary", "query:read", True, False),
+            ("unbound", "scout_experiment_internal:read", False, False),
+            ("trial", "query:read scout_experiment_internal:read", True, True),
+        ]
+    )
+    def test_capture_policy_requires_the_bound_scope(self, _name: str, scope: str, bound: bool, private: bool) -> None:
+        token = OAuthAccessToken(
+            user=User(id=1, current_team_id=2),
+            scope=scope,
+            sandbox_task_id=uuid.uuid4() if bound else None,
+        )
+        request = Request(
+            APIRequestFactory().get(
+                "/?is_scout_experiment=true",
+                HTTP_AUTHORIZATION="Bearer pha_synthetic",
+                HTTP_X_POSTHOG_SUPPRESS_ANALYTICS="true",
+            )
+        )
+        with (
+            tags_context(is_scout_experiment=False),
+            patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
+            patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+        ):
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+            self.assertEqual(get_query_tags().is_scout_experiment, private)
 
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
@@ -2904,6 +3019,66 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
+
+
+class TestAuthenticatorsRunOncePerRequest(APIBaseTest):
+    def _personal_api_key_header(self) -> str:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="once per request",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=["dashboard:read"],
+        )
+        return f"Bearer {value}"
+
+    def _oauth_access_token_header(self) -> str:
+        application = OAuthApplication.objects.create(
+            name="Once per request",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_once_per_request",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="dashboard:read",
+        )
+        return f"Bearer {token.token}"
+
+    @parameterized.expand(
+        [
+            ("session", SessionAuthentication, None),
+            ("personal_api_key", PersonalAPIKeyAuthentication, _personal_api_key_header),
+            ("oauth_access_token", OAuthAccessTokenAuthentication, _oauth_access_token_header),
+        ]
+    )
+    def test_authenticate_runs_once_per_request(
+        self,
+        _name: str,
+        authenticator_class: type[authentication.BaseAuthentication],
+        authorization_header: Callable[..., str] | None,
+    ) -> None:
+        headers = {}
+        if authorization_header is not None:
+            self.client.logout()
+            headers["authorization"] = authorization_header(self)
+
+        with patch.object(
+            authenticator_class,
+            "authenticate",
+            autospec=True,
+            wraps=authenticator_class.authenticate,
+        ) as authenticate:
+            response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/", headers=headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(authenticate.call_count, 1)
 
 
 class TestOAuthLoginNotification(APIBaseTest):

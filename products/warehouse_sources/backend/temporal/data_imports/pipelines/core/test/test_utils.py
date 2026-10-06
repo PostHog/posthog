@@ -13,6 +13,8 @@ import pyarrow as pa
 import deltalake
 import structlog
 from dateutil import parser
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
@@ -27,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
-    conditional_lru_cache_async,
     evolve_pyarrow_schema,
     hex_encode_id_binary_columns,
     is_safe_numeric_widening,
@@ -101,6 +102,17 @@ def test_table_from_py_list_inconsistent_other_types():
             ]
         )
     )
+
+
+def test_table_from_py_list_keeps_the_key_order_of_the_rows():
+    table = table_from_py_list(
+        [
+            {"zeta": 1, "alpha": "a", "mid": None, "beta": 2.5, "omega": "o", "gamma": True, "delta": 3},
+            {"zeta": 2, "alpha": "b", "mid": "m", "beta": 3.5, "omega": "p", "gamma": False, "delta": 4, "late": "x"},
+        ]
+    )
+
+    assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
 
 
 def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
@@ -643,6 +655,49 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (Range(4, 5, "[)"), "[4,5)"),
+        (Range(4, 5, "[]"), "[4,5]"),
+        (Range(empty=True), "empty"),
+        (Range(None, None, "()"), "(,)"),
+        (Range(5, None, "[)"), "[5,)"),
+        # A bound holding a space is quoted, the way Postgres writes a timestamp range
+        (
+            Range(datetime.datetime(2020, 1, 1), datetime.datetime(2020, 2, 1), "[)"),
+            '["2020-01-01 00:00:00","2020-02-01 00:00:00")',
+        ),
+        (Multirange([Range(1, 4, "[)"), Range(7, 9, "[)")]), "{[1,4),[7,9)}"),
+        (Multirange([]), "{}"),
+    ],
+)
+def test_table_from_py_list_with_postgres_range(value, expected):
+    # The Postgres source declares a range or multirange column as a string, so without a
+    # conversion pyarrow rejects the psycopg object with "Expected bytes, got a 'Range' object".
+    declared_schema = pa.schema(cast(Any, [pa.field("column", pa.string())]))
+
+    for schema in (None, declared_schema):
+        table = table_from_py_list([{"column": value}, {"column": None}], schema)
+
+        assert table.schema.field("column").type == pa.string()
+        assert table.column("column").to_pylist() == [expected, None]
+
+        # A batch holding no null: numpy reads a multirange as a nested sequence, so a column of
+        # equal length ones flattens into a 2-D array unless the column is built element by element.
+        table = table_from_py_list([{"column": value}], schema)
+
+        assert table.column("column").to_pylist() == [expected]
+
+
+def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
+    # A Postgres array of ranges reaches the JSON fallback, which must render each element as
+    # range text rather than as the psycopg object's Python repr.
+    table = table_from_py_list([{"column": [Range(1, 2, "[)"), Range(3, 4, "[]")]}])
+
+    assert table.column("column").to_pylist() == ['["[1,2)","[3,4]"]']
 
 
 def test_normalize_table_column_names_prevents_collisions():
@@ -1902,36 +1957,6 @@ def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
-
-
-class TestConditionalLruCacheAsyncCachePop:
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_miss_returns_none_without_calling_func(self):
-        # A best-effort cleanup path (e.g. releasing an already-fetched delta table) must be able
-        # to check the cache without ever triggering the wrapped function's own I/O — a miss here
-        # used to mean "call the real function", which made cleanup do an unrelated object-storage
-        # call and risk masking the real error with a fresh, spurious one.
-        calls = []
-
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            calls.append(key)
-            return f"value-{key}"
-
-        assert fetch.cache_pop("a") is None
-        assert calls == []
-
-    @pytest.mark.asyncio
-    async def test_pop_on_cache_hit_returns_and_removes_cached_value(self):
-        @conditional_lru_cache_async(maxsize=1)
-        async def fetch(key: str) -> str:
-            return f"value-{key}"
-
-        assert await fetch("a") == "value-a"
-
-        assert fetch.cache_pop("a") == "value-a"
-        # Popped, not just read — a second pop finds nothing left to remove.
-        assert fetch.cache_pop("a") is None
 
 
 class TestReconcileBatchToAccumulatedSchema:

@@ -186,6 +186,25 @@ class TestPagination:
         assert session.send.call_count == 1
 
 
+class TestPartitioning:
+    @pytest.mark.parametrize(
+        "endpoint, expected_keys",
+        [
+            ("projects", ["created"]),
+            ("time_entries", ["reference_date"]),
+            # No stable non-null creation timestamp, so partitioning would rewrite partitions.
+            ("project_phases", None),
+            ("templates", None),
+            ("task_deliverables", None),
+        ],
+    )
+    def test_partitions_only_on_a_stable_field(self, endpoint: str, expected_keys: list[str] | None) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
+
+        assert response.partition_keys == expected_keys
+        assert response.partition_mode == ("datetime" if expected_keys else None)
+
+
 class TestErrorHandling:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_client_error_raises_and_scrubs_api_key(self, MockSession) -> None:

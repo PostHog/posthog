@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPin } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
@@ -10,8 +9,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
-import { CardHeader } from '../components/CardHeader'
-import { LabeledRow } from '../components/LabeledRow'
+import { Fact, FactList } from './FactList'
 import {
     PINNED_PROPERTY_GROUPS,
     PinnedProperty,
@@ -34,11 +32,12 @@ function PinnedPropertyValue({ property, value }: { property: PinnedProperty; va
             <span className="flex items-center gap-1 min-w-0">
                 <PropertyIcon property={property.key} value={value} />
                 {isUrl ? (
-                    <Link to={value} target="_blank" className="truncate">
+                    <Link data-attr="vision-observation-property-link" to={value} target="_blank" className="truncate">
                         {value}
                     </Link>
                 ) : (
                     <CopyToClipboardInline
+                        data-attr="vision-observation-property-copy"
                         explicitValue={value}
                         description={propertyLabel(property)}
                         iconSize="xsmall"
@@ -63,56 +62,51 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
     const { sessionProperties, sessionPropertiesLoading } = useValues(observationSessionPropertiesLogic({ sessionId }))
 
     return (
-        <LemonCard className="p-4" hoverEffect={false}>
-            <CardHeader
-                icon={<IconPin />}
-                title="Pinned properties"
-                actions={
-                    <Popover
-                        visible={pickerOpen}
-                        onClickOutside={() => setPickerOpen(false)}
-                        overlay={<ObservationPinnedPropertiesPicker />}
-                        placement="bottom-end"
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium">Pinned properties</span>
+                <Popover
+                    visible={pickerOpen}
+                    onClickOutside={() => setPickerOpen(false)}
+                    overlay={<ObservationPinnedPropertiesPicker />}
+                    placement="bottom-end"
+                >
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => setPickerOpen(!pickerOpen)}
+                        data-attr="vision-observation-pin-properties"
                     >
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={() => setPickerOpen(!pickerOpen)}
-                            data-attr="vision-observation-pin-properties"
-                        >
-                            Edit pinned properties
-                        </LemonButton>
-                    </Popover>
-                }
-            />
+                        Edit
+                    </LemonButton>
+                </Popover>
+            </div>
             {pinnedProperties.length === 0 ? (
                 <p className="text-sm text-muted m-0">
-                    Pin the properties you compare across results, like the referring domain, the campaign source, or
-                    the person's plan.
+                    Nothing pinned. Use Edit to pick properties that show on every observation.
                 </p>
             ) : queryablePinnedProperties.length === 0 ? (
                 <p className="text-sm text-muted m-0">
                     None of the pinned session properties exist in this project.{' '}
-                    <Link onClick={resetPinnedProperties}>Reset to the defaults</Link>.
+                    <Link data-attr="vision-observation-reset-pinned" onClick={resetPinnedProperties}>
+                        Reset to the defaults
+                    </Link>
+                    .
                 </p>
             ) : sessionPropertiesLoading ? (
                 <LemonSkeleton.Row repeat={2} className="h-5" />
             ) : (
-                <div className="@container/pinned">
-                    <div className="grid grid-cols-1 gap-x-6 gap-y-3 @md/pinned:grid-cols-2 @3xl/pinned:grid-cols-4">
-                        {queryablePinnedProperties.map((property) => (
-                            <div key={pinnedPropertyId(property)} className="min-w-0">
-                                <LabeledRow label={propertyLabel(property)}>
-                                    <PinnedPropertyValue
-                                        property={property}
-                                        value={sessionProperties?.[pinnedPropertyId(property)] ?? null}
-                                    />
-                                </LabeledRow>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                <FactList>
+                    {queryablePinnedProperties.map((property) => (
+                        <Fact key={pinnedPropertyId(property)} label={propertyLabel(property)}>
+                            <PinnedPropertyValue
+                                property={property}
+                                value={sessionProperties?.[pinnedPropertyId(property)] ?? null}
+                            />
+                        </Fact>
+                    ))}
+                </FactList>
             )}
-        </LemonCard>
+        </div>
     )
 }

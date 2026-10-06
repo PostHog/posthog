@@ -45,6 +45,34 @@ export const SCOUT_ROSTER_WINDOW_LABEL = `last ${SCOUT_ROSTER_WINDOW_DAYS} days`
 export const SCOUT_NO_RECENT_RUNS = 'No recent runs.'
 
 /**
+ * How many scouts one `recent-per-scout` response covers, mirroring the endpoint's
+ * `MAX_SCOUTS_PER_RUNS_QUERY`. A fleet past this is probed in part, so a scout the response holds
+ * no runs for may never have been read - which is not the same thing as never having run, and is
+ * how a paused scout came to show "No runs yet" beside a cost line proving it had run.
+ */
+export const SCOUT_RUNS_FLEET_COVERAGE_LIMIT = 2500
+
+/** Whether the per-scout run response can be read as every scout's history. */
+export function runResponseCoversFleet(scoutCount: number): boolean {
+    return scoutCount <= SCOUT_RUNS_FLEET_COVERAGE_LIMIT
+}
+
+/** Empty-state copy for a scout the run response could not speak for. */
+export const SCOUT_RUN_HISTORY_UNAVAILABLE =
+    "Run history isn't available for this scout right now. Refresh the page, and if it keeps happening contact support."
+
+/**
+ * What an empty run strip reads: still loading, genuinely empty, or empty only because the response
+ * stopped short of this scout.
+ */
+export function runStripEmptyLabel({ loadedOnce, coversFleet }: { loadedOnce: boolean; coversFleet: boolean }): string {
+    if (!loadedOnce) {
+        return '…'
+    }
+    return coversFleet ? 'No runs yet' : 'History unavailable'
+}
+
+/**
  * The time window the fleet-wide findings feed describes. Unlike the per-scout stats, that feed
  * answers "what has the troop surfaced lately?", which is a recency question — so it stays on a
  * fixed lookback, walked page by page from the runs endpoint's 100-row cap.

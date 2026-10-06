@@ -1,8 +1,10 @@
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from unittest import mock
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import IntegrityError
 from django.http import HttpResponse
@@ -22,7 +24,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
+from ee.vercel.integration import RequiresExistingUserLogin, SSOParams, VercelIntegration, _safe_vercel_sync
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
@@ -141,6 +143,7 @@ class TestVercelIntegration(TestCase):
             user_avatar_url=None,
             user_email=self.payload["account"]["contact"]["email"],
             user_name=self.payload["account"]["contact"].get("name"),
+            user_email_verified=True,
         )
 
     def test_get_installation_exists(self):
@@ -479,37 +482,106 @@ class TestVercelIntegration(TestCase):
         installation.refresh_from_db()
         assert "vercel_inactive_user" not in installation.config.get("user_mappings", {})
 
+    @parameterized.expand(
+        [
+            ("matching_verified_email", None, True, True),
+            ("matching_unverified_email", None, False, False),
+            ("different_verified_email", "someone-else@example.com", True, False),
+        ]
+    )
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_login_marks_a_matching_email_verified(self, mock_report):
+    def test_sso_login_through_a_mapping_needs_the_mapped_users_verified_email(
+        self,
+        _name: str,
+        claim_email: str | None,
+        claim_email_verified: bool,
+        expect_login: bool,
+        mock_report: Mock,
+    ) -> None:
         installation_id = self.NEW_INSTALLATION_ID
-        claims = self._create_user_claims("vercel_user_verify")
+        claims = self._create_user_claims("vercel_mapped_user")
         claims.installation_id = installation_id
         VercelIntegration.upsert_installation(installation_id, self.payload, claims)
         user = User.objects.get(email=self.payload["account"]["contact"]["email"])
-        assert user.is_email_verified is False
-
+        claims.user_email = claim_email or user.email
+        claims.user_email_verified = claim_email_verified
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
-        VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        if expect_login:
+            VercelIntegration._authenticate_and_login_user(request, claims, None)
+        else:
+            with self.assertRaises(RequiresExistingUserLogin):
+                VercelIntegration._authenticate_and_login_user(request, claims, None)
 
         user.refresh_from_db()
-        assert user.is_email_verified is True
+        assert user.is_email_verified is expect_login
+        assert (request.session.get(SESSION_KEY) == str(user.pk)) is expect_login
 
+    @parameterized.expand([("verified_claim", True), ("unverified_claim", False)])
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_login_leaves_verification_alone_when_the_claim_email_differs(self, mock_report):
-        installation_id = self.NEW_INSTALLATION_ID
-        claims = self._create_user_claims("vercel_user_other_email")
-        claims.installation_id = installation_id
-        VercelIntegration.upsert_installation(installation_id, self.payload, claims)
-        user = User.objects.get(email=self.payload["account"]["contact"]["email"])
-        claims.user_email = "someone-else@example.com"
-
+    def test_sso_login_verifies_a_new_users_email_only_from_a_verified_claim(
+        self, _name: str, claim_email_verified: bool, mock_report: Mock
+    ) -> None:
+        claims = self._create_user_claims("vercel_new_user")
+        claims.user_email = "new-sso-user@example.com"
+        claims.user_email_verified = claim_email_verified
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
-        VercelIntegration._authenticate_and_login_user(request, claims, None)
 
-        user.refresh_from_db()
-        assert user.is_email_verified is False
+        user = VercelIntegration._authenticate_and_login_user(request, claims, None)
+
+        assert user.email == "new-sso-user@example.com"
+        assert user.is_email_verified is claim_email_verified
+
+    @parameterized.expand(
+        [
+            ("mapped_user_with_a_different_email", "self", "vercel-login@example.com", True, True, True),
+            ("unmapped_user_with_a_different_email", None, "vercel-login@example.com", True, True, False),
+            ("mapping_to_another_user", "other", "vercel-login@example.com", True, True, False),
+            ("unverified_matching_email", None, "test@example.com", False, True, False),
+            ("matching_email_cannot_take_another_users_mapping", "other", "test@example.com", True, True, False),
+            ("mapped_user_removed_from_the_organization", "self", "vercel-login@example.com", True, False, False),
+        ]
+    )
+    def test_sso_continue_links_only_a_proven_or_already_mapped_user(
+        self,
+        _name: str,
+        mapping_owner: str | None,
+        claim_email: str,
+        claim_email_verified: bool,
+        still_a_member: bool,
+        expect_linked: bool,
+    ) -> None:
+        other_user = User.objects.create_user(email="other-owner@example.com", password="other", first_name="Other")
+        owners = {"self": self.user.pk, "other": other_user.pk}
+        if mapping_owner:
+            self.installation.config["user_mappings"] = {"vercel_login_user": owners[mapping_owner]}
+            self.installation.save()
+        if not still_a_member:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        claims = self._create_user_claims("vercel_login_user")
+        claims.user_email = claim_email
+        claims.user_email_verified = claim_email_verified
+        code = f"continue_code_{_name}"
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        redirect_url = VercelIntegration.complete_sso_for_logged_in_user(
+            request, SSOParams(mode="login", code=code, state="test_state")
+        )
+
+        self.installation.refresh_from_db()
+        assert ("/integrations/vercel/link-error" in redirect_url) is not expect_linked
+        expected_mapping = self.user.pk if expect_linked else owners.get(mapping_owner or "")
+        assert self.installation.config.get("user_mappings", {}).get("vercel_login_user") == expected_mapping
+        names_an_account = "expected_email" in parse_qs(urlparse(redirect_url).query)
+        assert names_an_account is (not expect_linked and mapping_owner is None)
+        assert OrganizationMembership.objects.filter(user=self.user, organization=self.organization).exists() is (
+            still_a_member or expect_linked
+        )
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_works_for_trusted_vercel_user_second_installation(self, mock_report):
@@ -1413,12 +1485,18 @@ class TestPushSecretsToVercel(TestCase):
     @patch("ee.vercel.integration.VercelAPIClient")
     def test_push_secrets_handles_api_error_gracefully(self, mock_client_class, mock_capture):
         mock_client = Mock()
-        mock_client.update_resource_secrets.return_value = Mock(success=False, error="API error")
+        mock_client.update_resource_secrets.return_value = Mock(
+            success=False, error="HTTP error", status_code=403, error_detail="Forbidden"
+        )
         mock_client_class.return_value = mock_client
 
         VercelIntegration.push_secrets_to_vercel(self.team)
 
         mock_capture.assert_called_once()
+        exception, properties = mock_capture.call_args[0]
+        assert "403" in str(exception)
+        assert properties["status_code"] == 403
+        assert properties["resource_id"] == str(self.resource.pk)
 
     @patch("ee.vercel.integration.capture_exception")
     @patch("ee.vercel.integration.VercelAPIClient")

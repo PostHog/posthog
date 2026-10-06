@@ -3,7 +3,7 @@
 A known-good baseline for a React + Quill data canvas. It already wires the pieces that are easy
 to get wrong — the date picker (self-sizing, no `compact`), theme-aware tokens, per-query loading
 state so every card fills in the moment its own data lands, reading a typed-node result correctly,
-and the "View query" verification dialog every ad-hoc data card must carry. Start from it on a
+the "View query" verification dialog every ad-hoc data card must carry, and cards that expose their titles, colors and sizes as params with `editable()`. Start from it on a
 first build: keep the wiring, replace the sample metrics and the layout with what the user asked
 for. Ideally swap the inline `ph.query` typed nodes for saved insights loaded with
 `ph.loadInsight(shortId, { dateRange })` (see the `querying-canvas-data` skill) — then replace the
@@ -38,6 +38,7 @@ import {
   SkeletonText,
 } from '@posthog/quill'
 import { RefreshCw } from 'lucide-react'
+import { editable, ph } from '@posthog/canvas-sdk'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 // One builder per query feeds both the ph.query call and its "View query"
@@ -124,6 +125,69 @@ function ViewQueryDialog({ query }) {
   )
 }
 
+function NumberCard(props) {
+  const { title = 'Total', state, onRetry, query } = props
+  return (
+    <Card size="sm" {...editable('NumberCard', props, { title: { type: 'text', label: 'Title', default: 'Total' } })}>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>{title}</CardTitle>
+          {query ? <ViewQueryDialog query={query} /> : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {state.loading ? (
+          <SkeletonText lines={1} className="text-3xl" />
+        ) : state.error ? (
+          <CardError message={state.error} onRetry={onRetry} />
+        ) : (
+          <Heading size="2xl">{state.data.toLocaleString()}</Heading>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TrendCard(props) {
+  const { title = 'Over time', color = 'var(--primary)', height = 280, state, onRetry, query } = props
+  return (
+    <Card
+      size="sm"
+      {...editable('TrendCard', props, {
+        title: { type: 'text', label: 'Title', default: 'Over time' },
+        color: { type: 'color', label: 'Line color', default: 'var(--primary)' },
+        height: { type: 'number', label: 'Chart height', min: 160, max: 520, step: 20, default: 280 },
+      })}
+    >
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>{title}</CardTitle>
+          <ViewQueryDialog query={query} />
+        </div>
+      </CardHeader>
+      <CardContent>
+        {state.loading ? (
+          <SkeletonText lines={6} />
+        ) : state.error ? (
+          <CardError message={state.error} onRetry={onRetry} />
+        ) : (
+          <div className="w-full" style={{ height }}>
+            <ResponsiveContainer>
+              <LineChart data={state.data.series}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                <XAxis dataKey="day" stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
+                <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Line type="monotone" dataKey="value" stroke={color} dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Canvas() {
   const def = quickRanges.find((r) => r.name === 'Last 30 days') ?? quickRanges[0]
   const [win, setWin] = useState({
@@ -199,66 +263,23 @@ export default function Canvas() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card size="sm">
-          <CardHeader>
-            <CardTitle>Total events</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {events.loading ? (
-              <SkeletonText lines={1} className="text-3xl" />
-            ) : events.error ? (
-              <CardError message={events.error} onRetry={retry} />
-            ) : (
-              <Heading size="2xl">{events.data.total.toLocaleString()}</Heading>
-            )}
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle>Unique users</CardTitle>
-              <ViewQueryDialog query={uniqueUsersQuery(dateRange)} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {visitors.loading ? (
-              <SkeletonText lines={1} className="text-3xl" />
-            ) : visitors.error ? (
-              <CardError message={visitors.error} onRetry={retry} />
-            ) : (
-              <Heading size="2xl">{visitors.data.toLocaleString()}</Heading>
-            )}
-          </CardContent>
-        </Card>
+        <NumberCard
+          title="Total events"
+          state={{ ...events, data: events.data?.total }}
+          onRetry={retry}
+          query={totalEventsQuery(dateRange)}
+        />
+        <NumberCard title="Unique users" state={visitors} onRetry={retry} query={uniqueUsersQuery(dateRange)} />
       </div>
 
-      <Card size="sm">
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle>Events over time</CardTitle>
-            <ViewQueryDialog query={totalEventsQuery(dateRange)} />
-          </div>
-        </CardHeader>
-        <CardContent>
-          {events.loading ? (
-            <SkeletonText lines={6} />
-          ) : events.error ? (
-            <CardError message={events.error} onRetry={retry} />
-          ) : (
-            <div className="h-[280px] w-full">
-              <ResponsiveContainer>
-                <LineChart data={events.data.series}>
-                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                  <XAxis dataKey="day" stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                  <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="value" stroke="var(--primary)" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <TrendCard
+        title="Events over time"
+        color="var(--primary)"
+        height={280}
+        state={events}
+        onRetry={retry}
+        query={totalEventsQuery(dateRange)}
+      />
     </div>
   )
 }

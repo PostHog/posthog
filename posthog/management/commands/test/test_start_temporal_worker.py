@@ -6,6 +6,8 @@ from django.conf import settings
 
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
+    AI_WORKFLOWS,
+    ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
@@ -15,7 +17,7 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 
-from products.alerts.backend.facade.temporal import (
+from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
@@ -23,6 +25,7 @@ from products.alerts.backend.facade.temporal import (
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
+from products.signals.backend.temporal import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
@@ -38,12 +41,13 @@ class _NotADataSyncWorkflow:
     [
         (settings.WIZARD_TASK_QUEUE, WIZARD_WORKFLOWS, WIZARD_ACTIVITIES),
         (
-            "alerts-product-shared-orchestration-task-queue",
+            "alerts-platform-shared-orchestration-task-queue",
             SHARED_ORCHESTRATION_WORKFLOWS,
             SHARED_ORCHESTRATION_ACTIVITIES,
         ),
-        ("alerts-product-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
-        ("alerts-product-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+        ("alerts-platform-evaluation-task-queue", EVALUATION_WORKFLOWS, EVALUATION_ACTIVITIES),
+        ("alerts-platform-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+        (settings.SELF_DRIVING_TASK_QUEUE, [InboxRankingScoringWorkflow], [score_inbox_reports_activity]),
     ],
 )
 def test_queue_registers_workflows_and_activities(
@@ -53,7 +57,7 @@ def test_queue_registers_workflows_and_activities(
     assert set(expected_workflows) <= WORKFLOWS_DICT[task_queue]
     assert expected_activities
     assert set(expected_activities) <= ACTIVITIES_DICT[task_queue]
-    if task_queue == settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE:
+    if task_queue == settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE:
         assert WORKFLOWS_DICT[task_queue] == set(expected_workflows)
         assert ACTIVITIES_DICT[task_queue] == set(expected_activities)
 
@@ -92,3 +96,15 @@ def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
     workflows, activities = entries[0]
     assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
     assert set(WA_DIGEST_ACTIVITIES) <= set(activities)
+
+
+# CheckAlertWorkflow routes an AI detector's evaluation to the AI queue, because only that worker
+# holds the model provider credentials. Routed there without the activity registered, every AI
+# alert check would sit unpolled until it timed out. Queue settings collapse to a single dev queue
+# under DEBUG, so match on the spec entry that carries the AI workflows rather than on a queue name.
+def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
+    entries = [activities for _, workflows, activities in _task_queue_specs if AI_WORKFLOWS[0] in workflows]
+
+    assert len(entries) == 1
+    assert ALERT_AI_QUEUE_ACTIVITIES
+    assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])

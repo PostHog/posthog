@@ -23,10 +23,15 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.helpers.slack_markdown import slack_markdown_block as _markdown_block
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.formatting import (
+    channel_id_from_target as _channel_id_from_target,
+    escape_slack_mrkdwn as _escape_mrkdwn,
+    markdown_links_to_labels,
+)
+from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
@@ -45,13 +50,13 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.slack_formatting import (
-    escape_slack_mrkdwn as _escape_mrkdwn,
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
-    slack_channel_id_from_target as _channel_id_from_target,
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
+from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.slack_app.backend.facade.api import slack_followup_invite
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -63,6 +68,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
+_INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
 
@@ -122,21 +128,6 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
         return True
     # Lower index = higher priority (P0 < P4).
     return report_rank <= min_rank
-
-
-def _report_repository(report: SignalReport) -> str | None:
-    """The repository the report's research selected, from the latest repo_selection artefact."""
-    art = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION).order_by("-created_at").first()
-    if art is None:
-        return None
-    try:
-        data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    repo = data.get("repository")
-    return repo.strip() if isinstance(repo, str) and repo.strip() else None
 
 
 def _latest_priority(report: SignalReport) -> str | None:
@@ -301,6 +292,9 @@ def _summary_excerpt(summary: str) -> str:
     first_line = text.splitlines()[0].strip()
     if not first_line:
         return ""
+    if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
+        return first_line
+    first_line = markdown_links_to_labels(first_line)
     if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
         return first_line
     return first_line[: _SUMMARY_EXCERPT_MAX_LEN - 3].rstrip() + "..."
@@ -672,7 +666,7 @@ def _deliver_route_notification(
     }
     delivered = False
     try:
-        slack = SlackIntegration(route.integration)
+        slack = SlackIntegration(route.integration, source="signals_inbox")
         if route.is_direct_message and slack.get_user_by_id(channel_id) is None:
             # A member reachable when the target was saved can since have left or become a guest.
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
@@ -687,9 +681,29 @@ def _deliver_route_notification(
             reviewer_mentions=mentions,
             repository=repository,
         )
+        # Added here rather than inside the block builder, which stays free of the integration so it
+        # can be tested without one. Approval is read now, not assumed from generation time: a
+        # reviewer can be added to a retained report after the org revoked it.
+        ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
+        if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
+            blocks.append(invite)
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
         thread_ts = response.get("ts") if hasattr(response, "get") else None
+        # A member target opens a direct message, so the conversation Slack posted into is not the
+        # id we sent. An inbound mention names the conversation, so that is what the link records.
+        posted_channel = response.get("channel") if hasattr(response, "get") else None
+        if thread_ts:
+            # Recorded before the evidence replies, so a failure posting those still leaves the
+            # thread resolvable back to the report.
+            record_report_slack_thread(
+                slack_workspace_id=route.integration.integration_id,
+                team_id=report.team_id,
+                report_id=str(report.id),
+                integration_id=route.integration.id,
+                channel=str(posted_channel or channel_id),
+                thread_ts=str(thread_ts),
+            )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
     except Exception:
@@ -708,7 +722,7 @@ def _deliver_to_routes(
     signals: list[dict] | None = None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
-    repository = _report_repository(report)
+    repository = report.selected_repository()
     sent = 0
     for route in routes:
         if _deliver_route_notification(

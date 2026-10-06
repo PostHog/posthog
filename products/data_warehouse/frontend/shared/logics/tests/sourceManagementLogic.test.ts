@@ -149,6 +149,39 @@ describe('sourceManagementLogic', () => {
         })
     })
 
+    it('sends one delete when the confirm button is clicked twice', async () => {
+        const source = { id: 'source-1', source_type: 'Stripe' } as ExternalDataSource
+        let resolveDelete: (() => void) | undefined
+        const deleteSource = jest
+            .spyOn(api.externalDataSources, 'delete')
+            .mockImplementation(() => new Promise<void>((resolve) => (resolveDelete = resolve)))
+
+        logic.mount()
+        logic.actions.deleteSource(source)
+        logic.actions.deleteSource(source)
+
+        expect(deleteSource).toHaveBeenCalledTimes(1)
+
+        resolveDelete?.()
+        await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+    })
+
+    it('stops the row spinner when the delete fails', async () => {
+        const source = { id: 'source-1', source_type: 'Stripe' } as ExternalDataSource
+        jest.spyOn(api.externalDataSources, 'delete').mockRejectedValue(new Error('boom'))
+
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
+
+        logic.actions.deleteSource(source)
+        await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+
+        expect(logic.values.sourceReloadingById['source-1']).toBe(false)
+        // A transient list failure resolves to an empty page, so reloading after a failed delete
+        // would blank a list of sources that still exist.
+        expect(logic.values.dataWarehouseSourcesLoading).toBe(false)
+    })
+
     it('does not supersede an in-flight shallow schema load when mounted', async () => {
         let resolveShallowLoad: ((value: DatabaseSchemaQueryResponse) => void) | undefined
         ;(performQuery as jest.Mock).mockImplementationOnce(

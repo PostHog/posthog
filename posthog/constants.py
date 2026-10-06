@@ -7,6 +7,10 @@ FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted ver
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
+# Any `$ai_*` event is an AI event: capture and the AI pipeline route on it, and billing meters
+# it as LLM analytics. nodejs `AI_EVENT_NAME_PREFIX` and Rust `AI_LANE_NAME_PREFIX` pin the same literal.
+AI_EVENT_NAME_PREFIX = "$ai_"
+
 
 # N.B. Keep this in sync with frontend enum (types.ts)
 # AND ensure it is added to the Billing Service
@@ -48,6 +52,7 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
     TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    MEMBER_GOVERNANCE = "member_governance"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
@@ -150,15 +155,12 @@ DATA_WAREHOUSE_ENTITIES = "data_warehouse_entities"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
-SELECTOR = "selector"
 INTERVAL = "interval"
-SMOOTHING_INTERVALS = "smoothing_intervals"
 DISPLAY = "display"
 SHOWN_AS = "shown_as"
 CLIENT_QUERY_ID = "client_query_id"
 FILTER_TEST_ACCOUNTS = "filter_test_accounts"
 BREAKDOWN_TYPE = "breakdown_type"
-BREAKDOWN_VALUE = "breakdown_value"
 BREAKDOWN_GROUP_TYPE_INDEX = "breakdown_group_type_index"
 COMPARE = "compare"
 COMPARE_TO = "compare_to"
@@ -186,35 +188,21 @@ STICKINESS_DAYS = "stickiness_days"
 ENTITY_ID = "entity_id"
 ENTITY_TYPE = "entity_type"
 ENTITY_MATH = "entity_math"
-FUNNEL_WINDOW_DAYS = "funnel_window_days"
 FUNNEL_WINDOW_INTERVAL_UNIT = "funnel_window_interval_unit"
 FUNNEL_WINDOW_INTERVAL = "funnel_window_interval"
 FUNNEL_FROM_STEP = "funnel_from_step"
 FUNNEL_TO_STEP = "funnel_to_step"
 FUNNEL_STEP = "funnel_step"
 FUNNEL_CUSTOM_STEPS = "funnel_custom_steps"
-FUNNEL_STEP_BREAKDOWN = "funnel_step_breakdown"
-FUNNEL_LAYOUT = "layout"
-FUNNEL_AGGREAGTE_BY_HOGQL = "funnel_aggregate_by_hogql"
-FUNNEL_ORDER_TYPE = "funnel_order_type"
-FUNNEL_VIZ_TYPE = "funnel_viz_type"
 FUNNEL_CORRELATION_TYPE = "funnel_correlation_type"
 FUNNEL_WINDOW_INTERVAL_TYPES = Literal["DAY", "SECOND", "MINUTE", "HOUR", "WEEK", "MONTH"]
 # Funnel Correlation Properties
 FUNNEL_CORRELATION_NAMES = "funnel_correlation_names"
 FUNNEL_CORRELATION_EXCLUDE_NAMES = "funnel_correlation_exclude_names"
-FUNNEL_CORRELATION_PROPERTY_VALUES = "funnel_correlation_property_values"
 # Funnel Correlation Events
 FUNNEL_CORRELATION_EVENT_NAMES = "funnel_correlation_event_names"
 FUNNEL_CORRELATION_EXCLUDE_EVENT_NAMES = "funnel_correlation_exclude_event_names"
 FUNNEL_CORRELATION_EVENT_EXCLUDE_PROPERTY_NAMES = "funnel_correlation_event_exclude_property_names"
-FUNNEL_CORRELATION_PERSON_ENTITY = "funnel_correlation_person_entity"
-FUNNEL_CORRELATION_PERSON_LIMIT = "funnel_correlation_person_limit"
-FUNNEL_CORRELATION_PERSON_OFFSET = "funnel_correlation_person_offset"
-FUNNEL_CORRELATION_PERSON_CONVERTED = "funnel_correlation_person_converted"
-BIN_COUNT = "bin_count"
-ENTRANCE_PERIOD_START = "entrance_period_start"
-DROP_OFF = "drop_off"
 FUNNEL_PATHS = "funnel_paths"
 PATHS_HOGQL_EXPRESSION = "paths_hogql_expression"
 PATHS_INCLUDE_EVENT_TYPES = "include_event_types"
@@ -412,3 +400,8 @@ LOGIN_METHODS = [
 AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
 
 AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+
+# PostHog's own posthog-js instance on PostHog Cloud. The app's CSP names these by exact path.
+POSTHOG_JS_CLOUD_HOST = "https://internal-cf.posthog.com"
+POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"
