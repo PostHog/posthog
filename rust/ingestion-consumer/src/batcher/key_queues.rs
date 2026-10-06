@@ -601,4 +601,102 @@ mod tests {
         queues.purge(&[("events".to_string(), 0)]);
         assert_eq!(queues.queued_bytes(), message("a", 1, 2).payload_bytes());
     }
+
+    #[test]
+    fn repeated_failures_keep_one_replay_segment_ahead_of_every_later_arrival() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        let failed = || vec![message("a", 0, 1), message("a", 0, 2)];
+        queues.push(key("a"), 0, failed(), now);
+        queues.take_ready(now, usize::MAX);
+        queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
+        queues
+            .settle(&key("a"), failed(), None, now)
+            .expect("claimed");
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("a", vec![1, 2], true)]
+        );
+
+        queues.push(key("a"), 0, vec![message("a", 0, 4)], now);
+        queues
+            .settle(&key("a"), failed(), None, now)
+            .expect("claimed");
+        assert_eq!(queues.queued_messages(), 4);
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("a", vec![1, 2], true)]
+        );
+        queues
+            .settle(&key("a"), Vec::new(), None, now)
+            .expect("claimed");
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("a", vec![3, 4], false)]
+        );
+        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
+        assert_eq!(queues.queued_messages(), 0);
+        assert_eq!(queues.queued_bytes(), 0);
+    }
+
+    #[test]
+    fn a_key_evicted_by_a_purge_and_pushed_again_is_claimed_once() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
+        queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
+        assert_eq!(
+            queues.purge(&[("events".to_string(), 0)]),
+            vec![Arc::<str>::from("a")]
+        );
+
+        queues.push(key("a"), 0, vec![message("a", 1, 5)], now);
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("a", vec![5], false)]
+        );
+        assert_eq!(queues.claimed_keys(), 1);
+        assert!(queues.take_ready(now, usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn a_double_purge_does_not_double_count() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push(
+            key("a"),
+            0,
+            vec![message("a", 0, 1), message("a", 1, 2)],
+            now,
+        );
+        queues.purge(&[("events".to_string(), 0)]);
+        queues.purge(&[("events".to_string(), 0)]);
+        assert_eq!(queues.queued_messages(), 1);
+        assert_eq!(queues.queued_bytes(), message("a", 1, 2).payload_bytes());
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("a", vec![2], false)]
+        );
+    }
+
+    #[test]
+    fn a_partially_revoked_requeue_keeps_waiting_for_its_retry() {
+        let now = Instant::now();
+        let retry_at = now + Duration::from_millis(100);
+        let mut queues = KeyQueues::new();
+        let spanning = || vec![message("a", 0, 1), message("a", 1, 7)];
+        queues.push(key("a"), 0, spanning(), now);
+        queues.take_ready(now, usize::MAX);
+        queues
+            .settle(&key("a"), spanning(), Some(retry_at), now)
+            .expect("claimed");
+
+        queues.purge(&[("events".to_string(), 0)]);
+        assert_eq!(queues.next_retry_at(), Some(retry_at));
+        assert!(queues.take_ready(now, usize::MAX).is_empty());
+        assert_eq!(
+            claimed(&queues.take_ready(retry_at, usize::MAX)),
+            vec![("a", vec![7], true)]
+        );
+    }
 }

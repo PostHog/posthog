@@ -545,6 +545,8 @@ fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use super::*;
     use crate::batcher::test_support::{message, offsets};
     use crate::routing::{Router, RoutingStrategy};
@@ -586,6 +588,13 @@ mod tests {
         send.runs
             .iter()
             .map(|run| (&*run.routing_key, offsets(&run.messages)))
+            .collect()
+    }
+
+    fn sent_messages(send: &SendRequest) -> Vec<SerializedKafkaMessage> {
+        send.runs
+            .iter()
+            .flat_map(|run| run.messages.iter().cloned())
             .collect()
     }
 
@@ -913,5 +922,179 @@ mod tests {
         let (_, effects) = batcher.on_request_succeeded(now, &workers, unkeyed_request, 1);
         assert_eq!(effects.completions[0].offsets, vec![Offset(5)]);
         assert!(effects.key_acks.is_empty());
+    }
+
+    #[test]
+    fn a_failed_run_spanning_a_revoked_partition_replays_only_the_kept_partition_in_order() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let spanning = KeyRun {
+            routing_key: "a".into(),
+            messages: vec![message("a", 0, 1), message("a", 1, 7)],
+        };
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![spanning]);
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let later = KeyRun {
+            routing_key: "a".into(),
+            messages: vec![message("a", 1, 8)],
+        };
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![later]);
+        assert!(effects.sends.is_empty());
+
+        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        assert!(effects.evicted_keys.is_empty(), "a's run is in flight");
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+
+        let retry_at = now + FAULT_DELAY;
+        let (batcher, effects) = batcher.on_wakeup(retry_at, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
+        let replay = effects.sends[0].request;
+
+        let (_, effects) = batcher.on_request_succeeded(retry_at, &workers, replay, 1);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(7)]);
+        assert!(!effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![8])]);
+    }
+
+    #[test]
+    fn a_revoke_then_reassign_drops_the_old_requeue_and_sends_the_new_epoch_run_once() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) =
+            batcher(4, now).on_groups(now, &workers, 1, vec![run("a", &[1, 2])]);
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        // The new owner of the partition replays the uncommitted offsets.
+        let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![run("a", &[1, 2, 3])]);
+        assert!(effects.sends.is_empty(), "a's epoch-1 run is still out");
+
+        let (batcher, effects) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+        assert_eq!(effects.sends.len(), 1, "the epoch-2 run goes at once");
+        assert_eq!(effects.sends[0].class.assignment_epoch, 2);
+        assert!(!effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1, 2, 3])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 3);
+        assert_eq!(effects.completions.len(), 1);
+        assert_eq!(effects.completions[0].assignment_epoch, 2);
+        assert_eq!(
+            effects.completions[0].offsets,
+            vec![Offset(1), Offset(2), Offset(3)]
+        );
+        assert_eq!(batcher.pending_messages(), 0);
+        assert_eq!(batcher.in_flight_messages(), 0);
+    }
+
+    #[test]
+    fn a_second_response_for_the_same_request_fails_the_state_machine() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_request_succeeded(now, &workers, request, 1);
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
+        assert!(effects.fatal.is_some());
+        assert!(effects.completions.is_empty());
+    }
+
+    #[test]
+    fn a_failure_handing_back_extra_messages_fails_the_state_machine() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_request_failed(
+            now,
+            &workers,
+            request,
+            FailureCause::Fault,
+            vec![message("a", 0, 1), message("a", 0, 2)],
+        );
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
+        assert!(effects.fatal.is_some());
+    }
+
+    #[test]
+    fn a_revoke_during_a_replay_wait_leaves_no_wait_behind_for_a_fresh_sibling_partition() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let sibling = KeyRun {
+            routing_key: "a".into(),
+            messages: vec![message("a", 1, 7)],
+        };
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![sibling]);
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+
+        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        assert_eq!(effects.next_wakeup, Some(now), "a is ready again at once");
+        let (_, effects) = batcher.on_wakeup(now, &workers);
+        assert!(!effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
+    }
+
+    #[test]
+    fn the_watchdog_fires_once_overlapping_failures_drain_even_with_waiting_retries() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (mut batcher, effects) =
+            batcher(2, now).on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let mut outstanding: VecDeque<_> = effects
+            .sends
+            .iter()
+            .map(|send| (send.request, sent_messages(send)))
+            .collect();
+
+        let mut at = now;
+        let (failed, fired_at) = loop {
+            at += BUSY_DELAY;
+            assert!(at < now + STALL * 2, "the watchdog never fired");
+            let (request, messages) = outstanding.pop_front().expect("a request in flight");
+            let (next, effects) =
+                batcher.on_request_failed(at, &workers, request, FailureCause::Busy, messages);
+            if effects.fatal.is_some() {
+                break (next, at);
+            }
+            let (next, effects) = next.on_wakeup(at + BUSY_DELAY, &workers);
+            outstanding.extend(
+                effects
+                    .sends
+                    .iter()
+                    .map(|send| (send.request, sent_messages(send))),
+            );
+            batcher = next;
+        };
+        assert!(matches!(failed, BatcherStateMachine::Failed));
+        assert!(fired_at <= now + STALL + BUSY_DELAY * 3);
+    }
+
+    #[test]
+    fn draining_stops_when_an_in_flight_run_of_a_revoked_partition_fails() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let (request, messages) = (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let (batcher, _) = batcher.on_shutdown(now, &workers);
+        let (batcher, _) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        assert!(
+            matches!(batcher, BatcherStateMachine::Draining(_)),
+            "a is in flight"
+        );
+
+        let (batcher, effects) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+        assert!(matches!(batcher, BatcherStateMachine::Stopped));
+        assert!(effects.sends.is_empty());
+        assert!(effects.completions.is_empty());
+        assert_eq!(effects.next_wakeup, None);
     }
 }

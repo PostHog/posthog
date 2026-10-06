@@ -515,6 +515,38 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
 }
 
 #[tokio::test]
+async fn chunks_acked_out_of_order_then_fenced_hand_back_messages_in_send_order() {
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock(AckMode::Manual, Some(ack_rx)).await;
+    let mut transport = GrpcTransport::new(
+        GrpcPort::Fixed(mock.addr.port()),
+        3,
+        Duration::from_secs(30),
+    );
+    transport.set_max_body_bytes(200);
+    let url = worker_url(mock.addr);
+
+    let pending = transport.begin_send(
+        &url,
+        "batch-1",
+        vec![msg("d1", 1), msg("d2", 2), msg("d3", 3)],
+        false,
+    );
+    wait_for_received(&mock, 3).await;
+    for seq in [3, 2] {
+        ack_tx.send(ManualAck::Ok { seq, accepted: 1 }).unwrap();
+    }
+    ack_tx.send(ManualAck::Nack(1)).unwrap();
+
+    let err = pending
+        .wait()
+        .await
+        .expect_err("a nacked chunk fails the send");
+    let offsets: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(offsets, vec![1, 2, 3]);
+}
+
+#[tokio::test]
 async fn a_nack_fences_everything_outstanding_in_order() {
     // Regression: on a failure, every un-acked and queued sub-batch must fail
     // back to the caller with its messages (for the deferral path), and
