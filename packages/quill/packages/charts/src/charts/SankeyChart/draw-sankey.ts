@@ -82,12 +82,17 @@ export function sankeyActiveFlow(layout: SankeyChartLayout, hit: SankeyHit | nul
     return { hit, links, nodes }
 }
 
+function isMixable(parsed: ReturnType<typeof d3Color> | null): boolean {
+    const rgb = parsed?.rgb()
+    return !!rgb && Number.isFinite(rgb.r) && Number.isFinite(rgb.g) && Number.isFinite(rgb.b)
+}
+
 /** A color `mixColors` can interpolate, or `null`. d3-color cannot parse modern CSS syntax such as
  *  `hsl(235deg 8% 15%)` or `oklch(...)`, so those go through the canvas, which serializes any color
  *  it accepts to hex or rgba. An invalid color leaves `fillStyle` unchanged, so two different
  *  sentinels tell it apart from a valid one. */
 function parseableColor(ctx: CanvasRenderingContext2D, color: string): string | null {
-    if (d3Color(color)) {
+    if (isMixable(d3Color(color))) {
         return color
     }
     const previous = ctx.fillStyle
@@ -99,7 +104,7 @@ function parseableColor(ctx: CanvasRenderingContext2D, color: string): string | 
     const first = read('#000000')
     const second = read('#ffffff')
     ctx.fillStyle = previous
-    return first === second && d3Color(first) ? first : null
+    return first === second && isMixable(d3Color(first)) ? first : null
 }
 
 /** Hover layer: dims the graph toward the background, then repaints the active flow at full
@@ -138,13 +143,17 @@ export function drawSankeyHover(
     // Nodes go last so a ribbon that skips a column never paints over the node it passes behind.
     for (const node of layout.nodes) {
         if (!activeNodes.has(node) && dimTarget) {
-            fillNode(ctx, node, mixColors(node.color, dimTarget, dim))
+            const nodeColor = parseableColor(ctx, node.color)
+            if (nodeColor) {
+                fillNode(ctx, node, mixColors(nodeColor, dimTarget, dim))
+            }
         }
     }
     for (const node of activeNodes) {
         const highlight = hit.kind === 'node' && node === layout.nodes[hit.index]
-        const color = highlight
-            ? mixColors(node.color, HOVER_HIGHLIGHT_TARGET, HOVER_HIGHLIGHT_AMOUNT * options.progress)
+        const highlightBase = highlight ? parseableColor(ctx, node.color) : null
+        const color = highlightBase
+            ? mixColors(highlightBase, HOVER_HIGHLIGHT_TARGET, HOVER_HIGHLIGHT_AMOUNT * options.progress)
             : node.color
         fillNode(ctx, node, color)
     }

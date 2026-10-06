@@ -151,13 +151,12 @@ function longestPathLength(
     const depth = new Map<string, number>()
     const ready = nodes.filter((node) => incoming.get(node.id) === 0).map((node) => node.id)
     let longest = 1
-    while (ready.length > 0) {
-        const id = ready.pop()!
+    for (let id = ready.pop(); id !== undefined; id = ready.pop()) {
         const next = (depth.get(id) ?? 1) + 1
         for (const target of outgoing.get(id) ?? []) {
             depth.set(target, Math.max(depth.get(target) ?? 1, next))
             longest = Math.max(longest, next)
-            const remaining = incoming.get(target)! - 1
+            const remaining = (incoming.get(target) ?? 0) - 1
             incoming.set(target, remaining)
             if (remaining === 0) {
                 ready.push(target)

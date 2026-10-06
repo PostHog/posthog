@@ -73,4 +73,17 @@ describe('drawSankeyHover', () => {
             expect(strokes).not.toContain('#202023')
         }
     )
+
+    it('leaves a transparent ribbon to the static layer instead of mixing NaN channels', () => {
+        const layout = layoutOf()
+        layout.links[1].color = 'transparent'
+        const { ctx, strokes } = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
+            linkOpacity: 0.4,
+            backgroundColor: BACKGROUND,
+            progress: 1,
+        })
+
+        expect(strokes).toHaveLength(1)
+    })
 })

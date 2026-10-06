@@ -40,7 +40,7 @@ function originatesInTooltip(e: React.SyntheticEvent): boolean {
  *  Without this guard the chart's own nearest-point tooltip fights the overlay child's tooltip
  *  for the cursor. An overlay opts out of chart hover tracking by marking its interactive root
  *  with this attribute. */
-function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
+export function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
     return originatesInElement(e, '[data-hog-charts-interactive-overlay]')
 }
 

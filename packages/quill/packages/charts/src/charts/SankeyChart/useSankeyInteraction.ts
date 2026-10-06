@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 
+import { originatesInInteractiveOverlay } from '../../core/hooks/useChartInteraction'
 import { useLatest } from '../../core/hooks/useLatest'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
 import type { Series, TooltipContext } from '../../core/types'
@@ -135,7 +136,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             const current = layoutRef.current
-            if (current.nodes.length === 0) {
+            if (current.nodes.length === 0 || originatesInInteractiveOverlay(e)) {
                 return
             }
             const rect = e.currentTarget.getBoundingClientRect()

@@ -35,11 +35,16 @@ const DEFAULT_LABEL_COLOR = 'rgba(0, 0, 0, 0.7)'
 const NO_SCALES: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [] }
 
 /** Changes whenever the layout could validate differently, so a corrected graph clears the error. */
-function graphKey(nodes: SankeyNodeInput<unknown>[], links: SankeyLinkInput<unknown>[]): string {
+function graphKey(
+    nodes: SankeyNodeInput<unknown>[],
+    links: SankeyLinkInput<unknown>[],
+    config: SankeyChartProps['config']
+): string {
     // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
     return JSON.stringify([
         nodes.map((node) => node.id),
         links.map(({ source, target, value }) => [source, target, value]),
+        [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])
 }
 
@@ -48,7 +53,7 @@ export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     ...rest
 }: SankeyChartProps<NodeMeta, LinkMeta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError} resetKey={graphKey(rest.nodes, rest.links)}>
+        <ChartErrorBoundary onError={onError} resetKey={graphKey(rest.nodes, rest.links, rest.config)}>
             <SankeyChartInner {...rest} />
         </ChartErrorBoundary>
     )
@@ -127,8 +132,8 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     // The shared draw loop keys repaints on `scales` identity, so wrap the layout in one.
     const scales = useMemo<ChartScales | null>(
-        () => (dimensions ? { ...NO_SCALES, _private: { __sankey: layout } } : null),
-        [dimensions, layout]
+        () => (dimensions ? { ...NO_SCALES, _private: { __sankey: layout, linkOpacity } } : null),
+        [dimensions, layout, linkOpacity]
     )
 
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useSankeyInteraction<NodeMeta, LinkMeta>({
