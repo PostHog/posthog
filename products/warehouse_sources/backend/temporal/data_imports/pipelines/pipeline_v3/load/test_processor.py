@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     make_local_table_ref,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_covers_batch
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    SUMMARY_EVENT,
+    post_load_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _drop_rows_the_job_loaded,
@@ -1569,7 +1573,14 @@ class TestReadExistingRowsByFirstPk:
             assert set(result.column("id").to_pylist()) == set(expected_ids)
 
 
+def _post_load_summary(mock_logger: MagicMock) -> dict[str, Any]:
+    summaries = [call.kwargs for call in mock_logger.info.call_args_list if call.args == (SUMMARY_EVENT,)]
+    assert len(summaries) == 1
+    return summaries[0]
+
+
 class TestBatchPhaseReports:
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
@@ -1594,7 +1605,13 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
+        async def post_load(**_kwargs: Any) -> None:
+            with post_load_phase("delta_maintenance"):
+                return None
+
+        _post_load.side_effect = post_load
         delta_table = MagicMock()
         delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
         delta_table.file_uris.return_value = []
@@ -1611,7 +1628,11 @@ class TestBatchPhaseReports:
             "post_load",
             "finalize",
         ]
+        summary = _post_load_summary(mock_logger)
+        assert summary["phase_names"] == ["delta_maintenance", "job_completion", "post_import_trigger"]
+        assert (summary["external_data_job_id"], summary["run_uuid"], summary["outcome"]) == ("job-1", "run-9", "ok")
 
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
@@ -1632,9 +1653,11 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         process_message(_message(is_final_batch=True))
 
         assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]
+        assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]

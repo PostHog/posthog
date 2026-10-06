@@ -143,7 +143,35 @@ interface OpsLaneEntry {
     settleWrite?: () => void
     /** Set when a shadow-mode release abandoned this entry mid-write; the settle sheds it once unreferenced. */
     abandoned?: boolean
+    /** Set while the person is unknown here; the flush resolves the distinct id before writing. */
+    unresolved?: boolean
+    /** When the lane was held, epoch ms; bounds how long an id nobody owns yet keeps its ops. */
+    heldSince?: number
+    /** When a flush last asked identity who owns the lane's id, epoch ms. */
+    lastResolvedAt?: number
 }
+
+/** The lane for a distinct id with no known person; a numeric person id never starts with '?'. */
+function heldLaneKey(teamId: number, distinctId: string): string {
+    return `${teamId}:?${distinctId}`
+}
+
+/**
+ * How long a held lane outlives flushes that find nobody owning its id. The
+ * owner usually appears when another pod's shadow merge finishes, and that
+ * merge may itself have been deferred to its pod's flush, so the window is
+ * the ceiling one shadow verb may take rather than one flush.
+ */
+const HELD_LANE_MAX_AGE_MS = 60_000
+
+/** How soon after one answer a flush may ask again who owns a held lane's id. */
+const HELD_RESOLVE_INTERVAL_MS = 5_000
+
+/**
+ * The most held lanes one store keeps. Expired lanes stay through an identity outage so the first resolve after it
+ * can place them, so this bound is what keeps the outage from growing memory; past it the earliest-held lane is shed.
+ */
+export const HELD_LANES_LIMIT = 10_000
 
 /**
  * The personhog person store: resolution and creation through the identity
@@ -169,6 +197,10 @@ export class PersonhogPersonsStore implements PersonsStore {
      * batch released must not record for a batch nothing can release again.
      */
     private prefetchingBatches: Set<number> = new Set()
+    /** Keys of the held lanes still waiting for an owner, earliest hold first. */
+    private heldLaneOrder: Set<string> = new Set()
+    /** Prefetches still resolving, by distinct key. */
+    private pendingPrefetches: Map<string, Promise<void>> = new Map()
 
     // The cache mirrors BatchWritingPersonsCache structure for structure,
     // with two differences the names carry: `projections` holds a whole
@@ -447,6 +479,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (cached !== undefined) {
             return cached
         }
+        // A prefetch still resolving this id answers it; resolving alone would duplicate that call.
+        const pending = this.pendingPrefetches.get(`${teamId}:${distinctId}`)
+        if (pending) {
+            await pending
+            const prefetched = this.getCachedPerson(teamId, distinctId, 'check')
+            if (prefetched !== undefined) {
+                return prefetched
+            }
+        }
         const generation = this.generationOf(teamId)
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         const document = resolved?.person ? this.identityDocument(resolved.person) : null
@@ -461,6 +502,15 @@ export class PersonhogPersonsStore implements PersonsStore {
         const cached = this.getCachedPerson(teamId, distinctId, 'update')
         if (cached !== undefined) {
             return cached
+        }
+        // As in fetchForChecking: the prefetch caches an update-grade answer.
+        const pending = this.pendingPrefetches.get(`${teamId}:${distinctId}`)
+        if (pending) {
+            await pending
+            const prefetched = this.getCachedPerson(teamId, distinctId, 'update')
+            if (prefetched !== undefined) {
+                return prefetched
+            }
         }
         const generation = this.generationOf(teamId)
         const distinctKey = `${teamId}:${distinctId}`
@@ -616,16 +666,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 segments: [ops],
             })
         } else {
-            const last = existing.segments.length - 1
-            const lastSegment = existing.segments[last]
-            // Folding into a segment already on the wire would change the
-            // payload underneath the write or lose this event.
-            const folded = lastSegment === undefined || existing.inFlight ? null : foldOps(lastSegment, ops)
-            if (folded === null) {
-                existing.segments.push(ops)
-            } else {
-                existing.segments[last] = folded
-            }
+            this.appendSegment(existing, ops)
         }
         // Replaces the projection outright. A purge during personNow's read
         // outdates the view; the install declines and the next touch
@@ -636,6 +677,89 @@ export class PersonhogPersonsStore implements PersonsStore {
             this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
         }
         return [this.snapshot(projected), []]
+    }
+
+    private appendSegment(entry: OpsLaneEntry, ops: EventOps): void {
+        const last = entry.segments.length - 1
+        const lastSegment = entry.segments[last]
+        // Folding into a segment already on the wire would change the
+        // payload underneath the write or lose this event.
+        const folded = lastSegment === undefined || entry.inFlight ? null : foldOps(lastSegment, ops)
+        if (folded === null) {
+            entry.segments.push(ops)
+        } else {
+            entry.segments[last] = folded
+        }
+    }
+
+    /**
+     * Buffers ops for a distinct id this store cannot resolve yet, such as
+     * one another pod attached to a person whose shadow merge has not
+     * finished. Each flush resolves the id through identity and writes to
+     * its owner once there is one; an id nobody owns for the whole hold
+     * window drops its ops, counted, rather than wait on a person that may
+     * never come.
+     */
+    holdEventOps(teamId: number, distinctId: string, ops: EventOps, batchId: number): void {
+        if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
+            return
+        }
+        const laneKey = heldLaneKey(teamId, distinctId)
+        this.referenceEntry(batchId, laneKey)
+        const existing = this.entries.get(laneKey)
+        if (!existing) {
+            this.entries.set(laneKey, {
+                teamId,
+                personId: '',
+                distinctId,
+                segments: [ops],
+                unresolved: true,
+                heldSince: Date.now(),
+            })
+            this.trackHeldLane(laneKey)
+            return
+        }
+        // Ops held into a lane a flush emptied are a new hold, resolved afresh: the owner a past flush found may
+        // have changed since. A lane mid-write keeps its owner for what follows its in-flight segments.
+        if (existing.segments.length === 0 && !existing.inFlight) {
+            existing.unresolved = true
+            existing.heldSince = Date.now()
+            existing.lastResolvedAt = undefined
+            this.trackHeldLane(laneKey)
+        }
+        this.appendSegment(existing, ops)
+    }
+
+    /** Records a new hold as the latest, then sheds the earliest-held lanes past the cap, counted. */
+    private trackHeldLane(laneKey: string): void {
+        this.heldLaneOrder.delete(laneKey)
+        this.heldLaneOrder.add(laneKey)
+        for (const oldest of this.heldLaneOrder) {
+            if (this.heldLaneOrder.size <= HELD_LANES_LIMIT) {
+                return
+            }
+            this.heldLaneOrder.delete(oldest)
+            const entry = this.entries.get(oldest)
+            // A key whose lane resolved or went since is only removed.
+            if (!entry?.unresolved || entry.segments.length === 0) {
+                continue
+            }
+            personhogStoreFlushCounter.inc({ outcome: 'held_dropped_limit' })
+            entry.segments.length = 0
+            if (!this.entryHeldByAnyBatch(oldest)) {
+                this.entries.delete(oldest)
+            }
+        }
+    }
+
+    /** Whether ops held for this distinct id are still unwritten; later ops for the id must queue behind them. */
+    hasHeldOps(teamId: number, distinctId: string): boolean {
+        return (this.entries.get(heldLaneKey(teamId, distinctId))?.segments.length ?? 0) > 0
+    }
+
+    /** A held lane still inside its window outlives the batch release and the shed. */
+    private heldLaneAlive(entry: OpsLaneEntry): boolean {
+        return entry.unresolved === true && Date.now() - (entry.heldSince ?? 0) < HELD_LANE_MAX_AGE_MS
     }
 
     /**
@@ -940,23 +1064,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         return [this.snapshot(updated), [], false]
     }
 
-    /**
-     * The update fetch's two-step done once for the whole batch, so
-     * per-event processing hits the cache. Best-effort.
-     */
-    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        const seen = new Set<string>()
-        const unresolved = teamDistinctIds.filter((entry) => {
-            const key = `${entry.teamId}:${entry.distinctId}:${entry.batchId}`
-            if (seen.has(key)) {
-                return false
-            }
-            seen.add(key)
-            return this.getCachedPerson(entry.teamId, entry.distinctId, 'check') === undefined
-        })
-        if (unresolved.length === 0) {
-            return
-        }
+    /** Resolves and reads the batch's unresolved ids, caching what it finds. Never rejects. */
+    private async prefetchUnresolved(
+        unresolved: { teamId: number; distinctId: string; batchId: number }[]
+    ): Promise<void> {
         const generations = new Map<number, number>()
         for (const entry of unresolved) {
             this.prefetchingBatches.add(entry.batchId)
@@ -1006,6 +1117,41 @@ export class PersonhogPersonsStore implements PersonsStore {
             // Counted because the degradation reads as latency.
             personhogStorePrefetchFailedCounter.inc()
             logger.warn('personhog prefetch failed; resolution falls back to first touch', { error })
+        }
+    }
+
+    /**
+     * The update fetch's two-step done once for the whole batch, so
+     * per-event processing hits the cache. Best-effort. The pipeline does
+     * not await it, so reads of an id it covers wait for it instead of
+     * resolving the id alone.
+     */
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
+        const seen = new Set<string>()
+        const unresolved = teamDistinctIds.filter((entry) => {
+            const key = `${entry.teamId}:${entry.distinctId}:${entry.batchId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return this.getCachedPerson(entry.teamId, entry.distinctId, 'check') === undefined
+        })
+        if (unresolved.length === 0) {
+            return
+        }
+        const fetched = this.prefetchUnresolved(unresolved)
+        const distinctKeys = unresolved.map((entry) => `${entry.teamId}:${entry.distinctId}`)
+        for (const distinctKey of distinctKeys) {
+            this.pendingPrefetches.set(distinctKey, fetched)
+        }
+        try {
+            await fetched
+        } finally {
+            for (const distinctKey of distinctKeys) {
+                if (this.pendingPrefetches.get(distinctKey) === fetched) {
+                    this.pendingPrefetches.delete(distinctKey)
+                }
+            }
         }
     }
 
@@ -1065,10 +1211,17 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
+        // Before the claim, so a held lane that resolves writes in this pass.
+        await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
         const captured: CapturedLane[] = []
         for (const [personKey, entry] of this.entries) {
             if (entry.segments.length === 0) {
+                continue
+            }
+            // A held lane still without an owner waits for a later flush;
+            // it is not a write the round loop should wait on.
+            if (entry.unresolved) {
                 continue
             }
             // Another writer holds the lane; the round loop waits it out.
@@ -1097,7 +1250,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         entry.directWriteSettled = undefined
         if (entry.segments.length > 0) {
             // The settle is the last hand holding an abandoned entry.
-            if (entry.abandoned && !this.entryHeldByAnyBatch(personKey) && this.entries.get(personKey) === entry) {
+            if (
+                entry.abandoned &&
+                !this.heldLaneAlive(entry) &&
+                !this.entryHeldByAnyBatch(personKey) &&
+                this.entries.get(personKey) === entry
+            ) {
                 personhogStoreShadowShedCounter.inc(entry.segments.length)
                 entry.segments.length = 0
                 this.entries.delete(personKey)
@@ -1128,6 +1286,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                     if (viaRedirect) {
                         await this.redirectToSurvivor(entry, progress)
                         personhogStoreFlushCounter.inc({ outcome: 'redirected' })
+                        break
+                    }
+                    if (entry.heldSince !== undefined) {
+                        await this.writeHeldSegments(entry, progress)
                         break
                     }
                     await this.writeSegments(entry, entry.personId, progress)
@@ -1279,6 +1441,87 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
+    /**
+     * One identity call for every held lane due an answer, so a flush
+     * costs one request however many ids wait for an owner. A lane whose
+     * id has an owner becomes an ordinary lane for the write that follows;
+     * one nobody owns waits inside its window and drops after it, counted.
+     */
+    private async resolveHeldLanes(): Promise<void> {
+        const now = Date.now()
+        const due = [...this.entries.entries()].filter(
+            ([, entry]) =>
+                entry.unresolved === true &&
+                entry.segments.length > 0 &&
+                !entry.inFlight &&
+                (entry.lastResolvedAt === undefined ||
+                    now - entry.lastResolvedAt >= HELD_RESOLVE_INTERVAL_MS ||
+                    !this.heldLaneAlive(entry))
+        )
+        if (due.length === 0) {
+            return
+        }
+        let answers: Awaited<ReturnType<PersonHogPersonWriteRepository['resolvePersonsByDistinctIds']>>
+        try {
+            answers = await this.repository.resolvePersonsByDistinctIds(
+                due.map(([, entry]) => ({ teamId: entry.teamId, distinctId: entry.distinctId })),
+                CALLER_TAG
+            )
+        } catch (error) {
+            // The held lanes stay unresolved and ask again at the next flush; the lanes with an owner still write.
+            personhogStoreFlushCounter.inc({ outcome: 'held_resolve_failed' })
+            logger.warn('held lanes could not be resolved; they wait for the next flush', {
+                lanes: due.length,
+                error: String(error),
+            })
+            return
+        }
+        const ownerByKey = new Map(answers.map((answer) => [`${answer.teamId}:${answer.distinctId}`, answer.person]))
+        for (const [laneKey, entry] of due) {
+            entry.lastResolvedAt = now
+            const distinctKey = `${entry.teamId}:${entry.distinctId}`
+            const owner = ownerByKey.get(distinctKey)
+            if (owner == null) {
+                if (this.heldLaneAlive(entry)) {
+                    personhogStoreFlushCounter.inc({ outcome: 'held_deferred' })
+                    continue
+                }
+                personhogStoreFlushCounter.inc({ outcome: 'held_unowned' })
+                logger.warn('held ops dropped: the distinct id resolved to nobody for the whole hold window', {
+                    team_id: entry.teamId,
+                    distinct_id: entry.distinctId,
+                })
+                entry.segments.length = 0
+                this.heldLaneOrder.delete(laneKey)
+                if (!this.entryHeldByAnyBatch(laneKey)) {
+                    this.entries.delete(laneKey)
+                }
+                continue
+            }
+            // A cached absence the resolve contradicts; the next read re-resolves.
+            if (this.resolutions.get(distinctKey) === null) {
+                this.resolutions.delete(distinctKey)
+            }
+            entry.personId = owner.id
+            entry.unresolved = false
+            this.heldLaneOrder.delete(laneKey)
+        }
+    }
+
+    /**
+     * The owner's projection cannot know a held lane's ops, so it is
+     * dropped after the write either way; an owner merged away since the
+     * resolve takes the redirect like any other lane.
+     */
+    private async writeHeldSegments(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
+        try {
+            await this.writeSegments(entry, entry.personId, progress)
+            personhogStoreFlushCounter.inc({ outcome: 'held_written' })
+        } finally {
+            this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'held_write')
+        }
+    }
+
     /** An entry still holding unwritten ops outlives its last reference. */
     releaseBatch(batchId: number): void {
         // Any prefetch still on the wire answers into nothing from here on.
@@ -1313,6 +1556,11 @@ export class PersonhogPersonsStore implements PersonsStore {
                 continue
             }
             const entry = this.entries.get(personKey)
+            // A held lane waits out its window for an owner; the flush that
+            // outlives the window drops it.
+            if (entry && entry.segments.length > 0 && this.heldLaneAlive(entry)) {
+                continue
+            }
             if (entry?.inFlight) {
                 // The flag hands the shed to the write's settle instead of
                 // zeroing segments under it.
@@ -1324,6 +1572,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 entry.segments.length = 0
             }
             this.entries.delete(personKey)
+            this.heldLaneOrder.delete(personKey)
         }
         this.releaseBatchId(batchId)
     }

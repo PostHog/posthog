@@ -51,6 +51,10 @@ class ExportSignalMessage:
     # Snapshotted when the run started. Empty means the PostHog warehouse only, which is
     # also what an old message that predates destinations decodes to.
     destination_ids: list[str] = field(default_factory=list)
+    # The subset of `destination_ids` a destination writer delivers, so without the warehouse.
+    # None on a message queued before the producer recorded it, which readers treat as unknown
+    # rather than as none. Resolved once per run, because the consumer reads it per batch.
+    external_destination_ids: Optional[list[str]] = None
     # The cursor through this batch's rows. The loader commits it as the schema's watermark once the batch loads.
     incremental_last_value: Any = None
 
@@ -89,5 +93,6 @@ class ExportSignalMessage:
             cdc_write_mode=data.get("cdc_write_mode"),
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
+            external_destination_ids=data.get("external_destination_ids"),
             incremental_last_value=data.get("incremental_last_value"),
         )

@@ -563,6 +563,41 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
+/**
+ * * `ok` - OK
+ * * `no_web_sessions` - No web sessions
+ * * `no_sessions` - No sessions
+ * * `unknown` - Unknown
+ */
+export type DigestDataStatusEnumApi = (typeof DigestDataStatusEnumApi)[keyof typeof DigestDataStatusEnumApi]
+
+export const DigestDataStatusEnumApi = {
+    Ok: 'ok',
+    NoWebSessions: 'no_web_sessions',
+    NoSessions: 'no_sessions',
+    Unknown: 'unknown',
+} as const
+
+export interface DigestMetadataApi {
+    /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+     *
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown */
+    data_status: DigestDataStatusEnumApi
+    /** Start of the current period, in the project timezone. */
+    date_from: string
+    /** End of the current period, in the project timezone. */
+    date_to: string
+    /** Project timezone for the period boundaries. */
+    timezone: string
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    filter_test_accounts: boolean
+    /** Metric definitions to use when you compare the digest with a direct query. */
+    notes: string[]
+}
+
 export interface RecapPersonaApi {
     /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
     id: string
@@ -606,6 +641,8 @@ export interface WebAnalyticsRecapResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
     /** The single weekly persona assigned from this week's data. */
@@ -641,6 +678,8 @@ export interface WeeklyDigestResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
 }

@@ -36,10 +36,12 @@ from products.stamphog.backend.facade.enums import (
 )
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
+    CLEAN_BASE_MERGE,
     MAX_RETAINED_HEADS,
     RETAINED_HEADS_KEY,
     UNCHANGED_DIFF,
     approved_diff_unchanged,
+    base_merge_is_clean,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
@@ -541,15 +543,16 @@ def _retract_approvals_on_base_retarget(repo_config: StamphogRepoConfig, pr: dic
         )
 
 
-def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
-    """Whether a standing approval survives this push, rather than being dismissed and re-reviewed.
+def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> str | None:
+    """Why a standing approval survives this push, or None when it is dismissed and re-reviewed.
 
     Compares the PR's own diff at the head that the approval was posted for against its diff at the
     head that this delivery carries. ``compare_diff`` reads both sides from commit shas that the
     payload and the run already fixed, so a contributor cannot point either side at content that the
-    PR is not on.
+    PR is not on. When the two diffs differ, the push still retains if it is a clean merge of the
+    base branch into an approved head, see ``base_merge_is_clean``.
 
-    Returns False for everything ambiguous: no PR row, no standing approval, an approval already at
+    Returns None for everything ambiguous: no PR row, no standing approval, an approval already at
     this head, a run with no recorded base sha, an empty diff on either side, or any GitHub error. A
     diff too large for GitHub to render is one such error. A same-head re-review is allowed to void
     the approval on purpose.
@@ -559,7 +562,7 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     head_sha = (pr.get("head") or {}).get("sha") or ""
     base_sha = (pr.get("base") or {}).get("sha") or ""
     if pr_number is None or not head_sha or not base_sha:
-        return False
+        return None
 
     # Writer pin for the same reason that _retract_stale_approvals_on_skip uses one. This read
     # decides whether an approval stands, and a lagged reader that misses the approving run falls
@@ -571,7 +574,7 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         .first()
     )
     if pull_request is None:
-        return False
+        return None
 
     standing = (
         ReviewRun.objects.for_team(team_id)
@@ -586,13 +589,13 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
         .first()
     )
     if standing is None or standing.posted_review_id is None or not standing.head_sha:
-        return False
+        return None
 
     approved_pr = (standing.output or {}).get("pr")
     approved_base = (approved_pr or {}).get("base") if isinstance(approved_pr, dict) else None
     approved_base_sha = (approved_base or {}).get("sha") if isinstance(approved_base, dict) else ""
     if not approved_base_sha:
-        return False
+        return None
 
     client = StamphogGitHubClient(repo_config.installation_id)
     # posted_review_id records that stamphog approved, and not that the approval still stands. A
@@ -601,14 +604,29 @@ def _standing_approval_retention(repo_config: StamphogRepoConfig, pr: dict[str, 
     # unreadable or unconfigured identity yields an empty list, which falls through to the review.
     active_ids = {review.get("id") for review in client.list_own_active_approvals(repo_config.repository, pr_number)}
     if standing.posted_review_id not in active_ids:
-        return False
+        return None
 
     approved_diff = client.compare_diff(repo_config.repository, approved_base_sha, standing.head_sha)
     current_diff = client.compare_diff(repo_config.repository, base_sha, head_sha)
-    if not approved_diff_unchanged(approved_diff, current_diff):
-        return False
+    if approved_diff_unchanged(approved_diff, current_diff):
+        reason = UNCHANGED_DIFF
+    elif base_merge_is_clean(
+        client,
+        repo_config.repository,
+        approved_heads={standing.head_sha, *_retained_heads(standing)},
+        head_sha=head_sha,
+        base_sha=base_sha,
+    ):
+        reason = CLEAN_BASE_MERGE
+    else:
+        return None
     _record_retained_head(standing, head_sha)
-    return True
+    return reason
+
+
+def _retained_heads(run: ReviewRun) -> list[str]:
+    stored = (run.output or {}).get(RETAINED_HEADS_KEY) or []
+    return [sha for sha in stored if isinstance(sha, str)]
 
 
 def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
@@ -619,8 +637,7 @@ def _record_retained_head(run: ReviewRun, head_sha: str) -> None:
     because ``merged_at`` makes the redelivery a no-op. The reviewed head stays on ``head_sha``
     itself, which the dismissal sweep and ``post_verdict``'s guards read.
     """
-    stored = (run.output or {}).get(RETAINED_HEADS_KEY) or []
-    retained = [sha for sha in stored if isinstance(sha, str)]
+    retained = _retained_heads(run)
     if head_sha in retained:
         return
     retained.append(head_sha)
@@ -1207,18 +1224,18 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # their head-pinning carve-out untouched.
     if action in _HEAD_CHANGING_ACTIONS and inbox_review is None:
         try:
-            retained = _standing_approval_retention(repo_config, pr)
+            retention_reason = _standing_approval_retention(repo_config, pr)
         except Exception:
             # This is an optimization, so it must never cost a review. An unreachable GitHub or an
             # unexpected payload falls through to the full path, and never retries or retains.
             logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
-            retained = False
-        if retained:
+            retention_reason = None
+        if retention_reason is not None:
             logger.info(
                 "stamphog_pr_event_approval_retained",
                 repo=repo,
                 pr_number=pr_number,
-                reason=UNCHANGED_DIFF,
+                reason=retention_reason,
             )
             if delivery_id:
                 _mark_pr_event_processed(delivery_id)
