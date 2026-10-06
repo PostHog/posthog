@@ -26,7 +26,12 @@ ENDPOINTS = {
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "http_server_results": [
-        {"label": "date", "type": IncrementalFieldType.DateTime, "field": "date", "field_type": "datetime"}
+        IncrementalField(
+            label="date",
+            type=IncrementalFieldType.DateTime,
+            field="date",
+            field_type=IncrementalFieldType.DateTime,
+        )
     ]
 }
 HISTORY_DAYS = 30

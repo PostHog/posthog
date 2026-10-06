@@ -62,7 +62,7 @@ def transport() -> Iterator[tuple[list[PreparedRequest], Callable[[dict[str, Any
         response = Response()
         response.status_code = status
         response.reason = {401: "Unauthorized", 403: "Forbidden"}.get(status, "OK")
-        response.url = request.url
+        response.url = request.url or ""
         response.request = request
         response._content = json.dumps(body).encode()
         response.headers["Content-Type"] = "application/json"
