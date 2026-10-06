@@ -7,7 +7,7 @@ import {
     CompressionField,
     FileFormatField,
     MaxFileSizeField,
-    PERSON_PROPERTIES_EVENT_FIELD,
+    PERSON_EVENT_FIELDS,
     ParquetExtensionField,
     validateAzureContainerName,
 } from './common'
@@ -33,7 +33,7 @@ export const azureBlobDefinition: DestinationDefinition = {
         container_name: validateAzureContainerName(formValues.container_name),
     }),
     eventTableOverrides: { teamIdHogql: 'team_id' },
-    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
+    eventTableExtraFields: { ...PERSON_EVENT_FIELDS },
     Fields: function AzureBlobFields({ isNew, formValues, savedConfig }) {
         return (
             <>
