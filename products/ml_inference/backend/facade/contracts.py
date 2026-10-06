@@ -28,11 +28,10 @@ class DecisionGatewayUnreachableError(Exception):
 class DecisionGatewayError(Exception):
     """The gateway answered, but not with a decision."""
 
-    def __init__(self, status_code: int, detail: str, *, request_id: str | None = None) -> None:
+    def __init__(self, status_code: int, detail: str) -> None:
         super().__init__(f"decision gateway returned {status_code}: {detail}")
         self.status_code = status_code
         self.detail = detail
-        self.request_id = request_id
 
 
 MAX_QUESTIONS_PER_REQUEST = 32
@@ -111,4 +110,3 @@ class DecisionResult:
     answers: dict[str, DecisionAnswer]
     input_tokens: int
     latency_ms: float | None = None
-    request_id: str | None = None

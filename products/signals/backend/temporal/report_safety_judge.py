@@ -198,7 +198,6 @@ async def judge_report_safety(
         return await run_model_decision(
             team_id=team_id,
             stage="report_safety",
-            signal_id=signal_id,
             primary_model=SAFETY_MODEL,
             source_id=report_id,
             source_product="report",

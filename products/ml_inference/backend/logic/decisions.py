@@ -1,4 +1,3 @@
-from dataclasses import replace
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -117,16 +116,11 @@ def decide(
         raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error
     if response.status_code != 200:
         raise DecisionGatewayError(response.status_code, response.text[:500])
-    request_id = response.headers.get("x-request-id")
     try:
         payload = response.json()
     except ValueError as error:
-        raise DecisionGatewayError(200, "decision response is not JSON", request_id=request_id) from error
-    try:
-        return replace(parse_result(payload, request.questions), request_id=request_id)
-    except DecisionGatewayError as error:
-        error.request_id = request_id
-        raise
+        raise DecisionGatewayError(200, "decision response is not JSON") from error
+    return parse_result(payload, request.questions)
 
 
 def _wire_body(request: DecisionRequest) -> dict[str, Any]:

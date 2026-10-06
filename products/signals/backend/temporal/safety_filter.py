@@ -256,7 +256,6 @@ async def safety_filter(
     result = await run_model_decision(
         team_id=team_id,
         stage="signal_safety",
-        signal_id=signal_id,
         primary_model=SAFETY_MODEL,
         source_id=source_id,
         source_product=source_product,

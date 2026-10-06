@@ -22,13 +22,14 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.token_bucket import TEST_reset_scripts
 
-from products.ml_inference.backend.facade.contracts import DecisionGatewayError, DecisionResult, NoulAnswer
+from products.ml_inference.backend.facade.contracts import DecisionResult, NoulAnswer
+from products.signals.backend.emission.pipeline import check_actionability
+from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import record_llm_request, signal_spend_summaries, signal_spend_totals
 from products.signals.backend.spend_tasks import reconcile_signal_spend
-from products.signals.backend.system_one_decision import SignalsDecisionError, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.temporal.llm import call_llm
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
@@ -159,50 +160,49 @@ class TestSignalSpend(BaseTest):
             assert all(row["accounting_failed"] for row in rows)
             assert all(row["source_id"].startswith("unknown-") for row in rows)
 
-    @parameterized.expand([("success",), ("missing_request_id",), ("invalid",), ("refused",)])
-    async def test_system_one_records_generation_ids_even_when_validation_fails(self, outcome: str) -> None:
+    @parameterized.expand([("system-one-only",), ("system-one-shadow",), ("traditional-shadow",)])
+    async def test_system_one_is_excluded_from_spend_while_traditional_calls_are_accounted(self, mode: str) -> None:
         driver = str(uuid4())
+        output = SignalEmitterOutput(
+            signal_id=driver,
+            source_id="issue-1",
+            source_product="linear",
+            source_type="issue",
+            description="An example finding",
+            weight=1.0,
+            extra={},
+        )
         result = DecisionResult(
             model="jevk5-fp8-0.2",
             answers={"actionable": NoulAnswer(probability=0.98)},
             input_tokens=10,
-            request_id=None if outcome == "missing_request_id" else "decision-request",
         )
-        failure = (
-            DecisionGatewayError(200 if outcome == "invalid" else 429, "Example failure", request_id="decision-request")
-            if outcome in {"invalid", "refused"}
-            else None
+        client = Mock()
+        client.messages.create = AsyncMock(
+            return_value=Mock(content=[Mock(type="text", text="ACTIONABLE")], _request_id="traditional-request")
         )
         TEST_reset_scripts()
         try:
             with (
                 patch("products.signals.backend.system_one_decision.get_client", return_value=FakeRedis()),
+                patch("products.signals.backend.system_one_decision.model_mode", new=AsyncMock(return_value=mode)),
                 patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
                 patch(
                     "products.signals.backend.system_one_decision.decision_api.decide_when_available",
                     return_value=result,
-                    side_effect=failure,
                 ),
             ):
-                call = run_model_decision(
-                    team_id=self.team.id,
-                    signal_id=driver,
-                    stage="actionability",
-                    primary_model="claude-sonnet-5",
-                    source_id="issue-1",
-                    source_product="linear",
-                    state={"record": "An example finding"},
-                    prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
-                    traditional=AsyncMock(return_value=False),
-                    verdict=lambda value: value,
-                    system_one_result=lambda value, _category: value,
-                    mode_override="system-one-only",
+                assert (
+                    await check_actionability(
+                        client,
+                        self.team.id,
+                        output,
+                        "Is this actionable? {description}",
+                        gateway_mode=True,
+                        system_one_prompt=bundled_prompt("example-prompt", "policy", "Actionable?", 0.9),
+                    )
+                    is True
                 )
-                if failure:
-                    with self.assertRaises(SignalsDecisionError):
-                        await call
-                else:
-                    assert await call is True
         finally:
             TEST_reset_scripts()
         rows = await database_sync_to_async(
@@ -212,15 +212,14 @@ class TestSignalSpend(BaseTest):
                 )
             )
         )()
-        if outcome == "refused":
+        if mode == "system-one-only":
             assert rows == []
         else:
             assert len(rows) == 1
             assert str(rows[0]["signal_id"]) == driver
+            assert rows[0]["source_id"] == "traditional-request"
             assert rows[0]["stage"] == "actionability"
-            assert rows[0]["accounting_failed"] is (outcome == "missing_request_id")
-            if outcome != "missing_request_id":
-                assert rows[0]["source_id"] == "decision-request"
+            assert rows[0]["accounting_failed"] is False
 
     def _run(self, *, report: SignalReport | None = None, task: Task | None = None, stage: str = "research") -> TaskRun:
         task = task or Task.objects.create(

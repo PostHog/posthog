@@ -439,7 +439,6 @@ async def check_actionability(
     return await run_model_decision(
         team_id=team_id,
         stage="actionability",
-        signal_id=output.signal_id,
         primary_model=LLM_MODEL,
         source_id=output.source_id,
         source_product=output.source_product,

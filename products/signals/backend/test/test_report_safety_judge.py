@@ -5,7 +5,7 @@ from threading import Event
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
@@ -258,14 +258,12 @@ async def test_private_report_judge_keeps_the_trial_gateway_without_rollout_capt
         patch("posthog.llm.gateway_client.AsyncAnthropic") as client,
         private_scout_gateway("phe_trial_test_credential"),
     ):
-        raw_response = Mock(headers={})
-        raw_response.parse.return_value = response
-        client.return_value.messages.with_raw_response.create = AsyncMock(return_value=raw_response)
+        client.return_value.messages.create = AsyncMock(return_value=response)
         result = await judge_report_safety(team_id=1, signals=[signal], report_id="report-1")
 
     assert result.choice is True
     assert client.call_args.kwargs["base_url"] == "https://ai-gateway.example.com"
     assert client.call_args.kwargs["api_key"] == "phe_trial_test_credential"
-    client.return_value.messages.with_raw_response.create.assert_awaited_once()
+    client.return_value.messages.create.assert_awaited_once()
     decide.assert_not_called()
     capture.assert_not_called()
