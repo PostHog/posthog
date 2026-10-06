@@ -23,18 +23,23 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     BATCH_TABLE,
     CLAIM_ELIGIBILITY_INTERVAL,
     LEASE_TABLE,
+    PARTITION_PRUNING_INTERVAL,
     STATUS_TABLE,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    ClaimCursor,
     PendingBatch,
     QueueDepth,
+    _claim_window_sql,
     _claimable_count_sql,
     _orphaned_candidate_runs_sql,
     _queue_depth_sql,
     _queue_freshness_sql,
+    _state_claim_candidates_sql,
     _sync_connection_pool,
     build_status_dual_write_sql,
     queue_gauges_slot_key,
+    sync_type_scope_sql,
 )
 from products.warehouse_sources_queue.backend.testing import (
     BATCH_DEFAULTS as _BATCH_DEFAULTS,
@@ -1868,15 +1873,13 @@ class TestClaimGates:
         # A per-batch gate probe that the planner answers from a non-partial
         # run_uuid index reads the whole run for every candidate, so a backlog
         # of long runs grows quadratically. One probe per run bounds it.
-        from products.warehouse_sources_queue.backend.core.jobs_db import _claim_window_sql
-
         for i in range(40):
             await _insert_batch(conn, run_uuid="long-run", schema_id="s-long", batch_index=i)
         await _insert_batch(conn, run_uuid="short-run", schema_id="s-short", batch_index=0)
 
         cur = await conn.execute(
             "EXPLAIN (ANALYZE, FORMAT JSON) WITH " + _claim_window_sql() + " SELECT * FROM narrow",
-            {"backoff": 0, "owner": OWNER_A, "limit": 50},
+            {"backoff": 0, "owner": OWNER_A, "limit": 50, "team_cursor": 0},
         )
         row = await cur.fetchone()
         assert row is not None
@@ -1897,8 +1900,6 @@ class TestClaimGates:
         await _insert_batch(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
-            from products.warehouse_sources_queue.backend.core.jobs_db import _state_claim_candidates_sql
-
             cur = await conn.execute(
                 "EXPLAIN (FORMAT TEXT) " + _state_claim_candidates_sql() + " LIMIT 50",
                 {"backoff": 0},
@@ -1924,6 +1925,236 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_job_id_idx" in plan
+
+
+def _unbounded_claim_window_sql(sync_type_scope: str = "") -> str:
+    # The claim window with no team window and no depth: every claimable batch
+    # is a candidate. The bounded query must give the same claims while the
+    # queue fits inside its bounds.
+    return f"""
+        claimable AS MATERIALIZED (
+            {_state_claim_candidates_sql(sync_type_scope)}
+        ),
+        open_groups AS MATERIALIZED (
+            SELECT g.team_id, g.schema_id
+            FROM (SELECT DISTINCT c.team_id, c.schema_id FROM claimable c) g
+            WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} x
+                    WHERE x.team_id = g.team_id
+                        AND x.schema_id = g.schema_id
+                        AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND x.latest_state = 'executing'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {LEASE_TABLE} l
+                    WHERE l.team_id = g.team_id
+                        AND l.schema_id = g.schema_id
+                        AND l.expires_at > now()
+                        AND l.owner_token != %(owner)s
+                )
+        ),
+        narrow AS MATERIALIZED (
+            SELECT c.id, c.created_at
+            FROM claimable c
+            JOIN open_groups g ON g.team_id = c.team_id AND g.schema_id = c.schema_id
+            WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} f
+                    WHERE f.run_uuid = c.run_uuid
+                        AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND f.latest_state = 'failed'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} h
+                    WHERE h.run_uuid = c.run_uuid
+                        AND h.batch_index < c.batch_index
+                        AND h.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND (
+                            h.latest_state = 'executing'
+                            OR (
+                                h.latest_state = 'waiting_retry'
+                                AND h.state_changed_at > now() - make_interval(
+                                    secs => %(backoff)s * GREATEST(h.latest_attempt, 1)
+                                )
+                            )
+                        )
+                )
+            ORDER BY
+                row_number() OVER (
+                    PARTITION BY c.team_id ORDER BY c.created_at ASC, c.batch_index ASC
+                ) ASC,
+                c.created_at ASC,
+                c.batch_index ASC
+            LIMIT %(limit)s
+        )
+    """
+
+
+# (team_id, schema_id, run_uuid, batch_index, latest state, sync_type), oldest first.
+_BatchSpec = tuple[int, str, str, int, str, str]
+
+_SERIALIZED_GROUPS: list[_BatchSpec] = [
+    (1, "s-busy", "run-1", 0, "executing", "incremental"),
+    (1, "s-busy", "run-1", 1, "pending", "incremental"),
+    (1, "s-busy", "run-2", 0, "pending", "incremental"),
+    (1, "s-open", "run-3", 0, "pending", "incremental"),
+    (1, "s-open", "run-3", 1, "pending", "incremental"),
+    (2, "s-other", "run-4", 0, "pending", "incremental"),
+    (2, "s-other", "run-5", 0, "pending", "incremental"),
+]
+_GATED_RUNS: list[_BatchSpec] = [
+    (1, "s-failed", "run-1", 0, "failed", "incremental"),
+    (1, "s-failed", "run-1", 1, "pending", "incremental"),
+    (1, "s-failed", "run-2", 0, "pending", "incremental"),
+    (2, "s-retry", "run-3", 0, "pending", "incremental"),
+    (2, "s-retry", "run-3", 1, "waiting_retry", "incremental"),
+    (2, "s-retry", "run-3", 2, "pending", "incremental"),
+    (3, "s-healthy", "run-4", 0, "pending", "incremental"),
+    (3, "s-waiting", "run-5", 0, "waiting", "incremental"),
+    (3, "s-done", "run-6", 0, "succeeded", "incremental"),
+]
+_LEASED_GROUPS: list[_BatchSpec] = [
+    (1, "s-foreign", "run-1", 0, "pending", "incremental"),
+    (1, "s-free", "run-2", 0, "pending", "incremental"),
+    (2, "s-own", "run-3", 0, "pending", "incremental"),
+    (3, "s-expired", "run-4", 0, "pending", "incremental"),
+]
+_MIXED_TEAMS: list[_BatchSpec] = [
+    (1, "s-a", "run-1", 0, "pending", "full_refresh"),
+    (1, "s-a", "run-1", 1, "pending", "full_refresh"),
+    (1, "s-b", "run-2", 0, "pending", "cdc"),
+    (2, "s-c", "run-3", 0, "pending", "incremental"),
+    (1, "s-a", "run-1", 2, "pending", "full_refresh"),
+    (3, "s-d", "run-4", 0, "pending", "cdc"),
+    (3, "s-d", "run-4", 1, "pending", "cdc"),
+    (2, "s-e", "run-5", 0, "pending", "append"),
+]
+# (team_id, schema_id, owner, seconds until expiry)
+_LEASES: list[tuple[int, str, str, int]] = [
+    (1, "s-foreign", OWNER_B, 300),
+    (2, "s-own", OWNER_A, 300),
+    (3, "s-expired", OWNER_B, -1),
+]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimWindow:
+    async def _seed(self, conn, batches: list[_BatchSpec]) -> None:
+        for team_id, schema_id, run_uuid, batch_index, state, sync_type in batches:
+            bid = await _insert_batch(
+                conn,
+                team_id=team_id,
+                schema_id=schema_id,
+                run_uuid=run_uuid,
+                batch_index=batch_index,
+                sync_type=sync_type,
+            )
+            if state != "pending":
+                await BatchQueue.update_status(conn, batch_id=bid, job_state=state, attempt=1)
+
+    @pytest.mark.parametrize("limit", [2, 3, 50])
+    @pytest.mark.parametrize(
+        "batches,leases,sync_types",
+        [
+            pytest.param(_SERIALIZED_GROUPS, [], None, id="serialized_groups"),
+            pytest.param(_GATED_RUNS, [], None, id="gated_runs"),
+            pytest.param(_LEASED_GROUPS, _LEASES, None, id="leases_held"),
+            pytest.param(_MIXED_TEAMS, [], None, id="mixed_teams"),
+            pytest.param(_MIXED_TEAMS, [], ["cdc", "append"], id="mixed_teams_one_fleet"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_bounded_window_claims_what_an_unbounded_scan_claims(self, conn, batches, leases, sync_types, limit):
+        await self._seed(conn, batches)
+        for team_id, schema_id, owner, ttl in leases:
+            await conn.execute(
+                f"INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at) "
+                "VALUES (%s, %s, %s, now() + make_interval(secs => %s))",
+                (team_id, schema_id, owner, ttl),
+            )
+        scope_sql, scope_params = sync_type_scope_sql(sync_types=sync_types)
+        cur = await conn.execute(
+            "WITH " + _unbounded_claim_window_sql(scope_sql) + " SELECT id::text FROM narrow",
+            {"backoff": 3600, "owner": OWNER_A, "limit": limit, **scope_params},
+        )
+        expected = {row[0] for row in await cur.fetchall()}
+
+        claimed = await _claim(conn, limit=limit, retry_backoff_base_seconds=3600, sync_types=sync_types)
+
+        assert expected, "the scenario must leave something to claim"
+        assert {str(b.id) for b in claimed} == expected
+
+    @pytest.mark.parametrize(
+        "start,random_start,expected_windows",
+        [
+            pytest.param(0, None, [[1, 2], [3, 4], [1, 5]], id="rotates_and_wraps"),
+            pytest.param(4, None, [[1, 5], [2, 3]], id="wraps_inside_one_window"),
+            pytest.param(99, None, [[1, 2]], id="cursor_past_the_last_team_starts_over"),
+            pytest.param(None, 3, [[4, 5], [1, 2]], id="first_claim_starts_at_a_random_team"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_consecutive_claims_rotate_through_every_team(self, conn, start, random_start, expected_windows):
+        for team_id in range(1, 6):
+            await _insert_batch(conn, team_id=team_id, schema_id=f"s-{team_id}", run_uuid=f"run-{team_id}")
+        cursor = ClaimCursor(team_id=start)
+
+        windows = []
+        with (
+            patch(f"{_JOBS_DB}.CLAIM_WINDOW_TEAMS", 2),
+            patch(f"{_JOBS_DB}.random.randint", return_value=random_start),
+        ):
+            for _ in expected_windows:
+                claimed = await _claim(conn, cursor=cursor)
+                windows.append(sorted(b.team_id for b in claimed))
+
+        assert windows == expected_windows
+
+    @pytest.mark.asyncio
+    async def test_backlog_of_a_closed_group_does_not_hide_the_other_groups_of_its_team(self, conn):
+        busy = await _insert_batch(conn, schema_id="s-busy", run_uuid="run-busy", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=busy, job_state="executing", attempt=1)
+        for i in range(1, 5):
+            await _insert_batch(conn, schema_id="s-busy", run_uuid="run-busy", batch_index=i)
+        await _insert_batch(conn, schema_id="s-open", run_uuid="run-open")
+
+        with patch(f"{_JOBS_DB}.CLAIM_WINDOW_TEAM_DEPTH", 2):
+            claimed = await _claim(conn, limit=1)
+
+        assert [b.schema_id for b in claimed] == ["s-open"]
+
+    @pytest.mark.asyncio
+    async def test_claim_reads_a_bounded_window_of_a_deep_backlog(self, conn):
+        teams, per_team, window_teams, depth = 40, 5, 3, 2
+        columns = ", ".join(k for k in _BATCH_DEFAULTS if k not in ("team_id", "batch_index", "metadata"))
+        await conn.execute(
+            f"INSERT INTO {BATCH_TABLE} (team_id, batch_index, {columns}) "
+            f"SELECT t, i, {', '.join(f'%({k})s' for k in columns.split(', '))} "
+            "FROM generate_series(1, %(teams)s) t, generate_series(0, %(per_team)s - 1) i",
+            {**_BATCH_DEFAULTS, "teams": teams, "per_team": per_team},
+        )
+        # Tables this small make a scan of everything the cheapest plan. The settings
+        # leave the index-driven plan that a production-size table gets.
+        for setting in ("enable_seqscan", "enable_bitmapscan", "enable_sort"):
+            await conn.execute(f"SET {setting} = off")
+        with patch(f"{_JOBS_DB}.CLAIM_WINDOW_TEAMS", window_teams), patch(f"{_JOBS_DB}.CLAIM_WINDOW_TEAM_DEPTH", depth):
+            cur = await conn.execute(
+                "EXPLAIN (ANALYZE, FORMAT JSON) WITH " + _claim_window_sql() + " SELECT * FROM narrow",
+                {"backoff": 0, "owner": OWNER_A, "limit": 2, "team_cursor": 0},
+            )
+        row = await cur.fetchone()
+        assert row is not None
+        plan = row[0] if isinstance(row[0], list) else json.loads(row[0])
+
+        def batch_rows_read(node: dict[str, Any]) -> int:
+            own = node["Actual Rows"] * node["Actual Loops"] if node.get("Relation Name") == BATCH_TABLE else 0
+            return own + sum(batch_rows_read(child) for child in node.get("Plans", []))
+
+        # One row per team seek, plus the depth per window team; the 200-batch backlog does not enter.
+        assert batch_rows_read(plan[0]["Plan"]) <= (window_teams + 1) * (depth + 1)
 
 
 @pytest.mark.django_db(transaction=True)
