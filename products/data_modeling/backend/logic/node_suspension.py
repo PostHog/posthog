@@ -140,7 +140,7 @@ def merged_suspension_state(nodes: Iterable[Node]) -> dict[str, dict]:
     for node in nodes:
         for engine, entry in suspension_state(node).items():
             # The saved-query list serializes these fields, so one malformed marker would fail the page.
-            if not (isinstance(entry, dict) and SUSPENSION_FIELDS <= entry.keys() and isinstance(entry["at"], str)):
+            if not (isinstance(entry, dict) and all(isinstance(entry.get(key), str) for key in SUSPENSION_FIELDS)):
                 logger.warning("Skipped a malformed suspension marker", node_id=str(node.pk), engine=engine)
                 continue
             existing = merged.get(engine)

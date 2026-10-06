@@ -14,10 +14,10 @@ from posthog.hogql.database.database import SerializedField, serialize_fields
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.data_modeling.backend.facade.api import get_incremental_config, merged_suspension_state
+from products.data_modeling.backend.facade.api import get_incremental_config
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
-from . import rendered_nodes, sync_cadence, view_description
+from . import rendered_node_states, sync_cadence, view_description
 
 # Only these two are still written to the column: MODIFIED on edit, CANCELLED by the cancel action.
 # Every other value was last written by the v1 materialization workflow, which no longer exists, so it
@@ -85,11 +85,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         )
     )
     def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
-        nodes = rendered_nodes.rendered_nodes(self.root, view).get(str(view.pk), [])  # type: ignore[attr-defined]
-        return {
-            engine: SavedQuerySuspensionSerializer(entry).data
-            for engine, entry in merged_suspension_state(nodes).items()
-        }
+        state = rendered_node_states.rendered_node_states(self.root, view).get(str(view.pk))  # type: ignore[attr-defined]
+        suspended = state.suspended if state is not None else {}
+        return {engine: SavedQuerySuspensionSerializer(marker).data for engine, marker in suspended.items()}
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):

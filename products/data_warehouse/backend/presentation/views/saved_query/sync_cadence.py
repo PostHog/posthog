@@ -8,14 +8,13 @@ from django.db.models import Model
 from rest_framework import serializers
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_modeling.backend.facade.api import declared_targets_from_nodes
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     sync_frequency_interval_to_sync_frequency,
 )
 
-from . import rendered_nodes
+from . import rendered_node_states
 
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
@@ -254,10 +253,9 @@ def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouse
     column alone reports "never" for every scheduled view. The column still covers v1 and
     single-schedule v2 teams, which have no node target.
     """
-    nodes = rendered_nodes.rendered_nodes(root, view).get(str(view.pk), [])
-    target = declared_targets_from_nodes(nodes).get(str(view.pk))
-    if target is not None:
-        return sync_frequency_interval_to_sync_frequency(target)
+    state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
+    if state is not None and state.declared_target is not None:
+        return sync_frequency_interval_to_sync_frequency(state.declared_target)
     return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
 
 
