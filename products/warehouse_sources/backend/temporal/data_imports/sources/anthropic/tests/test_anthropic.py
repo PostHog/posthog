@@ -9,6 +9,9 @@ import requests
 from parameterized import parameterized
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
+    source_items_are_framework_output,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
     ANTHROPIC_VERSION,
@@ -655,10 +658,14 @@ class TestUsageReportGroupByFallback:
             ],
         )
 
-        rows = _rows(_source("usage_report", _make_manager()))
+        source_response = _source("usage_report", _make_manager())
+        rows = _rows(source_response)
 
         assert [r["workspace_id"] for r in rows] == ["wrkspc_1"]
         assert [p["params"]["group_by[]"] for p in params] == USAGE_GROUP_BY_FALLBACKS[:2]
+        # The pipeline gives the framework's safe points only to a `Resource`. Without them a run
+        # that waits on a rate limit cannot hand off.
+        assert source_items_are_framework_output(source_response.items())
 
     @parameterized.expand(
         [

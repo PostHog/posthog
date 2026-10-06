@@ -466,6 +466,7 @@ class _FakeResumableClient:
         initial_paginator_state=None,
         data_selector_required=False,
         data_selector_empty_ok=False,
+        resume_hook_before_yield=False,
     ):
         pages = self.pages_by_path[path]
         start = initial_paginator_state["page"] if initial_paginator_state else 0

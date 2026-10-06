@@ -687,6 +687,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        resume_hook_before_yield: bool = False,
     ):
         return iter(mock_data_response)
 
@@ -705,6 +706,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        resume_hook_before_yield: bool = False,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.
