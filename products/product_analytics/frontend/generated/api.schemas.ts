@@ -2008,6 +2008,8 @@ export interface TrendsFilterApi {
 export interface TrendsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
@@ -2473,6 +2475,8 @@ export interface FunnelsDataWarehouseNodeApi {
 export interface FunnelsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Compare to date range */
@@ -2734,6 +2738,8 @@ export interface RetentionFilterApi {
 export interface RetentionQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Colors used in the insight's visualization */
@@ -2872,6 +2878,8 @@ export interface PathsQueryResponseApi {
 export interface PathsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -3044,6 +3052,8 @@ export interface PathsV2QueryResponseApi {
 }
 
 export interface PathsV2QueryApi {
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -3165,6 +3175,8 @@ export interface StickinessFilterApi {
 }
 
 export interface StickinessQueryApi {
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
@@ -3364,6 +3376,8 @@ export interface LifecycleDataWarehouseNodeApi {
 export interface LifecycleQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
     /** Colors used in the insight's visualization */
@@ -8770,6 +8784,24 @@ export interface InsightBulkRestoreResponseApi {
     skipped: InsightBulkOperationSkippedApi[]
 }
 
+export interface InsightBulkSetDefaultFiltersRequestApi {
+    /** Whether every existing insight should apply the project's default filters. */
+    enabled: boolean
+}
+
+export interface InsightBulkSetDefaultFiltersResponseApi {
+    /** Number of insights whose default filters setting was changed. */
+    updated: number
+    /** Number of insights that already had the requested value. */
+    unchanged: number
+    /** Number of insights with no setting for default filters, such as SQL insights. */
+    unsupported: number
+    /** Number of insights the requester cannot edit. */
+    skipped: number
+    /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+    legacy: number
+}
+
 export interface InsightBulkSetTestAccountFilterRequestApi {
     /** Whether every existing insight should filter out internal and test users. */
     enabled: boolean
@@ -9295,6 +9327,18 @@ export type InsightsBulkRestoreCreateFormat =
     (typeof InsightsBulkRestoreCreateFormat)[keyof typeof InsightsBulkRestoreCreateFormat]
 
 export const InsightsBulkRestoreCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkSetDefaultFiltersCreateParams = {
+    format?: InsightsBulkSetDefaultFiltersCreateFormat
+}
+
+export type InsightsBulkSetDefaultFiltersCreateFormat =
+    (typeof InsightsBulkSetDefaultFiltersCreateFormat)[keyof typeof InsightsBulkSetDefaultFiltersCreateFormat]
+
+export const InsightsBulkSetDefaultFiltersCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

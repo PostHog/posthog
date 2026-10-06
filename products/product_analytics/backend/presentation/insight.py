@@ -1,5 +1,5 @@
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
@@ -159,7 +159,11 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
+from products.product_analytics.backend.facade.account_filters import (
+    TestAccountFilterUpdate,
+    plan_default_filters_update,
+    plan_test_account_filter_update,
+)
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
     map_stale_to_latest,
@@ -1622,6 +1626,28 @@ class InsightBulkSetTestAccountFilterResponseSerializer(serializers.Serializer):
     )
 
 
+class InsightBulkSetDefaultFiltersRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether every existing insight should apply the project's default filters."
+    )
+
+
+class InsightBulkSetDefaultFiltersResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of insights whose default filters setting was changed.")
+    unchanged = serializers.IntegerField(help_text="Number of insights that already had the requested value.")
+    unsupported = serializers.IntegerField(
+        help_text="Number of insights with no setting for default filters, such as SQL insights."
+    )
+    skipped = serializers.IntegerField(help_text="Number of insights the requester cannot edit.")
+    legacy = serializers.IntegerField(
+        help_text=(
+            "Number of insights left as they are because they still store legacy `filters` rather than a query. "
+            "They keep whatever value they already had. Opening and saving one converts it, after which this "
+            "endpoint covers it."
+        )
+    )
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -2459,6 +2485,45 @@ When set, the specified dashboard's filters and date range override will be appl
         permission_classes=[TeamMemberStrictManagementPermission],
     )
     def bulk_set_test_account_filter(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        return self._bulk_set_query_flag(
+            request,
+            plan=plan_test_account_filter_update,
+            analytics_event="insights bulk test account filter set",
+        )
+
+    @validated_request(
+        request_serializer=InsightBulkSetDefaultFiltersRequestSerializer,
+        responses={200: OpenApiResponse(response=InsightBulkSetDefaultFiltersResponseSerializer)},
+        description=(
+            "Turn 'apply project default filters' on or off for every existing insight in the project. "
+            "Requires project admin, matching the settings UI that fronts it. The setting of the same name only "
+            "decides the default for new insights; this applies it to the insights that already exist. Only "
+            "insights that store a query are changed; insights still holding legacy `filters` are counted in "
+            "`legacy` and left as they are. Insights with nowhere to put the setting, such as SQL insights, are "
+            "left alone, as are insights the requester cannot edit. Insights are updated in batches, so a failure "
+            "part way through leaves the finished batches applied. Retrying is safe and picks up the rest."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["insight:write"],
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def bulk_set_default_filters(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        return self._bulk_set_query_flag(
+            request,
+            plan=plan_default_filters_update,
+            analytics_event="insights bulk default filters set",
+        )
+
+    def _bulk_set_query_flag(
+        self,
+        request: ValidatedRequest,
+        *,
+        plan: Callable[..., TestAccountFilterUpdate],
+        analytics_event: str,
+    ) -> Response:
         enabled: bool = request.validated_data["enabled"]
         # Project-scoped to match `dangerously_get_queryset`, since insights are project-level even though they
         # are served under /environments/. The per-insight access check below resolves rows team-scoped, which is
@@ -2485,7 +2550,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 break
             cursor = batch[-1].id
             considered += len(batch)
-            for key, count in self._set_test_account_filter_on_batch(batch, enabled=enabled).items():
+            for key, count in self._set_query_flag_on_batch(batch, plan=plan, enabled=enabled).items():
                 totals[key] += count
 
         if totals["updated"]:
@@ -2495,7 +2560,7 @@ When set, the specified dashboard's filters and date range override will be appl
         # someone reached for this, and the no-op rate is the signal for whether it's discoverable.
         report_user_action(
             request.user,
-            "insights bulk test account filter set",
+            analytics_event,
             {
                 "enabled": enabled,
                 # Includes the legacy rows so the outcome counts still add up to what was considered.
@@ -2533,7 +2598,9 @@ When set, the specified dashboard's filters and date range override will be appl
         ]
         return editable, len(insights) - len(editable)
 
-    def _set_test_account_filter_on_batch(self, insights: Sequence[Insight], *, enabled: bool) -> dict[str, int]:
+    def _set_query_flag_on_batch(
+        self, insights: Sequence[Insight], *, plan: Callable[..., TestAccountFilterUpdate], enabled: bool
+    ) -> dict[str, int]:
         editable, skipped = self._editable_insights(insights)
         counts = {"updated": 0, "unchanged": 0, "unsupported": 0, "skipped": skipped}
 
@@ -2545,7 +2612,7 @@ When set, the specified dashboard's filters and date range override will be appl
         to_update: list[Insight] = []
         activity_log_entries: list[LogActivityEntry] = []
         for insight in editable:
-            update = plan_test_account_filter_update(insight.query, enabled=enabled)
+            update = plan(insight.query, enabled=enabled)
             if not update.supported:
                 counts["unsupported"] += 1
                 continue

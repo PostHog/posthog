@@ -299,6 +299,13 @@ describe('isDraftQueryWorthSaving', () => {
     ])('treats %s correctly', (_name, query, expected) => {
         expect(isDraftQueryWorthSaving(query, false)).toBe(expected)
     })
+
+    it.each<[string, Node, boolean]>([
+        ['an untouched default that carries the flag', getDefaultQuery(InsightType.TRENDS, false, true), false],
+        ['a default with the flag turned off', getDefaultQuery(InsightType.TRENDS, false, false), true],
+    ])('treats %s correctly when the project has default filters', (_name, query, expected) => {
+        expect(isDraftQueryWorthSaving(query, false, true)).toBe(expected)
+    })
 })
 
 describe('compareDataNodeQuery', () => {

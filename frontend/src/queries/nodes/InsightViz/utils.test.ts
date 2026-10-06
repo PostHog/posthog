@@ -1,6 +1,7 @@
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightModel, InsightType } from '~/types'
 
-import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
+import { extractValidationErrorCode, getDefaultQuery, getQueryBasedInsightModel } from './utils'
 
 describe('extractValidationErrorCode', () => {
     test.each([
@@ -65,5 +66,39 @@ describe('getQueryBasedInsightModel', () => {
 
         expect(result.query).toBeNull()
         expect(result).not.toHaveProperty('filters')
+    })
+})
+
+describe('getDefaultQuery with default filters', () => {
+    it.each([
+        InsightType.TRENDS,
+        InsightType.FUNNELS,
+        InsightType.RETENTION,
+        InsightType.PATHS,
+        InsightType.STICKINESS,
+        InsightType.LIFECYCLE,
+    ])('turns on applyDefaultFilters for the %s query', (insightType) => {
+        const query = getDefaultQuery(insightType, false, true)
+
+        expect(query.kind).toBe(NodeKind.InsightVizNode)
+        expect((query as any).source.applyDefaultFilters).toBe(true)
+    })
+
+    it('keeps the test account toggle and the default filters independent', () => {
+        const query = getDefaultQuery(InsightType.TRENDS, true, true) as any
+
+        expect(query.source.filterTestAccounts).toBe(true)
+        expect(query.source.applyDefaultFilters).toBe(true)
+    })
+
+    it('leaves the flag out when the project has no default filters', () => {
+        expect((getDefaultQuery(InsightType.TRENDS, false, false) as any).source).not.toHaveProperty(
+            'applyDefaultFilters'
+        )
+        expect((getDefaultQuery(InsightType.TRENDS, false) as any).source).not.toHaveProperty('applyDefaultFilters')
+    })
+
+    it.each([InsightType.SQL, InsightType.JSON, InsightType.HOG])('does not touch %s queries', (insightType) => {
+        expect(getDefaultQuery(insightType, false, true)).toEqual(getDefaultQuery(insightType, false))
     })
 })

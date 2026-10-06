@@ -29408,6 +29408,10 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
@@ -29791,6 +29795,10 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -29813,6 +29821,10 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -29835,6 +29847,10 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -29857,6 +29873,10 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -29879,6 +29899,10 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -29901,6 +29925,10 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -30027,6 +30055,10 @@ class PathsV2Query(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(
@@ -30116,6 +30148,10 @@ class CalendarHeatmapQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     calendarHeatmapFilter: CalendarHeatmapFilter | None = Field(
         default=None, description="Properties specific to the trends insight"
     )
@@ -30311,6 +30347,10 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     customAggregationTarget: bool | None = Field(
         default=None,
         description=(
@@ -30362,6 +30402,10 @@ class PathsV2ActorsQuery(BaseModel):
 class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
     )
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
@@ -30459,6 +30503,10 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     calendarHeatmapFilter: CalendarHeatmapFilter | None = Field(
         default=None,
@@ -30677,6 +30725,10 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
     compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
@@ -31377,6 +31429,10 @@ class PathsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    applyDefaultFilters: bool | None = Field(
+        default=False,
+        description=("Apply the project's default filters, added on top of the query's own property filters"),
+    )
     dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: DateRange | None = Field(default=None, description="Date range for the query")
     filterTestAccounts: bool | None = Field(

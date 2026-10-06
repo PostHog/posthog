@@ -1761,6 +1761,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
 
+        query = self._with_default_filters(query)
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
@@ -1768,6 +1769,35 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query, team, self.modifiers.webAnalyticsFirstPageviewFilters
         )
         self.__post_init__()
+
+    def _with_default_filters(self, query: Q) -> Q:
+        """Merge the project's default filters into the properties of a query that opted in.
+
+        Resolving here, instead of in each runner, keeps the defaults in `self.query`, so every
+        runner and the cache key see them. The query is copied because callers can reuse it.
+        The flag is cleared after the merge, so a runner built from `self.query` does not merge twice."""
+        if not getattr(query, "applyDefaultFilters", None):
+            return query
+        defaults = self.team.default_filters_config.filters
+        if not defaults:
+            return query
+
+        default_values = PropertyGroupFilterValue.model_validate(
+            {"type": FilterLogicalOperator.AND_, "values": defaults}
+        ).values
+        query = query.model_copy(deep=True)
+        query.applyDefaultFilters = False  # type: ignore[attr-defined]
+        own_properties = query.properties  # type: ignore[attr-defined]
+        own_group = (
+            PropertyGroupFilterValue(**own_properties.model_dump())
+            if isinstance(own_properties, PropertyGroupFilter)
+            else PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=own_properties or [])
+        )
+        query.properties = PropertyGroupFilter(  # type: ignore[attr-defined]
+            type=FilterLogicalOperator.AND_,
+            values=[own_group, PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=default_values)],
+        )
+        return query
 
     def __post_init__(self):
         """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""

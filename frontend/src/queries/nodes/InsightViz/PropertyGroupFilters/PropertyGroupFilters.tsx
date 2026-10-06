@@ -18,6 +18,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
+import { InsightDefaultFiltersSwitch } from '../filters/InsightDefaultFiltersSwitch'
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
@@ -83,6 +84,11 @@ export function PropertyGroupFilters({
                                 setQuery={setQuery as (node: InsightQueryNode) => void}
                             />
                         </div>
+                        <InsightDefaultFiltersSwitch
+                            disabledReason={disabledReason}
+                            query={query}
+                            setQuery={setQuery}
+                        />
                     </div>
 
                     {showHeader ? (

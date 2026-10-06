@@ -24,6 +24,8 @@ import type {
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
+    InsightBulkSetDefaultFiltersRequestApi,
+    InsightBulkSetDefaultFiltersResponseApi,
     InsightBulkSetTestAccountFilterRequestApi,
     InsightBulkSetTestAccountFilterResponseApi,
     InsightViewedRequestApi,
@@ -31,6 +33,7 @@ import type {
     InsightsAllActivityRetrieveParams,
     InsightsBulkDeleteCreateParams,
     InsightsBulkRestoreCreateParams,
+    InsightsBulkSetDefaultFiltersCreateParams,
     InsightsBulkSetTestAccountFilterCreateParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
@@ -654,6 +657,45 @@ export const insightsBulkRestoreCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightBulkDeleteRequestApi),
     })
+}
+
+export const getInsightsBulkSetDefaultFiltersCreateUrl = (
+    projectId: string,
+    params?: InsightsBulkSetDefaultFiltersCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_set_default_filters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_set_default_filters/`
+}
+
+/**
+ * Turn 'apply project default filters' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the setting, such as SQL insights, are left alone, as are insights the requester cannot edit. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const insightsBulkSetDefaultFiltersCreate = async (
+    projectId: string,
+    insightBulkSetDefaultFiltersRequestApi: InsightBulkSetDefaultFiltersRequestApi,
+    params?: InsightsBulkSetDefaultFiltersCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkSetDefaultFiltersResponseApi> => {
+    return apiMutator<InsightBulkSetDefaultFiltersResponseApi>(
+        getInsightsBulkSetDefaultFiltersCreateUrl(projectId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(insightBulkSetDefaultFiltersRequestApi),
+        }
+    )
 }
 
 export const getInsightsBulkSetTestAccountFilterCreateUrl = (

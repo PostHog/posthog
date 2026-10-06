@@ -234,6 +234,13 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Turn 'apply project default filters' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the setting, such as SQL insights, are left alone, as are insights the requester cannot edit. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
+ */
+export const InsightsBulkSetDefaultFiltersCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe("Whether every existing insight should apply the project's default filters."),
+})
+
+/**
  * Turn 'filter out internal and test users' on or off for every existing insight in the project. Requires project admin, matching the settings UI that fronts it. The setting of the same name only decides the default for new insights; this applies it to the insights that already exist. Only insights that store a query are changed; insights still holding legacy `filters` are counted in `legacy` and left as they are. Insights with nowhere to put the toggle, such as SQL insights, are left alone, as are insights the requester cannot edit. Dashboards follow their insights unless the dashboard sets its own override. Insights are updated in batches, so a failure part way through leaves the finished batches applied. Retrying is safe and picks up the rest.
  */
 export const InsightsBulkSetTestAccountFilterCreateBody = /* @__PURE__ */ zod.object({

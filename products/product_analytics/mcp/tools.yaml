@@ -308,6 +308,9 @@ tools:
     insights-bulk-restore-create:
         operation: insights_bulk_restore_create
         enabled: false
+    insights-bulk-set-default-filters-create:
+        operation: insights_bulk_set_default_filters_create
+        enabled: false
     insights-bulk-set-test-account-filter-create:
         operation: insights_bulk_set_test_account_filter_create
         enabled: false

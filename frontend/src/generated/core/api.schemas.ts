@@ -1820,6 +1820,18 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+export type TeamDefaultFiltersConfigApiFiltersItem = { [key: string]: unknown }
+
+export interface TeamDefaultFiltersConfigApi {
+    /**
+     * Property filters applied to insights that have the default filters turned on, on top of the insight's own filters. Each entry is a property filter with the same shapes as `test_account_filters`: person, event, or cohort. At most 20 entries.
+     * @maxItems 20
+     */
+    filters?: TeamDefaultFiltersConfigApiFiltersItem[]
+    /** Whether new insights start with the default filters turned on. Existing insights are not changed. */
+    apply_to_new_insights?: boolean
+}
+
 /**
  * * `off` - Off
  * * `opt_out` - Opt Out
@@ -2693,6 +2705,7 @@ export interface ProjectBackwardCompatApi {
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    default_filters_config?: TeamDefaultFiltersConfigApi
     workflows_config?: TeamWorkflowsConfigApi
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
@@ -3560,6 +3573,7 @@ export interface PatchedProjectBackwardCompatApi {
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
+    default_filters_config?: TeamDefaultFiltersConfigApi
     workflows_config?: TeamWorkflowsConfigApi
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi

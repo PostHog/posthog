@@ -16719,6 +16719,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "calendarHeatmapFilter": {
                     "$ref": "#/definitions/CalendarHeatmapFilter",
                     "description": "Properties specific to the trends insight"
@@ -27885,6 +27890,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -29762,6 +29772,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -29830,6 +29845,11 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -29900,6 +29920,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -29968,6 +29993,11 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -30038,6 +30068,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -30106,6 +30141,11 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -30724,6 +30764,11 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
                 },
                 "customAggregationTarget": {
                     "description": "For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.",
@@ -38505,6 +38550,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -38888,6 +38938,11 @@
         "PathsV2Query": {
             "additionalProperties": false,
             "properties": {
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -49690,6 +49745,11 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -51846,6 +51906,11 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
+                },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
                     "description": "Compare to date range"
@@ -54532,6 +54597,11 @@
                         }
                     ],
                     "description": "Groups aggregation"
+                },
+                "applyDefaultFilters": {
+                    "default": false,
+                    "description": "Apply the project's default filters, added on top of the query's own property filters",
+                    "type": "boolean"
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",

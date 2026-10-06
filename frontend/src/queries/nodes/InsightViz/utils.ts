@@ -95,19 +95,22 @@ export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: 
 
 export const queryFromKind = (
     kind: ProductAnalyticsInsightNodeKind,
-    filterTestAccountsDefault: boolean
+    filterTestAccountsDefault: boolean,
+    applyDefaultFiltersDefault: boolean = false
 ): InsightVizNode =>
     setLatestVersionsOnQuery({
         kind: NodeKind.InsightVizNode,
         source: {
             ...getNodeKindToDefaultQuery()[kind],
             ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}),
+            ...(applyDefaultFiltersDefault ? { applyDefaultFilters: true } : {}),
         },
     })
 
 export const getDefaultQuery = (
     insightType: InsightType,
-    filterTestAccountsDefault: boolean
+    filterTestAccountsDefault: boolean,
+    applyDefaultFiltersDefault: boolean = false
 ): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
     // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
     // This is a fallback that should rarely be used
@@ -126,19 +129,19 @@ export const getDefaultQuery = (
     }
 
     if (insightType === InsightType.TRENDS) {
-        return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.FUNNELS) {
-        return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.RETENTION) {
-        return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.PATHS) {
-        return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.JOURNEYS) {
-        return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.STICKINESS) {
-        return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     } else if (insightType === InsightType.LIFECYCLE) {
-        return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
+        return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)
     }
 
     throw new Error('encountered unexpected type for view')

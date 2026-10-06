@@ -174,7 +174,11 @@ export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts):
  * construction (web analytics tiles, kinds without a product analytics default) — for those,
  * merely opening the editor would persist a draft the user never edited.
  */
-export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: boolean): boolean => {
+export const isDraftQueryWorthSaving = (
+    query: Node,
+    filterTestAccountsDefault: boolean,
+    applyDefaultFiltersDefault: boolean = false
+): boolean => {
     if (!isInsightVizNode(query)) {
         // Tables and SQL drafts have no cheap default to compare against
         return true
@@ -185,7 +189,11 @@ export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: 
     const source = query.source as ProductAnalyticsInsightQueryNode
     let defaultQuery: Node
     try {
-        defaultQuery = getDefaultQuery(nodeKindToInsightType[source.kind], filterTestAccountsDefault)
+        defaultQuery = getDefaultQuery(
+            nodeKindToInsightType[source.kind],
+            filterTestAccountsDefault,
+            applyDefaultFiltersDefault
+        )
     } catch {
         return true
     }

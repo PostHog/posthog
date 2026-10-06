@@ -150,6 +150,7 @@ export type SettingId =
     | 'datacapture'
     | 'date-and-time'
     | 'dead-clicks-autocapture'
+    | 'default-filters'
     | 'details'
     | 'discussion-mention-integrations'
     | 'display-name'

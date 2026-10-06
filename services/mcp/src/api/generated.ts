@@ -4216,6 +4216,8 @@ export namespace Schemas {
     export interface TrendsQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
       /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
@@ -4469,6 +4471,8 @@ export namespace Schemas {
     export interface FunnelsQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
       /** Compare to date range */
@@ -4684,6 +4688,8 @@ export namespace Schemas {
     export interface RetentionQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
       /** Colors used in the insight's visualization */
@@ -4796,6 +4802,8 @@ export namespace Schemas {
     export interface PathsQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
@@ -4941,6 +4949,8 @@ export namespace Schemas {
     }
 
     export interface PathsV2Query {
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
@@ -5032,6 +5042,8 @@ export namespace Schemas {
     }
 
     export interface StickinessQuery {
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Compare to date range */
       compareFilter?: CompareFilter | null;
       /** Colors used in the insight's visualization */
@@ -5141,6 +5153,8 @@ export namespace Schemas {
     export interface LifecycleQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
       /** Colors used in the insight's visualization */
@@ -16256,6 +16270,8 @@ export namespace Schemas {
     export interface CalendarHeatmapQuery {
       /** Groups aggregation */
       aggregation_group_type_index?: number | null;
+      /** Apply the project's default filters, added on top of the query's own property filters */
+      applyDefaultFilters?: boolean | null;
       /** Properties specific to the trends insight */
       calendarHeatmapFilter?: CalendarHeatmapFilter | null;
       /** Whether we should be comparing against a specific conversion goal */
@@ -50409,6 +50425,24 @@ export namespace Schemas {
       skipped: InsightBulkOperationSkipped[];
     }
 
+    export interface InsightBulkSetDefaultFiltersRequest {
+      /** Whether every existing insight should apply the project's default filters. */
+      enabled: boolean;
+    }
+
+    export interface InsightBulkSetDefaultFiltersResponse {
+      /** Number of insights whose default filters setting was changed. */
+      updated: number;
+      /** Number of insights that already had the requested value. */
+      unchanged: number;
+      /** Number of insights with no setting for default filters, such as SQL insights. */
+      unsupported: number;
+      /** Number of insights the requester cannot edit. */
+      skipped: number;
+      /** Number of insights left as they are because they still store legacy `filters` rather than a query. They keep whatever value they already had. Opening and saving one converts it, after which this endpoint covers it. */
+      legacy: number;
+    }
+
     export interface InsightBulkSetTestAccountFilterRequest {
       /** Whether every existing insight should filter out internal and test users. */
       enabled: boolean;
@@ -70846,6 +70880,18 @@ export namespace Schemas {
       account_group_type_index?: number | null;
     }
 
+    export type TeamDefaultFiltersConfigFiltersItem = { [key: string]: unknown };
+
+    export interface TeamDefaultFiltersConfig {
+      /**
+         * Property filters applied to insights that have the default filters turned on, on top of the insight's own filters. Each entry is a property filter with the same shapes as `test_account_filters`: person, event, or cohort. At most 20 entries.
+         * @maxItems 20
+         */
+      filters?: TeamDefaultFiltersConfigFiltersItem[];
+      /** Whether new insights start with the default filters turned on. Existing insights are not changed. */
+      apply_to_new_insights?: boolean;
+    }
+
     export interface TeamWorkflowsConfig {
       /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
       capture_workflows_engagement_events?: boolean;
@@ -71691,6 +71737,7 @@ export namespace Schemas {
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      default_filters_config?: TeamDefaultFiltersConfig;
       workflows_config?: TeamWorkflowsConfig;
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
@@ -76269,6 +76316,7 @@ export namespace Schemas {
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
       marketing_analytics_config?: TeamMarketingAnalyticsConfig;
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
+      default_filters_config?: TeamDefaultFiltersConfig;
       workflows_config?: TeamWorkflowsConfig;
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
       base_currency?: BaseCurrencyEnum;
@@ -105656,6 +105704,18 @@ export namespace Schemas {
 
 
     export const InsightsBulkRestoreCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkSetDefaultFiltersCreateParams = {
+    format?: InsightsBulkSetDefaultFiltersCreateFormat;
+    };
+
+    export type InsightsBulkSetDefaultFiltersCreateFormat = typeof InsightsBulkSetDefaultFiltersCreateFormat[keyof typeof InsightsBulkSetDefaultFiltersCreateFormat];
+
+
+    export const InsightsBulkSetDefaultFiltersCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

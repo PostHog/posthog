@@ -187,6 +187,7 @@ export interface insightVizDataLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     allTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    applyDefaultFiltersDefault: boolean // filterTestAccountsDefaultsLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     insightData: Record<string, any> // insightDataLogic
     insightDataError: Record<string, any> | null // insightDataLogic
@@ -489,7 +490,8 @@ export interface insightVizDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
-            filterTestAccountsDefault: boolean
+            filterTestAccountsDefault: boolean,
+            applyDefaultFiltersDefault: boolean
         ) => InsightQueryNode
         isTrends: (
             querySource:
@@ -1338,7 +1340,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             insightDataLogic,
             ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
-            ['filterTestAccountsDefault'],
+            ['filterTestAccountsDefault', 'applyDefaultFiltersDefault'],
             databaseTableListLogic,
             ['allTablesMap'],
             dataThemeLogic,
@@ -1423,7 +1425,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
         localQuerySource: [
-            (s) => [s.querySource, s.filterTestAccountsDefault],
+            (s) => [s.querySource, s.filterTestAccountsDefault, s.applyDefaultFiltersDefault],
             (
                 querySource:
                     | FunnelsQuery
@@ -1435,8 +1437,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').PathsQuery
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery,
-                filterTestAccountsDefault: boolean
-            ) => (querySource ? querySource : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault).source),
+                filterTestAccountsDefault: boolean,
+                applyDefaultFiltersDefault: boolean
+            ) =>
+                querySource
+                    ? querySource
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault, applyDefaultFiltersDefault).source,
         ],
 
         isTrends: [

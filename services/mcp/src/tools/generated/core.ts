@@ -177,6 +177,7 @@ const ProjectCreateSchema = () => {
         revenue_analytics_config: true,
         marketing_analytics_config: true,
         customer_analytics_config: true,
+        default_filters_config: true,
         workflows_config: true,
         feature_flag_policy_config: true,
         base_currency: true,
@@ -452,6 +453,9 @@ const projectSettingsUpdate = (): ToolBase<
         }
         if (params.customer_analytics_config !== undefined) {
             body['customer_analytics_config'] = params.customer_analytics_config
+        }
+        if (params.default_filters_config !== undefined) {
+            body['default_filters_config'] = params.default_filters_config
         }
         if (params.workflows_config !== undefined) {
             body['workflows_config'] = params.workflows_config

@@ -37,6 +37,7 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamDefaultFiltersConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
     TeamLogsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
@@ -256,6 +257,29 @@ def update_team_customer_analytics_config(team: Team, validated_data: dict[str, 
         for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
     }
     capture_team_config_diff(team, "customer_analytics_config", old_config, new_config, context=context)
+
+
+def update_team_default_filters_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.default_filters_config, field) for field in TeamDefaultFiltersConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamDefaultFiltersConfigSerializer(
+        team.default_filters_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.default_filters_config, field) for field in TeamDefaultFiltersConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "default_filters_config", old_config, new_config, context=context)
 
 
 def update_team_workflows_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
@@ -626,6 +650,7 @@ class ProjectBackwardCompatSerializer(
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
+    default_filters_config = TeamDefaultFiltersConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
@@ -741,6 +766,7 @@ class ProjectBackwardCompatSerializer(
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
+            "default_filters_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
             "feature_flag_policy_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
@@ -854,6 +880,7 @@ class ProjectBackwardCompatSerializer(
             "revenue_analytics_config",
             "marketing_analytics_config",
             "customer_analytics_config",
+            "default_filters_config",
             "workflows_config",
             "feature_flag_policy_config",
         }
@@ -968,6 +995,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_customer_analytics_config(value):
         return TeamSerializer.validate_customer_analytics_config(value)
+
+    @staticmethod
+    def validate_default_filters_config(value):
+        return TeamSerializer.validate_default_filters_config(value)
 
     def validate_workflows_config(self, value):
         return validate_team_workflows_config(self.instance.passthrough_team if self.instance else None, value)
@@ -1125,6 +1156,7 @@ class ProjectBackwardCompatSerializer(
             "revenue_analytics_config",
             "marketing_analytics_config",
             "customer_analytics_config",
+            "default_filters_config",
             "workflows_config",
             "feature_flag_policy_config",
         ):
@@ -1205,6 +1237,8 @@ class ProjectBackwardCompatSerializer(
             update_team_marketing_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("customer_analytics_config", None):
             update_team_customer_analytics_config(team, config_data, context=config_context)
+        if config_data := validated_data.pop("default_filters_config", None):
+            update_team_default_filters_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
 

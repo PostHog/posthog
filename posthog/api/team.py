@@ -85,6 +85,7 @@ from posthog.models.team.logs_retention import (
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.team.team_default_filters_config import MAX_DEFAULT_FILTERS, TeamDefaultFiltersConfig
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -560,6 +561,7 @@ TEAM_CONFIG_FIELDS = (
     "revenue_analytics_config",
     "marketing_analytics_config",
     "customer_analytics_config",
+    "default_filters_config",
     "onboarding_tasks",
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
@@ -964,6 +966,31 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         fields = ["require_tags"]
 
 
+class TeamDefaultFiltersConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    filters = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        max_length=MAX_DEFAULT_FILTERS,
+        help_text=(
+            "Property filters applied to insights that have the default filters turned on, on top of the "
+            "insight's own filters. At most {MAX_DEFAULT_FILTERS} entries."
+        ),
+    )
+
+    apply_to_new_insights = serializers.BooleanField(
+        required=False,
+        help_text=("Whether new insights start with the default filters turned on. Existing insights are not changed."),
+    )
+
+    class Meta:
+        model = TeamDefaultFiltersConfig
+        fields = ["filters", "apply_to_new_insights"]
+
+    @staticmethod
+    def validate_filters(value: list[dict[str, Any]]) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1245,6 +1272,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    default_filters_config = TeamDefaultFiltersConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
@@ -1422,6 +1450,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def validate_workflows_config(self, value):
         return validate_team_workflows_config(self.instance, value)
+
+    @staticmethod
+    def validate_default_filters_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamDefaultFiltersConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
 
     @staticmethod
     def validate_feature_flag_policy_config(value):
@@ -2110,6 +2148,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
 
+        if config_data := validated_data.pop("default_filters_config", None):
+            self._update_default_filters_config(instance, config_data)
+
         if config_data := validated_data.pop("workflows_config", None):
             self._update_workflows_config(instance, config_data)
 
@@ -2345,6 +2386,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_default_filters_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.default_filters_config, field)
+            for field in TeamDefaultFiltersConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamDefaultFiltersConfigSerializer(
+            instance.default_filters_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.default_filters_config, field)
+            for field in TeamDefaultFiltersConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "default_filters_config", old_config, new_config)
         return instance
 
     def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:

@@ -1683,6 +1683,12 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends
      */
     filterTestAccounts?: boolean
     /**
+     * Apply the project's default filters, added on top of the query's own property filters
+     *
+     * @default false
+     */
+    applyDefaultFilters?: boolean
+    /**
      * Property filters for all series
      *
      * @default []

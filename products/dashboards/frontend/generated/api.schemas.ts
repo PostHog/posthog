@@ -3048,6 +3048,8 @@ export interface TrendsFilterApi {
 export interface TrendsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
@@ -3513,6 +3515,8 @@ export interface FunnelsDataWarehouseNodeApi {
 export interface FunnelsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Compare to date range */
@@ -3774,6 +3778,8 @@ export interface RetentionFilterApi {
 export interface RetentionQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
     /** Colors used in the insight's visualization */
@@ -3912,6 +3918,8 @@ export interface PathsQueryResponseApi {
 export interface PathsQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -4084,6 +4092,8 @@ export interface PathsV2QueryResponseApi {
 }
 
 export interface PathsV2QueryApi {
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -4205,6 +4215,8 @@ export interface StickinessFilterApi {
 }
 
 export interface StickinessQueryApi {
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
@@ -4404,6 +4416,8 @@ export interface LifecycleDataWarehouseNodeApi {
 export interface LifecycleQueryApi {
     /** Groups aggregation */
     aggregation_group_type_index?: number | null
+    /** Apply the project's default filters, added on top of the query's own property filters */
+    applyDefaultFilters?: boolean | null
     /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
     /** Colors used in the insight's visualization */

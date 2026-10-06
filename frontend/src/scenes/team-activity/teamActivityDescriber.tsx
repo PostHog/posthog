@@ -762,6 +762,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     managed_viewsets: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
+    default_filters_config: () => null,
 }
 
 function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {

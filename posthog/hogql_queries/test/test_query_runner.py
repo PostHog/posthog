@@ -33,6 +33,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     EventsQuery,
+    FilterLogicalOperator,
     GroupsQuery,
     HogQLFilters,
     HogQLQuery,
@@ -42,8 +43,12 @@ from posthog.schema import (
     InsightVizNode,
     IntervalType,
     MaterializationMode,
+    PersonPropertyFilter,
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
     PropertyType,
     PropertyValuesQuery,
     QueryLogTags,
@@ -197,6 +202,21 @@ def _shared_link_user(team: Team) -> User:
 def _chain(exc: Exception, cause: Exception) -> Exception:
     exc.__cause__ = cause
     return exc
+
+
+def _person_filter(key: str) -> dict[str, Any]:
+    return {"key": key, "type": "person", "value": "x", "operator": "exact"}
+
+
+def _leaf_keys(properties: Any) -> list[str]:
+    if properties is None:
+        return []
+    node = properties.model_dump() if hasattr(properties, "model_dump") else properties
+    if isinstance(node, list):
+        return [key for item in node for key in _leaf_keys(item)]
+    if "values" in node:
+        return _leaf_keys(node["values"])
+    return [node["key"]]
 
 
 class TestQueryRunner(BaseTest):
@@ -1320,6 +1340,74 @@ class TestQueryRunner(BaseTest):
             == failure_delta
         )
         assert SURVEY_QUERY_EXECUTION_DURATION.labels(**query_labels)._sum.get() > before_duration_sum
+
+    @parameterized.expand(
+        [
+            ("flag_off_ignores_defaults", False, ["default_a"], ["own"], ["own"]),
+            ("flag_on_without_defaults_changes_nothing", True, [], ["own"], ["own"]),
+            (
+                "flag_on_adds_defaults_without_own_filters",
+                True,
+                ["default_a", "default_b"],
+                [],
+                ["default_a", "default_b"],
+            ),
+            ("flag_on_keeps_own_filters_and_adds_defaults", True, ["default_a"], ["own"], ["own", "default_a"]),
+        ]
+    )
+    def test_default_filters_are_added_to_the_query_properties(self, _name, apply_flag, defaults, own, expected_keys):
+        self.team.default_filters_config.filters = [_person_filter(key) for key in defaults]
+        self.team.default_filters_config.save()
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            applyDefaultFilters=apply_flag,
+            properties=[_person_filter(key) for key in own] or None,
+        )
+
+        runner = get_query_runner(query=query, team=self.team)
+        rebuilt_runner = get_query_runner(query=runner.query, team=self.team)
+
+        assert _leaf_keys(runner.query.properties) == expected_keys
+        assert _leaf_keys(rebuilt_runner.query.properties) == expected_keys
+
+    def test_default_filters_keep_the_logic_of_an_existing_filter_group(self):
+        self.team.default_filters_config.filters = [_person_filter("default_a")]
+        self.team.default_filters_config.save()
+        own_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.OR_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.OR_,
+                    values=[
+                        PersonPropertyFilter(key="own_a", operator=PropertyOperator.EXACT, value="x"),
+                        PersonPropertyFilter(key="own_b", operator=PropertyOperator.EXACT, value="x"),
+                    ],
+                )
+            ],
+        )
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], applyDefaultFilters=True, properties=own_group)
+
+        merged = get_query_runner(query=query, team=self.team).query.properties.model_dump()
+
+        assert merged["type"] == "AND"
+        assert merged["values"][0]["type"] == "OR"
+        assert [leaf["key"] for leaf in merged["values"][0]["values"][0]["values"]] == ["own_a", "own_b"]
+        assert _leaf_keys(merged) == ["own_a", "own_b", "default_a"]
+
+    def test_default_filters_change_the_cache_key_only_when_applied(self):
+        def cache_key(apply_flag: bool) -> str:
+            query = TrendsQuery(series=[EventsNode(event="$pageview")], applyDefaultFilters=apply_flag)
+            return get_query_runner(query=query, team=self.team).get_cache_key()
+
+        self.team.default_filters_config.filters = [_person_filter("default_a")]
+        self.team.default_filters_config.save()
+        applied_before, ignored_before = cache_key(True), cache_key(False)
+
+        self.team.default_filters_config.filters = [_person_filter("default_b")]
+        self.team.default_filters_config.save()
+
+        assert cache_key(True) != applied_before
+        assert cache_key(False) == ignored_before
 
 
 class TestSeriesCustomNameCaching(BaseTest):

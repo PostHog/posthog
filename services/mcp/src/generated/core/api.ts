@@ -68,6 +68,8 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
+export const organizationsProjectsCreateBodyDefaultFiltersConfigFiltersMax = 20
+
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
 export const organizationsProjectsCreateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
@@ -2430,6 +2432,23 @@ export const OrganizationsProjectsCreateBody = () => zod
                     ),
             })
             .optional(),
+        default_filters_config: zod
+            .object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .max(organizationsProjectsCreateBodyDefaultFiltersConfigFiltersMax)
+                    .optional()
+                    .describe(
+                        "Property filters applied to insights that have the default filters turned on, on top of the insight's own filters. Each entry is a property filter with the same shapes as `test_account_filters`: person, event, or cohort. At most 20 entries."
+                    ),
+                apply_to_new_insights: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether new insights start with the default filters turned on. Existing insights are not changed.'
+                    ),
+            })
+            .optional(),
         workflows_config: zod
             .object({
                 capture_workflows_engagement_events: zod
@@ -2751,6 +2770,8 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemFiveTypeDefault = `hogql`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemThreePropertiesOneItemSixTypeDefault = `data_warehouse`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
+
+export const organizationsProjectsPartialUpdateBodyDefaultFiltersConfigFiltersMax = 20
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRateLimitPerDayMin = 0
 
@@ -5113,6 +5134,23 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .nullish()
                     .describe(
                         'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        default_filters_config: zod
+            .object({
+                filters: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .max(organizationsProjectsPartialUpdateBodyDefaultFiltersConfigFiltersMax)
+                    .optional()
+                    .describe(
+                        "Property filters applied to insights that have the default filters turned on, on top of the insight's own filters. Each entry is a property filter with the same shapes as `test_account_filters`: person, event, or cohort. At most 20 entries."
+                    ),
+                apply_to_new_insights: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether new insights start with the default filters turned on. Existing insights are not changed.'
                     ),
             })
             .optional(),

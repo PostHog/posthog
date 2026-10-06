@@ -95,6 +95,7 @@ import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
+import { DefaultFiltersConfig } from './environment/DefaultFiltersConfig'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
 import { DefaultSequentialTestingEnabled } from './environment/DefaultSequentialTestingEnabled'
 import { DefaultSequentialTuningParameter } from './environment/DefaultSequentialTuningParameter'
@@ -325,6 +326,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
+            },
+            {
+                id: 'default-filters',
+                title: 'Default filters',
+                description:
+                    'Filters that insights can apply on top of their own filters. Turn them on for all new insights, or apply them to the insights you already have.',
+                component: <DefaultFiltersConfig />,
+                keywords: ['default', 'filter', 'insight', 'property', 'new insight'],
             },
             {
                 // Project-wide, like internal user filtering above: these definitions feed the

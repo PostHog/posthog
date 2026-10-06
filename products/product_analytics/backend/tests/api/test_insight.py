@@ -4361,6 +4361,10 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
 
 
 class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    endpoint = "bulk_set_test_account_filter"
+    flag = "filterTestAccounts"
+    analytics_event = "insights bulk test account filter set"
+
     def setUp(self) -> None:
         super().setUp()
         # The action is project-admin only, so the caller in the rest of these tests has to be one.
@@ -4370,7 +4374,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
     def _create_query_insight(self, *, name: str = "Trend", filter_test_accounts: bool | None = None) -> Insight:
         source: dict[str, Any] = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
         if filter_test_accounts is not None:
-            source["filterTestAccounts"] = filter_test_accounts
+            source[self.flag] = filter_test_accounts
         return Insight.objects.create(
             team=self.team,
             name=name,
@@ -4386,7 +4390,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
     def _bulk_set(self, enabled: bool) -> Any:
         return self.client.post(
-            f"/api/environments/{self.team.id}/insights/bulk_set_test_account_filter/",
+            f"/api/environments/{self.team.id}/insights/{self.endpoint}/",
             {"enabled": enabled},
             format="json",
         )
@@ -4400,8 +4404,8 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json(), {"updated": 1, "unchanged": 1, "unsupported": 0, "skipped": 0, "legacy": 0})
-        self.assertEqual(self._reloaded_source(needs_change)["filterTestAccounts"], enabled)
-        self.assertEqual(self._reloaded_source(already_set)["filterTestAccounts"], enabled)
+        self.assertEqual(self._reloaded_source(needs_change)[self.flag], enabled)
+        self.assertEqual(self._reloaded_source(already_set)[self.flag], enabled)
 
     @patch("products.product_analytics.backend.presentation.insight.INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE", 2)
     def test_covers_every_insight_across_several_batches(self) -> None:
@@ -4413,7 +4417,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         # Both are invisible while every insight fits in a single batch, which is every other case here.
         self.assertEqual(response.json(), {"updated": 5, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
         for insight in insights:
-            self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+            self.assertTrue(self._reloaded_source(insight)[self.flag])
 
     def test_treats_a_missing_filter_as_off(self) -> None:
         insight = self._create_query_insight()
@@ -4421,7 +4425,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         self.assertEqual(self._bulk_set(False).json()["unchanged"], 1)
         self.assertEqual(self._bulk_set(True).json()["updated"], 1)
 
-        self.assertTrue(self._reloaded_source(insight)["filterTestAccounts"])
+        self.assertTrue(self._reloaded_source(insight)[self.flag])
 
     def test_leaves_sql_insights_alone(self) -> None:
         sql_insight = Insight.objects.create(
@@ -4434,7 +4438,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         response = self._bulk_set(True)
 
         self.assertEqual(response.json(), {"updated": 0, "unchanged": 0, "unsupported": 1, "skipped": 0, "legacy": 0})
-        self.assertNotIn("filterTestAccounts", self._reloaded_source(sql_insight))
+        self.assertNotIn(self.flag, self._reloaded_source(sql_insight))
 
     def test_reports_insights_that_only_have_legacy_filters_rather_than_changing_them(self) -> None:
         mine = self._create_query_insight(filter_test_accounts=False)
@@ -4447,7 +4451,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         # `legacy: 1` rather than `unsupported: 1`: these carry the toggle and have their own remedy, so the
         # caller has to be able to tell them apart from a SQL insight that can never have one.
         self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 1})
-        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
+        self.assertTrue(self._reloaded_source(mine)[self.flag])
         legacy.refresh_from_db()
         self.assertNotIn("filter_test_accounts", legacy.filters)
 
@@ -4463,7 +4467,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
                 "source": {
                     "kind": "TrendsQuery",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "filterTestAccounts": False,
+                    self.flag: False,
                 },
             },
         )
@@ -4471,8 +4475,8 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         response = self._bulk_set(True)
 
         self.assertEqual(response.json(), {"updated": 1, "unchanged": 0, "unsupported": 0, "skipped": 0, "legacy": 0})
-        self.assertTrue(self._reloaded_source(mine)["filterTestAccounts"])
-        self.assertFalse(self._reloaded_source(theirs)["filterTestAccounts"])
+        self.assertTrue(self._reloaded_source(mine)[self.flag])
+        self.assertFalse(self._reloaded_source(theirs)[self.flag])
 
     def test_refuses_a_member_who_could_otherwise_edit_every_insight(self) -> None:
         insight = self._create_query_insight(filter_test_accounts=False)
@@ -4484,7 +4488,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
         # The per-insight check would let this through: insights default to editor access, which is how the
         # settings UI hiding the button from non-admins ended up being the only thing stopping them.
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(self._reloaded_source(insight)["filterTestAccounts"])
+        self.assertFalse(self._reloaded_source(insight)[self.flag])
 
     def test_records_the_change_in_the_activity_log(self) -> None:
         insight = self._create_query_insight()
@@ -4517,7 +4521,7 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
 
         mock_report_user_action.assert_any_call(
             self.user,
-            "insights bulk test account filter set",
+            self.analytics_event,
             {
                 "enabled": True,
                 "insights_considered": 1,
@@ -4529,3 +4533,9 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestInsightBulkSetDefaultFilters(TestInsightBulkSetTestAccountFilter):
+    endpoint = "bulk_set_default_filters"
+    flag = "applyDefaultFilters"
+    analytics_event = "insights bulk default filters set"

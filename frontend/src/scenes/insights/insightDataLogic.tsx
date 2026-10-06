@@ -144,6 +144,7 @@ export interface insightDataLogicValues {
     insightPollResponse: Record<string, QueryStatus | null> | null // dataNodeLogic
     insightQuery: DataNode<Record<string, any>> // dataNodeLogic
     queryId: string | null // dataNodeLogic
+    applyDefaultFiltersDefault: boolean // filterTestAccountsDefaultsLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
     savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
@@ -461,6 +462,7 @@ export interface insightDataLogicMeta {
             insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             internalQuery: Node<Record<string, any>> | null,
             filterTestAccountsDefault: boolean,
+            applyDefaultFiltersDefault: boolean,
             isDataWarehouseQuery: boolean
         ) => Node | null
         isDataWarehouseQuery: (arg: any) => boolean
@@ -472,7 +474,8 @@ export interface insightDataLogicMeta {
         queryChanged: (
             query: Node<Record<string, any>> | null,
             savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
-            filterTestAccountsDefault: boolean
+            filterTestAccountsDefault: boolean,
+            applyDefaultFiltersDefault: boolean
         ) => boolean
         insightData: (
             insightDataRaw:
@@ -532,7 +535,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'queryId',
             ],
             filterTestAccountsDefaultsLogic,
-            ['filterTestAccountsDefault'],
+            ['filterTestAccountsDefault', 'applyDefaultFiltersDefault'],
         ],
         actions: [
             insightLogic,
@@ -642,12 +645,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         query: [
-            (s) => [s.propsQuery, s.insight, s.internalQuery, s.filterTestAccountsDefault, s.isDataWarehouseQuery],
+            (s) => [
+                s.propsQuery,
+                s.insight,
+                s.internalQuery,
+                s.filterTestAccountsDefault,
+                s.applyDefaultFiltersDefault,
+                s.isDataWarehouseQuery,
+            ],
             (
                 propsQuery: null | import('~/queries/schema/schema-general').QuerySchema | undefined,
                 insight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
                 internalQuery: Node | null,
                 filterTestAccountsDefault: boolean,
+                applyDefaultFiltersDefault: boolean,
                 isDataWarehouseQuery: boolean
             ): Node | null =>
                 internalQuery ||
@@ -655,7 +666,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 insight.query ||
                 (isDataWarehouseQuery
                     ? examples.DataWarehouse
-                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)),
+                    : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault, applyDefaultFiltersDefault)),
         ],
 
         isDataWarehouseQuery: [
@@ -694,11 +705,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         queryChanged: [
-            (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault],
+            (s) => [s.query, s.savedInsight, s.filterTestAccountsDefault, s.applyDefaultFiltersDefault],
             (
                 query: Node | null,
                 savedInsight: Partial<import('~/types').QueryBasedInsightModel<Node<Record<string, any>>>>,
-                filterTestAccountsDefault: boolean
+                filterTestAccountsDefault: boolean,
+                applyDefaultFiltersDefault: boolean
             ) => {
                 let savedOrDefaultQuery
                 if (savedInsight.query) {
@@ -715,7 +727,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         return true
                     }
                     const insightType = nodeKindToInsightType[query.source.kind]
-                    savedOrDefaultQuery = getDefaultQuery(insightType, filterTestAccountsDefault)
+                    savedOrDefaultQuery = getDefaultQuery(
+                        insightType,
+                        filterTestAccountsDefault,
+                        applyDefaultFiltersDefault
+                    )
                 } else if (isDataVisualizationNode(query)) {
                     savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)
                 } else if (isDataTableNode(query)) {
@@ -1051,7 +1067,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             // a draft that only differs from the type's default in cosmetic ways (or that the
             // editor marks as changed by construction) is noise when resurfaced as "unsaved insight"
-            if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault)) {
+            if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault, values.applyDefaultFiltersDefault)) {
                 // reverting a meaningful edit supersedes the draft this editor persisted, but an
                 // editor that never persisted one must not delete a draft from an earlier session
                 if (cache.persistedDraftQuery) {

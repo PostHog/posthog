@@ -40,6 +40,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.models.team.team_default_filters_config import TeamDefaultFiltersConfig
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -3429,6 +3430,56 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             [{"key": "email", "type": "person", "operator": "is_set"}],
         )
 
+    def test_default_filters_config_round_trips_on_environments_and_projects(self):
+        filters = [
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "not_icontains"},
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "exact"},
+        ]
+
+        config = {"filters": filters, "apply_to_new_insights": True}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/", {"default_filters_config": config}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["default_filters_config"], config)
+        for url in (f"/api/environments/{self.team.id}/", f"/api/projects/{self.team.id}/"):
+            self.assertEqual(self.client.get(url).json()["default_filters_config"], config)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"default_filters_config": {"apply_to_new_insights": False}},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.json()["default_filters_config"], {"filters": filters, "apply_to_new_insights": False}
+        )
+
+        log = ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").latest("created_at")
+        assert [change["field"] for change in log.detail["changes"]] == ["default_filters_config"]
+
+    def test_default_filters_config_defaults_to_empty_list(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/")
+
+        self.assertEqual(response.json()["default_filters_config"], {"filters": [], "apply_to_new_insights": False})
+
+    @parameterized.expand(
+        [
+            ("invalid_type", [{"key": "email", "type": "not_a_type", "operator": "exact", "value": "x"}]),
+            ("not_a_list", {"key": "email"}),
+            ("too_many", [{"key": "email", "type": "person", "operator": "is_set"}] * 21),
+        ]
+    )
+    def test_default_filters_config_rejects_invalid_filters(self, _name: str, filters: Any):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/", {"default_filters_config": {"filters": filters}}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.team.default_filters_config.filters, [])
+
 
 class TestChangeOrganizationConcurrency(TransactionTestCase):
     """Two moves of the same project must serialize on the project row lock.
@@ -3756,6 +3807,17 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # every setting below behind useRestrictedArea(Admin), so the API must reject too.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+
+    @parameterized.expand([("environments", "/api/environments/@current/"), ("projects", "/api/projects/@current/")])
+    def test_member_cannot_patch_default_filters_config(self, _name: str, url: str) -> None:
+        response = self.client.patch(
+            url,
+            {"default_filters_config": {"filters": [{"key": "email", "type": "person", "operator": "is_set"}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert TeamDefaultFiltersConfig.objects.get(team=self.team).filters == []
 
     @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS])
     def test_member_cannot_patch_admin_gated_field_via_environments(

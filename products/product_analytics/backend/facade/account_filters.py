@@ -16,3 +16,8 @@ from products.product_analytics.backend.insight_test_account_filters import Test
 def plan_test_account_filter_update(query: Any, *, enabled: bool) -> TestAccountFilterUpdate:
     """Work out how to set the test account filter on an insight, without touching the stored query."""
     return insight_test_account_filters.plan_test_account_filter_update(query, enabled=enabled)
+
+
+def plan_default_filters_update(query: Any, *, enabled: bool) -> TestAccountFilterUpdate:
+    """Work out how to set the project default filters flag on an insight, without touching the stored query."""
+    return insight_test_account_filters.plan_default_filters_update(query, enabled=enabled)
