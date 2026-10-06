@@ -23,7 +23,10 @@ class EventDefinition(Taggable, UUIDTModel):
         related_name="event_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
+    # No automatic index: the named Meta index on `project` covers project_id.
+    project = models.ForeignKey(
+        "posthog.Project", on_delete=models.CASCADE, null=True, related_name="+", db_index=False
+    )
     name = models.CharField(max_length=400)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     last_seen_at = models.DateTimeField(default=None, null=True)

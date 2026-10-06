@@ -5,6 +5,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -67,6 +68,7 @@ import {
     FeatureFlagGroupType,
     FeatureFlagStatus,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     FilterLogicalOperator,
     InsightModel,
     JsonType,
@@ -87,11 +89,20 @@ import {
 } from '~/types'
 
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import {
+    FeatureFlagConfigFormat,
+    STALE_ROW_VERSION_RELOADED_MESSAGE,
+    featureFlagConfigFormat,
+    isStaleRowVersionError,
+    isV1FeatureFlagConfig,
+    rowVersionToken,
+} from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
     featureFlagsList,
+    featureFlagsRetrieve,
     featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
 import type {
@@ -126,12 +137,14 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
     errorMessageFrom,
     projectSelectOptions,
 } from './flagSelectionLogic'
+import { PropertySelectError, getConditionSetErrors } from './propertySelectErrorMessages'
 import {
     ScheduleOccurrence,
     expandScheduleOccurrences,
@@ -150,6 +163,22 @@ function reportFeatureFlagCopyFailure(error: string): void {
 
 function reportFeatureFlagScheduleSuccess(): void {
     posthog.capture('feature flag scheduled')
+}
+
+// A collapsed condition-set panel renders none of its children, so an inline release-condition
+// error has no element to render into and `scrollToFormError` has nothing to scroll to. Open every
+// set that holds a blocking error before the scroll runs.
+function openConditionSets(flagId: string, conditionSetErrors: { index: number }[]): void {
+    const releaseConditionsLogic = featureFlagReleaseConditionsLogic.findMounted({ id: flagId })
+    if (!releaseConditionsLogic) {
+        return
+    }
+    for (const { index } of conditionSetErrors) {
+        const sortKey = releaseConditionsLogic.values.filters.groups[index]?.sort_key
+        if (sortKey) {
+            releaseConditionsLogic.actions.openCondition(sortKey)
+        }
+    }
 }
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
@@ -358,7 +387,7 @@ export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, Pai
  * then collapsed behind a button when the flag already has a plan to read. */
 export type ScheduleFormState = 'loading' | 'collapsed' | 'expanded'
 
-export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
+export type ScheduleFlagPayload = Pick<FeatureFlagWithV1Config, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
     payloads?: Record<string, any>
 }
@@ -373,7 +402,7 @@ export interface DependentFlag {
     name: string
 }
 
-export const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagWithV1Config = {
     id: null,
     created_at: null,
     updated_at: null,
@@ -627,7 +656,7 @@ async function copyNewFlagToAdditionalProjects(
 // This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
 // If a multivariant flag is returned, the payload dictionary will be transformed to be <variant-key-index>: <payload>
 export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
-    if (!flag.filters.multivariate) {
+    if (!isV1FeatureFlagConfig(flag.filters) || !flag.filters.multivariate) {
         return flag
     }
 
@@ -668,6 +697,9 @@ export const convertIndexBasedPayloadsToVariantKeys = (
 }
 
 export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
+    if (flag.filters && !isV1FeatureFlagConfig(flag.filters)) {
+        return flag
+    }
     if (flag.filters?.multivariate) {
         const newPayloads = convertIndexBasedPayloadsToVariantKeys(
             flag.filters.multivariate.variants,
@@ -704,6 +736,9 @@ const reorderVariantState = (
     fromIndex: number,
     toIndex: number
 ): FeatureFlagType => {
+    if (!isV1FeatureFlagConfig(state.filters)) {
+        return state
+    }
     // Create new variants array with reordered elements
     const newVariants = [...variants]
     const [movedVariant] = newVariants.splice(fromIndex, 1)
@@ -818,8 +853,28 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
+// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
+function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
+    if (!isStaleRowVersionError(token, error)) {
+        return false
+    }
+    lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
+    reload()
+    return true
+}
+
+// A v2 write must carry the row version the previous write returned, so inline saves go out one at a time.
+function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>): Promise<T> {
+    const request = (cache.inlineSaveQueue ?? Promise.resolve()).catch(() => null).then(send)
+    cache.inlineSaveQueue = request
+    return request
+}
+
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
+    if (cleanedFlag.filters && !isV1FeatureFlagConfig(cleanedFlag.filters)) {
+        return cleanedFlag
+    }
     return {
         ...cleanedFlag,
         filters: {
@@ -829,11 +884,27 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     }
 }
 
-// Key the agent-change notice to one flag. The default id hashes the message, and the message names
-// no flag, so a notice still open for another flag would swallow this one as a duplicate and leave
-// its button reloading that flag.
+// Key the agent-change notices to one flag. The default id hashes the message, and neither message
+// names a flag, so a notice still open for another flag would swallow this one as a duplicate and
+// leave its button reloading that flag.
 function agentChangeToastId(id: FeatureFlagLogicProps['id']): string {
     return `feature-flag-agent-change-${id}`
+}
+
+// Each raise of the failure notice gets its own id. Its button dismisses the notice on click, and
+// react-toastify keeps a dismissed id reserved until the exit animation ends and drops a toast raised
+// under it in that window, so a retry that fails fast would re-raise into nothing.
+function agentRefreshFailedToastId(id: FeatureFlagLogicProps['id'], attempt: number): string {
+    return `feature-flag-agent-refresh-failed-${id}-${attempt}`
+}
+
+// Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id cancelled and would
+// swallow the notice for the next agent change on this flag.
+function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<string, any>): void {
+    toast.dismiss(agentChangeToastId(id))
+    if (cache.agentRefreshFailedToastId) {
+        toast.dismiss(cache.agentRefreshFailedToastId)
+    }
 }
 
 // Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
@@ -878,6 +949,7 @@ export interface featureFlagLogicValues {
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
     completedSchedules: ScheduledChangeType[]
+    configFormat: FeatureFlagConfigFormat
     copyDependencies: boolean
     copyDependencyRequirements: CopyFlagsDependencyRequirementsResponseApi | null
     copyDependencyRequirementsLoading: boolean
@@ -1002,6 +1074,7 @@ export interface featureFlagLogicValues {
     >
     flagIntent: FlagIntent | null
     flagMutationCount: number
+    flagReplacementCount: number
     flagStatus: FeatureFlagStatusResponseApi | null
     flagStatusLoading: boolean
     flagType: 'boolean' | 'multivariate' | 'remote_config'
@@ -1045,6 +1118,9 @@ export interface featureFlagLogicValues {
     relatedInsightsLoading: boolean
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
+    rowVersionToken: {
+        version?: number
+    }
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
@@ -1069,7 +1145,7 @@ export interface featureFlagLogicValues {
     templateExpanded: boolean
     templates: Array<{
         description: string
-        getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
+        getValues: (filters: FeatureFlagFilters) => Partial<FeatureFlagType>
         id: string
         name: string
     }>
@@ -1375,7 +1451,7 @@ export interface featureFlagLogicActions {
         flagId: number
         teamId: number
     }
-    refreshFeatureFlag: (_payload?: { afterAgentChange?: boolean }) => {
+    refreshFeatureFlag: (payload?: { afterAgentChange?: boolean }) => {
         afterAgentChange?: boolean
     }
     refreshFeatureFlagAfterAgentChange: () => {
@@ -1543,6 +1619,13 @@ export interface featureFlagLogicActions {
         featureFlag: FeatureFlagType
         payload?: Partial<FeatureFlagType>
     }
+    saveSidebarTags: (
+        tags: string[],
+        evaluationContexts?: string[]
+    ) => {
+        evaluationContexts: string[] | undefined
+        tags: string[]
+    }
     saveTagsInline: (tags: string[]) => {
         tags: string[]
     }
@@ -1587,7 +1670,7 @@ export interface featureFlagLogicActions {
         featureFlag: FeatureFlagType
     }
     setFeatureFlagFilters: (
-        filters: FeatureFlagType['filters'],
+        filters: FeatureFlagFilters,
         errors: any
     ) => {
         errors: any
@@ -1724,7 +1807,7 @@ export interface featureFlagLogicActions {
         expanded: boolean
     }
     setSchedulePayload: (
-        filters: FeatureFlagType['filters'] | null,
+        filters: FeatureFlagFilters | null,
         active: FeatureFlagType['active'] | null,
         errors?: any,
         variants?: MultivariateFlagVariant[] | null,
@@ -2059,6 +2142,10 @@ export interface featureFlagLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
         availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
+        rowVersionToken: (featureFlag: FeatureFlagType) => {
+            version?: number
+        }
         activeTab: (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]) => FeatureFlagsTab
         hasUnsavedChanges: (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null) => boolean
         isFormDirty: (
@@ -2147,7 +2234,7 @@ export interface featureFlagLogicMeta {
         emailDomain: (user: UserType | null) => string
         templates: (emailDomain: string) => Array<{
             description: string
-            getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
+            getValues: (filters: FeatureFlagFilters) => Partial<FeatureFlagType>
             id: string
             name: string
         }>
@@ -2201,7 +2288,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // Only dispatch with server-authoritative state, so in-progress edits stay dirty.
         setOriginalFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
         refreshFeatureFlagAfterAgentChange: true,
-        setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
+        setFeatureFlagFilters: (filters: FeatureFlagFilters, errors: any) => ({ filters, errors }),
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
@@ -2235,7 +2322,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
         resetScheduleFormExpanded: true,
         setSchedulePayload: (
-            filters: FeatureFlagType['filters'] | null,
+            filters: FeatureFlagFilters | null,
             active: FeatureFlagType['active'] | null,
             errors?: any,
             variants?: MultivariateFlagVariant[] | null,
@@ -2272,6 +2359,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
+        saveSidebarTags: (tags: string[], evaluationContexts?: string[]) => ({ tags, evaluationContexts }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -2342,6 +2430,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setOriginalFeatureFlag: (state) => state + 1,
             },
         ],
+        flagReplacementCount: [
+            0,
+            {
+                loadFeatureFlagSuccess: (state) => state + 1,
+                saveFeatureFlagSuccess: (state) => state + 1,
+            },
+        ],
         originalFeatureFlag: [
             null as FeatureFlagType | null,
             {
@@ -2375,7 +2470,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
-                    if (!state) {
+                    if (!state || !isV1FeatureFlagConfig(state.filters)) {
                         return state
                     }
                     const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
@@ -2415,7 +2510,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                 },
                 resetEncryptedPayload: (state) => {
-                    if (!state) {
+                    if (!state || !isV1FeatureFlagConfig(state.filters)) {
                         return state
                     }
 
@@ -2429,7 +2524,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                 },
                 addVariant: (state) => {
-                    if (!state) {
+                    if (!state || !isV1FeatureFlagConfig(state.filters)) {
                         return state
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
@@ -2445,7 +2540,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                 },
                 removeVariant: (state, { index }) => {
-                    if (!state) {
+                    if (!state || !isV1FeatureFlagConfig(state.filters)) {
                         return state
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
@@ -2517,7 +2612,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 distributeVariantsEqually: (state) => {
                     // Adjust the variants to be as evenly distributed as possible,
                     // taking integer rounding into account
-                    if (!state) {
+                    if (!state || !isV1FeatureFlagConfig(state.filters)) {
                         return state
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
@@ -2978,9 +3073,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
 
-                if (props.id === 'new' && sourceId) {
-                    // Used when "duplicating a feature flag". This populates the form with the source flag's data.
-                    const sourceFlag = await api.featureFlags.get(sourceId)
+                // Used when "duplicating a feature flag". This populates the form with the source flag's data.
+                const sourceFlag =
+                    props.id === 'new' && sourceId
+                        ? ((await featureFlagsRetrieve(
+                              String(values.currentProjectId),
+                              Number(sourceId)
+                          )) as unknown as FeatureFlagType)
+                        : null
+                if (sourceFlag && !isV1FeatureFlagConfig(sourceFlag.filters)) {
+                    // The form edits only v1 documents, so a duplicate link to another version starts a blank flag.
+                    lemonToast.error("This flag's configuration format can't be duplicated yet.")
+                    router.actions.replace(router.values.location.pathname)
+                } else if (sourceFlag) {
                     // But first, remove fields that we don't want to duplicate
                     const {
                         id,
@@ -3238,7 +3343,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
-                        { active }
+                        { active, ...values.rowVersionToken }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
@@ -3259,7 +3364,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
-                        archived ? { archived: true, active: false } : { archived: false }
+                        archived
+                            ? { archived: true, active: false, ...values.rowVersionToken }
+                            : { archived: false, ...values.rowVersionToken }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     if (archived && via) {
@@ -3306,22 +3413,39 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         featureFlagRefresh: [
             null as FeatureFlagType | null,
             {
-                // `afterAgentChange` is unused here; refreshFeatureFlagSuccess reads it off the payload.
-                // The `= {}` default keeps the generated action's payload optional now that
-                // `breakpoint` follows it, so the mount-path `refreshFeatureFlag()` call still
-                // typechecks once kea-typegen regenerates this logic's types.
-                refreshFeatureFlag: async (_payload: { afterAgentChange?: boolean } = {}, breakpoint) => {
+                // `refreshFeatureFlagSuccess` also reads `afterAgentChange` off the payload. The
+                // `= {}` default keeps the generated action's payload optional, so the mount-path
+                // `refreshFeatureFlag()` call still typechecks once kea-typegen regenerates.
+                refreshFeatureFlag: async (payload: { afterAgentChange?: boolean } = {}, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link') {
                         return null
                     }
                     const mutationsBefore = values.flagMutationCount
+                    const replacementsBefore = values.flagReplacementCount
                     let retrievedFlag: FeatureFlagType
                     try {
                         retrievedFlag = await api.featureFlags.get(props.id)
-                    } catch {
-                        // Swallow errors — this is a silent background reconciliation, so a
-                        // transient failure shouldn't surface a toast or get reported.
-                        return null
+                    } catch (error) {
+                        // A mount-path failure stays silent, because that path is a background
+                        // reconciliation. An agent-path failure cannot: PostHog AI has already told
+                        // the reader the flag changed.
+                        if (!payload.afterAgentChange) {
+                            return null
+                        }
+                        // Breakpoint first, so a superseded refresh that fails late raises no notice
+                        // about values the page already shows. kea-loaders swallows the breakpoint
+                        // and dispatches no failure, as the status loader below does for its verdict.
+                        breakpoint()
+                        // A full load or save that landed while this request was open replaced every
+                        // field, so the values the notice would call old are gone. A partial fold (a
+                        // toggle, an inline description or tag save) must not count: it updates only
+                        // its own fields and carries the fresh `version` into the form, so the page
+                        // still lacks the agent's other changes while a later save passes the
+                        // stale-write check and overwrites them. The notice is the only warning.
+                        if (values.flagReplacementCount !== replacementsBefore) {
+                            return null
+                        }
+                        throw error
                     }
                     // A second mutation can start a newer refresh while this one is open. Discard this
                     // response if so, or a slow earlier request would overwrite the newer flag, its
@@ -3585,7 +3709,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlagStatusFailure: () => null,
         },
     }),
-    listeners(({ actions, values, props, sharedListeners }) => ({
+    listeners(({ actions, values, props, sharedListeners, cache }) => ({
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -3838,16 +3962,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (formErrors?.tags && !values.advancedPanelOpen) {
                 actions.setAdvancedExpanded(true)
             }
+            const conditionSetErrors = getConditionSetErrors(filtersErrors?.groups as PropertySelectError[] | undefined)
+            openConditionSets(String(props.id), conditionSetErrors)
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
             // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
             // fires instead of scrolling to the error.
             await Promise.resolve()
             scrollToFormError({
-                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
+                fallbackErrorMessage: conditionSetErrors.length
+                    ? `Condition set ${conditionSetErrors[0].index + 1} needs a fix: ${conditionSetErrors[0].message}`
+                    : 'This flag has validation errors. Please review the highlighted fields above.',
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
+                return
+            }
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 return
             }
@@ -3856,9 +3987,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id
-            // cancelled and would swallow the notice for the next agent change on this flag.
-            toast.dismiss(agentChangeToastId(props.id))
+            dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
@@ -3953,7 +4082,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
-            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
+            const row = values.projectsWithCurrentFlag.find((p) => p.team_id === teamId && p.flag_id === flagId)
+            const updatedFlag = await updateFlagActiveInProject({
+                teamId,
+                flagId,
+                active,
+                filters: row?.filters,
+            })
             if (!updatedFlag) {
                 actions.projectFlagActiveUpdateFailed(teamId, flagId)
                 return
@@ -3996,11 +4131,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             const afterAgentChange = !!payload?.afterAgentChange
+            if (afterAgentChange && cache.agentRefreshFailedToastId) {
+                // This response carries what the failed one missed, so its notice is now wrong.
+                toast.dismiss(cache.agentRefreshFailedToastId)
+            }
             const baseline = values.originalFeatureFlag
             // Replacing the whole flag would discard an edit made during the request and re-baseline
             // over it, leaving the guard clean. An agent change on a clean form is the one refresh
             // safe to take whole, and it has to be: it can have rewritten any field.
-            if (!baseline || (afterAgentChange && !values.isFormDirty)) {
+            // A row in another config version never has form edits to keep, so it always takes the whole refresh.
+            if (
+                !baseline ||
+                !isV1FeatureFlagConfig(values.featureFlag.filters) ||
+                (afterAgentChange && !values.isFormDirty)
+            ) {
                 actions.setFeatureFlag(featureFlagRefresh)
                 actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlagRefresh))
             } else {
@@ -4039,6 +4183,30 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Keep the list cache in sync with the server state either way, so the two views agree.
             actions.updateFlag(featureFlagRefresh)
         },
+        // Only the agent path throws, so this needs no `afterAgentChange` check of its own, and
+        // initKea's ERROR_FILTER_ALLOW_LIST keeps the generic loader toast off the same failure.
+        refreshFeatureFlagFailure: () => {
+            // This notice supersedes the one a successful refresh left open, and both reload the
+            // same flag, so stacking them would offer the reader two buttons for one action.
+            toast.dismiss(agentChangeToastId(props.id))
+            cache.agentRefreshFailedAttempt = (cache.agentRefreshFailedAttempt ?? 0) + 1
+            cache.agentRefreshFailedToastId = agentRefreshFailedToastId(props.id, cache.agentRefreshFailedAttempt)
+            // The button retries this refresh rather than running the full loader, which marks the
+            // flag missing on any error except access denied. Nothing resets that state, so the scene
+            // would show Not Found over the flag and any unsaved edits until it remounts.
+            lemonToast.error(
+                'PostHog AI changed this flag, but the page could not load the new values. It still shows the old ones.',
+                {
+                    autoClose: false,
+                    toastId: cache.agentRefreshFailedToastId,
+                    button: {
+                        label: 'Try again',
+                        action: () => actions.refreshFeatureFlag({ afterAgentChange: true }),
+                        dataAttr: 'feature-flag-agent-refresh-failed-reload',
+                    },
+                }
+            )
+        },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
@@ -4060,6 +4228,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
+                return
+            }
             // Archiving an enabled flag also disables it, which can trip the approval gate (409).
             // Surface the change-request flow instead of silently doing nothing.
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -4109,7 +4280,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
-            toast.dismiss(agentChangeToastId(props.id))
+            dismissAgentNotices(props.id, cache)
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
             // it once against the loaded flag; only on the first load, so a later reload (e.g.
@@ -4148,10 +4319,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         applyTemplate: async ({ templateId }, breakpoint) => {
             const template = values.templates.find((t) => t.id === templateId)
-            if (!template || !values.featureFlag) {
+            if (!template || !values.featureFlag || !isV1FeatureFlagConfig(values.featureFlag.filters)) {
                 return
             }
-            const templateValues = template.getValues(values.featureFlag)
+            const templateValues = template.getValues(values.featureFlag.filters)
 
             const defaultConfig = await resolveDefaultReleaseConditions(
                 values.defaultReleaseConditions,
@@ -4372,7 +4543,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         setRemoteConfigEnabled: ({ enabled }) => {
-            if (enabled) {
+            if (enabled && isV1FeatureFlagConfig(values.featureFlag.filters)) {
                 actions.setFeatureFlagFilters(
                     {
                         ...values.featureFlag.filters,
@@ -4394,23 +4565,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         saveDescriptionInline: async ({ name }) => {
-            const flag = values.featureFlag
-            if (!flag.id || name === flag.name) {
+            const flagId = values.featureFlag.id
+            if (!flagId || name === values.featureFlag.name) {
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
-                    name,
-                })
-                actions.setFeatureFlag({ ...flag, name: savedFlag.name })
+                const savedFlag = await queueInlineSave(cache, () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
+                    api.update(`api/projects/${values.currentProjectId}/feature_flags/${flagId}`, {
+                        name,
+                        ...values.rowVersionToken,
+                    })
+                )
+                // A v1 page keeps the version it loaded. A later full save then sends a version behind the
+                // stored row, so the server's stale-write check drops the fields this page did not change.
+                const persisted = { name: savedFlag.name, ...rowVersionToken(savedFlag) }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
                 if (values.originalFeatureFlag) {
-                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, name: savedFlag.name })
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
-                actions.updateFlag({ ...flag, name: savedFlag.name })
+                actions.updateFlag({ ...values.featureFlag, ...persisted })
                 lemonToast.success('Description saved')
-            } catch {
-                lemonToast.error('Failed to save description')
+            } catch (error: any) {
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error(error?.detail || 'Failed to save description')
+                }
             }
         },
         saveTagsInline: async ({ tags }, breakpoint) => {
@@ -4437,42 +4616,70 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await breakpoint(250)
 
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
-                    tags,
+                const savedFlag = await queueInlineSave(cache, () => {
+                    breakpoint()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
+                    return api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                        tags,
+                        ...values.rowVersionToken,
+                    })
                 })
+                // Store the bumped row version before the breakpoint, because a newer call's write needs it.
+                const savedVersion = rowVersionToken(savedFlag)
+                if (savedVersion.version !== undefined) {
+                    actions.setFeatureFlag({ ...values.featureFlag, ...savedVersion })
+                    if (values.originalFeatureFlag) {
+                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...savedVersion })
+                    }
+                }
                 // If the listener has been invoked again since this await started, bail out
                 // — the newer call owns reconciliation.
                 breakpoint()
 
-                // Reconcile with server only if the *set* of tags differs (e.g. server-side
-                // normalization added/removed a tag). Avoid blindly overwriting — the
-                // server may return tags in a different order which would re-shuffle chips.
+                // Keep the local tags when the server returns the same set, because the server may reorder them
+                // and that would reshuffle the chips. Take the server's tags when the set differs, e.g. after
+                // server-side normalization.
                 const localSet = new Set(tags)
                 const serverTags = savedFlag.tags ?? []
                 const serverSet = new Set(serverTags)
                 const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
-                if (!setsEqual) {
-                    actions.setFeatureFlag({ ...flag, tags: serverTags })
-                    if (values.originalFeatureFlag) {
-                        actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: serverTags })
-                    }
-                    actions.updateFlag({ ...flag, tags: serverTags })
+                const persisted = { tags: setsEqual ? tags : serverTags }
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
+                if (values.originalFeatureFlag) {
+                    actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
+                actions.updateFlag({ ...values.featureFlag, ...persisted })
             } catch (error: any) {
                 // Re-throw breakpoint cancellation so kea swallows it silently.
-                if (error?.isBreakpoint) {
+                if (isBreakpoint(error)) {
                     throw error
                 }
-                actions.setFeatureFlag({ ...flag, tags: previousTags })
+                // Roll back the tags only: the page may hold a newer row version than when this call started.
+                actions.setFeatureFlag({ ...values.featureFlag, tags: previousTags })
                 if (values.originalFeatureFlag) {
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, tags: previousTags })
                 }
-                actions.updateFlag({ ...flag, tags: previousTags })
+                actions.updateFlag({ ...values.featureFlag, tags: previousTags })
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
-                lemonToast.error(error?.detail || 'Failed to save tags')
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error(error?.detail || 'Failed to save tags')
+                }
             }
+        },
+        saveSidebarTags: ({ tags, evaluationContexts }) => {
+            // The full save sends every loaded field, and a row in another config version refuses most of them.
+            if (values.configFormat !== 'v1') {
+                actions.saveTagsInline(tags)
+                return
+            }
+            const updatedFlag = {
+                ...values.featureFlag,
+                tags,
+                ...(evaluationContexts ? { evaluation_contexts: evaluationContexts } : {}),
+            }
+            actions.updateFlag(updatedFlag)
+            actions.saveFeatureFlag(updatedFlag)
         },
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
@@ -4559,8 +4766,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.featureFlag, s.props],
             (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
                 const tabs = [FeatureFlagsTab.OVERVIEW]
+                // Projects (copy), Schedule and Testing read or rewrite the v1 document.
+                const v1 = isV1FeatureFlagConfig(featureFlag.filters)
                 if (props.id) {
-                    tabs.push(FeatureFlagsTab.USAGE, FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE)
+                    tabs.push(FeatureFlagsTab.USAGE)
+                    if (v1) {
+                        tabs.push(FeatureFlagsTab.PROJECTS, FeatureFlagsTab.SCHEDULE)
+                    }
                 }
                 if (featureFlag.id) {
                     tabs.push(FeatureFlagsTab.HISTORY)
@@ -4569,11 +4781,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     tabs.push(FeatureFlagsTab.PERMISSIONS)
                 }
                 tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
-                if (props.id) {
+                if (props.id && v1) {
                     tabs.push(FeatureFlagsTab.TESTING)
                 }
                 return tabs
             },
+        ],
+        configFormat: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): FeatureFlagConfigFormat => featureFlagConfigFormat(featureFlag.filters),
+        ],
+        rowVersionToken: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): { version?: number } => rowVersionToken(featureFlag),
         ],
         // Clamped in a selector rather than in urlToAction so it re-derives when the flag
         // loads (a deep-linked tab can arrive before `can_edit` is known)
@@ -4741,7 +4961,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         canCreateEarlyAccessFeature: [
             (s) => [s.featureFlag, s.variants],
             (featureFlag: FeatureFlagType, variants: MultivariateFlagVariant[]) => {
-                return featureFlag && featureFlag.filters.aggregation_group_type_index == null && variants.length === 0
+                return (
+                    featureFlag &&
+                    isV1FeatureFlagConfig(featureFlag.filters) &&
+                    featureFlag.filters.aggregation_group_type_index == null &&
+                    variants.length === 0
+                )
             },
         ],
         hasSurveys: [
@@ -4954,17 +5179,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 id: string
                 name: string
                 description: string
-                getValues: (flag: FeatureFlagType) => Partial<FeatureFlagType>
+                getValues: (filters: FeatureFlagFilters) => Partial<FeatureFlagType>
             }> => [
                 {
                     id: 'simple',
                     name: TEMPLATE_NAMES.simple,
                     description: 'On/off for all users',
-                    getValues: (flag) => ({
+                    getValues: (filters) => ({
                         key: 'my-feature',
                         is_remote_configuration: false,
                         filters: {
-                            ...flag.filters,
+                            ...filters,
                             multivariate: null,
                             groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
@@ -4974,11 +5199,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'targeted',
                     name: TEMPLATE_NAMES.targeted,
                     description: 'Release to specific users',
-                    getValues: (flag) => ({
+                    getValues: (filters) => ({
                         key: 'targeted-release',
                         is_remote_configuration: false,
                         filters: {
-                            ...flag.filters,
+                            ...filters,
                             multivariate: null,
                             groups: [
                                 {
@@ -5001,11 +5226,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'multivariate',
                     name: TEMPLATE_NAMES.multivariate,
                     description: 'Multiple variants',
-                    getValues: (flag) => ({
+                    getValues: (filters) => ({
                         key: 'multivariate-flag',
                         is_remote_configuration: false,
                         filters: {
-                            ...flag.filters,
+                            ...filters,
                             multivariate: {
                                 variants: [
                                     { key: 'control', rollout_percentage: 50 },
@@ -5020,11 +5245,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     id: 'targeted-multivariate',
                     name: TEMPLATE_NAMES['targeted-multivariate'],
                     description: 'Variants for specific users',
-                    getValues: (flag) => ({
+                    getValues: (filters) => ({
                         key: 'targeted-multivariate',
                         is_remote_configuration: false,
                         filters: {
-                            ...flag.filters,
+                            ...filters,
                             multivariate: {
                                 variants: [
                                     { key: 'control', rollout_percentage: 50 },
@@ -5198,8 +5423,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         }
     }),
 
-    beforeUnmount(({ props }) => {
+    beforeUnmount(({ props, cache }) => {
         // A notice that survives navigation has a button that reloads an unmounted logic.
-        toast.dismiss(agentChangeToastId(props.id))
+        dismissAgentNotices(props.id, cache)
     }),
 ])

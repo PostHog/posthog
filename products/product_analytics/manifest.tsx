@@ -15,7 +15,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -42,6 +42,11 @@ export const manifest: ProductManifest = {
             query?: Node
             sceneSource?: InsightSceneSource
         } = {}): string => {
+            if (isBIVisualizationNode(query)) {
+                return combineUrl(urls.businessIntelligence(), dashboardId ? { dashboard: dashboardId } : {}, {
+                    q: JSON.stringify(query),
+                }).url
+            }
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
                 return urls.sqlEditor({ query: query.query })
@@ -101,6 +106,7 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            listHref: () => urls.savedInsights(),
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },
@@ -182,6 +188,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
+            searchKeywords: ['insights'],
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],
             sceneKey: 'SavedInsights',

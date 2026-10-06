@@ -11,14 +11,6 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDelivery,
-    AlertDestinationConfig,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    EventKindSpec,
-)
 from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
 from products.alerts.backend.logic.destinations import (
@@ -35,6 +27,14 @@ from products.alerts.backend.logic.destinations import (
     redact_urls_in_name,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
+    AlertDestinationConfig,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    EventKindSpec,
 )
 from products.cdp.backend.facade.models import HogFunction
 

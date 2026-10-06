@@ -17,7 +17,7 @@ import { OfflineItemInspector } from './OfflineItemInspector'
 import { OfflineItemMatrix } from './OfflineItemMatrix'
 import { offlineRunSourceLabel } from './offlineOverviewState'
 import { offlineScorerHistoryUrl } from './offlineScorerHistoryLogic'
-import { formatOfflineScore } from './offlineScoreTrends'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 
 export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JSX.Element {
     const logic = offlineExperimentLogic(props)
@@ -187,9 +187,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                             {
                                 title: 'Summary',
                                 render: (_, summary: OfflineScorerSummaryApi) => (
-                                    <span className="break-words" translate="no">
-                                        {formatOfflineScore(summary)}
-                                    </span>
+                                    <OfflineScoreSummaryDisplay summary={summary} />
                                 ),
                             },
                             {

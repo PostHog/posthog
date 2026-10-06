@@ -16,7 +16,7 @@ from itertools import zip_longest
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import DateTimeField, Exists, F, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import DateTimeField, DurationField, Exists, F, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, read_output
+from products.replay_vision.backend.scanner_access import scanner_experiment_scope_q, snapshot_experiment_scope_q
 
 from ee.hogai.utils.untrusted import neutralize_markup
 
@@ -64,6 +65,8 @@ FIRST_PHRASES_RETRY = dt.timedelta(minutes=10)
 # The view stamp is one Postgres write per scope per this window, whatever the page traffic.
 _VIEW_STAMP_THROTTLE = dt.timedelta(hours=1)
 _EPOCH = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+# Longer than the apply workflow's execution timeout, so a row created this long before a watermark completed before it.
+COMPLETION_LAG = dt.timedelta(hours=2)
 # Daily model-call counter across every refresh run, the backstop against a bug that makes every scanner look stale.
 _BUDGET_TTL_S = 2 * 24 * 3600
 # Cross-scanner search merges phrases from this many of the team's most recently active scanners.
@@ -204,40 +207,47 @@ def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
 def _team_rows() -> QuerySet[ReplayObservation]:
     """Observations that may feed a team's phrases. A row captured while its scanner targeted an experiment stays
     readable only to that experiment's viewers, even after the targeting is removed, so it never feeds them."""
-    return ReplayObservation.objects.filter(
-        status=ObservationStatus.SUCCEEDED, scanner_snapshot__experiment_targeting__experiment_id__isnull=True
+    return ReplayObservation.objects.filter(status=ObservationStatus.SUCCEEDED).filter(
+        snapshot_experiment_scope_q(unrestricted=True)
     )
 
 
 def _team_sources() -> QuerySet[ReplayScanner]:
     """Enabled scanners that may feed a team's cross-scanner phrases. An experiment-targeted scanner's
     observations are readable per experiment, so they never feed phrases every viewer of the team sees."""
-    return ReplayScanner.objects.filter(enabled=True).filter(
-        Q(experiment_targeting__isnull=True) | Q(experiment_targeting={})
-    )
+    return ReplayScanner.objects.filter(enabled=True).filter(scanner_experiment_scope_q(unrestricted=True))
 
 
 def stale_team_candidates(limit: int) -> list[int]:
     """Teams whose cross-scanner phrases are due: AI processing on, past their back-off, and with enough new
     observations across the scanners that may feed them. Counted across the team, because a team sample draws
     from several scanners at once."""
-    config = TeamReplayVisionConfig.objects.filter(team_id=OuterRef("team_id"))
-    team_watermark = Coalesce(
-        Subquery(config.values("search_suggestions_watermark")[:1]), Value(_EPOCH), output_field=DateTimeField()
-    )
-    newer = _team_rows().filter(
-        team_id=OuterRef("team_id"),
-        scanner__in=_team_sources(),
-        completed_at__gt=team_watermark,
-    )
     not_due = TeamReplayVisionConfig.objects.exclude(_due()).values("team_id")
-    return list(
+    sources = (
         _team_sources()
         .filter(team__organization__is_ai_data_processing_approved=True)
         .exclude(team_id__in=not_due)
+        .values("team_id")
+    )
+    watermark = Coalesce(
+        Subquery(
+            TeamReplayVisionConfig.objects.filter(team_id=OuterRef("pk")).values("search_suggestions_watermark")[:1]
+        ),
+        Value(_EPOCH),
+        output_field=DateTimeField(),
+    )
+    newer = _team_rows().filter(
+        team_id=OuterRef("pk"),
+        scanner__in=_team_sources(),
+        completed_at__gt=OuterRef("watermark"),
+        created_at__gt=OuterRef("created_floor"),
+    )
+    return list(
+        Team.objects.filter(pk__in=sources)
+        .annotate(watermark=watermark)
+        .annotate(created_floor=F("watermark") - Value(COMPLETION_LAG, output_field=DurationField()))
         .filter(_has_enough_new_rows(newer))
-        .values_list("team_id", flat=True)
-        .distinct()[:limit]
+        .values_list("pk", flat=True)[:limit]
     )
 
 
@@ -344,10 +354,12 @@ def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.d
     Rows are gated like `scanner_access.accessible_observations`: a viewer of this scanner can read its
     current experiment, so only observations whose snapshot names no experiment or that same one may feed
     phrases everyone who opens the scanner sees."""
-    current_experiment = (scanner.experiment_targeting or {}).get("experiment_id")
+    current_experiment = (scanner.experiment_scope() or {}).get("experiment_id")
     rows = ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED).filter(
-        Q(scanner_snapshot__experiment_targeting__experiment_id__isnull=True)
-        | Q(scanner_snapshot__experiment_targeting__experiment_id=current_experiment)
+        snapshot_experiment_scope_q(
+            unrestricted=True,
+            experiment_ids=[current_experiment] if current_experiment is not None else (),
+        )
     )
     if scanner.search_suggestions_watermark is not None:
         rows = rows.filter(completed_at__gt=scanner.search_suggestions_watermark)

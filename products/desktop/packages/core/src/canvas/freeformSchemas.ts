@@ -187,13 +187,15 @@ export type CanvasAnalyticsConfig = z.infer<typeof canvasAnalyticsConfigSchema>;
 export const canvasThemeSchema = z.enum(["light", "dark"]);
 export type CanvasTheme = z.infer<typeof canvasThemeSchema>;
 
+const canvasRectSchema = z.object({
+  top: z.number().finite(),
+  right: z.number().finite(),
+  bottom: z.number().finite(),
+  left: z.number().finite(),
+});
+
 const canvasTextSelectionDataSchema = textCommentAnchorDataSchema.extend({
-  rect: z.object({
-    top: z.number().finite(),
-    right: z.number().finite(),
-    bottom: z.number().finite(),
-    left: z.number().finite(),
-  }),
+  rect: canvasRectSchema,
 });
 export const canvasTextSelectionSchema = canvasTextSelectionDataSchema.refine(
   ({ start, end }) => end > start,
@@ -392,6 +394,7 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("comment-activate"),
     id: z.string().min(1).max(128),
+    rect: canvasRectSchema.optional(),
   }),
   z.object({
     channel: z.literal(CANVAS_CHANNEL),

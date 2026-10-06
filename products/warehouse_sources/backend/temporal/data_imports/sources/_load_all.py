@@ -373,6 +373,7 @@ from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
 from .doppler.source import DopplerSource
 from .dovetail.source import DovetailSource
+from .dragonboat.source import DragonboatSource
 from .drata.source import DrataSource
 from .drchrono.source import DrchronoSource
 from .dremio.source import DremioSource
@@ -1199,6 +1200,7 @@ from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
+from .tessitura.source import TessituraSource
 from .testrail.source import TestrailSource
 from .thinkific.source import ThinkificSource
 from .thinkific_courses.source import ThinkificCoursesSource
