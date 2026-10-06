@@ -31,6 +31,10 @@ XRAY_API_PATH = "/xray/api"
 # restart the scroll from the last seen creation time well before that depth.
 XRAY_MAX_SCROLL_ROWS = 10_000
 
+# Artifactory defaults to a 6,000-byte AQL query limit. Related-domain requests use an `$or`
+# clause per parent, so split before sending rather than relying only on the response-size guard.
+AQL_RELATED_QUERY_MAX_BYTES = 6_000
+
 REQUEST_TIMEOUT_SECONDS = 120
 PROBE_TIMEOUT_SECONDS = 30
 MAX_RETRY_ATTEMPTS = 5
@@ -342,8 +346,15 @@ def _fetch_related(
     parents: list[dict[str, Any]],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
+    query = build_related_aql_query(config, parents)
+    if len(query.encode()) > AQL_RELATED_QUERY_MAX_BYTES and len(parents) > 1:
+        middle = len(parents) // 2
+        yield from _fetch_related(session, base_url, access_token, config, parents[:middle], logger)
+        yield from _fetch_related(session, base_url, access_token, config, parents[middle:], logger)
+        return
+
     try:
-        data = _post_aql(session, base_url, access_token, build_related_aql_query(config, parents), logger)
+        data = _post_aql(session, base_url, access_token, query, logger)
     except JfrogArtifactoryResponseTooLargeError:
         # A few very large builds can push one chunk past the response cap; split until it fits.
         # Each half yields on its own so split responses never pile up in memory.

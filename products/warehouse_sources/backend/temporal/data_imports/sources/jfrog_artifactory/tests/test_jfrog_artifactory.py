@@ -460,6 +460,20 @@ class TestGetRowsAqlRelated:
 
         assert queries == [parent_query]
 
+    def test_oversized_related_query_splits_before_request(self, monkeypatch: Any) -> None:
+        config = JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"]
+        parents = [_build(i) for i in range(4)]
+        two_parent_query = build_related_aql_query(config, parents[:2])
+        monkeypatch.setattr(jfrog_artifactory, "AQL_RELATED_QUERY_MAX_BYTES", len(two_parent_query.encode()) - 1)
+        queries = _patch_related_aql(
+            monkeypatch, {build_aql_query(config, offset=0): {"results": parents}}, _promotions_for
+        )
+
+        rows = _collect(_FakeResumableManager(), endpoint="build_promotions")
+
+        assert sorted(r["build_number"] for r in rows) == ["0", "1", "2", "3"]
+        assert all(query.count('{"name"') == 1 for query in queries if ".offset(" not in query)
+
     def test_oversized_related_response_splits_chunk(self, monkeypatch: Any) -> None:
         config = JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"]
         parents = [_build(i) for i in range(4)]
