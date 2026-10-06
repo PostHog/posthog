@@ -757,14 +757,12 @@ async fn test_cookieless_sentinel_anon_distinct_id_does_not_share_a_variant() ->
     let (control_user, test_user) =
         two_distinct_ids_in_different_variants(&server, &team.api_token, flag_key).await?;
 
-    // Persons must exist, or the write path has nothing to attach an override row to.
-    for distinct_id in [&control_user, &test_user] {
+    for (distinct_id, expected_variant) in [(&control_user, "control"), (&test_user, "test")] {
+        // The person must exist, or the write path has nothing to attach an override row to.
         context
             .insert_person(team.id, distinct_id.clone(), None)
             .await?;
-    }
 
-    for (distinct_id, expected_variant) in [(&control_user, "control"), (&test_user, "test")] {
         let payload = json!({
             "token": team.api_token,
             "distinct_id": distinct_id,
