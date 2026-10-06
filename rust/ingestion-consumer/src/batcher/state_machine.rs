@@ -12,7 +12,7 @@ use common_kafka_consumer::{GroupCompletion, Offset, Partition};
 use metrics::{gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, KeyOutcome, RequestId};
-use super::key_queues::{KeyQueues, KeyRun, Settled};
+use super::key_queues::{KeyQueues, KeyRun};
 use super::packer::{purge_request, PackedRequest, Packer};
 use super::request_class::RequestClass;
 use super::retry_policy::{RetryPolicy, RetryReason};
@@ -354,7 +354,7 @@ impl ActiveState {
                 retry_at,
                 now,
                 &mut effects,
-            );
+            )?;
         }
         self.advance(now, pool, draining, &mut effects)?;
         Ok(effects)
@@ -399,7 +399,7 @@ impl ActiveState {
                 Some(retry_at),
                 now,
                 &mut effects,
-            );
+            )?;
         }
         self.advance(now, pool, draining, &mut effects)?;
         Ok(effects)
@@ -424,7 +424,7 @@ impl ActiveState {
         }
         self.unplaced.retain(|request| !request.runs.is_empty());
         for key in emptied_keys {
-            self.settle_key(&key, Vec::new(), None, now, &mut effects);
+            self.settle_key(&key, Vec::new(), None, now, &mut effects)?;
         }
 
         self.finish(now, &mut effects)?;
@@ -456,10 +456,15 @@ impl ActiveState {
         retry_at: Option<Instant>,
         now: Instant,
         effects: &mut Effects,
-    ) {
-        if self.keys.settle(routing_key, returned, retry_at, now) == Settled::Evicted {
+    ) -> Result<(), String> {
+        let evicted = self
+            .keys
+            .settle(routing_key, returned, retry_at, now)
+            .map_err(|err| err.to_string())?;
+        if evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
         }
+        Ok(())
     }
 
     fn advance(

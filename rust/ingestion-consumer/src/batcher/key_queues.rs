@@ -61,11 +61,12 @@ pub struct ReadyRun {
     pub first_arrival: Instant,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Settled {
-    Evicted,
-    Kept,
-    Stale,
+/// Every settle releases a claim the key queues handed out, so a settle
+/// without one is a bookkeeping bug.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("settled key {routing_key} without a claim")]
+pub struct UnclaimedSettle {
+    pub routing_key: String,
 }
 
 pub struct Purged {
@@ -256,19 +257,22 @@ impl KeyQueues {
     /// Release the key's claim. `returned` goes back to the front of the
     /// queue as replay messages under the claimed run's epoch, ahead of
     /// anything that arrived while the run was out, so the redelivery keeps
-    /// offset order.
+    /// offset order. Returns whether the key left the table.
     pub fn settle(
         &mut self,
         routing_key: &Arc<str>,
         mut returned: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
-    ) -> Settled {
+    ) -> Result<bool, UnclaimedSettle> {
+        let unclaimed = || UnclaimedSettle {
+            routing_key: routing_key.to_string(),
+        };
         let Some(state) = self.keys.get_mut(&**routing_key) else {
-            return Settled::Stale;
+            return Err(unclaimed());
         };
         let Some(claim) = state.claim.take() else {
-            return Settled::Stale;
+            return Err(unclaimed());
         };
         self.claimed_keys = self.claimed_keys.saturating_sub(1);
 
@@ -300,12 +304,12 @@ impl KeyQueues {
 
         if state.is_idle() {
             self.keys.remove(&**routing_key);
-            return Settled::Evicted;
+            return Ok(true);
         }
         if state.is_ready() {
             self.ready.push_back(Arc::clone(routing_key));
         }
-        Settled::Kept
+        Ok(false)
     }
 
     pub fn purge(&mut self, revoked: &[(String, i32)]) -> Purged {
@@ -410,18 +414,12 @@ mod tests {
         );
         assert!(queues.take_ready(now).is_empty(), "one run per key is out");
 
-        assert_eq!(
-            queues.settle(&key("a"), Vec::new(), None, now),
-            Settled::Kept
-        );
+        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(false));
         assert_eq!(
             claimed(&queues.take_ready(now)),
             vec![("a", vec![2, 3], false)]
         );
-        assert_eq!(
-            queues.settle(&key("a"), Vec::new(), None, now),
-            Settled::Evicted
-        );
+        assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
         assert_eq!(queues.key_count(), 0);
     }
 
@@ -442,7 +440,7 @@ mod tests {
         let returned = vec![message("a", 0, 2)];
         assert_eq!(
             queues.settle(&key("a"), returned, Some(retry_at), now),
-            Settled::Kept
+            Ok(false)
         );
         assert!(
             queues.take_ready(now).is_empty(),
@@ -454,7 +452,9 @@ mod tests {
             claimed(&queues.take_ready(retry_at)),
             vec![("a", vec![2], true)]
         );
-        queues.settle(&key("a"), Vec::new(), None, retry_at);
+        queues
+            .settle(&key("a"), Vec::new(), None, retry_at)
+            .expect("claimed");
         assert_eq!(
             claimed(&queues.take_ready(retry_at)),
             vec![("a", vec![3], false)]
@@ -494,7 +494,9 @@ mod tests {
         assert_eq!(queues.queued_messages(), 0);
 
         let returned = vec![message("a", 0, 1), message("a", 1, 7)];
-        queues.settle(&key("a"), returned, None, now);
+        queues
+            .settle(&key("a"), returned, None, now)
+            .expect("claimed");
         assert_eq!(
             claimed(&queues.take_ready(now)),
             vec![("a", vec![7], true)],
@@ -510,7 +512,9 @@ mod tests {
         queues.take_ready(now);
         queues.push(key("a"), 0, vec![message("a", 1, 7)], now);
         let retry_at = now + Duration::from_millis(100);
-        queues.settle(&key("a"), vec![message("a", 0, 1)], Some(retry_at), now);
+        queues
+            .settle(&key("a"), vec![message("a", 0, 1)], Some(retry_at), now)
+            .expect("claimed");
 
         queues.purge(&[("events".to_string(), 0)]);
         assert_eq!(queues.next_retry_at(), None);
@@ -521,14 +525,13 @@ mod tests {
     }
 
     #[test]
-    fn a_settle_without_a_claim_is_stale() {
+    fn a_settle_without_a_claim_is_an_error() {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
-        assert_eq!(
-            queues.settle(&key("a"), vec![message("a", 0, 1)], None, now),
-            Settled::Stale
-        );
+        assert!(queues
+            .settle(&key("a"), vec![message("a", 0, 1)], None, now)
+            .is_err());
         assert_eq!(queues.queued_messages(), 1);
     }
 }
