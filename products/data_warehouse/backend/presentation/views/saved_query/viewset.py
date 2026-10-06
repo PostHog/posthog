@@ -136,6 +136,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
+        context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a

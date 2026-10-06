@@ -7,6 +7,7 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
+import math
 import time
 import asyncio
 from collections.abc import Callable, Coroutine
@@ -40,6 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     CoalesceMember,
     extends_set,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -69,6 +73,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     BatchQueue,
     FailedRunRef,
     PendingBatch,
+    QueueDepth,
     _Unset,
     queue_gauges_slot_key,
 )
@@ -77,6 +82,8 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     CLAIMABLE_GROUPS,
+    DEPTH_PROBE_TIMEOUTS_TOTAL,
+    DEPTH_SAMPLE_AGE_SECONDS,
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
@@ -165,6 +172,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a destination's own settings refuse the connection (bad credentials, unknown database,
+    # unroutable host); the next scheduled run tries again after the customer fixes them
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -178,6 +188,8 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
     *DELETION_ERROR_PATTERNS,
+    # a destination the customer configured refuses the connection, which only they can fix
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -233,6 +245,10 @@ class DeltaBatchConsumerAdapter:
         self._gauge_slot_key = queue_gauges_slot_key(
             sync_types=claim_sync_types, exclude_sync_types=claim_exclude_sync_types
         )
+        # Last full depth sample and when it was taken (time.monotonic()). Only the gauge
+        # slot holder keeps one; it is re-exported while the depth probe times out.
+        self._depth_sample: QueueDepth | None = None
+        self._depth_sampled_at = 0.0
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
         # job_id -> (status, latest_error) for dead jobs only, so the drain decision in
@@ -337,7 +353,9 @@ class DeltaBatchConsumerAdapter:
             try:
                 # `to_export_signal()` hands back a dict, so it needs parsing the same way the
                 # delivery path does before anything reads a field off it.
-                await sync_to_async(abort_destinations)(ExportSignalMessage.from_dict(batch.to_export_signal()))
+                await sync_to_async(abort_destinations)(
+                    ExportSignalMessage.from_dict(batch.to_export_signal()), failure_reason=reason
+                )
             except Exception as e:
                 # Best effort by design: a leftover table costs the customer storage, not
                 # correctness, and is not worth failing the fail path over.
@@ -757,19 +775,27 @@ class DeltaBatchConsumerAdapter:
         slot, so a pod that sampled in an earlier round can never keep exporting
         that value as if it were fresh.
 
-        Each probe statement has a server-side timeout. Past it, the probe skips
-        its sample and the gauges stay NaN, with one exception: the age gauge
+        Each probe statement has a server-side timeout. Past it, the freshness
+        probe skips its sample and its gauges stay NaN, except that the age gauge
         saturates on any timeout, because a queue DB too degraded to measure
-        freshness must read as stale. The whole probe also has a client timeout,
+        freshness must read as stale. The depth gauges behave differently: the
+        queue is deepest exactly when the depth probe is slowest, so NaN would
+        read as an empty queue on a panel. The slot holder repeats its last good
+        depth sample instead, and ``warehouse_pg_queue_depth_sample_age_seconds``
+        says how old it is. A pod that does not hold the slot drops its sample
+        and exports NaN. The whole probe also has a client timeout,
         so it cannot eat the reconcile sweep's budget. Other failures are
         swallowed-with-capture so a broken probe can't take the sweep down.
         """
         clear_queue_sample_gauges()
+        holds_slot = False
         try:
             async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
-                if not await BatchQueue.try_acquire_queue_gauges_slot(
+                holds_slot = await BatchQueue.try_acquire_queue_gauges_slot(
                     conn, owner_token=self._gauge_owner_token, slot_key=self._gauge_slot_key
-                ):
+                )
+                if not holds_slot:
+                    self._depth_sample = None
                     logger.debug("queue_gauges_slot_held_elsewhere")
                     return
                 await self._sample_queue_gauges(conn)
@@ -779,6 +805,8 @@ class DeltaBatchConsumerAdapter:
                 timeout_seconds=FRESHNESS_PROBE_TIMEOUT_SECONDS,
             )
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            if holds_slot:
+                self._export_last_depth_sample()
             return
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
@@ -795,6 +823,7 @@ class DeltaBatchConsumerAdapter:
             logger.info("queue_freshness_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
             # The depth probe reads a larger set than this one, so it would time out too.
+            self._export_last_depth_sample()
             return
         # Set immediately, so a failure in the depth probe below can never
         # blind the age gauge this alert hangs off.
@@ -808,13 +837,44 @@ class DeltaBatchConsumerAdapter:
             with observe_queue_query("claimable_depth_probe"):
                 depth = await BatchQueue.get_queue_depth(conn)
         except psycopg.errors.QueryCanceled:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count").inc()
             logger.info("queue_depth_probe_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            self._export_last_depth_sample()
             return
-        CLAIMABLE_BATCHES.set(depth.claimable_batches)
-        CLAIMABLE_GROUPS.set(depth.claimable_groups)
-        TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
-        SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
-        SERIALIZED_BATCHES.set(depth.serialized_batches)
+        now = time.monotonic()
+        previous = self._depth_sample
+        if depth.claimable_groups is None:
+            DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="breakdown").inc()
+            logger.info("queue_depth_breakdown_statement_timed_out", timeout_ms=GAUGE_STATEMENT_TIMEOUT_MS)
+            # The fresh count still lands. The split keeps its last good value and its age.
+            self._depth_sample = QueueDepth(
+                claimable_batches=depth.claimable_batches,
+                claimable_groups=previous.claimable_groups if previous else None,
+                top_groups_claimable_share=previous.top_groups_claimable_share if previous else None,
+                slot_waiting_batches=previous.slot_waiting_batches if previous else None,
+                serialized_batches=previous.serialized_batches if previous else None,
+            )
+        else:
+            self._depth_sample = depth
+            self._depth_sampled_at = now
+        self._export_last_depth_sample()
+
+    def _export_last_depth_sample(self) -> None:
+        """Set the depth gauges from the last sample; leave NaN for any field never sampled."""
+        sample = self._depth_sample
+        if sample is None:
+            return
+        CLAIMABLE_BATCHES.set(sample.claimable_batches)
+        for gauge, value in (
+            (CLAIMABLE_GROUPS, sample.claimable_groups),
+            (TOP_GROUPS_CLAIMABLE_SHARE, sample.top_groups_claimable_share),
+            (SLOT_WAITING_BATCHES, sample.slot_waiting_batches),
+            (SERIALIZED_BATCHES, sample.serialized_batches),
+        ):
+            if value is not None:
+                gauge.set(value)
+        has_breakdown = sample.claimable_groups is not None
+        DEPTH_SAMPLE_AGE_SECONDS.set(time.monotonic() - self._depth_sampled_at if has_breakdown else math.nan)
 
     async def should_process_batch(
         self,

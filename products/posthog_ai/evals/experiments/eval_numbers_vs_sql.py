@@ -1,9 +1,9 @@
-"""Eval: agent handles PostHog-vs-SQL divergence in two shapes — scope mismatch and anti-routing.
+"""Eval: agent handles PostHog-vs-SQL divergence in three shapes — scope mismatch, anti-routing and population mismatch.
 
 Carrier scenarios for diagnostic group D from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
-Two cases:
+Three cases:
 
 1. ``posthog_count_below_raw_sql`` — the user's hand-written SQL counts more
    events than PostHog's experiment view. The skill lists the canonical
@@ -14,7 +14,7 @@ Two cases:
 2. ``exposures_vastly_exceed_metric`` — exposures sit at ~11k but the
    primary metric only counts ~110 events (a ~100× gap). Presents as a
    group-D scope mismatch but the root cause is identity / bucketing
-   (group A — A3 fragmentation, A4 bootstrap × ``/decide``, or A6/A8
+   (group A — A3 fragmentation, A4 bootstrap × ``/flags``, or A6/A8
    identifier migration). The skill's dispatch table for this symptom
    explicitly says "route here before D" — this case tests whether the
    agent obeys that routing rule under surface pressure (it looks like a
@@ -23,6 +23,13 @@ Two cases:
    bucketing signatures (`$multiple` share, distinct_id/person ratio) so
    the agent has the diagnostic evidence without needing seeded state to
    match.
+
+3. ``insight_counts_narrower_population`` (D12) — the experiment reads flat
+   while the team's own funnel insight, filtered to first-time visitors,
+   shows a drop. The flag is evaluated for every visitor. The user offers
+   the wrong conclusion ("the exposure settings are defaults, so the setup
+   is fine"). The agent must compare the two populations and must not
+   approve the setup from its defaults.
 
 To run:
 
@@ -88,10 +95,10 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
                 "like the numbers don't line up. Three observations:\n\n"
                 "1. Exposures tab says about 11,000 users were exposed.\n\n"
                 "2. The primary metric only counts about 110 events total — a 100× gap.\n\n"
-                "3. When I drill into the raw exposure events, ~8% of them carry `$multiple` as "
-                "the variant value, and the ratio of distinct distinct_ids per person_id is "
-                "about 2× higher than I'd expect — many people seem to have multiple distinct "
-                "IDs attached.\n\n"
+                "3. The exposure breakdown on the experiment shows about 8% of people under "
+                "`$multiple`, and in the raw exposure events the ratio of distinct distinct_ids "
+                "per person_id is about 2× higher than I'd expect — many people seem to have "
+                "multiple distinct IDs attached.\n\n"
                 "The metric event scoping looks correct in the experiment page configuration. "
                 "Where should I look first?"
             ),
@@ -104,7 +111,7 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
                 # with D scope filters.
                 "diagnosis_group": (
                     "The agent identifies this is a bucketing / identity-resolution problem "
-                    "(group A — A3 identity fragmentation, A4 bootstrap × /decide mismatch, or "
+                    "(group A — A3 identity fragmentation, A4 bootstrap × /flags mismatch, or "
                     "A6/A8 identifier strategy change), NOT primarily a SQL scope mismatch "
                     "(group D). The inline evidence pins this: the elevated $multiple share "
                     "(~8%) plus the >1 distinct_ids/person ratio (~2×) are direct signatures of "
@@ -114,6 +121,32 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
                     "window, etc.) without recognizing that the inline-reported $multiple and "
                     "distinct_id signals indicate a real bucketing problem fails — that is the "
                     "exact 'route here before D' miss the dispatch rule is designed to prevent."
+                ),
+            },
+        ),
+        SandboxedEvalCase(
+            # D12: the user offers the wrong conclusion that default exposure settings make the setup sound.
+            name="insight_counts_narrower_population",
+            prompt=(
+                f"My experiment '{ROLLOUT_EXPERIMENT_NAME}' changes our signup page. The experiment "
+                "says the test variant is flat on signups, but our own signup funnel insight, which "
+                "only counts first-time visitors, shows a clear drop since launch. The flag is "
+                "evaluated for everyone who opens the page, including logged-in customers. I left "
+                "the exposure settings on their defaults, so the experiment setup itself should be "
+                "fine, right?"
+            ),
+            setup=seed_running_experiment,
+            expected={
+                "diagnosis_group": (
+                    "The agent does NOT confirm that the setup is fine because the exposure "
+                    "settings are defaults. It identifies that the experiment and the insight count "
+                    "different populations: the experiment counts everyone who was exposed, "
+                    "including existing customers the change is not aimed at, while the insight "
+                    "counts only first-time visitors, so the effect on new visitors is diluted in "
+                    "the experiment's number. It recommends comparing the insight's filters with "
+                    "the experiment's exposure criteria and release conditions and narrowing the "
+                    "experiment to the people the decision is about, and notes that doing so on a "
+                    "running experiment is a mid-run change. This is the D12 diagnostic."
                 ),
             },
         ),
