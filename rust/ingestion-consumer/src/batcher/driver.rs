@@ -8,6 +8,7 @@ use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 use tracing::error;
 
 use super::in_flight::RequestId;
@@ -29,6 +30,7 @@ pub(super) struct StateMachineDriver {
     assignment_epoch: AssignmentEpoch,
     key_sentinel: Arc<KeyOrderSentinel>,
     snapshot: watch::Receiver<Snapshot>,
+    task: JoinHandle<()>,
 }
 
 enum Input {
@@ -48,9 +50,7 @@ pub(super) struct Snapshot {
     pub busy_workers: HashSet<WorkerId>,
 }
 
-/// Weak, so the rebalance hook does not keep the batcher task alive after
-/// the batcher is dropped.
-pub(super) struct RevokeSender(mpsc::WeakUnboundedSender<Input>);
+pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
 
 type Response =
     Pin<Box<dyn Future<Output = (RequestId, Result<u32, SendError>)> + std::marker::Send>>;
@@ -98,13 +98,14 @@ impl StateMachineDriver {
             errors: errors_tx,
             snapshot: snapshot_tx,
         };
-        drop(tokio::spawn(task.run(state)));
+        let task = tokio::spawn(task.run(state));
         Ok((
             Self {
                 inputs: inputs_tx,
                 assignment_epoch,
                 key_sentinel,
                 snapshot: snapshot_rx,
+                task,
             },
             BatcherOutputs {
                 completions: completions_rx,
@@ -122,7 +123,7 @@ impl StateMachineDriver {
     }
 
     pub(super) fn revoke_sender(&self) -> RevokeSender {
-        RevokeSender(self.inputs.downgrade())
+        RevokeSender(self.inputs.clone())
     }
 
     pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
@@ -155,15 +156,19 @@ impl StateMachineDriver {
     }
 }
 
+impl Drop for StateMachineDriver {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 impl RevokeSender {
     /// Runs on the rebalance callback, inside the consumer loop's Kafka
     /// poll, so a blocking wait here would stall a runtime worker. The purge
     /// queues behind the polls submitted before the rebalance and ahead of
     /// any submitted after it.
     pub(super) fn purge_revoked(&self, partitions: &[(String, i32)]) {
-        if let Some(inputs) = self.0.upgrade() {
-            let _ = inputs.send(Input::PartitionsRevoked(partitions.to_vec()));
-        }
+        let _ = self.0.send(Input::PartitionsRevoked(partitions.to_vec()));
     }
 }
 
