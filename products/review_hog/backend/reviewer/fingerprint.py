@@ -36,13 +36,17 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
+from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import DEDUP_SYSTEM_PROMPT
-from products.review_hog.backend.reviewer.tools.issue_validation import VALIDATION_SYSTEM_PROMPT
+from products.review_hog.backend.reviewer.tools.issue_validation import (
+    VALIDATION_FOLLOWUP_TEMPLATE,
+    VALIDATION_SYSTEM_PROMPT,
+)
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
@@ -65,6 +69,12 @@ _REVIEW_TURN_SYSTEM_PROMPTS = {
     "issues_review": REVIEW_SYSTEM_PROMPT,
     "issue_deduplicator": DEDUP_SYSTEM_PROMPT,
     "issue_validation": VALIDATION_SYSTEM_PROMPT,
+}
+
+# Hard-coded prompt text a turn sends outside the system prompts and the prompt directories.
+_REVIEW_TURN_EXTRA_PROMPTS = {
+    "issue_validation/followup": VALIDATION_FOLLOWUP_TEMPLATE,
+    "sandbox/json_retry": JSON_RETRY_PROMPT,
 }
 
 FINGERPRINT_LENGTH = 7
@@ -123,6 +133,7 @@ class TurnFingerprint:
     @staticmethod
     def _prompt_hashes() -> dict[str, str]:
         hashes = {f"{name}/system": _text_hash(text) for name, text in _REVIEW_TURN_SYSTEM_PROMPTS.items()}
+        hashes.update({name: _text_hash(text) for name, text in _REVIEW_TURN_EXTRA_PROMPTS.items()})
         for prompt_dir in _REVIEW_TURN_PROMPT_DIRS:
             for filename in ("prompt.jinja", "schema.json"):
                 hashes[f"{prompt_dir}/{filename}"] = _text_hash((PROMPTS_DIR / prompt_dir / filename).read_text())
@@ -141,10 +152,21 @@ class TurnFingerprint:
         # An archived row can share name and version with a live one; only the live row is unique.
         skills = list(LLMSkill.objects.filter(pinned_filter, team_id=team_id, deleted=False))
         names = {skill.id: skill.name for skill in skills}
-        # Content only, not the version number: the same text on two teams gives the same hash.
+        # Every field `skill-get` returns to the agent, but not the version number: the same
+        # content on two teams gives the same hash.
         hashers = {
             skill.id: hashlib.sha256(
-                json.dumps([skill.description, skill.body, sorted(skill.allowed_tools or [])]).encode()
+                json.dumps(
+                    [
+                        skill.description,
+                        skill.body,
+                        skill.license,
+                        skill.compatibility,
+                        sorted(skill.allowed_tools or []),
+                        skill.metadata or {},
+                    ],
+                    sort_keys=True,
+                ).encode()
             )
             for skill in skills
         }
@@ -161,7 +183,13 @@ class TurnFingerprint:
 
     @classmethod
     def for_turn(
-        cls, *, report: ReviewReport, acting_user_id: int, review_mode: str, flash_reasoning_effort: str
+        cls,
+        *,
+        team_id: int,
+        report: ReviewReport,
+        acting_user_id: int,
+        review_mode: str,
+        flash_reasoning_effort: str,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -178,7 +206,9 @@ class TurnFingerprint:
                 "validation_arm": _arm_payload(validation_arm),
                 "stage_pins": cls._stage_pins(),
                 "prompts": cls._prompt_hashes(),
-                "skills": cls._skill_hashes(report.team_id, acting_user_id),
+                # The workflow's team, not `report.team_id`: the report stores a child environment's
+                # parent team, but the skill sync and the stage loaders read the environment's own rows.
+                "skills": cls._skill_hashes(team_id, acting_user_id),
             }
         )
 
@@ -199,6 +229,7 @@ def record_turn_marker(
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact."""
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     fingerprint = TurnFingerprint.for_turn(
+        team_id=team_id,
         report=report,
         acting_user_id=acting_user_id,
         review_mode=review_mode,
