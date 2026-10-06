@@ -1486,29 +1486,21 @@ def social_reauth(
 
 
 def social_access_rules_allow(
-    strategy: DjangoStrategy,
-    backend: BaseAuth,
-    user: User | None = None,
-    details: dict[str, Any] | None = None,
-    **kwargs: Any,
+    strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
 ) -> None:
-    """Refuse an SSO login or SSO signup that an enforced access rule blocks.
-
-    Runs before the pipeline creates an account or starts a session. A new account is checked as
-    a signup here, because invite and verified-domain signups over SSO never reach the signup
-    serializer.
-    """
-    ip = get_trusted_client_ip(strategy.request)
+    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
     if user is None:
-        subject = SecuritySubject(email=(details or {}).get("email") or "", ip=ip)
-        surface, call_site = SecuritySurface.SIGNUP, "sso_signup"
-    else:
-        subject = SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=ip)
-        surface, call_site = SecuritySurface.APP, "sso_login"
+        # A new account is checked where it is created: the signup serializer, or the SSO invite
+        # and verified-domain joins in posthog/api/signup.py.
+        return
     try:
-        refused = security_access_refused(subject, surface, call_site=call_site)
+        refused = security_access_refused(
+            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(strategy.request)),
+            SecuritySurface.APP,
+            call_site="sso_login",
+        )
     except Exception:
-        logger.exception("security_access_check_site_failed", call_site=call_site)
+        logger.exception("security_access_check_site_failed", call_site="sso_login")
         refused = False
     if refused:
         raise AuthFailed(backend, ACCOUNT_BLOCKED_DETAIL)

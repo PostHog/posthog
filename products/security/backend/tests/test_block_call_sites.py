@@ -6,8 +6,6 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import RequestFactory
-from django.utils import timezone
 from django.conf import settings
 from django.test import RequestFactory
 from django.utils import timezone
@@ -22,9 +20,10 @@ from posthog.api.signup import (
     process_social_invite_signup,
     signup_refused,
 )
+from posthog.api.signup import process_social_domain_jit_provisioning_signup, process_social_invite_signup
 from posthog.models import Organization, User
-from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -104,33 +103,22 @@ class TestBlockCallSites(APIBaseTest):
         assert _count("signup", "invite_signup", "email") == before + would_block
         assert self.user.organizations.filter(id=new_org.id).exists() is (status == 201)
 
-    @parameterized.expand(
-        [
-            ("existing account, logged only", False, [], False),
-            ("existing account, enforced", False, ["app"], True),
-            ("new account, logged only", True, [], False),
-            ("new account, enforced", True, ["signup"], True),
-        ]
-    )
-    def test_blocked_sso(self, _name: str, new_account: bool, enforced: list[str], refused: bool) -> None:
-        # A new account over SSO can come from an invite or a verified domain, which never reach
-        # the signup serializer, so the pipeline step checks it as a signup.
+    @parameterized.expand([("logged only", [], False), ("enforced", ["app"], True)])
+    def test_blocked_sso_login(self, _name: str, enforced: list[str], refused: bool) -> None:
+        user = User.objects.create_and_join(self.organization, "blocked.sso@example.com", None)
         seed_rules(block_rule(targetValue="blocked.sso@example.com"))
-        user = None if new_account else User.objects.create_and_join(self.organization, "blocked.sso@example.com", None)
-        surface, call_site = ("signup", "sso_signup") if new_account else ("app", "sso_login")
-        before = _count(surface, call_site, "email")
+        before = _count("app", "sso_login", "email")
         strategy = MagicMock(request=RequestFactory().get("/complete/google-oauth2/"))
-        details = {"email": "blocked.sso@example.com"}
 
         with enforcing(*enforced):
             if refused:
                 with pytest.raises(AuthFailed, match="access_blocked"):
-                    social_access_rules_allow(strategy, MagicMock(), user=user, details=details)
+                    social_access_rules_allow(strategy, MagicMock(), user=user)
             else:
-                social_access_rules_allow(strategy, MagicMock(), user=user, details=details)
+                social_access_rules_allow(strategy, MagicMock(), user=user)
 
-        assert _count(surface, call_site, "email") == before + (0 if refused else 1)
-        # The step does nothing unless the pipeline runs it before the account or session exists.
+        assert _count("app", "sso_login", "email") == before + (0 if refused else 1)
+        # The step does nothing unless the pipeline runs it before the session starts.
         pipeline = list(settings.SOCIAL_AUTH_PIPELINE)
         assert pipeline.index("posthog.api.authentication.social_access_rules_allow") < pipeline.index(
             "posthog.api.signup.social_create_user"
