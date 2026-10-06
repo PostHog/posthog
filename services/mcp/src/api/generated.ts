@@ -37543,7 +37543,7 @@ export namespace Schemas {
       /** True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time. */
       can_emit: boolean;
       /**
-         * Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.
+         * Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, `source_disabled`, or `organization_mcp_read_only`. Null when `can_emit` is True. The first four match the `skipped_reason` `emit-report` returns for the same block. `organization_mcp_read_only` means the organization allows only read access through MCP, so `emit-report` and `scratchpad-remember` fail with HTTP 403.
          * @nullable
          */
       blocking_reason: string | null;

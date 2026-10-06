@@ -45,7 +45,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    is_mcp_request,
+)
 from posthog.clickhouse.query_tagging import tag_queries
 
 # PostHog's `SessionAuthentication` (not DRF's) calls `enforce_two_factor()`.
@@ -54,7 +59,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
@@ -62,6 +67,7 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.models import (
@@ -181,6 +187,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     InvalidEmitError,
     emit_eligibility_for_run,
     emit_finding_sync,
+    with_mcp_read_only_block,
 )
 from products.signals.backend.scout_harness.tools.lighthouse import (
     MAX_AUDITS_PER_RUN,
@@ -2304,6 +2311,22 @@ def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, r
         body["summary"]["emit_eligibility"] = effective
 
 
+def _overlay_mcp_read_only_block(body: dict[str, Any], *, request: Request, organization: Organization) -> None:
+    """Report the organization MCP read-only policy in both `emit_eligibility` sections.
+
+    The policy refuses MCP writes in the permission layer, so the scout's report and memory writes
+    fail even when every scout gate passes. A read is allowed, so this endpoint is the one place
+    the scout can learn about the block before it starts to investigate.
+    """
+    if mcp_access_denial(organization, is_mcp=is_mcp_request(request), writes=True) is None:
+        return
+    inventory = body["payload"].get("inventory")
+    if isinstance(inventory, dict) and "emit_eligibility" in inventory:
+        effective = with_mcp_read_only_block(inventory["emit_eligibility"])
+        inventory["emit_eligibility"] = effective
+        body["summary"]["emit_eligibility"] = effective
+
+
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Project profile — deterministic snapshot of \"what's true about this project\".
 
@@ -2409,6 +2432,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             team_id=team_id,
             run_id=_eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id")),
         )
+        _overlay_mcp_read_only_block(body, request=request, organization=self.organization)
         if validated.get("summary_only", False):
             # `payload` is `required=False` on the serializer, so dropping the key here omits it
             # from the response rather than rendering it null.
