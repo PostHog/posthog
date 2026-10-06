@@ -5,17 +5,18 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from requests import Response
+from requests import HTTPError, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.guru.guru import (
     GuruResumeConfig,
     _build_params,
+    _ensure_event_id,
     _format_last_modified,
     _normalize_member,
     guru_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import ENDPOINTS, GURU_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.guru.settings import GURU_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -31,6 +32,10 @@ def _response(items: Any, next_link: str | None = None) -> Response:
         # requests parses `response.links` from the RFC 5988 Link header.
         resp.headers["Link"] = f'<{next_link}>; rel="next-page"'
     return resp
+
+
+def _whoami_response(team_id: str) -> Response:
+    return _response({"team": {"id": team_id}, "tokenType": "API"})
 
 
 def _redirect(location: str) -> Response:
@@ -139,7 +144,34 @@ class TestBuildParams:
         assert params["sortField"] == "dateCreated"
         assert params["sortOrder"] == "asc"
 
-    @pytest.mark.parametrize("endpoint", ["collections", "groups", "members"])
+    @pytest.mark.parametrize(
+        "last_value, expected_from_date",
+        [
+            (datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=UTC), "2024-01-02T03:04:05.678+00:00"),
+            (datetime(2024, 1, 2, 3, 4, 5), "2024-01-02T03:04:05.000+00:00"),
+        ],
+    )
+    def test_incremental_analytics_uses_from_date_not_gql(self, last_value, expected_from_date):
+        params = _build_params(
+            GURU_ENDPOINTS["analytics_events"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+            incremental_field="eventDate",
+        )
+
+        assert params == {"fromDate": expected_from_date}
+
+    def test_full_refresh_analytics_sends_no_from_date(self):
+        params = _build_params(
+            GURU_ENDPOINTS["analytics_events"],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+
+        assert params == {}
+
+    @pytest.mark.parametrize("endpoint", ["collections", "groups", "members", "folders", "tag_categories", "tags"])
     def test_non_incremental_endpoints_have_no_search_params(self, endpoint):
         params = _build_params(
             GURU_ENDPOINTS[endpoint],
@@ -175,6 +207,26 @@ class TestNormalizeMember:
         # fail loudly rather than produce a row with a null primary key.
         with pytest.raises(KeyError):
             _normalize_member({"user": {"firstName": "Jane"}})
+
+
+class TestEnsureEventId:
+    def test_keeps_vendor_id(self):
+        event = {"id": "e1", "type": "card-viewed"}
+        assert _ensure_event_id(event) == event
+
+    def test_documented_event_without_id_gets_stable_content_key(self):
+        event = {
+            "type": "card-viewed",
+            "user": "jane@company.com",
+            "eventDate": "2016-01-20T03:10:11.351+0000",
+            "properties": {"cardId": "c1"},
+        }
+        other = {**event, "eventDate": "2016-01-20T03:10:12.000+0000"}
+
+        first = _ensure_event_id(event)["id"]
+
+        assert first and first == _ensure_event_id(dict(event))["id"]
+        assert first != _ensure_event_id(other)["id"]
 
 
 class TestValidateCredentials:
@@ -315,15 +367,106 @@ class TestGetRows:
             _rows(_source("cards", _make_manager()))
 
 
+class TestTeamScopedEndpoints:
+    @mock.patch(GURU_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_tags_are_flattened_from_categories_under_resolved_team(self, MockSession, mock_whoami_session):
+        mock_whoami_session.return_value.get.return_value = _whoami_response("team-1")
+        session = MockSession.return_value
+        _, urls = _wire(
+            session,
+            [
+                _response(
+                    [
+                        {"id": "cat-1", "name": "Fruits", "tags": [{"id": "t1", "value": "Apple"}]},
+                        {"id": "cat-2", "name": "Empty", "tags": []},
+                    ]
+                )
+            ],
+        )
+
+        rows = _rows(_source("tags", _make_manager()))
+
+        assert urls[0].endswith("/teams/team-1/tagcategories")
+        assert rows == [{"categoryId": "cat-1", "categoryName": "Fruits", "id": "t1", "value": "Apple"}]
+
+    @mock.patch(GURU_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_analytics_incremental_request_filters_by_from_date(self, MockSession, mock_whoami_session):
+        mock_whoami_session.return_value.get.return_value = _whoami_response("team-1")
+        session = MockSession.return_value
+        params, urls = _wire(session, [_response([{"id": "e1", "eventDate": "2024-01-02T00:00:00.000+0000"}])])
+
+        response = _source(
+            "analytics_events",
+            _make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="eventDate",
+        )
+        rows = _rows(response)
+
+        assert urls[0].endswith("/teams/team-1/analytics")
+        assert params[0] == {"fromDate": "2024-01-01T00:00:00.000+00:00"}
+        assert [row["id"] for row in rows] == ["e1"]
+        # Guru documents no order for the export, so the watermark must not checkpoint mid-run.
+        assert response.sort_mode == "desc"
+
+    @mock.patch(GURU_SESSION_PATCH)
+    def test_whoami_auth_failure_surfaces_as_http_error(self, mock_whoami_session):
+        failed = Response()
+        failed.status_code = 401
+        failed.url = "https://api.getguru.com/api/v1/whoami"
+        failed.reason = "Unauthorized"
+        mock_whoami_session.return_value.get.return_value = failed
+
+        with pytest.raises(HTTPError, match="401 Client Error: Unauthorized for url: https://api.getguru.com"):
+            _source("analytics_events", _make_manager())
+
+
+class TestFanoutEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, parent_id, child_path, child_rows, expected",
+        [
+            (
+                "group_members",
+                "g1",
+                "/groups/g1/members",
+                [{"id": "m1", "user": {"email": "jane@company.com"}}],
+                [{"id": "m1", "user": {"email": "jane@company.com"}, "group_id": "g1", "email": "jane@company.com"}],
+            ),
+            (
+                "folder_items",
+                "f1",
+                "/folders/f1/items",
+                [{"id": "c1", "type": "card"}],
+                [{"id": "c1", "type": "card", "folder_id": "f1"}],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_rows_carry_parent_id(self, MockSession, endpoint, parent_id, child_path, child_rows, expected):
+        session = MockSession.return_value
+        _, urls = _wire(session, [_response([{"id": parent_id}]), _response(child_rows)])
+
+        response = _source(endpoint, _make_manager())
+        rows = _rows(response)
+
+        assert urls[1].endswith(child_path)
+        assert rows == expected
+        assert all(row[key] is not None for row in rows for key in response.primary_keys)
+
+
 class TestGuruSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    @pytest.mark.parametrize("endpoint", [name for name, config in GURU_ENDPOINTS.items() if config.fanout is None])
+    @mock.patch(GURU_SESSION_PATCH)
+    def test_response_metadata_per_endpoint(self, mock_whoami_session, endpoint):
+        mock_whoami_session.return_value.get.return_value = _whoami_response("team-1")
         config = GURU_ENDPOINTS[endpoint]
         response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
@@ -334,4 +477,4 @@ class TestGuruSourceResponse:
     @pytest.mark.parametrize("config", list(GURU_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
-            assert config.partition_key == "dateCreated"
+            assert config.partition_key in ("dateCreated", "eventDate")

@@ -56,10 +56,9 @@ class TestClassifySlackAppProjectRouteActivity:
         )
 
     @contextmanager
-    def _classifier(self, *, flag: bool = True, projects: list | None = None, **kwargs):
+    def _classifier(self, *, projects: list | None = None, **kwargs):
         """Run the activity with the LLM call stubbed, yielding the stub."""
         with (
-            patch(f"{ACTIVITY_MODULE}.is_slack_app_project_routing_enabled", return_value=flag),
             patch(f"{ACTIVITY_MODULE}.routable_projects", return_value=self.offered if projects is None else projects),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_project_route", **kwargs) as classify,
         ):
@@ -70,16 +69,12 @@ class TestClassifySlackAppProjectRouteActivity:
         [
             # A follow-up that is only an attachment carries no sentence to read.
             "blank_text",
-            "flag_is_off",
             "no_eligible_projects",
         ],
     )
     def test_gates_return_no_route_without_calling_the_llm(self, reason):
         text = "   " if reason == "blank_text" else "how many signups on staging yesterday"
-        with self._classifier(
-            flag=reason != "flag_is_off",
-            projects=[] if reason == "no_eligible_projects" else None,
-        ) as classify:
+        with self._classifier(projects=[] if reason == "no_eligible_projects" else None) as classify:
             assert classify_slack_app_project_route_activity(self._input(text)) is None
         classify.assert_not_called()
 

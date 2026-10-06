@@ -5,6 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
@@ -36,6 +38,38 @@ def _pr_metadata() -> PRMetadata:
 
 
 class TestFetchDecidesTheTier(BaseTest):
+    @parameterized.expand([(None, "open", False), ("sha1", "open", True), (None, "closed", False)])
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_automatic_completion_requires_a_successful_publication_step(
+        self, automatic_head: str | None, state: str, complete: bool, mock_fetcher: MagicMock, _auth: MagicMock
+    ) -> None:
+        metadata = _pr_metadata().model_copy(update={"state": state})
+        mock_fetcher.return_value.fetch_pr_data.return_value = (metadata, [], [], "")
+        request = FetchPRDataInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            repository="o/r",
+            owner="o",
+            repo="r",
+            pr_number=9,
+            review_mode="flash",
+            trigger_source="automatic",
+        )
+        first = _fetch_and_persist(request)
+        report = ReviewReport.objects.for_team(self.team.id).get(id=first.report_id)
+        report.completed_head_sha = "sha1"
+        report.automatic_reviewed_head_sha = automatic_head
+        report.save()
+
+        meta = _fetch_and_persist(request)
+        report.refresh_from_db()
+
+        assert meta.already_completed is complete
+        assert meta.pr_open is (state == "open")
+        expected_status = "closed" if state == "closed" else "idle" if complete else "active"
+        assert report.status == expected_status
+
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")
     def test_fetch_keeps_the_created_tier_until_a_full_human_review(

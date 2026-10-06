@@ -6,15 +6,19 @@ import * as os from 'os'
 import * as path from 'path'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { blockSourceFromS3 } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
-import { videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
+import { renderOutputFields } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { extractThumbnail, extractThumbnails } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
     ActivityTimings,
+    ExtractThumbnailInput,
+    ExtractThumbnailsInput,
     RasterizationProgress,
     RasterizeRecordingInput,
     RasterizeRecordingOutput,
@@ -26,8 +30,8 @@ function toActivityError(err: unknown): Error {
     if (rasterizationError) {
         // The code travels as the failure type either way, so a caller can tell a recording that can never render
         // (NO_SNAPSHOTS) from one that merely ran out of retries. Retryability stays the player's call: NO_SNAPSHOTS is
-        // retryable while a recording is still being ingested, so the code is only conclusive once Temporal has spent
-        // the attempts.
+        // retryable while nothing has loaded, as the recording may still be ingesting, and final when no window has a
+        // full snapshot to draw from.
         return rasterizationError.retryable
             ? ApplicationFailure.retryable(rasterizationError.message, rasterizationError.code, rasterizationError)
             : ApplicationFailure.nonRetryable(rasterizationError.message, rasterizationError.code, rasterizationError)
@@ -56,6 +60,7 @@ async function rasterizeRecordingActivity(
     const workDir = process.env.VIDEO_WORK_DIR || os.tmpdir()
     const ext = input.output_format || 'mp4'
     const outputPath = path.join(workDir, `ph-video-${id}.${ext}`)
+    const sourcePath = path.join(workDir, `ph-source-${id}.jsonl`)
 
     const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
@@ -123,22 +128,24 @@ async function rasterizeRecordingActivity(
     }, 10_000)
 
     try {
+        const blockSource = input.source_s3_uri
+            ? await blockSourceFromS3(input.source_s3_uri, sourcePath, {
+                  allowedPrefixes: config.sourceS3Prefixes,
+                  maxCompressedBytes: config.maxRecordingCompressedBytes,
+                  maxDecompressedBytes: config.maxSourceDecompressedBytes,
+                  signal: abort.signal,
+              })
+            : undefined
         const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, {
             progress,
             log,
             signal: abort.signal,
+            blockSource,
         })
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
-
-        const periods = videoTimestampsFromFrames(
-            result.inactivity_periods,
-            result.frame_session_ms,
-            result.output_fps,
-            result.pre_roll_frames
-        )
 
         progress.phase = 'upload'
         onProgress()
@@ -164,11 +171,7 @@ async function rasterizeRecordingActivity(
 
         const output: RasterizeRecordingOutput = {
             s3_uri: s3Uri,
-            video_duration_s: result.capture_duration_s,
-            playback_speed: result.playback_speed,
-            show_metadata_footer: !!input.show_metadata_footer,
-            truncated: result.truncated,
-            inactivity_periods: periods,
+            ...renderOutputFields(result, input),
             file_size_bytes: stat.size,
             timings,
         }
@@ -218,11 +221,32 @@ async function rasterizeRecordingActivity(
         ctx.cancellationSignal.removeEventListener('abort', onCancel)
         RasterizationMetrics.activityFinished()
         await fs.rm(outputPath, { force: true })
+        await fs.rm(sourcePath, { force: true })
+    }
+}
+
+async function runMediaActivity<T>(run: () => Promise<T>): Promise<T> {
+    // The media path is fail-soft, so these counters are the only sign that the fleet is failing.
+    RasterizationMetrics.activityStarted()
+    try {
+        return await run()
+    } catch (err) {
+        const rasterizationError = asRasterizationError(err)
+        RasterizationMetrics.incrementError(
+            rasterizationError?.code ?? 'UNKNOWN',
+            rasterizationError?.retryable ?? true
+        )
+        throw toActivityError(rasterizationError ?? err)
+    } finally {
+        RasterizationMetrics.activityFinished()
     }
 }
 
 export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
+        // No browser and no pool: this one reads an MP4 the rasterizer already produced.
+        'extract-thumbnail': (input: ExtractThumbnailInput) => runMediaActivity(() => extractThumbnail(input)),
+        'extract-thumbnails': (input: ExtractThumbnailsInput) => runMediaActivity(() => extractThumbnails(input)),
     }
 }

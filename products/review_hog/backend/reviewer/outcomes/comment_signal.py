@@ -10,6 +10,7 @@ summary, so replies and reactions are read without any extra call or GraphQL.
 from typing import Any
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.tools.github_client import is_app_bot_author
 
 
@@ -31,7 +32,10 @@ def find_finding_comment(
     for comment in review_comments:
         if comment.get("path") != finding.file:
             continue
-        first_line = (comment.get("body") or "").split("\n", 1)[0].rstrip()
+        # Flash comments posted before reviewhog-flash-1-1 open with the flash banner line, so the
+        # banner is removed before the title check.
+        body = (comment.get("body") or "").removeprefix(LEGACY_FLASH_MODE_MESSAGE_PREFIX)
+        first_line = body.split("\n", 1)[0].rstrip()
         if first_line == heading:
             return comment
     return None

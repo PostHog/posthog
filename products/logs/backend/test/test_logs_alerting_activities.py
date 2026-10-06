@@ -770,14 +770,20 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.produce_alert_internal_event")
     def test_advances_next_check_at(self, mock_produce, mock_query_cls):
         _mock_buckets(mock_query_cls, [5])
-        alert = self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC))
+        # Alert IDs are random, so with per-alert sharding two alerts usually land in
+        # different slots. Team sharding puts every alert of a team in the same slot.
+        alerts = [self._make_alert(next_check_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)) for _ in range(6)]
         stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
         now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
 
-        _evaluate_and_save_one(alert, now, stats)
+        for alert in alerts:
+            _evaluate_and_save_one(alert, now, stats)
+            alert.refresh_from_db()
 
-        alert.refresh_from_db()
-        assert alert.next_check_at is not None and alert.next_check_at > now
+        next_checks = {alert.next_check_at for alert in alerts}
+        assert len(next_checks) == 1
+        (next_check_at,) = next_checks
+        assert next_check_at is not None and next_check_at > now
 
     @time_machine.travel("2025-01-01T21:58:00Z", tick=False)
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
@@ -2311,7 +2317,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @time_machine.travel("2025-01-01T00:01:00Z", tick=False)
-    @patch("products.alerts.backend.facade.delivery_slo.get_instance_region", return_value="US")
+    @patch("products.alerts_platform.backend.facade.delivery_slo.get_instance_region", return_value="US")
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")
     @patch("products.logs.backend.temporal.activities.flush_alert_internal_events")

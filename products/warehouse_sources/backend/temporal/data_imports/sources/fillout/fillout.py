@@ -1,4 +1,5 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 from requests import Request, Response
@@ -50,14 +51,15 @@ def _validated_api_base_url(api_base_url: str | None) -> str:
 def _format_fillout_datetime(value: Any) -> str:
     """Format the incremental watermark for Fillout's `afterDate` filter.
 
-    Truncates to whole seconds, which rounds the lower bound *down* — so a sync
+    Truncates to whole milliseconds, matching the precision Fillout itself reports
+    `submissionTime` at. Truncating rounds the lower bound *down* — so a sync
     re-fetches at most a few boundary rows (the merge dedupes them) rather than
     skipping any.
     """
     normalized_value = coerce_datetime_to_utc(value)
     if normalized_value is None:
         return str(value)
-    return normalized_value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{normalized_value.strftime('%Y-%m-%dT%H:%M:%S')}.{normalized_value.microsecond // 1000:03d}Z"
 
 
 def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
@@ -66,11 +68,23 @@ def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "afterDate",
-        # Not `...T00:00:00Z`: Fillout's API rejects an `afterDate` of exactly the Unix epoch
-        # with a 400 "Invalid date", so the first (pre-watermark) sync uses one second past it.
-        "initial_value": "1970-01-01T00:00:01Z",
         "convert": _format_fillout_datetime,
     }
+
+
+def _no_incremental_window(cursor_path: str) -> IncrementalConfig | None:
+    # Fillout has no `afterDate` value meaning "since the beginning of time", and the endpoint
+    # returns every submission when the param is absent. So a sync with no watermark yet sends
+    # no `afterDate` at all rather than a sentinel date the API can reject.
+    return None
+
+
+def _incremental_window_factory(
+    db_incremental_field_last_value: Optional[Any],
+) -> Callable[[str], IncrementalConfig | None]:
+    if db_incremental_field_last_value is None:
+        return _no_incremental_window
+    return _fillout_incremental_window
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -88,10 +102,11 @@ def _rest_api_client_config(base_api_url: str, api_key: str) -> ClientConfig:
 class FilloutSubmissionsPaginator(OffsetPaginator):
     """Limit/offset paginator for `/forms/{formId}/submissions`.
 
-    Pins `sort=asc` (oldest-first, matching the ascending incremental watermark) and
-    `status=finished` (Fillout's default; we don't want in-progress drafts). `totalResponses`
-    reflects the `afterDate`-filtered count, so the walk stops at the watermark on incremental
-    syncs rather than re-reading each form's full history.
+    Pins `sort=asc`, oldest-first, matching the ascending incremental watermark. No `status`
+    param: `finished` is already Fillout's default, so sending it only added a way for the
+    request to be rejected. `totalResponses` reflects the `afterDate`-filtered count, so the
+    walk stops at the watermark on incremental syncs rather than re-reading each form's full
+    history.
     """
 
     def __init__(self, limit: int) -> None:
@@ -105,7 +120,21 @@ class FilloutSubmissionsPaginator(OffsetPaginator):
     def init_request(self, request: Request) -> None:
         super().init_request(request)
         request.params.setdefault("sort", "asc")
-        request.params.setdefault("status", "finished")
+
+
+@dataclass(frozen=True)
+class _PerFormProbe:
+    """A follow-up request against one form, confirming the key reaches a per-form endpoint."""
+
+    path_suffix: str
+    params: dict[str, Any]
+    label: str
+
+
+_PER_FORM_PROBES: dict[str, _PerFormProbe] = {
+    "submissions": _PerFormProbe(path_suffix="/submissions", params={"limit": 1}, label="submissions"),
+    "form_metadata": _PerFormProbe(path_suffix="", params={}, label="form metadata"),
+}
 
 
 def validate_credentials(
@@ -119,7 +148,10 @@ def validate_credentials(
     headers = _auth_headers(api_key)
     errors: list[str] = []
 
-    skip_submissions_validation = schema_name == "forms"
+    # `/forms` is the only endpoint the `forms` schema reads, so it needs no follow-up. At
+    # source-create time (no schema yet) the submissions probe stands in for every per-form
+    # endpoint — Fillout issues one key with no per-endpoint scopes.
+    probe = _PER_FORM_PROBES.get(schema_name or "submissions")
 
     def _parse_error_description(response: Response) -> str:
         try:
@@ -145,31 +177,33 @@ def validate_credentials(
     except RequestException as exc:
         errors.append(f"/forms request failed: {exc}")
 
-    if not skip_submissions_validation and forms_response and forms_response.status_code == 200:
+    if probe and forms_response and forms_response.status_code == 200:
         forms_items = forms_response.json()
 
-        # With no forms there's nothing to probe submissions against; that shouldn't block validation.
+        # With no forms there's nothing to probe against; that shouldn't block validation.
         if isinstance(forms_items, list) and forms_items:
             first_form = forms_items[0]
             form_id = first_form.get("formId") if isinstance(first_form, dict) else None
             if not isinstance(form_id, str) or not form_id:
-                errors.append("Fillout returned an invalid form id while validating submissions access.")
+                errors.append(f"Fillout returned an invalid form id while validating {probe.label} access.")
             else:
                 try:
-                    submissions_response = make_tracked_session().get(
-                        f"{base_url}/forms/{form_id}/submissions",
+                    probe_response = make_tracked_session().get(
+                        f"{base_url}/forms/{form_id}{probe.path_suffix}",
                         headers=headers,
-                        params={"limit": 1},
+                        params=probe.params,
                         timeout=10,
                     )
-                    if submissions_response.status_code == 401:
+                    if probe_response.status_code == 401:
                         errors.append("Invalid Fillout API key")
-                    elif submissions_response.status_code == 403:
-                        errors.append("Fillout API key is missing permission to read submissions")
-                    elif submissions_response.status_code != 200:
-                        errors.append(f"/submissions endpoint failed: {_parse_error_description(submissions_response)}")
+                    elif probe_response.status_code == 403:
+                        errors.append(f"Fillout API key is missing permission to read {probe.label}")
+                    elif probe_response.status_code != 200:
+                        errors.append(
+                            f"Fillout {probe.label} endpoint failed: {_parse_error_description(probe_response)}"
+                        )
                 except RequestException as exc:
-                    errors.append(f"/submissions request failed: {exc}")
+                    errors.append(f"Fillout {probe.label} request failed: {exc}")
 
     if errors:
         return False, "; ".join(errors)
@@ -184,8 +218,7 @@ def get_resource(endpoint: str) -> EndpointResource:
     endpoint_config: Endpoint = {
         "path": config.path,
         "params": {},
-        # `/forms` returns a bare JSON array, so select the root.
-        "data_selector": "$",
+        "data_selector": config.data_selector,
         "paginator": SinglePagePaginator(),
     }
 
@@ -195,6 +228,20 @@ def get_resource(endpoint: str) -> EndpointResource:
         "write_disposition": "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
+    }
+
+
+def _child_endpoint_extra(endpoint_config: FilloutEndpointConfig) -> Endpoint:
+    if endpoint_config.paginated:
+        return {
+            "paginator": FilloutSubmissionsPaginator(limit=endpoint_config.page_size),
+            "data_selector": endpoint_config.data_selector,
+        }
+    # `/forms/{formId}` returns the form's whole metadata object in one response, so there is
+    # nothing to page through and the object itself is the single row.
+    return {
+        "paginator": SinglePagePaginator(),
+        "data_selector": endpoint_config.data_selector,
     }
 
 
@@ -228,6 +275,7 @@ def fillout_source(
     base_api_url = _validated_api_base_url(api_base_url)
 
     if endpoint_config.fanout:
+        parent_config = FILLOUT_ENDPOINTS[endpoint_config.fanout.parent_name]
         dependent_resource = cast(
             Iterable[Any],
             build_dependent_resource(
@@ -241,16 +289,13 @@ def fillout_source(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
-                incremental_config_factory=_fillout_incremental_window,
-                page_size_param="limit",
+                incremental_config_factory=_incremental_window_factory(db_incremental_field_last_value),
+                page_size_param="limit" if endpoint_config.paginated else None,
                 parent_endpoint_extra={
                     "paginator": SinglePagePaginator(),
-                    "data_selector": "$",
+                    "data_selector": parent_config.data_selector,
                 },
-                child_endpoint_extra={
-                    "paginator": FilloutSubmissionsPaginator(limit=endpoint_config.page_size),
-                    "data_selector": "responses",
-                },
+                child_endpoint_extra=_child_endpoint_extra(endpoint_config),
             ),
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)

@@ -68,6 +68,7 @@ export enum PluginServerMode {
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     ingestion_api = 'ingestion-api',
+    push_api = 'push-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -138,6 +139,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+    PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: number
+    PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: number
 
     // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
     // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
@@ -166,7 +169,6 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
     /**
@@ -222,6 +224,11 @@ export type CommonConfig = BaseServerConfig & {
     // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
     // lane allows 6 per registrable domain.
     EXTERNAL_REQUEST_H2_CONNECTIONS: number
+    // Which teams send their third-party requests through the egress proxy. Only a deployment in the rollout sets
+    // this. Left unset, a configured proxy carries every request, which is the behavior from before the rollout.
+    // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
+    // everyone else's requests, '*' for all.
+    EXTERNAL_REQUEST_PROXY_TEAMS: string
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -261,6 +268,7 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_PROXY_TEAMS'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -273,6 +281,7 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
+        EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
     }
 }
 
@@ -348,6 +357,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+        PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: 0,
+        PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: 0,
 
         // Usage ingestion gRPC
         USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
@@ -376,7 +387,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         CONSUMER_USE_V2: false,
@@ -428,6 +438,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
+        EXTERNAL_REQUEST_PROXY_TEAMS: '',
 
         // PostHog analytics
         POSTHOG_API_KEY: '',

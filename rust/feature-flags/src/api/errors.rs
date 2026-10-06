@@ -115,6 +115,8 @@ pub enum FlagError {
     TimeoutError(Option<String>),
     #[error("Dependency of type {0} with id {1} not found")]
     DependencyNotFound(DependencyType, i64),
+    #[error("Flag dependency {0} failed to evaluate")]
+    DependencyFailed(i64),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -130,11 +132,12 @@ pub enum FlagError {
     RemoteConfigDecryptFailed(String),
 }
 
-/// Codes that `IntoResponse` branches on, so the constructor and the arm cannot
-/// drift apart. The codes used at one site only stay inline: a single literal has
-/// no second reference to disagree with.
+/// Codes that more than one site compares against, so the constructor and each
+/// comparison cannot drift apart. The codes used at one site only stay inline: a
+/// single literal has no second reference to disagree with.
 pub(crate) const CODE_FLAG_DATA_PARSING: &str = "flag_data_parsing_error";
 pub(crate) const CODE_PERSON_NOT_FOUND: &str = "person_not_found";
+pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -160,6 +163,13 @@ impl FlagError {
         FlagError::InternalError {
             code: "data_parsing_error",
             cause: cause.into().context("Failed to parse data"),
+        }
+    }
+
+    pub fn flag_evaluation(details: impl std::fmt::Debug) -> Self {
+        FlagError::InternalError {
+            code: "flag_evaluation_error",
+            cause: anyhow::anyhow!("Flag evaluation failed: {details:?}"),
         }
     }
 
@@ -235,6 +245,7 @@ impl FlagError {
             FlagError::DatabaseError(_, _) => ("database_error", 500),
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
+            FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -350,6 +361,7 @@ impl FlagError {
                 DependencyType::Cohort => "Cohort dependency not found".to_string(),
                 DependencyType::Flag => "Flag dependency not found".to_string(),
             },
+            FlagError::DependencyFailed(_) => "Flag dependency failed to evaluate".to_string(),
             FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
@@ -529,6 +541,10 @@ impl IntoResponse for FlagError {
             FlagError::DependencyNotFound(dependency_type, dependency_id) => {
                 tracing::error!("Dependency of type {dependency_type} with id {dependency_id} not found");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Dependency of type {dependency_type} with id {dependency_id} not found"))
+            }
+            FlagError::DependencyFailed(dependency_id) => {
+                tracing::error!("Flag dependency {dependency_id} failed to evaluate");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Flag dependency {dependency_id} failed to evaluate"))
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
@@ -1060,6 +1076,7 @@ mod tests {
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::DependencyFailed(2),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
             FlagError::person_not_found(),
@@ -1172,6 +1189,7 @@ mod tests {
             FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
             FlagError::RowNotFound,
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::DependencyFailed(2),
             FlagError::CohortFiltersParsingError,
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::data_parsing(anyhow::anyhow!("bad payload")),
@@ -1287,6 +1305,7 @@ mod tests {
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
             FlagError::TimeoutError(None),
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
+            FlagError::DependencyFailed(2),
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::CohortFiltersParsingError,
             FlagError::person_not_found(),

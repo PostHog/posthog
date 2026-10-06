@@ -30,7 +30,14 @@ import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
+import {
+    BOTTOM_HANDLE_POSITION,
+    MAX_ZOOM,
+    MIN_ZOOM,
+    NODE_HEIGHT,
+    NODE_WIDTH,
+    TOP_HANDLE_POSITION,
+} from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
@@ -275,6 +282,48 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -306,49 +355,6 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'exit'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                conditions: {
-                                    filters: {
-                                        actions?: any[] | undefined
-                                        events?: any[] | undefined
-                                        properties?: any[] | undefined
-                                    }
-                                    name?: string | undefined
-                                }[]
-                                delay_duration?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'conditional_branch'
                             updated_at?: number | undefined
                         }
                       | {
@@ -733,6 +739,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -902,7 +917,6 @@ export interface hogFlowEditorLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -1133,6 +1147,48 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             config: {
+                                conditions: {
+                                    filters: {
+                                        actions?: any[] | undefined
+                                        events?: any[] | undefined
+                                        properties?: any[] | undefined
+                                    }
+                                    name?: string | undefined
+                                }[]
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'conditional_branch'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
                                 reason?: string | undefined
                             }
                             created_at?: number | undefined
@@ -1164,49 +1220,6 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'exit'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                conditions: {
-                                    filters: {
-                                        actions?: any[] | undefined
-                                        events?: any[] | undefined
-                                        properties?: any[] | undefined
-                                    }
-                                    name?: string | undefined
-                                }[]
-                                delay_duration?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'conditional_branch'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1591,6 +1604,15 @@ export interface hogFlowEditorLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1760,7 +1782,6 @@ export interface hogFlowEditorLogicActions {
                                 | undefined
                             filters: any
                             window?: string | undefined
-                            window_minutes?: number | null | undefined
                         }
                       | undefined
                   created_at: string
@@ -2887,26 +2908,38 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (!reactFlowWrapper?.current || !reactFlowInstance) {
                     return
                 }
-                // Get the width of the wrapper
-                const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
-                const panelWidth = Math.min(values.panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH, wrapperWidth)
-                // Get the width of the thing we are going to fit to the view
-                const nodesWidth =
-                    reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
-                        ?.width ?? 0
-                // Adjust the width for the zoom factor to be relative to the wrapper width
-                const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
+                const wrapperRect = reactFlowWrapper.current.getBoundingClientRect()
+                const wrapperWidth = wrapperRect?.width ?? 0
+                const wrapperHeight = wrapperRect?.height ?? 0
+                const panel = reactFlowWrapper.current.parentElement?.querySelector<HTMLElement>(
+                    '[data-attr="workflow-editor-panel"]'
+                )
+                const panelWidth =
+                    panel && getComputedStyle(panel).position === 'absolute'
+                        ? Math.min(panel.getBoundingClientRect().width, wrapperWidth)
+                        : 0
+                const nodesToFit = values.selectedNode ? [values.selectedNode] : values.nodes
+                const nodesBounds = reactFlowInstance.getNodesBounds(nodesToFit)
+                const visibleWidth = wrapperWidth - panelWidth
+                // Size the padding for the zoom this fit lands on. With the current zoom each fit depends
+                // on the previous one, so the resize observer and the mount timeout leave a different
+                // viewport depending on how often they fire. fitView clamps its zoom to the instance limits,
+                // so clamp here too, or a small workflow gets padding for a zoom it never reaches.
+                const unclampedFitZoom = Math.min(visibleWidth / nodesBounds.width, wrapperHeight / nodesBounds.height)
+                const fitZoom =
+                    noZoom || !nodesBounds.width || !nodesBounds.height
+                        ? reactFlowInstance.getZoom()
+                        : Math.min(Math.max(unclampedFitZoom, MIN_ZOOM), MAX_ZOOM)
+                const nodesWidthAdjusted = nodesBounds.width * fitZoom
                 // Calculate the padding right to fit the panel width to the wrapper width
                 // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
                 const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
 
                 reactFlowInstance.fitView({
-                    padding: {
-                        right: `${paddingRight}px`,
-                    },
+                    padding: panelWidth > 0 ? { right: `${paddingRight}px` } : 0.2,
                     maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
                     minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
+                    nodes: nodesToFit,
                     duration: duration ?? 100,
                 })
             },

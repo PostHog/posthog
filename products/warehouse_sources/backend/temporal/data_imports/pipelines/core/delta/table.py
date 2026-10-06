@@ -3,7 +3,9 @@ from typing import Any
 
 from django.conf import settings
 
+import pyarrow as pa
 import deltalake as deltalake
+import pyarrow.compute as pc
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -13,13 +15,18 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    conditional_lru_cache_async,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    get_handle_cache,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
 )
 
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
@@ -40,6 +47,10 @@ def _is_retryable_purge_error(error: OSError) -> bool:
     NoCredentialsError above, just surfacing as an explicit S3-side denial instead of a local
     resolution failure. Retrying the same bounded budget lets that race self-heal; a persistent
     misconfiguration still raises once the budget is exhausted, since this only defers the error.
+
+    The `PermissionError` clause only ever sees a bodyless 403, because `_purge_s3_prefix` classifies
+    a response that does carry an explicit `AccessDenied` code before reaching here (see
+    is_object_store_permission_denied) and raises on it instead of retrying.
     """
     return is_transient_object_store_error(error) or isinstance(error, PermissionError)
 
@@ -56,6 +67,12 @@ async def _purge_s3_prefix(s3: Any, uri: str) -> None:
             await _purge_s3_prefix_once(s3, uri)
             return
         except OSError as e:
+            if is_object_store_permission_denied(e):
+                # S3 only returns an explicit AccessDenied code when a policy refuses the call, so
+                # every remaining attempt would make the same refused DeleteObjects calls and only
+                # delay the failure. Raise a typed error on the first one, and keep the object key
+                # it names out of the message the customer reads.
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
             attempt += 1
             if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not _is_retryable_purge_error(e):
                 raise
@@ -135,6 +152,30 @@ def delta_storage_options() -> dict[str, str]:
     return options
 
 
+def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
+    """Rows in the table's live files, summed from the `numRecords` statistic of each Add action.
+
+    The query folder holds a copy of exactly the live files, so this sum is the number a `count()`
+    over that folder returns, without a read of any data file. Deletion vectors do not change this,
+    because the copied files also keep every physical row.
+
+    None when a live file has no statistic or the log cannot give the statistics. The caller then
+    counts the files instead.
+    """
+    try:
+        add_actions = pa.table(delta_table.get_add_actions(flatten=False))
+    except Exception:
+        # The stats of a large table can overflow Arrow's 32-bit string offsets (see
+        # repartition.measure_partition_bytes), and the fallback count gives the same number.
+        return None
+    if "num_records" not in add_actions.column_names:
+        return None
+    num_records = add_actions.column("num_records")
+    if num_records.null_count:
+        return None
+    return int(pc.sum(num_records).as_py() or 0)
+
+
 class DeltaTableRef:
     """Handle to one schema's Delta table: uri/credentials, the cached open (with corrupt-table
     auto-heal), corruption detection, reset, file listing, and the first-sync flag.
@@ -148,6 +189,12 @@ class DeltaTableRef:
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
     _is_first_sync: bool
+    _cached_table: deltalake.DeltaTable | None
+    #: True while a deltalite commit has advanced the log past the cached handle's snapshot.
+    _cached_table_stale: bool
+    #: The newest version deltalite reported committing through this ref, if any.
+    _deltalite_version: int | None
+    _table_uri: str | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -156,6 +203,10 @@ class DeltaTableRef:
         self._job = job
         self._logger = logger
         self._is_first_sync = is_first_sync
+        self._cached_table = None
+        self._cached_table_stale = False
+        self._deltalite_version = None
+        self._table_uri = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -178,34 +229,130 @@ class DeltaTableRef:
 
     async def _get_delta_table_uri(self) -> str:
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return build_delta_table_uri(folder_path, self._resource_name)
+        self._table_uri = build_delta_table_uri(folder_path, self._resource_name)
+        return self._table_uri
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
-        return await self._get_delta_table_uri()
+        uri = await self._get_delta_table_uri()
+        self._table_uri = uri
+        return uri
 
     def get_storage_options(self) -> dict[str, str]:
         """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
         return self._get_credentials()
 
     async def _capture_unless_transient(self, e: Exception) -> None:
-        """capture_exception unless `e` is a known-transient object-store blip (see
-        is_transient_object_store_error) or a concurrent-purge race on `_delta_log` (see
-        is_transient_delta_maintenance_error — the open below can lose that same race a maintenance
-        pass can) — those recover on retry and aren't a defect, so reporting them to error tracking
-        is just noise. A transient blip is re-raised as TransientObjectStoreError instead of letting
-        the original propagate: the activity interceptor reports any uncaught activity exception
-        unless it's a NonReportableError, so a bare re-raise here would still mint a fresh issue at
-        that boundary. Never suppresses the re-raise itself, so Temporal's activity retry policy is
-        unaffected either way.
+        """capture_exception unless `e` is already classified as something other than a defect.
+
+        A known-transient object-store blip (see is_transient_object_store_error) or a
+        concurrent-purge race on `_delta_log` (see is_transient_delta_maintenance_error, because the
+        open below can lose the same race a maintenance pass can) recovers on retry, so reporting it
+        to error tracking is just noise. Both are re-raised as TransientObjectStoreError instead of
+        letting the original propagate, because the activity interceptor reports any uncaught
+        activity exception unless it is a NonReportableError, which TransientObjectStoreError is, so
+        a bare re-raise here would still mint a fresh issue at that boundary.
+
+        An object-store refusal (see is_object_store_permission_denied) is re-raised as
+        ObjectStorePermissionDeniedError, which is not a NonReportableError: a refusal on our own
+        bucket needs a human, so it is still reported, once, under a message that names no object key.
+
+        Never suppresses the re-raise itself, so Temporal's activity retry policy is unaffected
+        whichever branch runs.
         """
+        if is_object_store_permission_denied(e):
+            # The bucket refused the read, which is a policy condition on our own storage rather
+            # than a defect in this code or a corrupt table. Raising the typed error instead of
+            # capturing here leaves one report at the activity boundary rather than two, and its
+            # message carries no `_delta_log` key, so the customer's error text stays free of the
+            # object key and error tracking gets one issue instead of one per table.
+            #
+            # Classified before the transient check, because delta-rs prefixes many object-store
+            # errors with "Generic S3 error", which that check treats as transient on its own. A
+            # refusal that arrives under that prefix is still definitive, and retrying it would
+            # hide it behind Temporal's retry policy until the activity gave up.
+            await self._logger.aerror(f"get_delta_table: the object store denied the read ({type(e).__name__})")
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
         if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
 
-    @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
-    async def get_delta_table(self) -> deltalake.DeltaTable | None:
+    async def get_delta_table(self, *, allow_stale: bool = False) -> deltalake.DeltaTable | None:
+        """Open the table once and hand back the same handle for the rest of this ref's life.
+
+        The cache is per instance on purpose. A process-wide slot lets any other table in flight on
+        the same worker evict this one's handle, and every re-open is a full Delta-log replay against
+        object storage. Writes through the handle keep it current, so it stays valid until this ref's
+        own `invalidate_cached_table` (reset, repartition swap) says otherwise. A missing table is
+        never cached, so a table created after the first probe is found by the next call.
+
+        A deltalite write commits past this handle (see `note_deltalite_commit`), after which the
+        cached snapshot is behind the log by that commit: same table id, same columns, same
+        partition layout, but an older version and file list. The handle catches up on the next call
+        with one incremental log read. `allow_stale` skips that read for a caller whose reads a
+        deltalite commit cannot change; anything that reads the version, the file list or the
+        per-file statistics must leave it False.
+        """
+        if self._cached_table is not None:
+            if self._cached_table_stale and not allow_stale:
+                await self._refresh_cached_table(self._cached_table)
+            return self._cached_table
+        table = await self._open_delta_table()
+        self._cached_table = table
+        self._cached_table_stale = False
+        return table
+
+    async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
+        try:
+            await asyncio.to_thread(table.update_incremental)
+        except Exception as e:
+            # The handle stays marked, so the next reader tries again instead of reading a snapshot
+            # that is known to be behind.
+            await self._capture_unless_transient(e)
+            raise
+        self._cached_table_stale = False
+
+    def note_deltalite_commit(self, version: int | None) -> None:
+        """Record that deltalite committed `version` to this table outside the cached handle.
+
+        The cached delta-rs handle is marked behind the log until the next `get_delta_table` call
+        refreshes it. The version is kept so `latest_known_version` can report it in the meantime.
+        """
+        self._cached_table_stale = True
+        if version is not None and (self._deltalite_version is None or version > self._deltalite_version):
+            self._deltalite_version = version
+
+    def latest_known_version(self, delta_table: deltalake.DeltaTable) -> int:
+        """The newest version this ref knows the table reached: the handle's, or a later deltalite commit."""
+        version = delta_table.version()
+        if self._deltalite_version is not None and self._deltalite_version > version:
+            return self._deltalite_version
+        return version
+
+    def invalidate_cached_table(self) -> None:
+        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log.
+
+        The process-wide deltalite handle for this table goes with it: a reset or a repartition swap
+        has replaced the table under the same URI, and that handle's snapshot describes the old one.
+        """
+        self._forget_cached_table()
+        if self._table_uri is not None:
+            get_handle_cache().invalidate(self._table_uri)
+
+    def pop_cached_table(self) -> deltalake.DeltaTable | None:
+        """Release the cached handle without opening the table, for end-of-run memory cleanup."""
+        table = self._cached_table
+        self._forget_cached_table()
+        return table
+
+    def _forget_cached_table(self) -> None:
+        # A version noted for the old handle describes a table incarnation this ref is done with.
+        self._cached_table = None
+        self._cached_table_stale = False
+        self._deltalite_version = None
+
+    async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
@@ -300,7 +447,7 @@ class DeltaTableRef:
             except FileNotFoundError:
                 pass
 
-        self.get_delta_table.cache_clear()
+        self.invalidate_cached_table()
 
         await self._logger.adebug("reset_table: _is_first_sync=True")
         self._is_first_sync = True
@@ -311,3 +458,15 @@ class DeltaTableRef:
             return []
 
         return await asyncio.to_thread(delta_table.file_uris)
+
+    async def get_live_row_count(self) -> int | None:
+        """The table's row count from the Delta log, or None when the log cannot give it (see
+        `live_row_count`)."""
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        row_count = await asyncio.to_thread(live_row_count, delta_table)
+        if row_count is None:
+            await self._logger.adebug("The Delta log has no complete row count, counting the published files")
+        return row_count

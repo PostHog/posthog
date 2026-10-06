@@ -315,14 +315,59 @@ export const AutoresearchModelRoleEnumApi = {
 } as const
 
 /**
+ * * `positive` - Positive
+ * * `negative` - Negative
+ */
+export type FeatureDirectionEnumApi = (typeof FeatureDirectionEnumApi)[keyof typeof FeatureDirectionEnumApi]
+
+export const FeatureDirectionEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+} as const
+
+export interface FeatureImportanceApi {
+    /**
+     * Feature column name, as returned by the feature SQL.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+     * @minimum 0
+     */
+    importance: number
+    /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+     *
+     * * `positive` - Positive
+     * * `negative` - Negative */
+    direction: FeatureDirectionEnumApi
+}
+
+/**
+ * Global feature importances for the model card.
+ */
+export interface ModelExplanationFieldApi {
+    /**
+     * At most 30 features, strongest first.
+     * @maxItems 30
+     */
+    top_features?: FeatureImportanceApi[]
+    /**
+     * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+     * @maxLength 500
+     */
+    method?: string
+    /**
+     * Optional caveat shown under the chart.
+     * @maxLength 500
+     */
+    note?: string
+}
+
+/**
  * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
  */
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
-
-/**
- * Global feature importance and directionality. Used to explain top drivers on the model card.
- */
-export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
 
 /**
  * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
@@ -345,7 +390,7 @@ export interface AutoresearchModelApi {
     /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
     model_recipe: AutoresearchModelApiModelRecipe
     /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-    model_explanation: AutoresearchModelApiModelExplanation
+    model_explanation: ModelExplanationFieldApi
     /**
      * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
      * @nullable
@@ -394,6 +439,8 @@ export interface AutoresearchModelApi {
     archived_at?: string | null
     readonly created_at: string
     readonly updated_at: string
+    /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+    readonly in_shadow_set: boolean
 }
 
 export interface PaginatedAutoresearchModelListApi {
@@ -434,7 +481,7 @@ export const ZendeskImportJobStatusEnumApi = {
 } as const
 
 /**
- * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+ * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
  */
 export type AutoresearchRunApiMetrics = { [key: string]: unknown }
 
@@ -467,7 +514,7 @@ export interface AutoresearchRunApi {
      * @nullable
      */
     rows_scored?: number | null
-    /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+    /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
     /** Error message if the run failed. */
     error?: string
@@ -491,6 +538,145 @@ export interface PaginatedAutoresearchRunListApi {
     /** @nullable */
     previous?: string | null
     results: AutoresearchRunApi[]
+}
+
+/**
+ * * `try_next` - Try next
+ * * `consider` - Consider
+ */
+export type AutoresearchSuggestionPriorityEnumApi =
+    (typeof AutoresearchSuggestionPriorityEnumApi)[keyof typeof AutoresearchSuggestionPriorityEnumApi]
+
+export const AutoresearchSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `picked_up` - Picked up
+ * * `acted_on` - Acted on
+ * * `dismissed` - Dismissed
+ */
+export type AutoresearchSuggestionStatusEnumApi =
+    (typeof AutoresearchSuggestionStatusEnumApi)[keyof typeof AutoresearchSuggestionStatusEnumApi]
+
+export const AutoresearchSuggestionStatusEnumApi = {
+    Queued: 'queued',
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * * `user` - User
+ * * `agent` - Agent
+ */
+export type AutoresearchSuggestionSourceEnumApi =
+    (typeof AutoresearchSuggestionSourceEnumApi)[keyof typeof AutoresearchSuggestionSourceEnumApi]
+
+export const AutoresearchSuggestionSourceEnumApi = {
+    User: 'user',
+    Agent: 'agent',
+} as const
+
+export interface AutoresearchSuggestionApi {
+    /** Unique UUID of this suggestion. */
+    readonly id: string
+    /** Pipeline this suggestion targets. */
+    pipeline: string
+    /** Free-text hypothesis or direction for the agent to explore. */
+    prompt: string
+    /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+     *
+     * * `try_next` - Try next
+     * * `consider` - Consider */
+    priority?: AutoresearchSuggestionPriorityEnumApi
+    /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+     *
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed */
+    readonly status: AutoresearchSuggestionStatusEnumApi
+    /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    readonly source: AutoresearchSuggestionSourceEnumApi
+    /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+    readonly agent_response: string
+    /** The user who submitted it; null for an agent-authored suggestion. */
+    readonly created_by: UserBasicApi | null
+    /** UUIDs of iterations spawned from this suggestion. */
+    readonly linked_iteration_ids: readonly string[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedAutoresearchSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchSuggestionApi[]
+}
+
+/**
+ * * `try_next` - try_next
+ * * `consider` - consider
+ */
+export type CreateSuggestionPriorityEnumApi =
+    (typeof CreateSuggestionPriorityEnumApi)[keyof typeof CreateSuggestionPriorityEnumApi]
+
+export const CreateSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+export interface CreateSuggestionApi {
+    /**
+     * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+     * @maxLength 2000
+     */
+    prompt: string
+    /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+     *
+     * * `try_next` - try_next
+     * * `consider` - consider */
+    priority?: CreateSuggestionPriorityEnumApi
+}
+
+/**
+ * * `picked_up` - picked_up
+ * * `acted_on` - acted_on
+ * * `dismissed` - dismissed
+ */
+export type RespondToSuggestionStatusEnumApi =
+    (typeof RespondToSuggestionStatusEnumApi)[keyof typeof RespondToSuggestionStatusEnumApi]
+
+export const RespondToSuggestionStatusEnumApi = {
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Input for the agent to record how it interpreted a steering suggestion.
+ */
+export interface RespondToSuggestionApi {
+    /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+     *
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed */
+    status: RespondToSuggestionStatusEnumApi
+    /**
+     * Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.
+     * @maxLength 2000
+     */
+    agent_response?: string
 }
 
 /**
@@ -535,6 +721,8 @@ export interface TrainingRunSummaryApi {
     recommended_next: string
     /** Agent's 1–2 sentence distillation of what this run learned. Empty if not provided. */
     distillation: string
+    /** Short id of the report notebook the agent built for this run. Empty if there is none. */
+    report_notebook_short_id?: string
 }
 
 /**
@@ -550,6 +738,25 @@ export const AutoresearchIterationStatusEnumApi = {
     Discarded: 'discarded',
     Crashed: 'crashed',
 } as const
+
+/**
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
+ */
+export type IterationTrailApiModelSpecModelParams = { [key: string]: unknown } | null
+
+/**
+ * Model class and hyperparameters tried in this iteration.
+ */
+export type IterationTrailApiModelSpec = {
+    /** Dotted path of the estimator class. */
+    model_class: string
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    model_params?: IterationTrailApiModelSpecModelParams
+}
 
 /**
  * Compact, read-only view of one iteration for the cross-run history feed and the Training tab.
@@ -580,7 +787,7 @@ export interface IterationTrailApi {
     /** The agent's one-line rationale for what it tried and why. */
     agent_description?: string
     /** Model class and hyperparameters tried in this iteration. */
-    model_spec: unknown
+    model_spec: IterationTrailApiModelSpec
 }
 
 export interface AutoresearchTrainingRunApi {
@@ -649,6 +856,426 @@ export interface PaginatedAutoresearchTrainingRunListApi {
     /** @nullable */
     previous?: string | null
     results: AutoresearchTrainingRunApi[]
+}
+
+/**
+ * Input for opening an agent-driven training run.
+ */
+export interface OpenTrainingRunApi {
+    /**
+     * Iteration budget for this run. Defaults to the pipeline's iteration_budget if omitted.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
+/**
+ * The relative paths present in a training run's bundle.
+ */
+export interface ArtifactListApi {
+    /** Relative paths of every file stored under this training run's bundle prefix. */
+    paths: string[]
+    /** Number of files in the bundle. */
+    count: number
+}
+
+/**
+ * Input for fetching or deleting one bundle file by path.
+ */
+export interface ArtifactPathApi {
+    /**
+     * Relative path of the file within the bundle, e.g. 'train.py'.
+     * @maxLength 500
+     */
+    path: string
+}
+
+/**
+ * Whether a delete removed an existing file.
+ */
+export interface ArtifactDeleteResultApi {
+    /** Relative path targeted for deletion. */
+    path: string
+    /** True if a file existed and was removed; False if nothing was there. */
+    deleted: boolean
+}
+
+/**
+ * A single bundle file's content, base64-encoded.
+ */
+export interface ArtifactContentApi {
+    /** Relative path of the file within the bundle. */
+    path: string
+    /** File size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the file content. */
+    sha256: string
+    /** File contents, base64-encoded. */
+    content_base64: string
+}
+
+/**
+ * Input for uploading one file of a training run's artifact bundle.
+ */
+export interface ArtifactUploadApi {
+    /**
+     * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+     * @maxLength 500
+     */
+    path: string
+    /** File contents, base64-encoded. Decoded server-side and written to object storage. Max 10 MB decoded. */
+    content_base64: string
+}
+
+/**
+ * Result of an upload: where the file landed and its content hash.
+ */
+export interface StoredArtifactApi {
+    /** Relative path the file was stored at. */
+    path: string
+    /** Decoded file size in bytes. */
+    size_bytes: number
+    /** SHA-256 hex digest of the decoded file content. */
+    sha256: string
+}
+
+/**
+ * Input for finalizing a training run. The backend selects/promotes the champion.
+ */
+export interface CompleteTrainingRunApi {
+    /**
+     * Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.
+     * @nullable
+     */
+    best_iteration_id?: string | null
+    /** Global feature importance / directionality bundle for the champion model card. */
+    model_explanation?: ModelExplanationFieldApi
+    /**
+     * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
+     * @maxLength 2000
+     */
+    recommended_next?: string
+    /**
+     * A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.
+     * @maxLength 2000
+     */
+    distillation?: string
+    /** Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion. */
+    report_notebook_short_id?: string
+}
+
+export type RecordIterationApiRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown }
+
+/**
+ * Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.
+ */
+export type RecordIterationApiRecipeSnapshot = {
+    /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+    feature_sql: string
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: RecordIterationApiRecipeSnapshotFeatureTransformsItem[] | null
+}
+
+/**
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
+ */
+export type RecordIterationApiModelSpecModelParams = { [key: string]: unknown } | null
+
+/**
+ * model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle.
+ */
+export type RecordIterationApiModelSpec = {
+    /** Dotted path of the estimator class. */
+    model_class: string
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    model_params?: RecordIterationApiModelSpecModelParams
+}
+
+/**
+ * * `kept` - kept
+ * * `discarded` - discarded
+ * * `crashed` - crashed
+ */
+export type RecordIterationStatusEnumApi =
+    (typeof RecordIterationStatusEnumApi)[keyof typeof RecordIterationStatusEnumApi]
+
+export const RecordIterationStatusEnumApi = {
+    Kept: 'kept',
+    Discarded: 'discarded',
+    Crashed: 'crashed',
+} as const
+
+/**
+ * Input for recording one training iteration. Validated against the recipe allowlist.
+ */
+export interface RecordIterationApi {
+    /**
+     * Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms. */
+    recipe_snapshot: RecordIterationApiRecipeSnapshot
+    /** model_class and model_params tried this iteration. Any class is accepted here; the sklearn/xgboost allowlist applies at completion, to a run that uploaded no bundle. */
+    model_spec: RecordIterationApiModelSpec
+    /** 'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.
+     *
+     * * `kept` - kept
+     * * `discarded` - discarded
+     * * `crashed` - crashed */
+    status: RecordIterationStatusEnumApi
+    /**
+     * Training-set AUC for this iteration (0-1).
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    train_score?: number | null
+    /**
+     * Held-out AUC for this iteration (0-1). Used to pick the champion at completion.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Agent's plain-English rationale for this iteration. Max 2000 characters.
+     * @maxLength 2000
+     */
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence (0-1) that this iteration helps.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+     * @nullable
+     */
+    parent_suggestion?: string | null
+}
+
+export type AutoresearchIterationApiRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown }
+
+/**
+ * Compact recipe snapshot at time of iteration. Full artifact lives in the model row.
+ */
+export type AutoresearchIterationApiRecipeSnapshot = {
+    /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+    feature_sql: string
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: AutoresearchIterationApiRecipeSnapshotFeatureTransformsItem[] | null
+}
+
+/**
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
+ */
+export type AutoresearchIterationApiModelSpecModelParams = { [key: string]: unknown } | null
+
+/**
+ * Model class and hyperparameters tried in this iteration.
+ */
+export type AutoresearchIterationApiModelSpec = {
+    /** Dotted path of the estimator class. */
+    model_class: string
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    model_params?: AutoresearchIterationApiModelSpecModelParams
+}
+
+export interface AutoresearchIterationApi {
+    readonly id: string
+    pipeline: string
+    training_run: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** @maxLength 64 */
+    recipe_hash: string
+    /** Compact recipe snapshot at time of iteration. Full artifact lives in the model row. */
+    recipe_snapshot: AutoresearchIterationApiRecipeSnapshot
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: AutoresearchIterationApiModelSpec
+    /** @nullable */
+    train_score?: number | null
+    /** @nullable */
+    holdout_score?: number | null
+    status: AutoresearchIterationStatusEnumApi
+    agent_description?: string
+    /**
+     * Agent's self-assessed confidence 0–1
+     * @nullable
+     */
+    agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any.
+     * @nullable
+     */
+    parent_suggestion?: string | null
+    readonly created_at: string
+}
+
+/**
+ * Input for materializing the labeled training feature matrix into the run's sandbox.
+ */
+export interface MaterializeFeaturesRequestApi {
+    /** Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox. */
+    features_sql: string
+}
+
+/**
+ * The local sandbox paths and shape of the materialized training matrix.
+ */
+export interface MaterializeFeaturesResponseApi {
+    /** Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns). */
+    train_features_path: string
+    /** Sandbox path to the training labels parquet (distinct_id + __label). */
+    train_labels_path: string
+    /** Sandbox path to the holdout feature matrix parquet (same columns as train_features). */
+    holdout_features_path: string
+    /** Sandbox path to the holdout labels parquet (distinct_id + __label). */
+    holdout_labels_path: string
+    /** Number of rows in the training split. */
+    n_train: number
+    /** Number of rows in the holdout split. */
+    n_holdout: number
+    /** Number of numeric feature columns produced by features_sql. */
+    n_features: number
+    /** The numeric feature column names (excludes distinct_id, __label, __fold). */
+    feature_cols: string[]
+    /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+    elapsed_s: number
+    /** Rows ClickHouse read to materialize the matrix. */
+    rows_read: number
+    /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+    hints: string[]
+}
+
+/**
+ * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+ * @nullable
+ */
+export type IterationTrailWithRecipeApiModelSpecModelParams = { [key: string]: unknown } | null
+
+/**
+ * Model class and hyperparameters tried in this iteration.
+ */
+export type IterationTrailWithRecipeApiModelSpec = {
+    /** Dotted path of the estimator class. */
+    model_class: string
+    /**
+     * Keyword arguments for the estimator's constructor; null or absent means the defaults.
+     * @nullable
+     */
+    model_params?: IterationTrailWithRecipeApiModelSpecModelParams
+}
+
+export type IterationTrailWithRecipeApiRecipeSnapshotFeatureTransformsItem = { [key: string]: unknown }
+
+/**
+ * The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them.
+ */
+export type IterationTrailWithRecipeApiRecipeSnapshot = {
+    /** A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id. */
+    feature_sql: string
+    /**
+     * Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.
+     * @nullable
+     */
+    feature_transforms?: IterationTrailWithRecipeApiRecipeSnapshotFeatureTransformsItem[] | null
+}
+
+/**
+ * The trail with each iteration's recipe, for history only: a run list page would otherwise carry every recipe of every run.
+ */
+export interface IterationTrailWithRecipeApi {
+    /**
+     * Order of this attempt within its run (0-based).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    iteration_number: number
+    /** Whether this recipe was kept (improved the best score), discarded, or crashed.
+     *
+     * * `kept` - Kept
+     * * `discarded` - Discarded
+     * * `crashed` - Crashed */
+    status: AutoresearchIterationStatusEnumApi
+    /**
+     * Holdout AUC this iteration achieved. Null if it was skipped/degenerate.
+     * @nullable
+     */
+    holdout_score?: number | null
+    /**
+     * Train-fold AUC for this iteration, if recorded.
+     * @nullable
+     */
+    train_score?: number | null
+    /** The agent's one-line rationale for what it tried and why. */
+    agent_description?: string
+    /** Model class and hyperparameters tried in this iteration. */
+    model_spec: IterationTrailWithRecipeApiModelSpec
+    /** The recipe this iteration tried: its feature_sql and transforms, so a later run can reuse them. */
+    recipe_snapshot: IterationTrailWithRecipeApiRecipeSnapshot
+}
+
+/**
+ * One prior completed training run plus its full iteration trail.
+ */
+export interface TrainingRunHistoryEntryApi {
+    /** UUID of the completed training run. */
+    run_id: string
+    /** UUID of the pipeline this run belongs to. */
+    pipeline_id: string
+    /** True if this run is from the pipeline you are training; False if it is a same-target sibling pipeline on the team. */
+    is_current_pipeline: boolean
+    /** Target event this run's pipeline predicts. */
+    target_event: string
+    /** Prediction horizon (days) of this run's pipeline. */
+    horizon_days: number
+    /**
+     * Best holdout AUC achieved across this run's iterations.
+     * @nullable
+     */
+    best_holdout_score: number | null
+    /** Number of iterations recorded in this run. */
+    iteration_count: number
+    /**
+     * When this run completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Distilled tier-1 summary of this run — read this first to orient. Null for older runs without one. */
+    summary: TrainingRunSummaryApi | null
+    /** The iteration trail: every recipe tried, kept or discarded, with rationale and score. */
+    iterations: IterationTrailWithRecipeApi[]
+}
+
+/**
+ * Cross-run learning memory: prior runs the agent should read before iterating.
+ */
+export interface TrainingRunHistoryApi {
+    /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
+    runs: TrainingRunHistoryEntryApi[]
 }
 
 /**
@@ -740,6 +1367,107 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface CalibrationBinApi {
+    /** Number of scored users in this bin. */
+    n: number
+    /** Mean predicted probability of the users in this bin. */
+    mean_p_y: number
+    /** Fraction of the users in this bin who did the target event within the horizon. */
+    positive_rate: number
+}
+
+export interface OnlinePerformanceRowApi {
+    /** UUID of the validation run that recorded these metrics. */
+    validation_run_id: string
+    /** Date the predictions were made for (UTC). */
+    prediction_date: string
+    /** Prediction horizon, in days, the predictions were made under. */
+    horizon_days: number
+    /** ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects. */
+    weekday: number
+    /** UUID of the model that emitted the predictions. */
+    model_id: string
+    /** Role the model had when it emitted the predictions: 'champion' or 'challenger'. */
+    emitted_role: string
+    /** Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. A former champion that a promotion archived keeps its rows. */
+    current_role: string
+    /** Number of users the model scored on this date. */
+    n_scored: number
+    /** Number of scored users who did the target event in the horizon. */
+    n_positive: number
+    /** Fraction of scored users who did the target event (n_positive / n_scored). */
+    base_rate: number
+    /**
+     * Mean predicted probability. Compare it with base_rate: a higher value means the model over-predicts. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    mean_p_y: number | null
+    /**
+     * Realized ROC AUC against actual outcomes. Null when the date has one class only.
+     * @nullable
+     */
+    realized_auc: number | null
+    /**
+     * Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_low: number | null
+    /**
+     * Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.
+     * @nullable
+     */
+    realized_auc_ci_high: number | null
+    /**
+     * Brier score. Lower is better.
+     * @nullable
+     */
+    brier_score: number | null
+    /**
+     * Expected calibration error over 10 equal-width bins. Lower is better.
+     * @nullable
+     */
+    calibration_error: number | null
+    /**
+     * Positives in the top 10% by score, relative to a random 10%.
+     * @nullable
+     */
+    lift_at_10: number | null
+    /**
+     * Positives in the top 20% by score, relative to a random 20%.
+     * @nullable
+     */
+    lift_at_20: number | null
+    /**
+     * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
+     * @nullable
+     */
+    calibration_bins: CalibrationBinApi[] | null
+    /**
+     * 'single_class_no_auc' when every scored user had the same outcome, otherwise null.
+     * @nullable
+     */
+    warning: string | null
+    /**
+     * When the validation run completed.
+     * @nullable
+     */
+    validated_at: string | null
+}
+
+export interface OnlinePerformanceApi {
+    /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
+    rows: OnlinePerformanceRowApi[]
+}
+
+export interface StartTrainingRequestApi {
+    /**
+     * Override the pipeline iteration budget for this training run.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
 /**
  * * `likely_active_soon` - Likely Active Soon
  * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -758,7 +1486,7 @@ export const TemplateKeyEnumApi = {
 } as const
 
 export interface ResolveTemplateRequestApi {
-    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+    /** Template to resolve. The templates endpoint lists each one with its description. Required.
      *
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -911,7 +1639,7 @@ export const ValidationWarningSeverityEnumApi = {
 } as const
 
 export interface ValidationWarningApi {
-    /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
     code: string
     /** Human-readable warning description. */
     message: string
@@ -924,7 +1652,7 @@ export interface ValidationWarningApi {
 }
 
 export interface ValidatePipelineResponseApi {
-    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
     can_proceed: boolean
     /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
     requires_acknowledgement: boolean
@@ -995,6 +1723,17 @@ export type AutoresearchRunsListParams = {
     offset?: number
 }
 
+export type AutoresearchSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
@@ -1004,4 +1743,22 @@ export type AutoresearchTrainingRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AutoresearchTrainingRunsHistoryRetrieveParams = {
+    /**
+     * Maximum number of prior runs to return (default 5, at most 20).
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+}
+
+export type AutoresearchOnlinePerformanceRetrieveParams = {
+    /**
+     * Maximum number of validated prediction dates to return, newest first (default 60, at most 180). Each date returns one row per model that emitted predictions on it.
+     * @minimum 1
+     * @maximum 180
+     */
+    limit?: number
 }

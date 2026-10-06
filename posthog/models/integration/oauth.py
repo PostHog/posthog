@@ -610,7 +610,10 @@ class OauthIntegration:
 
             return OauthConfig(
                 authorize_url="https://linear.app/oauth/authorize",
-                additional_authorize_params={"actor": "application"},
+                # Linear skips its approval screen once the app is authorized, and that screen holds
+                # the only workspace switcher, so without `prompt=consent` a person with more than
+                # one workspace can never connect anything but the first one.
+                additional_authorize_params={"actor": "application", "prompt": "consent"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
                 token_info_graphql_query="{ viewer { organization { id name urlKey } } }",
@@ -717,7 +720,7 @@ class OauthIntegration:
                 token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
                 client_id=settings.ATLASSIAN_APP_CLIENT_ID,
                 client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
-                scope="read:jira-work write:jira-work offline_access",
+                scope="read:jira-work write:jira-work read:jira-user offline_access",
                 id_path="cloud_id",
                 name_path="site_name",
             )
@@ -1414,10 +1417,14 @@ class OauthIntegration:
             )
         elif kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            # Stripe rolls the refresh token on every exchange. If the response is lost after
+            # Stripe committed the roll, the stored token is dead and only a reconnect recovers.
+            # A key derived from the token makes the next attempt replay Stripe's saved response.
             return requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
                 timeout=10,
             )
         else:

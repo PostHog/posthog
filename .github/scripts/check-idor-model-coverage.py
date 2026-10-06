@@ -141,6 +141,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # stamphog lives on a separate product DB; every model is a ProductTeamModel whose
         # fail-closed manager (.for_team / safely_get_queryset) scopes every query by team_id.
         "StamphogRepoConfig",
+        "StamphogInstallation",
         "PullRequest",
         "ReviewRun",
         "DigestChannel",
@@ -169,6 +170,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension of Organization, read via the org relation
         # (enrichment_record), never looked up by user-supplied ID.
         "OrganizationEnrichment",
+        # Write-once OneToOne record of the partner that created an Organization, written by the
+        # partner account-creation paths; no API endpoint, never looked up by user-supplied ID.
+        # Remove this exemption the moment an endpoint exposes it, or the org_scoped rule stops
+        # protecting it silently.
+        "OrganizationProvisioning",
         # Write-once idempotency guard keyed on the org, claimed via get_or_create from an
         # internal enrichment write-back path, never looked up by user-supplied ID.
         "EnrichmentSignupSnapshot",
@@ -211,10 +217,14 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "TeamDefaultFiltersConfig",
         # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
         "TeamHeatmapConfig",
+        "TeamEventVolume",
         "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
+        # OneToOne extension keyed on the team, read by team_id from the suggestion refresher and endpoint;
+        # no endpoint looks it up by a user-supplied ID.
+        "TeamReplayVisionConfig",
         "TeamTracingConfig",
         "TeamJsSnippetConfig",
         "TeamProvisioningConfig",
@@ -375,6 +385,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "SessionRecordingPlaylistItem",  # via Playlist
         "SharePassword",  # via SharingConfiguration
         "SourceBatchStatus",  # via SourceBatch
+        "QueueJobStatus",  # via QueueJob
+        # Keyed by (lane, group_key), not a direct team_id column — group_key is a
+        # generic caller-defined string (e.g. "team:schema") rather than always a
+        # team scope, unlike SourceGroupLease which carries team_id explicitly.
+        "QueueJobLease",
         "StreamlitAppSandbox",  # via StreamlitApp
         "TaggedItem",  # via Tag/Dashboard/Insight
         "TicketAssignment",  # via Ticket

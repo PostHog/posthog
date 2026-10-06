@@ -18,12 +18,12 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces                  |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                     |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                                              |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                               |
+| **2 — Compound primitives**    | `api/primitives` + `api/composer`                   | `Thread` + atoms, `ThreadView`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces; `Composer.*` and the quill composer frame in `api/composer` |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                                                            |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                   |
 
 **Why the split, not one flat barrel:** the tool registry initializes from built-ins and the manifest at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
@@ -66,11 +66,13 @@ The headline exports per module:
   the standalone workspace embedded in another host, not a route-decoupled widget.
 - **`api/primitives`** — **`Thread`** (Radix-style compound: `Thread.Root` is the virtualized presenter, the
   atoms `Thread.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall` are the building blocks for
-  bespoke threads), **`Composer`** (logic-free compound input — the caller owns
-  `value`/`onChange`/`onSubmit`), **`RunLogSkeleton`** (the shared "run log is loading" loader — the
+  bespoke threads), **`RunLogSkeleton`** (the shared "run log is loading" loader — the
   `ReadonlyRunSurface` Suspense fallback and the `RunSurface` bootstrap fallback, also used by the runner
   scene), activity primitives, message
   presenters, and the permission/question surfaces.
+- **`api/composer`** — **`Composer`** (logic-free compound input — the caller owns
+  `value`/`onChange`/`onSubmit`) and the quill composer frame. It does not pull the thread, so an eager
+  surface that only needs an input box imports it alone.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
@@ -213,6 +215,17 @@ ingestion).
   `useMemo`, wrap child callbacks in `useCallback`, and subscribe narrowly (select only what you render).
 - **Keep the projection pure.** `foldLogToThread` is pure and deterministic; item ids stay stable across
   re-folds. Listeners fire only side effects, each with a fire-once guard, suppressed on `source: 'replay'`.
+- **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
+  `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
+  `Activity`, `ThreadRow` message and separator rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard`, `RunContext` and
+  `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
+  component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
+  (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
+  Grouping is the one rule that differs by skin, and `ThreadView` picks it.
+  The lemon thread folds every activity run (`groupThreadActivity`).
+  The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).
+  A registry entry marked `pinned` (a plan, a question) never folds.
+  A `keepVisible` widget result folds in quill, except the last finished call of a closed run.
 - **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
   renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other
@@ -232,7 +245,8 @@ api/                # public API facade — the contract (import api/<module>, n
   readableRun.ts    #   Tier 1: ReadonlyRunSurface (lazy read-only embed)
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
-  primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
+  primitives.ts     #   Tier 2: Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
+  composer.ts       #   Tier 2: Composer + quill composer frame only, for eager surfaces that must not pull the thread
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
   tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
@@ -241,6 +255,7 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question surfaces, activity, tool/;
                     #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
+  quill/            #   the quill thread skin (ThreadSkinContext, ThreadMarker, message/group/alert/feedback skins)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
     widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics

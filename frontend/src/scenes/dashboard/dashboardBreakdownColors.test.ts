@@ -1,5 +1,5 @@
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, InsightModel } from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -18,9 +18,7 @@ import {
 } from './dashboardBreakdownColors'
 
 describe('dashboardBreakdownColors', () => {
-    const createTestTile = (
-        overrides: Partial<QueryBasedInsightModel> = {}
-    ): DashboardTile<QueryBasedInsightModel> => ({
+    const createTestTile = (overrides: Partial<InsightModel> = {}): DashboardTile => ({
         id: 1,
         layouts: {},
         color: null,
@@ -47,7 +45,7 @@ describe('dashboardBreakdownColors', () => {
         },
     })
 
-    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile<QueryBasedInsightModel> =>
+    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile =>
         createTestTile({
             result,
             query: {
@@ -246,7 +244,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles retention insights with a breakdown', () => {
-            const retentionTile = (result: any[]): DashboardTile<QueryBasedInsightModel> =>
+            const retentionTile = (result: any[]): DashboardTile =>
                 createTestTile({
                     result,
                     query: {
@@ -318,7 +316,7 @@ describe('dashboardBreakdownColors', () => {
         })
 
         it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
-            const cohortTile = (values: number[][]): DashboardTile<QueryBasedInsightModel> =>
+            const cohortTile = (values: number[][]): DashboardTile =>
                 createTestTile({
                     result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
                     query: {

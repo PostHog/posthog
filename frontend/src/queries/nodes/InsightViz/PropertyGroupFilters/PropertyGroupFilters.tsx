@@ -2,21 +2,21 @@ import './PropertyGroupFilters.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { inlineEquivalentPropertyGroups, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+import { InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightDefaultFiltersSwitch } from '../filters/InsightDefaultFiltersSwitch'
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
@@ -55,6 +55,13 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
+    const groupRows = useMemo(
+        () =>
+            propertyGroupFilter.values?.map((group: PropertyGroupFilterValue) =>
+                isPropertyGroupFilterLike(group) ? inlineEquivalentPropertyGroups(group.values, group.type) : null
+            ) ?? [],
+        [propertyGroupFilter.values]
+    )
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = hasDataWarehouseSeries
         ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
@@ -164,11 +171,7 @@ export function PropertyGroupFilters({
                                                 >
                                                     <PropertyFilters
                                                         addText="Filter"
-                                                        propertyFilters={
-                                                            isPropertyGroupFilterLike(group)
-                                                                ? (group.values as AnyPropertyFilter[])
-                                                                : null
-                                                        }
+                                                        propertyFilters={groupRows[propertyGroupIndex]}
                                                         onChange={(properties) => {
                                                             setPropertyFilters(properties, propertyGroupIndex)
                                                         }}

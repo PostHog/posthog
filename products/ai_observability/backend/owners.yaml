@@ -1,7 +1,7 @@
 version: 1
 owners: []
 rules:
-    - match: ['/api/proxy.py', '/api/test/test_proxy.py']
-      owners: team-agent-infrastructure
-    - match: '/models/llm_prompt.py'
-      owners: [team-ai-observability, team-experiments]
+    - match: ['/api/proxy.py', '/api/test/test_proxy.py', '/api/test/test_playground_access_control.py']
+      owners: team-experiments
+    - match: ['/models/llm_prompt.py', '/migrations/*llmprompt*.py']
+      owners: team-experiments

@@ -10,8 +10,8 @@ import { EngineeringAnalyticsWorkflowHealthRunScope } from '../generated/api.sch
 // to the others. 7 days: long enough to read a week of spend, short enough that health reads as recent.
 export const SHARED_DEFAULT_DATE_FROM = '-7d'
 
-/** The four groups the backend partitions a repo's runs into. Derived from the generated enum, so a
- *  backend rename breaks the typecheck here instead of silently sending a value the API rejects. */
+/** Derived from the generated enum, so a backend rename breaks the typecheck here instead of sending a
+ *  value the API rejects. */
 export type RunScope = EngineeringAnalyticsWorkflowHealthRunScope
 
 /** The request params the active scope resolves to. `all` sends nothing, because the backend already
@@ -47,10 +47,8 @@ export const RUN_SCOPE_OPTIONS: { value: RunScope; label: string; tooltip: strin
 
 const RUN_SCOPE_VALUES: RunScope[] = RUN_SCOPE_OPTIONS.map((option) => option.value)
 
-/** Resolve the scope a URL asks for. An unknown `run_scope` falls back to all runs rather than failing
- *  the request. `?q=` was the exact-branch param this scope replaced: master and main are the only two
- *  values a fixed group can still honor, so they map to the default branch and every other branch is
- *  dropped. */
+/** Resolve the scope a URL asks for. An unknown `run_scope` falls back to all runs. A legacy `?q=` of
+ *  master or main maps to the default branch; any other branch is dropped. */
 function runScopeFromUrl(runScope: string | undefined, legacyBranch: string | undefined): RunScope {
     if (runScope) {
         return RUN_SCOPE_VALUES.includes(runScope as RunScope)
@@ -142,9 +140,6 @@ export type engineeringAnalyticsFiltersLogicType = MakeLogicType<
     engineeringAnalyticsFiltersLogicMeta
 >
 
-// The run scope is shared like the window: one of four fixed groups that partition a repo's runs, not a
-// branch a user types. Every workflow surface sends the same group, so the list and the detail page
-// report the same population.
 export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersLogicType>([
     path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsFiltersLogic']),
 
@@ -187,8 +182,7 @@ export const engineeringAnalyticsFiltersLogic = kea<engineeringAnalyticsFiltersL
             }
             return [pathname, next, hashParams, { replace: true }]
         },
-        // Mirror the scope into `?run_scope=` so a scoped view is shareable, and drop the `?q=` branch
-        // param it replaced so an old link stops re-hydrating a branch nothing reads any more.
+        // Mirror the scope into `?run_scope=` so a scoped view is shareable, and drop the legacy `?q=` param.
         setRunScope: () => {
             const { pathname, searchParams, hashParams } = router.values.currentLocation
             const next = { ...searchParams }

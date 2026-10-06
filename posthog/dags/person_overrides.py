@@ -8,6 +8,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
@@ -17,17 +18,8 @@ from posthog.dags.common.staged_dictionary import (
     load_and_verify_on_every_cluster,
 )
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import EVENTS_TARGETS, FLAG_EVALUATIONS, resolve_placements, sweep_clusters
+from posthog.models.deletion_targets import SQUASH_TARGETS, resolve_placements, sweep_clusters
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-# Every table the squash rewrites person_id on. sharded_flag_evaluations is not an events table,
-# but it stamps rows with the same person_id, and a person deletion matches the deleted person's
-# uuid against that column. A row a merge left on the absorbed person therefore matches nothing and
-# survives until its partition ages out, so the squash has to move it too.
-#
-# Deliberately not PERSONAL_DATA_TARGETS: registering a table for deletion should not silently make
-# it a squash target as well.
-SQUASH_TARGETS = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
 
 def _squash_clusters(cluster: ClickhouseCluster) -> list[ClickhouseCluster]:
@@ -106,6 +98,7 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         # A host that cannot see the snapshot table reads the staged object instead, which is a
         # query rather than a table name.
         source = "QUERY %(query)s" if query else "TABLE %(table)s"
+        creds = get_clickhouse_creds(ClickHouseUser.DAGSTER_DICT_READER)
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -124,8 +117,8 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
                 "query": query,
-                "user": settings.CLICKHOUSE_USER,
-                "password": settings.CLICKHOUSE_PASSWORD,
+                "user": creds.user,
+                "password": creds.password,
             },
         )
 

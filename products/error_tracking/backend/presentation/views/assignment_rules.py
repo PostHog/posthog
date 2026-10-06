@@ -2,7 +2,7 @@ from uuid import UUID
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -13,7 +13,7 @@ from posthog.schema import PropertyGroupFilterValue
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
+from posthog.event_usage import get_request_analytics_properties, groups
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -127,6 +127,13 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.Serializer):
         return {"type": obj.assignee.type, "id": obj.assignee.id}
 
 
+class ErrorTrackingAssignmentRuleReorderRequestSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Mapping from assignment rule UUID to its new evaluation order.",
+    )
+
+
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
@@ -160,6 +167,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         posthoganalytics.capture(
             "error_tracking_assignment_rule_edited",
             distinct_id=request.user.pk,
+            properties={**get_request_analytics_properties(request)},
             groups=groups(self.team.organization, self.team),
         )
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -184,6 +192,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         posthoganalytics.capture(
             "error_tracking_assignment_rule_deleted",
             distinct_id=request.user.pk,
+            properties={**get_request_analytics_properties(request)},
             groups=groups(self.team.organization, self.team),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -205,10 +214,12 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         posthoganalytics.capture(
             "error_tracking_assignment_rule_created",
             distinct_id=request.user.pk,
+            properties={**get_request_analytics_properties(request)},
             groups=groups(self.team.organization, self.team),
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=ErrorTrackingAssignmentRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request, **kwargs) -> Response:
         orders: dict[str, int] = request.data.get("orders", {})

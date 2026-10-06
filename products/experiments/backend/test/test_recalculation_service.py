@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -152,6 +153,14 @@ class TestRecalculationService(BaseTest):
         result = request_recalculation(exp, self.user, "manual")
         assert result["is_existing"] is True
         assert result["id"] == str(recent_row.id)
+
+    def test_request_recalculation_without_a_user(self):
+        exp = self._launched_experiment(flag_key="no-user")
+        result = request_recalculation(exp, None, "stale_refresh")
+        assert result["is_existing"] is False
+        recalc = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert recalc.created_by is None
+        assert recalc.trigger == "stale_refresh"
 
     def test_request_recalculation_rejects_unlaunched(self):
         exp = Experiment.objects.create(
@@ -420,6 +429,7 @@ class TestRecalculationService(BaseTest):
 
 
 @pytest.mark.django_db(transaction=True)
+@time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -471,8 +481,8 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_builds_completed_fallback_from_latest_point(self):
         exp = self._experiment("ts-one", ["m1"])
-        older = datetime(2026, 2, 1, tzinfo=UTC)
-        latest = datetime(2026, 2, 2, tzinfo=UTC)
+        older = timezone.now() - timedelta(hours=3)
+        latest = timezone.now() - timedelta(hours=1)
         self._timeseries_point(exp, "m1", older, {"stale": True})
         self._timeseries_point(exp, "m1", latest, {"ok": True})
 
@@ -490,7 +500,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     def test_omits_metrics_without_a_timeseries_point(self):
         exp = self._experiment("ts-partial", ["m1", "m2"])
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         # m2 has no point.
 
         payload = build_timeseries_cold_start_payload(exp)
@@ -500,10 +510,25 @@ class TestTimeseriesColdStartPayload(BaseTest):
         uuids = {r["metric_uuid"] for r in payload["results"]}
         assert uuids == {"m1"}
 
+    @parameterized.expand(
+        [
+            ("fresh_point", timedelta(hours=23), True),
+            ("stale_point", timedelta(hours=25), False),
+            # The backfill writes end-of-day points, so today's point can sit in the future.
+            ("future_point", timedelta(hours=-10), False),
+        ]
+    )
+    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+        exp = self._experiment(f"ts-age-{_name}", ["m1"])
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+
+        payload = build_timeseries_cold_start_payload(exp)
+        assert (payload is not None) == included
+
     def test_config_fingerprint_mismatch_yields_no_point(self):
         exp = self._experiment("ts-drift", ["m1"])
         # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
-        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
         assert build_timeseries_cold_start_payload(exp) is None

@@ -1,16 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
+import { cn } from 'lib/utils/css-classes'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { Search } from '../Search/Search'
 import { SearchItem } from '../Search/searchLogic'
 import { commandLogic } from './commandLogic'
 
+const TODAY_PHONE_SHEET =
+    'max-md:top-0 max-md:h-dvh max-md:w-screen max-md:max-w-none max-md:max-h-none max-md:supports-[max-height:1dvh]:max-h-none max-md:rounded-none max-md:border-0'
+
 export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { closeCommand } = useActions(commandLogic)
 
     const handleItemSelect = useCallback(
@@ -36,7 +44,11 @@ export function Command(): JSX.Element {
     }, [closeCommand])
 
     return (
-        <DialogPrimitive open={isCommandOpen} onOpenChange={(open) => !open && closeCommand()} className="w-[640px]">
+        <DialogPrimitive
+            open={isCommandOpen}
+            onOpenChange={(open) => !open && closeCommand()}
+            className={cn('w-[640px]', todayRailEnabled && TODAY_PHONE_SHEET)}
+        >
             <DialogPrimitiveTitle>Command</DialogPrimitiveTitle>
             <Search.Root
                 logicKey="command"
@@ -45,11 +57,30 @@ export function Command(): JSX.Element {
                 onAskAiClick={handleAskAiClick}
                 showAskAiLink
             >
-                <Search.Input autoFocus />
+                {todayRailEnabled ? (
+                    <div className="flex items-center">
+                        <Search.Input autoFocus className="min-w-0 flex-1" />
+                        <ButtonPrimitive
+                            className="mr-2 hidden shrink-0 max-md:flex"
+                            onClick={closeCommand}
+                            data-attr="command-phone-cancel"
+                        >
+                            Cancel
+                        </ButtonPrimitive>
+                    </div>
+                ) : (
+                    <Search.Input autoFocus />
+                )}
                 <Search.Status />
                 <Search.Separator />
                 <Search.Results listClassName="pt-0 bg-surface-primary" groupLabelClassName="bg-surface-secondary" />
-                <Search.Footer />
+                {todayRailEnabled ? (
+                    <div className="max-md:hidden">
+                        <Search.Footer />
+                    </div>
+                ) : (
+                    <Search.Footer />
+                )}
             </Search.Root>
         </DialogPrimitive>
     )

@@ -12,6 +12,8 @@ import { examples } from '~/queries/examples'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    Breakdown,
+    BreakdownFilter,
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
@@ -33,7 +35,7 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
     RetentionEntity,
     StepOrderValue,
 } from '~/types'
@@ -159,7 +161,7 @@ describe('insightNavLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.loadInsightSuccess({
                         query: examples.InsightFunnels,
-                    } as QueryBasedInsightModel)
+                    } as InsightModel)
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
                 })
@@ -564,46 +566,59 @@ describe('insightNavLogic', () => {
                 ])
             })
 
-            it('gets rid of multiple breakdowns when switching from trends to funnels', async () => {
-                trendsQuery.source = {
-                    ...trendsQuery.source,
-                    breakdownFilter: {
-                        breakdowns: [
-                            { property: 'num', type: 'person', histogram_bin_count: 10 },
-                            { property: '$device_type', type: 'event' },
-                        ],
-                    },
-                } as TrendsQuery
+            it.each([
+                {
+                    name: 'keeps the first breakdown',
+                    breakdowns: [
+                        { property: 'num', type: 'person', histogram_bin_count: 10 },
+                        { property: '$device_type', type: 'event' },
+                    ],
+                    expected: { breakdown: 'num', breakdown_type: 'person', breakdown_histogram_bin_count: 10 },
+                },
+                {
+                    name: 'skips element breakdowns, which funnels do not support',
+                    breakdowns: [
+                        { property: 'text', type: 'element' },
+                        { property: '$device_type', type: 'event' },
+                    ],
+                    expected: { breakdown: '$device_type', breakdown_type: 'event' },
+                },
+                {
+                    name: 'clears the breakdown when only element breakdowns remain',
+                    breakdowns: [{ property: 'text', type: 'element' }],
+                    expected: {},
+                },
+            ] as { name: string; breakdowns: Breakdown[]; expected: BreakdownFilter }[])(
+                'switching from trends to funnels with multiple breakdowns $name',
+                async ({ breakdowns, expected }) => {
+                    trendsQuery.source = {
+                        ...trendsQuery.source,
+                        breakdownFilter: { breakdowns },
+                    } as TrendsQuery
 
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(trendsQuery)
-                })
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(trendsQuery)
+                    })
 
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.FUNNELS)
-                }).toDispatchActions([
-                    builtInsightDataLogic.actionCreators.setQuery({
-                        kind: 'InsightVizNode',
-                        source: {
-                            kind: 'FunnelsQuery',
-                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
-                            filterTestAccounts: true,
-                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
-                            interval: 'hour',
-                            breakdownFilter: {
-                                breakdowns: undefined,
-                                breakdown: 'num',
-                                breakdown_type: 'person',
-                                breakdown_histogram_bin_count: 10,
-                                breakdown_group_type_index: undefined,
-                                breakdown_normalize_url: undefined,
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(InsightType.FUNNELS)
+                    }).toDispatchActions([
+                        builtInsightDataLogic.actionCreators.setQuery({
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'FunnelsQuery',
+                                series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                                funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
+                                filterTestAccounts: true,
+                                version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
+                                interval: 'hour',
+                                breakdownFilter: expected,
+                                tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
-                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                    } as Node),
-                ])
-            })
+                        } as Node),
+                    ])
+                }
+            )
 
             it('keeps multiple breakdowns when switching from funnels to trends', async () => {
                 funnelsQuery.source = {

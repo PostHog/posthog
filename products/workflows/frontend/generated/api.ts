@@ -18,6 +18,7 @@ import type {
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
     HogFlowInvocationApi,
+    HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
     HogFlowPublishResponseApi,
     HogFlowRevisionApi,
@@ -38,6 +39,8 @@ import type {
     HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogFlowsMetricsVersionRetrieveParams,
+    HogFlowsProposalsListParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
     HogInvocationCancelRequestApi,
@@ -51,6 +54,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
+    PaginatedWorkflowProposalListApi,
     PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -58,6 +62,10 @@ import type {
     PatchedHogFlowUpdateApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
+    WorkflowProposalApi,
+    WorkflowProposalApproveRequestApi,
+    WorkflowProposalCreateApi,
+    WorkflowProposalOutcomeApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -146,7 +154,7 @@ export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) =>
 
 /**
  * Check file-based global templates first, then DB team templates.
- * The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ * The DB lookup excludes all global templates, so this only returns team templates from DB.
  */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
@@ -735,6 +743,223 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsMetricsVersionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/metrics/version/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/metrics/version/`
+}
+
+/**
+ * One published version's series. Every hog flow metric is mirrored under
+ * `hog_flow_version` with the version appended to the id, which is what makes "before and
+ * after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+ * the run instead, so it is not the sum of the versions.
+ */
+export const hogFlowsMetricsVersionRetrieve = async (
+    projectId: string,
+    id: string,
+    params: HogFlowsMetricsVersionRetrieveParams,
+    options?: RequestInit
+): Promise<AppMetricsResponseApi> => {
+    return apiMutator<AppMetricsResponseApi>(getHogFlowsMetricsVersionRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimizationRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
+}
+
+/**
+ * Whether PostHog may suggest changes to this workflow.
+ *
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
+ */
+export const hogFlowsOptimizationRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/optimization/`
+}
+
+/**
+ * Whether PostHog may suggest changes to this workflow.
+ *
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
+ */
+export const hogFlowsOptimizationCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    options?: RequestInit
+): Promise<HogFlowOptimizationApi> => {
+    return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowOptimizationApi),
+    })
+}
+
+export const getHogFlowsProposalsListUrl = (projectId: string, id: string, params?: HogFlowsProposalsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/proposals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/proposals/`
+}
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const hogFlowsProposalsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsProposalsListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkflowProposalListApi> => {
+    return apiMutator<PaginatedWorkflowProposalListApi>(getHogFlowsProposalsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsProposalsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/`
+}
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const hogFlowsProposalsCreate = async (
+    projectId: string,
+    id: string,
+    workflowProposalCreateApi: WorkflowProposalCreateApi,
+    options?: RequestInit
+): Promise<WorkflowProposalApi> => {
+    return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowProposalCreateApi),
+    })
+}
+
+export const getHogFlowsProposalsRetrieveUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/`
+}
+
+export const hogFlowsProposalsRetrieve = async (
+    projectId: string,
+    id: string,
+    proposalId: string,
+    options?: RequestInit
+): Promise<WorkflowProposalApi> => {
+    return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsRetrieveUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsProposalsApproveCreateUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/approve/`
+}
+
+export const hogFlowsProposalsApproveCreate = async (
+    projectId: string,
+    id: string,
+    proposalId: string,
+    workflowProposalApproveRequestApi?: WorkflowProposalApproveRequestApi,
+    options?: RequestInit
+): Promise<WorkflowProposalApi> => {
+    return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsApproveCreateUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowProposalApproveRequestApi),
+    })
+}
+
+export const getHogFlowsProposalsOutcomeRetrieveUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/outcome/`
+}
+
+/**
+ * What the change did: the target metric and its counter-metrics, before and after.
+ *
+ * Both sides are read from the per-version metric series, so "before" is the version the
+ * suggestion was written against and "after" is the version it went live as. Each number
+ * carries its own `n`, and anything under the minimum sample is flagged rather than presented
+ * as a result — a verdict off twenty sends is the loop's most embarrassing failure mode.
+ * Comparing two windows is not a controlled experiment; that is what the A/B step is for.
+ */
+export const hogFlowsProposalsOutcomeRetrieve = async (
+    projectId: string,
+    id: string,
+    proposalId: string,
+    options?: RequestInit
+): Promise<WorkflowProposalOutcomeApi> => {
+    return apiMutator<WorkflowProposalOutcomeApi>(getHogFlowsProposalsOutcomeRetrieveUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsProposalsRejectCreateUrl = (projectId: string, id: string, proposalId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/proposals/${proposalId}/reject/`
+}
+
+export const hogFlowsProposalsRejectCreate = async (
+    projectId: string,
+    id: string,
+    proposalId: string,
+    options?: RequestInit
+): Promise<WorkflowProposalApi> => {
+    return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsRejectCreateUrl(projectId, id, proposalId), {
+        ...options,
+        method: 'POST',
     })
 }
 

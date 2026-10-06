@@ -1,4 +1,5 @@
 import copy
+import inspect
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Generic, TypeVar, cast
@@ -22,6 +23,17 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 _SCHEMA_HINT = "Please update the provided API schema to ensure API docs remain up to date"
+
+# What drf-spectacular accepts for one status code, and what this decorator validates against.
+# A bare serializer or pydantic model, as a class or an instance, is as valid as an OpenApiResponse wrapping one.
+ResponseDeclaration = (
+    OpenApiResponse
+    | type[serializers.BaseSerializer[Any]]
+    | serializers.BaseSerializer[Any]
+    | type[BaseModel]
+    | BaseModel
+    | None
+)
 
 
 class ValidatedRequest(Request):
@@ -108,7 +120,7 @@ class _ResponseValidator:
     """Checks what a view returned against the responses the decorator declares."""
 
     view_name: str
-    responses: dict[int, OpenApiResponse | None] | None
+    responses: dict[int, ResponseDeclaration] | None
     strict: bool
 
     def check(self, view: Any, result: Any) -> None:
@@ -143,7 +155,13 @@ class _ResponseValidator:
             return
 
         response_config = self.responses[status_code]
-        response_serializer = response_config.response if response_config else None
+        # `responses` is passed straight to drf-spectacular, which accepts a bare serializer as
+        # well as an OpenApiResponse wrapping one. Reading `.response` unconditionally raised
+        # AttributeError on the bare form, so an endpoint that declared one 500ed here under
+        # DEBUG while passing every test, because this block does not run with DEBUG off.
+        response_serializer = (
+            response_config.response if isinstance(response_config, OpenApiResponse) else response_config
+        )
         if response_serializer is None:
             self._check_declared_empty(status_code, result.data)
         else:
@@ -164,6 +182,11 @@ class _ResponseValidator:
         )
 
     def _check_body(self, view: Any, status_code: int, data: Any, response_serializer: Any) -> None:
+        pydantic_model = self._pydantic_model(response_serializer)
+        if pydantic_model is not None:
+            self._check_pydantic_body(status_code, data, pydantic_model)
+            return
+
         # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
         # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
         if isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(
@@ -181,25 +204,50 @@ class _ResponseValidator:
             # errors for a valid response, and this check is advisory under DEBUG, so warn instead.
             if self.strict:
                 raise
-            logger.warning(
-                "Response serializer could not parse the response it declared for status code "
-                f"{status_code} in the responses parameter of the @validated_request decorator. "
-                "The response was returned unchanged; check the declared serializer.",
-                view_func=self.view_name,
-                status_code=status_code,
-                serializer_class=type(serialized).__name__,
-                error=str(exc),
-            )
+            self._warn_parse_failure(status_code, type(serialized).__name__, exc)
             return
 
         if not body_matches_serializer:
-            logger.warning(
-                f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. {_SCHEMA_HINT}",
-                view_func=self.view_name,
-                status_code=status_code,
-                serializer_class=type(serialized).__name__,
-                validation_errors=serialized.errors,
-            )
+            self._warn_body_mismatch(status_code, type(serialized).__name__, serialized.errors)
+
+    def _check_pydantic_body(self, status_code: int, data: Any, model: type[BaseModel]) -> None:
+        try:
+            model.model_validate(data)
+        except ValidationError as exc:
+            if self.strict:
+                raise serializers.ValidationError(str(exc)) from exc
+            self._warn_body_mismatch(status_code, model.__name__, exc.errors(include_url=False, include_input=False))
+        except Exception as exc:
+            # Pydantic passes some validator errors through unconverted, such as a TypeError.
+            if self.strict:
+                raise
+            self._warn_parse_failure(status_code, model.__name__, exc)
+
+    def _warn_parse_failure(self, status_code: int, serializer_class: str, exc: Exception) -> None:
+        logger.warning(
+            "Response serializer could not parse the response it declared for status code "
+            f"{status_code} in the responses parameter of the @validated_request decorator. "
+            "The response was returned unchanged; check the declared serializer.",
+            view_func=self.view_name,
+            status_code=status_code,
+            serializer_class=serializer_class,
+            error=str(exc),
+        )
+
+    def _warn_body_mismatch(self, status_code: int, serializer_class: str, validation_errors: Any) -> None:
+        logger.warning(
+            f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. {_SCHEMA_HINT}",
+            view_func=self.view_name,
+            status_code=status_code,
+            serializer_class=serializer_class,
+            validation_errors=validation_errors,
+        )
+
+    @staticmethod
+    def _pydantic_model(response_serializer: Any) -> type[BaseModel] | None:
+        # drf-spectacular's PydanticExtension matches a model class or an instance of one.
+        model = response_serializer if inspect.isclass(response_serializer) else type(response_serializer)
+        return model if issubclass(model, BaseModel) else None
 
     @staticmethod
     def _instantiate(response_serializer: Any, data: Any, context: dict[str, Any]) -> serializers.BaseSerializer[Any]:
@@ -221,7 +269,7 @@ def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
     query_serializer: type[serializers.Serializer] | None = None,
-    responses: dict[int, OpenApiResponse | None] | None = None,
+    responses: dict[int, ResponseDeclaration] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,

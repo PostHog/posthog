@@ -18,6 +18,7 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayPipelineConfig, createSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
+import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
@@ -40,6 +41,7 @@ import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { BlockCompression } from './sessions/block-compression'
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -75,6 +77,7 @@ export interface SessionRecordingIngesterCollaborators {
     featureStore?: SessionFeatureStore
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
+    compression?: BlockCompression
     createPipeline?: SessionReplayPipelineFactory
     /** Runs each poll batch through its stages. If omitted, the session replay pipeline runs in one stage. A lane that overlaps batches supplies a runner with more stages. The consumer then keeps one batch in flight for each stage. */
     runner?: StagedBatchRunner
@@ -84,6 +87,8 @@ export interface SessionRecordingIngesterCollaborators {
      * (which would let it mark a session seen without the main key and cause a cleartext recording).
      */
     redisKeyNamespace?: string
+    /** The ML mirror reports how far back its events are complete; the main lane leaves this unset. */
+    captureWatermark?: CaptureWatermark
 }
 
 export class SessionRecordingIngester {
@@ -129,9 +134,11 @@ export class SessionRecordingIngester {
     private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
+    private readonly compression?: BlockCompression
     private readonly runner: StagedBatchRunner
     private readonly batchStages: BatchStages
     private readonly usageBatch: UsageRecordBatch
+    private readonly captureWatermark?: CaptureWatermark
 
     constructor(
         private config: SessionRecordingIngesterConfig,
@@ -253,6 +260,7 @@ export class SessionRecordingIngester {
                 })
             )
         this.encryptor = collaborators.encryptor ?? getBlockEncryptor(this.keyStore)
+        this.compression = collaborators.compression
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -265,9 +273,11 @@ export class SessionRecordingIngester {
             consoleLogStore,
             featureStore,
             encryptor: this.encryptor,
+            compression: this.compression,
         })
 
         this.lagReporter = new SessionReplayLagReporter(this.topic)
+        this.captureWatermark = collaborators.captureWatermark
 
         this.currentBatch = this.sessionBatchManager.createBatch()
         this.lastFlushTime = Date.now()
@@ -293,6 +303,16 @@ export class SessionRecordingIngester {
         messages.forEach((message) => {
             SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
+
+        this.captureWatermark?.hold(
+            messages.map((message) => ({
+                topic: message.topic,
+                partition: message.partition,
+                offset: message.offset,
+                data: 'events',
+                capturedAtMs: message.timestamp,
+            }))
+        )
 
         const batchSize = messages.length
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
@@ -458,6 +478,8 @@ export class SessionRecordingIngester {
             return Promise.resolve()
         }
 
+        // Forgotten before the flush, because a failed revoke flush is swallowed and the partitions still go to the next owner.
+        this.captureWatermark?.forget(topicPartitions)
         SessionRecordingIngesterMetrics.resetSessionsHandled()
         return this.flushCurrentBatch()
     }
@@ -465,6 +487,7 @@ export class SessionRecordingIngester {
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
         await instrumentFn(`recordingingesterv2.handleEachBatch.flush.commitOffsets`, () => {
             this.kafkaConsumer.offsetsStore(offsets)
+            this.captureWatermark?.release(offsets)
             return Promise.resolve()
         })
     }

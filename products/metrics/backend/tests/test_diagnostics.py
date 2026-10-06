@@ -9,7 +9,7 @@ from products.metrics.backend.diagnostics import decompose_bucket
 from products.metrics.backend.fundamentals import SpatialReducer, TemporalReducer
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
-BUCKET = dt.datetime(2026, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
+BUCKET = dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC)
 
 
 class TestBucketDecomposition(ClickhouseTestMixin, APIBaseTest):

@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.approvals.backend.actions.feature_flags import (
     DisableFeatureFlagAction,
     EnableFeatureFlagAction,
@@ -241,6 +243,35 @@ class TestCreateFlagGateAPI(APIBaseTest):
 
         flag = FeatureFlag.objects.get(team=self.team, key="remote-config-flag")
         assert flag.filters["groups"][0]["rollout_percentage"] == 100
+
+    @parameterized.expand(
+        [
+            ("other_key", "second-flag", "approval_required", ["first-flag", "second-flag"]),
+            ("same_key", "first-flag", "change_request_pending", ["first-flag"]),
+        ]
+    )
+    def test_pending_create_blocks_only_a_create_for_the_same_key(
+        self, _mock_enabled, _name, second_key, expected_code, expected_pending_keys
+    ):
+        # A create has no resource id yet, so resource_id cannot tell two pending creates apart.
+        # The duplicate check must compare the flag key. Otherwise one pending create blocks every
+        # other create in the project with a 409 that names someone else's change request.
+        self._update_policy({"type": "any_change", "field": "rollout_percentage"})
+
+        def create(key: str) -> Any:
+            return self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": key, "active": False, "filters": {"groups": [{"rollout_percentage": 0}]}},
+                format="json",
+            )
+
+        assert create("first-flag").json().get("code") == "approval_required"
+        response = create(second_key)
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == expected_code
+        pending = ChangeRequest.objects.filter(team=self.team, state=ChangeRequestState.PENDING)
+        assert sorted(cr.intent["flag_key"] for cr in pending) == expected_pending_keys
 
     def test_reapplying_create_change_request_does_not_duplicate(self, _mock_enabled):
         self._enable_policy()

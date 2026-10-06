@@ -108,6 +108,30 @@ from policy import OwnershipSource
             ["common/esbuilder/tsconfig.json"],
             id="tsconfig-not-deps",
         ),
+        pytest.param(
+            ["frontend/src/lib/api.ts"],
+            id="busy-api-client-not-guardrail",
+        ),
+        pytest.param(
+            ["tach.toml"],
+            id="busy-tach-config-not-guardrail",
+        ),
+        pytest.param(
+            ["products/model_crossing_uses_baseline.txt"],
+            id="busy-crossings-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/setup_receivers_baseline.txt"],
+            id="busy-receivers-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/egress/slack/client.py"],
+            id="egress-domain-not-guardrail",
+        ),
+        pytest.param(
+            ["tools/release/feature-product.yaml"],
+            id="product-yaml-suffix-not-manifest",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str]) -> None:
@@ -234,6 +258,36 @@ def test_no_false_positive(files: list[str]) -> None:
             ["frontend/package.json", "pnpm-lock.yaml"],
             "deps_toolchain",
             id="manifest-with-lockfile",
+        ),
+        pytest.param(
+            [".semgrep/rules/devex/url-naming.yaml"],
+            "devex_guardrails",
+            id="devex-semgrep-rule",
+        ),
+        pytest.param(
+            ["frontend/src/lib/api-ratchet-baseline.txt"],
+            "devex_guardrails",
+            id="api-ratchet-baseline",
+        ),
+        pytest.param(
+            ["posthog/egress/AGENTS.md"],
+            "devex_guardrails",
+            id="egress-agents-md-matches-lowercased",
+        ),
+        pytest.param(
+            ["posthog/ingress/verify/hmac.py"],
+            "devex_guardrails",
+            id="ingress-shared-verify",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/test_startup_import_budget.py"],
+            "devex_guardrails",
+            id="startup-budget-invariant-test",
+        ),
+        pytest.param(
+            ["tools/hogli-commands/hogli_commands/product/isolation.py"],
+            "devex_guardrails",
+            id="isolation-lint",
         ),
     ],
 )
@@ -527,6 +581,7 @@ def test_resolver_owner_normalization(
     expected_individuals: list[str],
     expected_owned: int,
 ) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text(owners_yaml)
@@ -541,6 +596,7 @@ def test_resolver_owner_normalization(
 
 
 def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n  - team-b\n")
@@ -561,6 +617,7 @@ def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_p
     # changes anywhere in the repo, so a team owning only those was not touched by the change. The
     # match names one directory shape on purpose: AGENTS.md rules out a general harmless-file rule,
     # and a bare `generated/` match would catch hand-editable code elsewhere in the tree.
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: []\nalias_files: [product.yaml]\n")
     product_dir = tmp_path / "products" / "foo"
     product_dir.mkdir(parents=True)
     (product_dir / "product.yaml").write_text("owners:\n  - team-a\n")
@@ -590,5 +647,30 @@ def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
     # credentials. Both candidates must stay fixed offsets from the engine's own file.
     engine_dir = Path(gates.__file__).resolve().parent
-    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parent / "owners"
-    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parents[3] / "tools" / "owners"
+    assert gates._OWNERS_PKG_CANDIDATES[0] == engine_dir.parents[3] / "packages" / "owners-yaml"
+    assert gates._OWNERS_PKG_CANDIDATES[1] == engine_dir.parent / "owners"
+
+
+@pytest.mark.parametrize(
+    "engine_file, resolver_dir",
+    [
+        pytest.param(
+            "root/products/stamphog/packages/pr-approval-agent/gates.py",
+            "root/packages/owners-yaml",
+            id="monorepo",
+        ),
+        pytest.param("root/tools/pr-approval-agent/gates.py", "root/tools/owners", id="sandbox-and-vendored"),
+    ],
+)
+def test_the_owners_package_is_found_in_both_engine_layouts(
+    tmp_path: Path, engine_file: str, resolver_dir: str
+) -> None:
+    expected = tmp_path / resolver_dir
+    (expected / "owners_yaml").mkdir(parents=True)
+    engine_path = tmp_path / engine_file
+    engine_path.parent.mkdir(parents=True)
+    engine_path.touch()
+
+    found = [candidate for candidate in gates._owners_pkg_candidates(engine_path) if candidate.is_dir()]
+
+    assert found == [expected.resolve()]

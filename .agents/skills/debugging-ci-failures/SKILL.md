@@ -5,7 +5,7 @@ description: >
   and answers broad CI-health questions ("is CI red?", "is master green today?",
   "what's broken right now?"). Use when the user asks why CI is red, asks for the
   current CI or master status, or mentions a failing check, GitHub Actions run,
-  Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
+  Depot runner, Depot CI run, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
   build failure. Interactive runs start with the `hogli ci:insights` digest
   (cross-run CI history from engineering analytics), then use read-only
@@ -59,7 +59,7 @@ Report an outage as an outage, name the component, and stop recommending reruns.
 
 Do not do any of these without explicit approval in the current conversation:
 
-- Rerun or cancel a GitHub Actions run.
+- Rerun or cancel a GitHub Actions run, or retry, rerun, or cancel a Depot CI run.
 - Post a GitHub comment, PR review, or issue comment through any CLI, MCP, or
   API tool.
 - Push commits, force-push, rename branches, or delete branches.
@@ -153,6 +153,7 @@ practice that is most of the queue. So:
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
+  Backend CI is the exception when `CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT` hands the batch to Depot CI: the backend tests then run on Depot, and the `Django Tests Pass` check links that run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -246,6 +247,22 @@ token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
 
+#### Backend tests that ran on Depot CI
+
+A PR can route its backend tests to Depot CI.
+Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
+A re-run of that job is not read-only: it retries the failed Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
+The log of the `Relay the Depot verdict` step prints the Depot run URL, each failed step with its log lines, and the label that sends the PR back to GitHub Actions.
+
+Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.
+Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the Depot run URL in the relay log.
+For logs, artifacts, and test results, load the `depot-ci` skill.
+Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
+If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.
+Without it, ask the user to run `! depot login --clear`.
+Do not run it yourself: it waits on a browser sign-in.
+If the user has no access to the Depot org, report the relay log's no-Depot retry options instead.
+
 ## Classification
 
 | Signal in the log                                                                                  | Class               | First action                                                                 |
@@ -331,6 +348,8 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   browser through the chrome-devtools MCP. `status.depot.dev` covers the case
   where Depot itself is the outage, and the `depot-github-runners` skill owns
   runner troubleshooting beyond triage.
+- A PR can route its backend tests to Depot CI.
+  Read the failure there, see "Backend tests that ran on Depot CI" above.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
 - PostHog CI frequently parallelizes the same test class across N shards

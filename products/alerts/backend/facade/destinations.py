@@ -15,8 +15,7 @@ from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
 
-from ..logic import destination_configs, destinations, insight_alert_destinations
-from .contracts import (
+from products.alerts_platform.backend.facade.contracts import (
     ActiveAlertDestination,
     AlertDelivery,
     AlertDestinationConfig,
@@ -26,6 +25,8 @@ from .contracts import (
     EventKindSpec,
     OwnedAlertDestination,
 )
+
+from ..logic import destination_configs, destinations, insight_alert_destinations
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 

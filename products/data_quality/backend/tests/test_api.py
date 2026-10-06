@@ -17,6 +17,8 @@ from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
@@ -24,11 +26,12 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
-from products.data_quality.backend.logic.metric_schedules import MetricScheduleKey, MetricSchedules
+from products.data_quality.backend.logic.posthog_tables import by_name
 from products.data_quality.backend.logic.runner import run_check
+from products.data_quality.backend.logic.subject_schedules import SubjectScheduleKey, SubjectSchedules
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
-from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
+from products.data_quality.backend.presentation.views import DataQualityCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -54,8 +57,10 @@ class TestMetricCheckAPI(APIBaseTest):
         self.temporal = schedule_client()
         self.connect = AsyncMock(return_value=self.temporal)
         self.enterContext(patch("products.data_quality.backend.logic.schedules.async_connect", self.connect))
-        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks"
-        self.suites_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/check_suite_runs"
+        self.url = f"/api/projects/{self.team.id}/data_quality_checks"
+        self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
+        self.subject = {"subject_type": "metric", "subject_uuid": str(self.metric.id)}
+        self.subject_query = f"subject_type=metric&subject_uuid={self.metric.id}"
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
@@ -64,30 +69,34 @@ class TestMetricCheckAPI(APIBaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 f"{self.url}/",
-                {"check_type": "custom_sql", "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"}},
+                {
+                    **self.subject,
+                    "check_type": "custom_sql",
+                    "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"},
+                },
             )
         assert response.status_code == 201, response.content
         return response.json()
 
     @parameterized.expand(
         [
-            ("checks_list", "get", "checks/"),
-            ("checks_schedule", "get", "checks/schedule/"),
-            ("checks_health", "get", "checks/health/"),
-            ("checks_run_all", "post", "checks/run_all/"),
-            ("suite_runs_list", "get", "check_suite_runs/"),
+            ("list", "get", ""),
+            ("health", "get", "health/"),
+            ("schedule", "get", "schedule/"),
+            ("output_schema", "get", "output_schema/"),
         ]
     )
-    def test_metric_name_in_the_id_segment_is_not_found(self, _name: str, method: str, suffix: str) -> None:
-        # Metrics have their own routes that address them by name, so a caller can land a name in a
-        # segment these routes read as a uuid.
-        url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.name}/{suffix}"
+    def test_a_subject_named_by_something_other_than_a_uuid_is_rejected(
+        self, _name: str, method: str, suffix: str
+    ) -> None:
+        response = getattr(self.client, method)(
+            f"{self.url}/{suffix}?subject_type=metric&subject_uuid={self.metric.name}"
+        )
 
-        response = getattr(self.client, method)(url)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "subject_uuid" in response.json()["attr"]
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
-
-    def test_metric_children_do_not_expose_access_control_actions(self) -> None:
+    def test_checks_do_not_expose_access_control_actions(self) -> None:
         check = self._create()
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team,
@@ -129,21 +138,23 @@ class TestMetricCheckAPI(APIBaseTest):
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
         ):
-            response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"})
+            response = self.client.patch(f"{self.url}/schedule/", {**self.subject, "interval": "6hour"})
         assert response.status_code == 403, response.content
         schedule = api.get_schedule(self.team.id, "metric", self.metric.id)
         assert schedule is not None
         assert schedule.interval == "24hour"
 
     def test_metric_check_authoring_schedule_and_overview(self) -> None:
-        assert self.client.get(f"{self.url}/schedule/").status_code == 404
-        assert self.client.patch(f"{self.url}/schedule/", {"enabled": False}).status_code == 404
+        assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 404
+        assert self.client.patch(f"{self.url}/schedule/", {**self.subject, "enabled": False}).status_code == 404
         check = self._create()
-        assert [entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/").json()] == ["custom_sql"]
-        assert self.client.get(f"{self.url}/").json()["results"][0]["id"] == check["id"]
-        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert [
+            entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/?subject_type=metric").json()
+        ] == ["custom_sql"]
+        assert self.client.get(f"{self.url}/?{self.subject_query}").json()["results"][0]["id"] == check["id"]
+        schedule = self.client.get(f"{self.url}/schedule/?{self.subject_query}").json()
         assert schedule["interval"] == "24hour"
-        patched = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+        patched = self.client.patch(f"{self.url}/schedule/", {**self.subject, "interval": "6hour", "enabled": False})
         assert patched.status_code == 200
         assert patched.json()["interval"] == "6hour"
         assert patched.json()["enabled"] is False
@@ -158,13 +169,41 @@ class TestMetricCheckAPI(APIBaseTest):
         assert row["subject_metric_name"] == "registrations"
         assert "definition" not in row and "values" not in row
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
-        assert self.client.get(f"{self.url}/schedule/").status_code == 200
+        assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 200
+
+    def test_the_schedule_listing_covers_every_scheduled_subject_in_one_round_trip(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        self._create()
+        with self.captureOnCommitCallbacks(execute=True):
+            events_check = self.client.post(
+                f"{self.url}/",
+                {
+                    "subject_type": SubjectType.POSTHOG_TABLE,
+                    "subject_uuid": str(events.id),
+                    "check_type": CheckType.NOT_NULL,
+                    "column_name": "distinct_id",
+                    "config": {},
+                },
+            )
+        assert events_check.status_code == status.HTTP_201_CREATED, events_check.json()
+        self.connect.reset_mock()
+
+        response = self.client.get(f"{self.url}/schedules/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sorted((row["subject_type"], row["subject_uuid"]) for row in response.json()) == [
+            ("metric", str(self.metric.id)),
+            ("posthog_table", str(events.id)),
+        ]
+        assert {row["interval"] for row in response.json()} == {"24hour"}
+        assert self.connect.await_count == 1
 
     def test_schedule_patch_reuses_one_connection_and_records_snapshots(self) -> None:
         self._create()
         self.connect.reset_mock()
 
-        response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+        response = self.client.patch(f"{self.url}/schedule/", {**self.subject, "interval": "6hour", "enabled": False})
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["interval"] == "6hour"
@@ -201,25 +240,27 @@ class TestMetricCheckAPI(APIBaseTest):
                 "products.data_quality.backend.logic.schedules.async_connect", AsyncMock(side_effect=TimeoutError)
             )
         elif phase == "initial_read":
-            failure = patch.object(MetricSchedules, "describe", AsyncMock(side_effect=TimeoutError))
+            failure = patch.object(SubjectSchedules, "describe", AsyncMock(side_effect=TimeoutError))
         elif phase == "update":
-            failure = patch.object(MetricSchedules, "update", AsyncMock(side_effect=TimeoutError))
+            failure = patch.object(SubjectSchedules, "update", AsyncMock(side_effect=TimeoutError))
         else:
-            original_describe = MetricSchedules.describe
+            original_describe = SubjectSchedules.describe
             calls = 0
 
-            async def missing_after_update(schedules: MetricSchedules, key: MetricScheduleKey) -> object:
+            async def missing_after_update(schedules: SubjectSchedules, key: SubjectScheduleKey) -> object:
                 nonlocal calls
                 calls += 1
                 if calls == 1:
                     return await original_describe(schedules, key)
                 return None
 
-            failure = patch.object(MetricSchedules, "describe", cast(AsyncMock, missing_after_update))
+            failure = patch.object(SubjectSchedules, "describe", cast(AsyncMock, missing_after_update))
         with failure:
-            response = self.client.patch(f"{self.url}/schedule/", {"enabled": False})
+            response = self.client.patch(f"{self.url}/schedule/", {**self.subject, "enabled": False})
         assert response.status_code == 503
-        assert self.client.get(f"{self.url}/schedule/").json()["enabled"] is (phase != "read_after")
+        assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").json()["enabled"] is (
+            phase != "read_after"
+        )
 
     def test_schedule_history_excludes_manual_suites(self) -> None:
         self._create()
@@ -229,7 +270,7 @@ class TestMetricCheckAPI(APIBaseTest):
         DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.METRIC, subject_uuid=self.metric.id
         )
-        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
+        schedule = self.client.patch(f"{self.url}/schedule/", {**self.subject, "interval": "6hour"}).json()
         assert schedule["last_suite_run"] == str(scheduled.id)
 
     def test_schedule_history_hides_a_suite_with_revoked_reference_access(self) -> None:
@@ -252,7 +293,7 @@ class TestMetricCheckAPI(APIBaseTest):
         )
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
-        assert self.client.get(f"{self.url}/schedule/").json()["last_suite_run"] == str(suite.id)
+        assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").json()["last_suite_run"] == str(suite.id)
         AccessControl.objects.create(
             team=self.team,
             resource="warehouse_view",
@@ -261,7 +302,7 @@ class TestMetricCheckAPI(APIBaseTest):
             access_level="none",
         )
         cache.clear()
-        schedule = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"}).json()
+        schedule = self.client.patch(f"{self.url}/schedule/", {**self.subject, "interval": "6hour"}).json()
         assert schedule["last_suite_run"] is None
         assert schedule["last_run_at"] is None
 
@@ -331,9 +372,9 @@ class TestMetricCheckAPI(APIBaseTest):
             access_level="none",
         )
         cache.clear()
-        assert self.client.get(f"{self.url}/").status_code == 403
-        assert self.client.get(f"{self.url}/schedule/").status_code == 403
-        assert self.client.get(f"{self.suites_url}/").status_code == 403
+        assert self.client.get(f"{self.url}/?{self.subject_query}").status_code == 403
+        assert self.client.get(f"{self.url}/schedule/?{self.subject_query}").status_code == 403
+        assert self.client.get(f"{self.suites_url}/?{self.subject_query}").status_code == 403
         assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
 
     @parameterized.expand([("check_assertion", False), ("metric_definition", True)])
@@ -366,7 +407,7 @@ class TestMetricCheckAPI(APIBaseTest):
         )
         cache.clear()
 
-        for url in (f"{self.url}/", f"/api/projects/{self.team.id}/data_quality_checks/"):
+        for url in (f"{self.url}/?{self.subject_query}", f"{self.url}/"):
             listed = self.client.get(url)
             assert listed.status_code == status.HTTP_200_OK, listed.content
             assert listed.json()["results"] == []
@@ -402,6 +443,7 @@ class TestMetricCheckAPI(APIBaseTest):
         response = self.client.post(
             f"{self.url}/",
             {
+                **self.subject,
                 "check_type": "custom_sql",
                 "config": {"query": "SELECT * FROM {metric}"},
             },
@@ -478,24 +520,24 @@ class TestMetricCheckAPI(APIBaseTest):
             warehouse_ac.start()
             self.addCleanup(warehouse_ac.stop)
         cache.clear()
-        suffix = action if action == "run_all" else f"{check['id']}/{action}"
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
-            response = getattr(self.client, method.lower())(f"{self.url}/{suffix}/")
+            if action == "run_all":
+                response = self.client.post(f"{self.suites_url}/", self.subject)
+            else:
+                response = getattr(self.client, method.lower())(f"{self.url}/{check['id']}/{action}/")
         assert response.status_code == (403 if denied else 200), response.content
 
 
 class TestCheckViewSetScopes(SimpleTestCase):
     @parameterized.expand(
         [
-            ("query_gated_read", "list", "GET", ["warehouse_view:read", "query:read"]),
-            ("query_gated_write", "create", "POST", ["warehouse_view:write", "query:read"]),
-            ("inherited_access_control", "users_with_access", "GET", ["access_control:read"]),
+            ("read", "list", "GET", ["query:read"]),
+            ("write", "create", "POST", ["query:read"]),
+            ("metric_catalog", "metric_subjects", "GET", ["data_catalog:read", "query:read"]),
         ]
     )
     def test_required_scopes_per_action(self, _name: str, action: str, method: str, expected: list[str]) -> None:
-        # The query gate is this viewset's own scope rule; everything else has to keep deferring, or the
-        # access-control actions it inherits would answer to a warehouse token with no access_control scope.
-        view = SavedQueryCheckViewSet()
+        view = DataQualityCheckViewSet()
         view.action = action
 
         assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == expected
@@ -519,7 +561,8 @@ class TestMetricOutputSchemaAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_returns_the_saved_metrics_output_columns_and_types(self) -> None:
         response = self.client.get(
-            f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks/output_schema/"
+            f"/api/projects/{self.team.id}/data_quality_checks/output_schema/"
+            f"?subject_type=metric&subject_uuid={self.metric.id}"
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -537,7 +580,9 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.view = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS customer_id"}
         )
-        self.url = self._checks_url(self.view.id)
+        self.url = f"/api/projects/{self.team.id}/data_quality_checks"
+        self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
+        self.subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
         flag = patch(FLAG, return_value=True)
         flag.start()
         self.addCleanup(flag.stop)
@@ -547,7 +592,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         other_view = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="other_orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
         )
-        other_check = self._create_check(url=self._checks_url(other_view.id))
+        other_check = self._create_check(subject_uuid=str(other_view.id))
         for item_id, scope in [
             (self.view.id, "DataWarehouseSavedQuery"),
             (check.id, "DataQualityCheck"),
@@ -597,17 +642,22 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert entry is not None
         assert entry.activity == "deleted"
 
-    def _checks_url(self, saved_query_id) -> str:
-        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query_id}/checks"
+    def _subject_query(self, subject_uuid, subject_type: str = SubjectType.VIEW) -> str:
+        return f"subject_type={subject_type}&subject_uuid={subject_uuid}"
 
-    def _suite_runs_url(self, saved_query_id=None) -> str:
-        parent = saved_query_id or self.view.id
-        return f"/api/projects/{self.team.id}/warehouse_saved_queries/{parent}/check_suite_runs"
+    def _subject_of(self, subject_uuid, subject_type: str = SubjectType.VIEW) -> dict:
+        return {"subject_type": subject_type, "subject_uuid": str(subject_uuid)}
+
+    def _checks_of(self, subject_uuid, subject_type: str = SubjectType.VIEW) -> str:
+        return f"{self.url}/?{self._subject_query(subject_uuid, subject_type)}"
+
+    def _runs_of(self, subject_uuid, subject_type: str = SubjectType.VIEW) -> str:
+        return f"{self.suites_url}/?{self._subject_query(subject_uuid, subject_type)}"
 
     def _gate_url(self) -> str:
         return f"/api/projects/{self.team.id}/data_warehouse/data_quality_gate/"
 
-    def _table_checks_url(self) -> str:
+    def _table_subject(self) -> dict:
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="_key", access_secret="_secret")
         table = DataWarehouseTable.objects.create(
             name="orders_source",
@@ -617,17 +667,18 @@ class TestDataQualityCheckAPI(APIBaseTest):
             format=DataWarehouseTable.TableFormat.Parquet,
             url_pattern="http://localhost:19000/bucket/orders_source",
         )
-        return f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/checks"
+        return self._subject_of(table.id, SubjectType.TABLE)
 
     def _payload(self, **overrides) -> dict:
         return {
+            **self.subject,
             "check_type": CheckType.NOT_NULL,
             "column_name": "customer_id",
             **overrides,
         }
 
-    def _create_check(self, url: str | None = None, **overrides) -> DataQualityCheck:
-        response = self.client.post(f"{url or self.url}/", self._payload(**overrides))
+    def _create_check(self, **overrides) -> DataQualityCheck:
+        response = self.client.post(f"{self.url}/", self._payload(**overrides))
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
 
@@ -648,12 +699,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
     @parameterized.expand([("view",), ("table",)])
     def test_create_returns_the_fingerprint_and_re_creating_upserts(self, kind: str) -> None:
-        url = self.url if kind == "view" else self._table_checks_url()
-        created = self.client.post(f"{url}/", self._payload())
+        subject = self.subject if kind == "view" else self._table_subject()
+        created = self.client.post(f"{self.url}/", self._payload(**subject))
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         assert created.json()["fingerprint"]
 
-        again = self.client.post(f"{url}/", self._payload(description="clarified"))
+        again = self.client.post(f"{self.url}/", self._payload(**subject, description="clarified"))
 
         assert again.status_code == status.HTTP_200_OK
         assert again.json()["id"] == created.json()["id"]
@@ -678,7 +729,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
 
     def test_creating_under_an_unknown_parent_is_rejected(self) -> None:
-        response = self.client.post(f"{self._checks_url(uuid4())}/", self._payload())
+        response = self.client.post(f"{self.url}/", self._payload(subject_uuid=str(uuid4())))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
@@ -740,14 +791,14 @@ class TestDataQualityCheckAPI(APIBaseTest):
         ]
     )
     def test_editing_the_assertion_keeps_the_check_identity(self, kind: str, _case: str, edit: dict) -> None:
-        url = self.url if kind == "view" else self._table_checks_url()
-        check = self._create_check(url=url)
+        subject = self.subject if kind == "view" else self._table_subject()
+        check = self._create_check(**subject)
         ran_at = now()
         DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(
             last_status=CheckRunStatus.FAILED, last_run_at=ran_at
         )
 
-        response = self.client.patch(f"{url}/{check.id}/", edit)
+        response = self.client.patch(f"{self.url}/{check.id}/", edit)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -962,22 +1013,36 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert check.deleted is True
         assert check.enabled is False
 
-    def test_list_is_scoped_to_the_parent_and_filters_by_check_type(self) -> None:
+    def test_list_narrows_by_subject_and_by_check_type(self) -> None:
         self._create_check()
         self._create_check(check_type=CheckType.UNIQUE)
         other_view = self._make_view("refunds")
-        other = self.client.post(f"{self._checks_url(other_view.id)}/", self._payload())
+        other = self.client.post(f"{self.url}/", self._payload(subject_uuid=str(other_view.id)))
         assert other.status_code == status.HTTP_201_CREATED
 
-        listed = self.client.get(f"{self.url}/")
-        filtered = self.client.get(f"{self.url}/?check_type={CheckType.UNIQUE}")
+        everything = self.client.get(f"{self.url}/")
+        scoped = self.client.get(self._checks_of(self.view.id))
+        filtered = self.client.get(f"{self._checks_of(self.view.id)}&check_type={CheckType.UNIQUE}")
 
-        assert {row["subject_uuid"] for row in listed.json()["results"]} == {str(self.view.id)}
-        assert len(listed.json()["results"]) == 2
+        assert len(everything.json()["results"]) == 3
+        assert {row["subject_uuid"] for row in scoped.json()["results"]} == {str(self.view.id)}
+        assert len(scoped.json()["results"]) == 2
         assert [row["check_type"] for row in filtered.json()["results"]] == [CheckType.UNIQUE]
 
+    def test_unnamed_checks_on_one_subject_come_back_newest_first(self) -> None:
+        # A name is optional, so most checks on a subject sort on the same blank value. Without a
+        # tiebreak the page a caller receives is whatever order the database happened to return.
+        oldest = self._create_check(column_name="a")
+        middle = self._create_check(column_name="b")
+        newest = self._create_check(column_name="c")
+
+        listed = self.client.get(self._checks_of(self.view.id))
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(newest.id), str(middle.id), str(oldest.id)]
+
     def test_check_types_exposes_a_config_schema_per_type(self) -> None:
-        response = self.client.get(f"{self.url}/check_types/")
+        response = self.client.get(f"{self.url}/check_types/?subject_type={SubjectType.VIEW}")
 
         assert response.status_code == status.HTTP_200_OK
         by_type = {row["check_type"]: row for row in response.json()}
@@ -1028,11 +1093,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
                 last_status=last_status,
             )
 
-        response = self.client.get(f"{self.url}/health/")
+        response = self.client.get(f"{self.url}/health/?{self._subject_query(self.view.id)}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["health"] == expected
-        assert response.json()["checks_total"] == len(states)
+        rollups = response.json()
+        assert [entry["health"] for entry in rollups] == ([expected] if states else [])
+        assert sum(entry["checks_total"] for entry in rollups) == len(states)
 
     def test_health_ignores_disabled_checks(self) -> None:
         # A disabled failing check must not drive the verdict, or health would read 'failing' while
@@ -1056,12 +1122,18 @@ class TestDataQualityCheckAPI(APIBaseTest):
             **common,
         )
 
-        response = self.client.get(f"{self.url}/health/")
+        response = self.client.get(f"{self.url}/health/?{self._subject_query(self.view.id)}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["health"] == "healthy"
-        assert response.json()["checks_total"] == 1
-        assert response.json()["checks_failing"] == 0
+        assert response.json() == [
+            {
+                "subject_type": SubjectType.VIEW,
+                "subject_uuid": str(self.view.id),
+                "health": "healthy",
+                "checks_total": 1,
+                "checks_failing": 0,
+            }
+        ]
 
     def test_run_returns_a_pollable_suite_run(self) -> None:
         check = self._create_check()
@@ -1074,23 +1146,21 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
         # The handle is only pollable if it carries the subject: the nested routes filter on it.
-        polled = self.client.get(f"{self._suite_runs_url()}/{suite_run.id}/")
+        polled = self.client.get(f"{self.suites_url}/{suite_run.id}/")
         assert polled.status_code == status.HTTP_200_OK
-        listed = self.client.get(f"{self._suite_runs_url()}/")
+        listed = self.client.get(self._runs_of(self.view.id))
         assert str(suite_run.id) in {row["id"] for row in listed.json()["results"]}
 
-    def test_run_all_records_the_subject_on_the_report(self) -> None:
+    def test_running_a_whole_subject_records_it_on_the_report(self) -> None:
         self._create_check()
 
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
-            response = self.client.post(f"{self.url}/run_all/")
+            response = self.client.post(f"{self.suites_url}/", self.subject)
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["subject_uuid"] == str(self.view.id)
 
-    def test_suite_runs_list_the_parents_single_subject_suites(self) -> None:
-        # Multi-subject sweep suites carry no parent, so this surface must not serve them -- they
-        # stay reachable through information_schema, the cross-subject surface.
+    def test_a_subject_filter_leaves_out_the_sweeps_that_span_several(self) -> None:
         mine = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
         )
@@ -1107,12 +1177,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
             failed_row_count=3,
         )
 
-        base = self._suite_runs_url()
-        listed = self.client.get(f"{base}/")
+        listed = self.client.get(self._runs_of(self.view.id))
 
         assert {row["id"] for row in listed.json()["results"]} == {str(mine.id)}
-        assert self.client.get(f"{base}/{sweep.id}/").status_code == status.HTTP_404_NOT_FOUND
-        check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
+        unfiltered = self.client.get(f"{self.suites_url}/")
+        assert {row["id"] for row in unfiltered.json()["results"]} == {str(mine.id), str(sweep.id)}
+        check_runs = self.client.get(f"{self.suites_url}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
     def test_check_runs_name_the_check_each_row_ran(self) -> None:
@@ -1133,7 +1203,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
                 status=CheckRunStatus.PASSED,
             )
 
-        response = self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert {row["check_name"] for row in response.json()} == {"orders_customer_id_not_null", None}
@@ -1153,7 +1223,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+        listed = self.client.get(self._checks_of(allowed.id))
 
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert listed.json()["results"] == []
@@ -1174,12 +1244,10 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        health = self.client.get(f"{self._checks_url(allowed.id)}/health/")
+        health = self.client.get(f"{self.url}/health/?{self._subject_query(allowed.id)}")
 
         assert health.status_code == status.HTTP_200_OK, health.json()
-        assert health.json()["checks_total"] == 0
-        assert health.json()["checks_failing"] == 0
-        assert health.json()["health"] == "unknown"
+        assert health.json() == []
 
     @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
     def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
@@ -1220,7 +1288,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             last_succeeded_at=ran_at,
             failing_since=ran_at,
         )
-        url = f"{self._checks_url(allowed.id)}/{check.id}"
+        url = f"{self.url}/{check.id}"
         authorized_edit = self.client.patch(url + "/", {"config": {"query": "SELECT 1 FROM customers"}})
         assert authorized_edit.status_code == status.HTTP_200_OK, authorized_edit.json()
         self._deny_the_view()
@@ -1247,7 +1315,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         # "orders" -- one that list hides, retrieve 403s, runs/ empties and patch redacts.
         allowed = self._make_view("customers")
         safe = {"check_type": CheckType.NOT_NULL, "column_name": "id", "config": {}}
-        created = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+        created = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **safe})
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
         api.record_check_run(
@@ -1274,7 +1342,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        recreated = self.client.post(f"{self._checks_url(allowed.id)}/", safe)
+        recreated = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **safe})
 
         assert recreated.status_code == status.HTTP_200_OK, recreated.json()
         assert recreated.json()["last_status"] is None
@@ -1292,8 +1360,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
         DataWarehouseSavedQuery.objects.filter(id=view.id).update(columns={"amount": "Nullable(Int64)"})
 
         response = self.client.post(
-            f"{self._checks_url(view.id)}/",
-            {"check_type": CheckType.ACCEPTED_VALUES, "column_name": "amount", "config": {"values": ["1", "2"]}},
+            f"{self.url}/",
+            self._payload(
+                subject_uuid=str(view.id),
+                check_type=CheckType.ACCEPTED_VALUES,
+                column_name="amount",
+                config={"values": ["1", "2"]},
+            ),
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1305,7 +1378,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         # database sees it -- so denied_subject_names() picks it up and the endpoint hides it.
         self._deny_object("warehouse_view", str(self.view.id))
 
-    def _deny_object(self, resource: str, resource_id: str) -> None:
+    def _deny_object(self, resource: str, resource_id: str, access_level: str = "none") -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -1315,7 +1388,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
             resource=resource,
             resource_id=resource_id,
             organization_member=self.organization_membership,
-            access_level="none",
+            access_level=access_level,
         )
         # Warehouse table/view denial only flows into the HogQL database behind this flag.
         warehouse_ac = patch(
@@ -1326,9 +1399,35 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.addCleanup(warehouse_ac.stop)
         cache.clear()
 
+    def test_the_catalog_lists_a_subject_the_member_may_only_read_as_not_editable(self) -> None:
+        self._deny_object("warehouse_view", str(self.view.id), access_level="viewer")
+
+        response = self.client.get(f"{self.url}/subjects/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        editable_by_name = {row["name"]: row["editable"] for row in response.json()}
+        assert editable_by_name["orders"] is False
+
+    def test_the_catalog_marks_nothing_editable_for_a_read_only_token(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="read only",
+            secure_value=hash_key_value(token),
+            scopes=["query:read", "warehouse_objects:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"{self.url}/subjects/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        editable_by_name = {row["name"]: row["editable"] for row in response.json()}
+        assert "orders" in editable_by_name
+        assert not any(editable_by_name.values())
+
     @parameterized.expand(
         [
-            ("list", lambda self, check, suite: self.client.get(f"{self.url}/")),
+            ("list", lambda self, check, suite: self.client.get(self._checks_of(self.view.id))),
             ("retrieve", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/")),
             ("create", lambda self, check, suite: self.client.post(f"{self.url}/", self._payload())),
             (
@@ -1337,41 +1436,45 @@ class TestDataQualityCheckAPI(APIBaseTest):
             ),
             ("run", lambda self, check, suite: self.client.post(f"{self.url}/{check.id}/run/")),
             ("runs", lambda self, check, suite: self.client.get(f"{self.url}/{check.id}/runs/")),
-            ("run_all", lambda self, check, suite: self.client.post(f"{self.url}/run_all/")),
-            ("health", lambda self, check, suite: self.client.get(f"{self.url}/health/")),
-            ("suite_runs_list", lambda self, check, suite: self.client.get(f"{self._suite_runs_url()}/")),
+            ("run_subject", lambda self, check, suite: self.client.post(f"{self.suites_url}/", self.subject)),
             (
-                "suite_run_check_runs",
-                lambda self, check, suite: self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/"),
+                "health",
+                lambda self, check, suite: self.client.get(f"{self.url}/health/?{self._subject_query(self.view.id)}"),
             ),
+            ("suite_runs_list", lambda self, check, suite: self.client.get(self._runs_of(self.view.id))),
+            ("suite_run_retrieve", lambda self, check, suite: self.client.get(f"{self.suites_url}/{suite.id}/")),
         ]
     )
-    def test_a_denied_parent_subject_blocks_every_action(self, _name: str, call) -> None:
-        # Authoring, running, or reading anything under a table the member cannot query would leak
-        # its shape and observed counts. The subject is the parent in the URL, so every action 403s.
+    def test_a_denied_subject_blocks_every_action(self, _name: str, call) -> None:
         check = self._create_check()
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
             team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
         )
         self._deny_the_view()
 
-        assert call(self, check, suite).status_code == status.HTTP_403_FORBIDDEN
+        response = call(self, check, suite)
+        assert response.status_code in (
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_404_NOT_FOUND,
+        ), response.status_code
 
     def test_deleting_a_denied_subject_does_not_hand_its_history_over(self) -> None:
         # An orphan resolves to an empty name, which matches no denial, so deleting the view would
         # otherwise lift the member's denial along with it.
         self._create_check()
         self._deny_the_view()
+        view_id = self.view.id
         self.view.delete()
 
-        assert self.client.get(f"{self.url}/").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(self._checks_of(view_id)).status_code == status.HTTP_403_FORBIDDEN
 
     def test_an_unrestricted_member_still_reads_an_orphaned_subjects_checks(self) -> None:
         # Orphaned history stays reachable: checks on a deleted subject are skipped, not hidden.
         self._create_check()
+        view_id = self.view.id
         self.view.delete()
 
-        assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
+        assert self.client.get(self._checks_of(view_id)).status_code == status.HTTP_200_OK
 
     @parameterized.expand(
         [
@@ -1389,8 +1492,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self._deny_the_view()
 
         response = self.client.post(
-            f"{self._checks_url(allowed.id)}/",
-            self._payload(check_type=check_type, column_name=column_name, config=config),
+            f"{self.url}/",
+            self._payload(subject_uuid=str(allowed.id), check_type=check_type, column_name=column_name, config=config),
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -1408,13 +1511,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
         reads_charges = self._payload(
             check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "SELECT 1 FROM stripe.charges"}
         )
-        created = self.client.post(f"{self._checks_url(allowed.id)}/", reads_charges)
+        created = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **reads_charges})
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         self._deny_object("warehouse_table", str(charges.id))
 
         with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
-            listed = self.client.get(f"{self._checks_url(allowed.id)}/")
-            recreated = self.client.post(f"{self._checks_url(allowed.id)}/", reads_charges)
+            listed = self.client.get(self._checks_of(allowed.id))
+            recreated = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **reads_charges})
 
         build.assert_not_called()
         assert listed.status_code == status.HTTP_200_OK, listed.json()
@@ -1433,7 +1536,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         allowed = self._make_view("customers")
         for index in range(3):
             self._create_check(
-                url=self._checks_url(allowed.id),
+                subject_uuid=str(allowed.id),
                 check_type=CheckType.CUSTOM_SQL,
                 column_name="",
                 config={"query": query.format(index=index)},
@@ -1441,7 +1544,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self._deny_the_view()
 
         with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
-            listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+            listed = self.client.get(self._checks_of(allowed.id))
 
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert len(listed.json()["results"]) == 3
@@ -1462,12 +1565,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
         reads_backing_table = self._payload(
             check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": f"SELECT 1 FROM {backing_table.name}"}
         )
-        created = self.client.post(f"{self._checks_url(allowed.id)}/", reads_backing_table)
+        created = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **reads_backing_table})
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         self._deny_object("warehouse_table", str(backing_table.id))
 
-        listed = self.client.get(f"{self._checks_url(allowed.id)}/")
-        recreated = self.client.post(f"{self._checks_url(allowed.id)}/", reads_backing_table)
+        listed = self.client.get(self._checks_of(allowed.id))
+        recreated = self.client.post(f"{self.url}/", {**self._subject_of(allowed.id), **reads_backing_table})
 
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert listed.json()["results"] == []
@@ -1476,7 +1579,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
     def test_a_database_build_that_fails_refuses_rather_than_500s(self) -> None:
         allowed = self._make_view("customers")
         self._create_check(
-            url=self._checks_url(allowed.id),
+            subject_uuid=str(allowed.id),
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM customers"},
@@ -1484,7 +1587,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self._deny_the_view()
 
         with patch.object(Database, "create_for", side_effect=RuntimeError("a saved query will not parse")):
-            response = self.client.get(f"{self._checks_url(allowed.id)}/")
+            response = self.client.get(self._checks_of(allowed.id))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "Could not verify your access to this table or view."
@@ -1494,11 +1597,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         # The stored definition cleared the denial; the candidate one has to clear it too, or an edit
         # is the way to point a visible check at a table the member cannot read.
         allowed = self._make_view("customers")
-        check = self._create_check(url=self._checks_url(allowed.id), column_name="id")
+        check = self._create_check(subject_uuid=str(allowed.id), column_name="id")
         self._deny_the_view()
 
         response = getattr(self.client, method)(
-            f"{self._checks_url(allowed.id)}/{check.id}/",
+            f"{self.url}/{check.id}/",
             {"check_type": CheckType.CUSTOM_SQL, "column_name": "", "config": {"query": "SELECT 1 FROM orders"}},
         )
 
@@ -1510,7 +1613,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
     def test_editing_a_check_with_an_unreadable_stored_definition_writes_nothing(self, method: str) -> None:
         allowed = self._make_view("customers")
         check = self._create_check(
-            url=self._checks_url(allowed.id),
+            subject_uuid=str(allowed.id),
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM orders"},
@@ -1524,7 +1627,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
 
         response = getattr(self.client, "patch" if method == "presentation" else method)(
-            f"{self._checks_url(allowed.id)}/{check.id}/", changes
+            f"{self.url}/{check.id}/", changes
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
@@ -1536,7 +1639,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
     def test_editing_rechecks_access_when_the_stored_definition_changes_before_locking(self) -> None:
         allowed = self._make_view("customers")
         check = self._create_check(
-            url=self._checks_url(allowed.id),
+            subject_uuid=str(allowed.id),
             check_type=CheckType.CUSTOM_SQL,
             column_name="",
             config={"query": "SELECT 1 FROM customers"},
@@ -1566,7 +1669,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         with patch.object(checks_logic, "_candidate_definition", side_effect=replace_definition_before_lock):
             response = self.client.patch(
-                f"{self._checks_url(allowed.id)}/{check.id}/",
+                f"{self.url}/{check.id}/",
                 {"config": {"query": "SELECT 1"}, "description": "proposed change"},
             )
 
@@ -1630,7 +1733,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         if deny:
             self._deny_the_view()
 
-        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert sorted(row["check_type"] for row in response.json()) == sorted(expected_types)
@@ -1643,9 +1746,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite = self._suite_with_two_runs(allowed)
         self._deny_the_view()
 
-        base = self._suite_runs_url(allowed.id)
-        listed = self.client.get(f"{base}/")
-        retrieved = self.client.get(f"{base}/{suite.id}/")
+        listed = self.client.get(self._runs_of(allowed.id))
+        retrieved = self.client.get(f"{self.suites_url}/{suite.id}/")
 
         assert listed.status_code == status.HTTP_200_OK, listed.json()
         assert listed.json()["results"] == []
@@ -1662,7 +1764,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.NOT_NULL]
@@ -1709,8 +1811,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self._deny_the_view()
         self.view.delete()
 
-        suite_runs = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
-        history = self.client.get(f"{self._checks_url(allowed.id)}/{check.id}/runs/")
+        suite_runs = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
+        history = self.client.get(f"{self.url}/{check.id}/runs/")
 
         # The suite route filters, since it serves runs from many checks. The per-check route refuses,
         # since the one definition it serves is the one that cannot be established.
@@ -1745,7 +1847,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.view.delete()
         self._make_view("orders")
 
-        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == []
@@ -1772,7 +1874,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
@@ -1814,7 +1916,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        response = self.client.get(f"{self._suite_runs_url(allowed.id)}/{suite.id}/check_runs/")
+        response = self.client.get(f"{self.suites_url}/{suite.id}/check_runs/")
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["check_type"] for row in response.json()] == [CheckType.CUSTOM_SQL]
@@ -1851,10 +1953,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
             failed_row_count=3,
         )
         self._deny_the_view()
+        temp_id = temp.id
         temp.delete()
 
-        assert self.client.get(f"{self._checks_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.get(f"{self._suite_runs_url(temp.id)}/").status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(self._checks_of(temp_id)).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(self._runs_of(temp_id)).status_code == status.HTTP_403_FORBIDDEN
 
     def test_a_restricted_member_loses_an_orphaned_checks_row_from_the_project_list(self) -> None:
         # An orphan has no subject left to prove access against, so it fails closed for a member who
@@ -1895,7 +1998,12 @@ class TestDataQualityCheckAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("run", lambda self, url, check: self.client.post(f"{url}/{check.id}/run/")),
-            ("run_all", lambda self, url, check: self.client.post(f"{url}/run_all/")),
+            (
+                "run_subject",
+                lambda self, url, check: self.client.post(
+                    f"{self.suites_url}/", self._subject_of(check.saved_query_id)
+                ),
+            ),
             ("runs", lambda self, url, check: self.client.get(f"{url}/{check.id}/runs/")),
         ]
     )
@@ -1915,7 +2023,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        assert call(self, self._checks_url(allowed.id), check).status_code == status.HTTP_403_FORBIDDEN
+        assert call(self, self.url, check).status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
@@ -1936,7 +2044,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         self._deny_the_view()
 
-        response = call(self, self._checks_url(allowed.id), check)
+        response = call(self, self.url, check)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id, deleted=False).exists()
@@ -1945,12 +2053,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
         [
             ("create", lambda self, check: self.client.post(f"{self.url}/", self._payload(column_name="total"))),
             ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
-            ("run_all", lambda self, check: self.client.post(f"{self.url}/run_all/")),
+            ("run_all", lambda self, check: self.client.post(f"{self.suites_url}/", self.subject)),
             ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
             ("list", lambda self, check: self.client.get(f"{self.url}/")),
             ("retrieve", lambda self, check: self.client.get(f"{self.url}/{check.id}/")),
             ("health", lambda self, check: self.client.get(f"{self.url}/health/")),
-            ("suite_runs_list", lambda self, check: self.client.get(f"{self._suite_runs_url()}/")),
+            ("subjects", lambda self, check: self.client.get(f"{self.url}/subjects/")),
+            ("suite_runs_list", lambda self, check: self.client.get(self._runs_of(self.view.id))),
         ]
     )
     def test_query_denied_members_cannot_author_execute_or_read_check_outcomes(self, _name: str, call) -> None:
@@ -1964,22 +2073,180 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert call(self, check).status_code == status.HTTP_403_FORBIDDEN
 
-    def test_check_types_catalog_stays_readable_without_query_access(self) -> None:
-        # The check-type catalog is static schema metadata with no execution state, so unlike the
-        # check rows it is not gated on query access -- an agent must be able to discover config shapes.
-        AccessControl.objects.create(team=self.team, resource="query", access_level="none")
-        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
-        self.organization.save()
+    @parameterized.expand([("get",), ("patch",)])
+    def test_a_subject_that_runs_on_its_data_cannot_be_scheduled(self, method: str) -> None:
+        self._create_check()
 
-        assert self.client.get(f"{self.url}/check_types/").status_code == status.HTTP_200_OK
+        response = (
+            self.client.patch(f"{self.url}/schedule/", self.subject)
+            if method == "patch"
+            else self.client.get(f"{self.url}/schedule/?{self._subject_query(self.view.id)}")
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "subject_type"
+
+    def test_a_posthog_table_takes_checks_a_schedule_and_a_window(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        subject = {"subject_type": SubjectType.POSTHOG_TABLE, "subject_uuid": str(events.id)}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(
+                f"{self.url}/",
+                {**subject, "check_type": CheckType.NOT_NULL, "column_name": "distinct_id", "config": {}},
+            )
+
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["subject_uuid"] == str(events.id)
+        assert created.json()["subject_name"] == "events"
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=created.json()["id"])
+        assert check.posthog_table == "events"
+
+        windowed = self.client.post(
+            f"{self.url}/",
+            {
+                **subject,
+                "check_type": CheckType.NOT_NULL,
+                "column_name": "distinct_id",
+                "config": {"lookback_hours": 24},
+            },
+        )
+        assert windowed.status_code == status.HTTP_201_CREATED, windowed.json()
+        assert windowed.json()["id"] != created.json()["id"]
+
+        assert [
+            row["subject_uuid"]
+            for row in self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE)).json()["results"]
+        ] == [
+            str(events.id),
+            str(events.id),
+        ]
+        assert self.client.get(
+            f"{self.url}/schedule/?{self._subject_query(events.id, SubjectType.POSTHOG_TABLE)}"
+        ).status_code in (
+            status.HTTP_200_OK,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    @parameterized.expand(
+        [
+            ("json_path", "properties.$browser", status.HTTP_201_CREATED),
+            ("join_path", "person.properties.email", status.HTTP_400_BAD_REQUEST),
+            ("lazy_table", "pdi.person_id", status.HTTP_400_BAD_REQUEST),
+            ("unknown_column", "stripe_customer", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_posthog_table_check_names_only_a_column_it_can_select(
+        self, _name: str, column_name: str, expected: int
+    ) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "subject_type": SubjectType.POSTHOG_TABLE,
+                "subject_uuid": str(events.id),
+                "check_type": CheckType.NOT_NULL,
+                "column_name": column_name,
+                "config": {},
+            },
+        )
+
+        assert response.status_code == expected, response.json()
+
+    def test_a_relationships_target_on_a_posthog_table_names_only_a_column_it_can_select(self) -> None:
+        events = by_name("events")
+        assert events is not None
+
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                column_name="customer_id",
+                config={
+                    "to_subject_type": SubjectType.POSTHOG_TABLE,
+                    "to_subject_uuid": str(events.id),
+                    "to_column": "person.id",
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_a_restricted_member_still_lists_and_runs_a_posthog_table_check(self) -> None:
+        events = by_name("events")
+        assert events is not None
+        check = self._create_check(
+            subject_type=SubjectType.POSTHOG_TABLE, subject_uuid=str(events.id), column_name="distinct_id"
+        )
+        self._deny_the_view()
+
+        listed = self.client.get(self._checks_of(events.id, SubjectType.POSTHOG_TABLE))
+        health = self.client.get(f"{self.url}/health/")
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())) as connect:
+            started = self.client.post(f"{self.suites_url}/", {})
+
+        assert [row["id"] for row in listed.json()["results"]] == [str(check.id)]
+        assert [row["subject_uuid"] for row in health.json()] == [str(events.id)]
+        assert started.status_code == status.HTTP_200_OK, started.content
+        assert connect.return_value.start_workflow.call_args.args[1]["check_ids"] == [str(check.id)]
+
+    def test_running_a_posthog_table_subject_hands_the_worker_its_selector(self) -> None:
+        # Without the selector the worker reads the suite as naming nothing and runs none of the
+        # subject's checks, while still reporting the run as finished.
+        events = by_name("events")
+        assert events is not None
+
+        with patch(START_SUITE) as connect:
+            connect.return_value.start_workflow = AsyncMock()
+            suite = checks_logic.start_check_suite(
+                team=self.team,
+                user=self.user,
+                subject_type=SubjectType.POSTHOG_TABLE,
+                subject_uuids=[str(events.id)],
+            )
+
+        assert suite.subject_uuid == str(events.id)
+        assert connect.return_value.start_workflow.call_args.args[1]["posthog_table_ids"] == [str(events.id)]
+
+    def test_a_window_is_refused_on_a_subject_with_no_time_column(self) -> None:
+        response = self.client.post(f"{self.url}/", self._payload(config={"lookback_hours": 24}))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "lookback_hours" in response.json()["detail"]
+
+    def test_a_target_window_is_refused_on_a_target_with_no_time_column(self) -> None:
+        response = self.client.post(
+            f"{self.url}/",
+            self._payload(
+                check_type=CheckType.RELATIONSHIPS,
+                config={
+                    "to_subject_type": SubjectType.VIEW,
+                    "to_subject_uuid": str(self.view.id),
+                    "to_column": "id",
+                    "to_lookback_hours": 24,
+                },
+            ),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "to_lookback_hours" in response.json()["detail"]
+
+    def test_the_check_type_catalog_needs_no_access_to_any_subject(self) -> None:
+        self._deny_the_view()
+
+        response = self.client.get(f"{self.url}/check_types/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert {row["check_type"] for row in response.json()}
 
     def test_another_projects_checks_are_not_visible(self) -> None:
         check = self._create_check()
         other_team = self.create_team_with_organization(self.organization)
 
-        response = self.client.get(
-            f"/api/projects/{other_team.id}/warehouse_saved_queries/{self.view.id}/checks/{check.id}/"
-        )
+        response = self.client.get(f"/api/projects/{other_team.id}/data_quality_checks/{check.id}/")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 

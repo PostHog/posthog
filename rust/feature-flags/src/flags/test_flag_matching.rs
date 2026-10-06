@@ -16,6 +16,7 @@ mod tests {
             cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
             membership::{CohortMembershipError, CohortMembershipProvider},
         },
+        database::PostgresRouter,
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
@@ -37,7 +38,7 @@ mod tests {
             mock::MockInto,
             test_utils::{
                 failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                TestContext,
+                setup_invalid_pg_client, TestContext,
             },
         },
     };
@@ -616,6 +617,146 @@ mod tests {
             "group-typed filter should resolve against group properties, not the person's"
         );
         assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
+    }
+
+    /// `match_property` cannot evaluate a cohort filter, so a winning condition used to claim its
+    /// own properties did not match. The cohort is dynamic on purpose, because the evaluation state
+    /// caches static and realtime memberships only.
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_cohort_filters_against_cohort_membership() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [{
+                            "type": "OR",
+                            "values": [{
+                                "key": "plan",
+                                "type": "person",
+                                "value": "enterprise",
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        context
+            .insert_person(
+                team.id,
+                "cohort_member".to_string(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "non_member".to_string(),
+                Some(json!({"plan": "free"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_row.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                non_v1: None,
+                extra: Default::default(),
+            }
+        );
+
+        for (distinct_id, is_member) in [("cohort_member", true), ("non_member", false)] {
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None, // device_id
+                team.id,
+                context.create_postgres_router(),
+                cohort_cache.clone(),
+                empty_group_type_cache(),
+                None,
+            )
+            .with_detailed_analysis(true);
+
+            let flags = flag_list_with_metadata(vec![flag.clone()]);
+            let result = matcher
+                .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+                .await
+                .unwrap();
+
+            assert!(!result.errors_while_computing_flags);
+            let flag_details = result.flags.get("test_flag").unwrap();
+            assert_eq!(flag_details.to_value(), FlagValue::Boolean(is_member));
+
+            let conditions = flag_details
+                .conditions
+                .as_ref()
+                .expect("detailed_analysis(true) should populate conditions");
+            assert_eq!(conditions.len(), 1);
+
+            assert_eq!(conditions[0].matched, is_member, "user {distinct_id}");
+            assert_eq!(
+                conditions[0].properties_matched, is_member,
+                "user {distinct_id}"
+            );
+
+            // A member's condition explanation must agree with the MATCHED badge.
+            let expected_condition = if is_member {
+                "Condition 1 matched and passed 100% rollout"
+            } else {
+                "Condition 1 did not match properties"
+            };
+            assert_eq!(
+                conditions[0].explanation, expected_condition,
+                "user {distinct_id}"
+            );
+
+            let properties = &conditions[0].properties;
+            assert_eq!(properties.len(), 1);
+            assert_eq!(properties[0].matched, is_member, "user {distinct_id}");
+            let expected = if is_member {
+                format!("Person is in cohort {}", cohort_row.id)
+            } else {
+                format!("Person is not in cohort {}", cohort_row.id)
+            };
+            assert_eq!(properties[0].explanation, expected, "user {distinct_id}");
+        }
     }
 
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
@@ -1198,6 +1339,332 @@ mod tests {
             let missing_dep_flag = result.flags.get("missing_dependency_flag").unwrap();
             assert!(!missing_dep_flag.enabled);
             assert_eq!(missing_dep_flag.reason.code, "missing_dependency");
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::flags_endpoint(false)]
+    #[case::batch_endpoint(true)]
+    #[tokio::test]
+    async fn test_flags_depending_on_a_failed_flag_fail_only_when_their_answer_needs_it(
+        #[case] batch_endpoint: bool,
+    ) {
+        let enabled_only_flag_keys = if batch_endpoint {
+            HashSet::from(
+                [
+                    "dependent_with_pinned_variant_flag",
+                    "dependent_on_pinned_variant_dependency_flag",
+                ]
+                .map(String::from),
+            )
+        } else {
+            HashSet::new()
+        };
+        let failing_db = setup_invalid_pg_client().await;
+        let router = PostgresRouter::new(
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+            failing_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(failing_db, None, None)),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_enabled_only_flag_keys(enabled_only_flag_keys);
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let dependent_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "dependent_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let dependent_with_catch_all_flag = mock!(FeatureFlag,
+            id: 4,
+            key: "dependent_with_catch_all_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(false))])
+                    ),
+                    mock!(FlagPropertyGroup),
+                ]
+            )
+        );
+        let transitive_dependent_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "transitive_dependent_flag".mock_into(),
+            filters: dep_filter(dependent_flag.id, FlagValue::Boolean(false)).mock_into()
+        );
+        let healthy_dependent_flag = mock!(FeatureFlag,
+            id: 6,
+            key: "healthy_dependent_flag".mock_into(),
+            filters: dep_filter(rollout_flag.id, FlagValue::Boolean(true)).mock_into()
+        );
+        let catch_all_before_dependency_flag = mock!(FeatureFlag,
+            id: 7,
+            key: "catch_all_before_dependency_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup),
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                ]
+            )
+        );
+        let dependent_out_of_rollout_flag = mock!(FeatureFlag,
+            id: 8,
+            key: "dependent_out_of_rollout_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )]
+            )
+        );
+        // Every user hashes to "control", so an unpinned condition never returns "test".
+        let control_for_everyone = || MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    rollout_percentage: 100.0,
+                    ..Default::default()
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    rollout_percentage: 0.0,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let pinned_test_then_control = || {
+            mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        };
+        let dependent_with_pinned_variant_flag = mock!(FeatureFlag,
+            id: 9,
+            key: "dependent_with_pinned_variant_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 17,
+            key: "pinned_variant_dependency_flag".mock_into(),
+            filters: pinned_test_then_control()
+        );
+        let dependent_on_pinned_variant_dependency_flag = mock!(FeatureFlag,
+            id: 18,
+            key: "dependent_on_pinned_variant_dependency_flag".mock_into(),
+            filters: dep_filter(pinned_variant_dependency_flag.id, FlagValue::String("control".to_string())).mock_into()
+        );
+        let dependent_with_same_pinned_variant_flag = mock!(FeatureFlag,
+            id: 11,
+            key: "dependent_with_same_pinned_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        variant: Some("test".to_string())
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("test".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_stopping_early_flag = mock!(FeatureFlag,
+            id: 12,
+            key: "dependent_stopping_early_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                        rollout_percentage: Some(0.0)
+                    ),
+                    mock!(FlagPropertyGroup),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_stopping_early_without_later_match_flag = mock!(FeatureFlag,
+            id: 13,
+            key: "dependent_stopping_early_without_later_match_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))]),
+                    rollout_percentage: Some(0.0)
+                )],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_with_early_exit_flag = mock!(FeatureFlag,
+            id: 10,
+            key: "dependent_with_early_exit_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, rollout_percentage: Some(0.0)),
+                ],
+                early_exit: Some(true)
+            )
+        );
+        let dependent_on_variant_flag = mock!(FeatureFlag,
+            id: 14,
+            key: "dependent_on_variant_flag".mock_into(),
+            filters: dep_filter(person_flag.id, FlagValue::String("test".to_string())).mock_into()
+        );
+        let dependent_with_hashed_variant_flag = mock!(FeatureFlag,
+            id: 15,
+            key: "dependent_with_hashed_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![
+                    mock!(FlagPropertyGroup,
+                        properties: Some(vec![dep_filter(person_flag.id, FlagValue::Boolean(true))])
+                    ),
+                    mock!(FlagPropertyGroup, variant: Some("control".to_string())),
+                ],
+                multivariate: Some(control_for_everyone())
+            )
+        );
+        let dependent_with_conflicting_filters_flag = mock!(FeatureFlag,
+            id: 16,
+            key: "dependent_with_conflicting_filters_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::Boolean(false)),
+                    ])
+                )]
+            )
+        );
+        let dependent_on_flag_and_its_variant_flag = mock!(FeatureFlag,
+            id: 19,
+            key: "dependent_on_flag_and_its_variant_flag".mock_into(),
+            filters: mock!(FlagFilters,
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![
+                        dep_filter(person_flag.id, FlagValue::Boolean(true)),
+                        dep_filter(person_flag.id, FlagValue::String("test".to_string())),
+                    ])
+                )]
+            )
+        );
+        let mut flags = flag_list_with_metadata(vec![
+            rollout_flag,
+            person_flag,
+            dependent_flag,
+            dependent_with_catch_all_flag,
+            transitive_dependent_flag,
+            healthy_dependent_flag,
+            catch_all_before_dependency_flag,
+            dependent_out_of_rollout_flag,
+            dependent_with_pinned_variant_flag,
+            dependent_with_early_exit_flag,
+            dependent_with_same_pinned_variant_flag,
+            dependent_stopping_early_flag,
+            dependent_stopping_early_without_later_match_flag,
+            dependent_on_variant_flag,
+            dependent_with_hashed_variant_flag,
+            dependent_with_conflicting_filters_flag,
+            pinned_variant_dependency_flag,
+            dependent_on_pinned_variant_dependency_flag,
+            dependent_on_flag_and_its_variant_flag,
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the failing pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        let mut settled = vec![
+            ("rollout_flag", FlagValue::Boolean(true)),
+            ("healthy_dependent_flag", FlagValue::Boolean(true)),
+            ("dependent_with_catch_all_flag", FlagValue::Boolean(true)),
+            ("catch_all_before_dependency_flag", FlagValue::Boolean(true)),
+            ("dependent_out_of_rollout_flag", FlagValue::Boolean(false)),
+            (
+                "dependent_with_same_pinned_variant_flag",
+                FlagValue::String("test".to_string()),
+            ),
+            (
+                "dependent_stopping_early_without_later_match_flag",
+                FlagValue::Boolean(false),
+            ),
+            (
+                "dependent_with_hashed_variant_flag",
+                FlagValue::String("control".to_string()),
+            ),
+            (
+                "dependent_with_conflicting_filters_flag",
+                FlagValue::Boolean(false),
+            ),
+        ];
+        let mut failed = vec![
+            "dependent_flag",
+            "transitive_dependent_flag",
+            "dependent_with_early_exit_flag",
+            "dependent_stopping_early_flag",
+            "dependent_on_variant_flag",
+            "pinned_variant_dependency_flag",
+            "dependent_on_pinned_variant_dependency_flag",
+            "dependent_on_flag_and_its_variant_flag",
+        ];
+        if batch_endpoint {
+            settled.push((
+                "dependent_with_pinned_variant_flag",
+                FlagValue::String("control".to_string()),
+            ));
+        } else {
+            failed.push("dependent_with_pinned_variant_flag");
+        }
+
+        assert!(result.errors_while_computing_flags);
+        for (key, value) in settled {
+            assert!(!result.flags[key].failed, "{key}");
+            assert_eq!(result.flags[key].to_value(), value, "{key}");
+        }
+        let stopped_early = &result.flags["dependent_stopping_early_without_later_match_flag"];
+        assert_eq!(stopped_early.reason.code, "out_of_rollout_bound");
+        assert_eq!(stopped_early.reason.condition_index, Some(0));
+        assert_eq!(
+            result.flags["person_flag"].reason.code,
+            "timeout:pool_timeout"
+        );
+        for key in failed {
+            let details = &result.flags[key];
+            assert!(
+                details.failed,
+                "{key} must fail when a flag it depends on fails"
+            );
+            assert!(!details.enabled, "{key}");
+            assert_eq!(details.reason.code, "dependency_failed", "{key}");
         }
     }
 
@@ -2277,6 +2744,31 @@ mod tests {
         assert_eq!(
             FeatureFlagMatcher::referenced_group_type_indexes(&flag).collect::<HashSet<_>>(),
             HashSet::from([3])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_v2_group_references_reach_the_group_readers() {
+        use crate::flags::config_v2::Subject;
+        use crate::flags::test_helpers::v2_filters_referencing;
+
+        let flag = mock!(FeatureFlag,
+            filters: v2_filters_referencing(&[Subject::Group(0)], Some(4))
+        );
+        assert_eq!(
+            FeatureFlagMatcher::referenced_group_type_indexes(&flag).collect::<HashSet<_>>(),
+            HashSet::from([0, 4])
+        );
+
+        let (_context, matcher) = group_matcher_without_group_prep(true, true).await;
+        let industry = HashMap::from([("industry".to_string(), json!("tech"))]);
+        let overrides = Some(HashMap::from([(
+            "organization".to_string(),
+            industry.clone(),
+        )]));
+        assert_eq!(
+            matcher.merged_group_properties_for_flag(&flag, &overrides),
+            HashMap::from([(0, industry)])
         );
     }
 
@@ -3744,6 +4236,102 @@ mod tests {
             result.matches,
             "User should match the static cohort and flag"
         );
+    }
+
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_static_cohort_filters_against_cohort_membership() {
+        // A static member's membership reaches condition analysis only through the cache that
+        // `prepare_flag_evaluation_state` seeds, because the dynamic path scores every static
+        // cohort as a non-match. Without that seed the condition shows MATCHED above a line
+        // saying the person is not in the cohort.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(team.id, Some("Static Cohort".to_string()), json!({}), true)
+            .await
+            .unwrap();
+
+        let distinct_id = "static_analysis_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({})))
+            .await
+            .unwrap();
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, person_id)
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                non_v1: None,
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_detailed_analysis(true);
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert_eq!(flag_details.to_value(), FlagValue::Boolean(true));
+
+        let conditions = flag_details
+            .conditions
+            .as_ref()
+            .expect("detailed_analysis(true) should populate conditions");
+        assert_eq!(conditions.len(), 1);
+        assert!(conditions[0].matched);
+        assert_eq!(
+            conditions[0].properties[0].explanation,
+            format!("Person is in cohort {}", cohort.id)
+        );
+        assert!(conditions[0].properties[0].matched);
     }
 
     fn flag_with_group(
@@ -6032,6 +6620,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6055,6 +6644,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6078,6 +6668,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
     }
@@ -6626,6 +7217,165 @@ mod tests {
             !high_distinct_result.matches,
             "empty device_id should evaluate to false for device_id bucketing"
         );
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_matches_full_rollout_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-full-rollout".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: Some(vec![mock!(PropertyFilter,
+                        key: "plan".mock_into(),
+                        value: Some(json!("pro")),
+                        prop_type: PropertyType::Person
+                    )]),
+                    rollout_percentage: Some(100.0)
+                )],
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let mut person_properties = HashMap::new();
+        person_properties.insert("plan".to_string(), json!("pro"));
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher
+            .get_match(&flag, Some(&person_properties), None, None, &None)
+            .unwrap();
+
+        assert!(
+            result.matches,
+            "a condition at 100% rollout needs no bucket, so a missing device_id must not withhold it"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_matches_pinned_variant_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        // The variants need the hash, but the condition pins one, so nothing is hashed.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-pinned-variant".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: None,
+                    rollout_percentage: Some(100.0),
+                    variant: Some("control".to_string())
+                )],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            name: None,
+                            key: "control".to_string(),
+                            rollout_percentage: 40.0,
+                            ..Default::default()
+                        },
+                        MultivariateFlagVariant {
+                            name: None,
+                            key: "test".to_string(),
+                            rollout_percentage: 60.0,
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "a pinned variant needs no bucket, so a missing device_id must not withhold it"
+        );
+        assert_eq!(result.variant, Some("control".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_device_id_bucketing_withholds_unpinned_variant_without_device() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+        // The percentages leave part of the range unassigned, so the hash picks between
+        // "test" and no variant. The variant-sum rule does not reject this today.
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "device-flag-short-variants".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup,
+                    properties: None,
+                    rollout_percentage: Some(100.0)
+                )],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![MultivariateFlagVariant {
+                        name: None,
+                        key: "test".to_string(),
+                        rollout_percentage: 50.0,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            bucketing_identifier: "device_id".mock_into()
+        );
+
+        let matcher = FeatureFlagMatcher::new(
+            "distinct-foo".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !result.matches,
+            "an unpinned variant reads the hash, so it must not fall back to distinct_id"
+        );
+        assert_eq!(result.reason, FeatureFlagMatchReason::OutOfRolloutBound);
     }
 
     #[tokio::test]
@@ -7456,7 +8206,18 @@ mod tests {
             key: "test-flag-normal".mock_into()
         );
 
-        let flags = flag_list_with_metadata(vec![flag_with_continuity, flag_without_continuity]);
+        let v2_flag_with_continuity: FeatureFlag = serde_json::from_value(json!({
+            "id": 3, "team_id": team.id, "key": "test-flag-v2-continuity", "active": true,
+            "ensure_experience_continuity": true,
+            "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": []}
+        }))
+        .unwrap();
+
+        let flags = flag_list_with_metadata(vec![
+            flag_with_continuity,
+            flag_without_continuity,
+            v2_flag_with_continuity,
+        ]);
 
         // Build dependency graph for the flags
         let precomputed = PrecomputedDependencyGraph::build(&flags, None);
@@ -7510,6 +8271,13 @@ mod tests {
                 "Normal flag should not have hash override error"
             );
         }
+
+        let v2_response = &response.flags["test-flag-v2-continuity"];
+        assert!(
+            !v2_response.failed,
+            "v2 flag with continuity should evaluate despite the hash override error"
+        );
+        assert_eq!(v2_response.reason.code, "no_condition_match");
     }
 
     #[tokio::test]

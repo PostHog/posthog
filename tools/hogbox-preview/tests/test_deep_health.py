@@ -254,6 +254,7 @@ class TemplateSyncTest(unittest.TestCase):
             "migrate",
             "start_cdp_service",
             "sync_hog_function_templates",
+            "sync_feature_flags",
             "up_web",
             "wait_for_health",
             "deep_health",
@@ -269,6 +270,7 @@ class TemplateSyncTest(unittest.TestCase):
         self.assertLess(events.index("migrate"), events.index("start_cdp_service"))
         self.assertLess(events.index("start_cdp_service"), events.index("sync_hog_function_templates"))
         self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
+        self.assertLess(events.index("sync_feature_flags"), events.index("up_web"))
 
     def test_cdp_service_uses_the_published_image_configuration(self):
         backend = _RecordingBackend()

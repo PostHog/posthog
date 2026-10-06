@@ -119,7 +119,8 @@ const meta: Meta<typeof DataTableVisualization> = {
     parameters: {
         testOptions: {
             snapshotBrowsers: ['chromium'],
-            waitForSelector: '.DataVisualizationTable',
+            // The table loads the Hog VM after it renders, so wait for a cell that a rule colored.
+            waitForSelector: '.DataVisualizationTable td[style*="background-color"]',
         },
     },
 }

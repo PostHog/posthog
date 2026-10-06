@@ -1,3 +1,4 @@
+import { decode } from 'he'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
@@ -6,7 +7,17 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
+import {
+    API_SCOPE_GROUPS,
+    API_SCOPES,
+    DEFAULT_OAUTH_SCOPES,
+    getMinimumEquivalentScopes,
+    getScopeDescription,
+    getScopeGroupLabel,
+    OTHER_SCOPE_GROUP_LABEL,
+    type ScopeAccessLevel,
+} from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,8 +32,6 @@ export type OAuthAuthorizationFormValues = {
 const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
-
-export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
 const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
 
@@ -57,7 +66,56 @@ export type OAuthScopeRow = {
     locked: boolean
 }
 
+export type OAuthScopeGroup = {
+    label: string
+    rows: OAuthScopeRow[]
+}
+
+// A group action clamps each row to its own floor and ceiling, so a group set to write can hold
+// read-only rows at read. The group shows a level as selected when each row is at that level
+// after the clamp. A disabled level is never selected, which removes the tie between write and
+// read in a group with no writable row, and between none and read in a group of required rows.
+export const scopeGroupAccessLevel = (rows: OAuthScopeRow[]): ScopeAccessLevel | undefined => {
+    const anyWritable = rows.some((row) => row.maxLevel === 'write')
+    const allRequired = rows.every((row) => row.minLevel !== 'none')
+    const levels: ScopeAccessLevel[] = ['write', 'read', 'none']
+    return levels.find(
+        (level) =>
+            !(level === 'write' && !anyWritable) &&
+            !(level === 'none' && allRequired) &&
+            rows.every((row) => row.value === clampAccessLevel(level, row.minLevel, row.maxLevel))
+    )
+}
+
+// Tooltip for the selected group level when some rows sit at another level after the clamp.
+// A row sits lower when the app did not request the level, and higher when the app requires more.
+export const scopeGroupLevelTooltip = (
+    rows: OAuthScopeRow[],
+    level: ScopeAccessLevel | undefined,
+    appName: string
+): string | undefined => {
+    if (!level) {
+        return undefined
+    }
+    const lower = rows.filter((row) => ACCESS_LEVEL_ORDER[row.value] < ACCESS_LEVEL_ORDER[level]).length
+    const higher = rows.filter((row) => ACCESS_LEVEL_ORDER[row.value] > ACCESS_LEVEL_ORDER[level]).length
+    const stays = (count: number): string => `${count} of these permissions ${count === 1 ? 'stays' : 'stay'}`
+    const notes: string[] = []
+    if (lower > 0) {
+        notes.push(`${stays(lower)} at read. ${appName} did not request write access.`)
+    }
+    if (higher > 0) {
+        const where = level === 'none' ? 'on' : 'at write'
+        notes.push(`${stays(higher)} ${where}. ${appName} requires ${higher === 1 ? 'it' : 'them'}.`)
+    }
+    return notes.length > 0 ? notes.join(' ') : undefined
+}
+
 const WILDCARD_LABEL = 'All PostHog data'
+
+// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
+// headers only help when the list is long.
+export const SCOPE_GROUPING_MIN_ROWS = 10
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
 // behind) — derive a readable label from the raw key.
@@ -85,19 +143,14 @@ const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, Require
     return levels
 }
 
-// Mirrors PRIVILEGED_SCOPES + OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py: objects
-// /authorize can never grant, so the wildcard expansion must skip them or the server
-// would reject the whole submit with invalid_scope.
-const OAUTH_UNGRANTABLE_OBJECTS: ReadonlySet<string> = new Set(['llm_gateway', 'metrics', 'wizard_session'])
-
 // `*` grants read+write to everything; its read-only form is every grantable object's read
-// scope. The server-computed list is authoritative — the local API_SCOPES list both lags
-// behind new backend scopes (under-granting) and contains ungrantable ones (over-granting,
-// which the server rejects). The local fallback only covers a missing app context.
+// scope. The server-computed list is authoritative, because it applies the app's ceiling.
+// The fallback only covers a missing app context, and takes the read scopes OAuth advertises
+// so it never names a scope the server would reject with invalid_scope.
 const wildcardReadScopes = (oauthApplication: OAuthApplicationPublicMetadata | null): string[] =>
     oauthApplication?.wildcard_read_scopes?.length
         ? oauthApplication.wildcard_read_scopes
-        : API_SCOPES.filter(({ key }) => !OAUTH_UNGRANTABLE_OBJECTS.has(key)).map(({ key }) => `${key}:read`)
+        : OAUTH_SCOPES_SUPPORTED.filter((scope) => scope.endsWith(':read'))
 
 const isNativeProtocol = (url: string): boolean => {
     try {
@@ -152,6 +205,7 @@ const oauthAuthorize = async (
     // any printable ASCII in `state`, so a raw-JSON state must reach the API byte-for-byte.
     const params = new URLSearchParams(window.location.search)
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
         const response = await api.create('/oauth/authorize/', {
             client_id: params.get('client_id'),
             redirect_uri: params.get('redirect_uri'),
@@ -196,6 +250,7 @@ export interface oauthAuthorizeLogicValues {
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    appName: string
     authorizationComplete: boolean
     consentResourceScopes: string[]
     effectiveScopes: string[]
@@ -227,7 +282,9 @@ export interface oauthAuthorizeLogicValues {
         bulk: ScopeAccessLevel | null
         overrides: Record<string, ScopeAccessLevel>
     }
+    scopeGroups: OAuthScopeGroup[]
     scopeRows: OAuthScopeRow[]
+    scopeRowsGrouped: boolean
     scopes: string[]
     scopesWereDefaulted: boolean
     selectedOrganization: string | null
@@ -318,6 +375,13 @@ export interface oauthAuthorizeLogicActions {
         level: ScopeAccessLevel
         scopeObject: string
     }
+    setScopeGroupAccess: (
+        scopeObjects: string[],
+        level: ScopeAccessLevel
+    ) => {
+        level: ScopeAccessLevel
+        scopeObjects: string[]
+    }
     setScopes: (scopes: string[]) => {
         scopes: string[]
     }
@@ -361,6 +425,7 @@ export interface oauthAuthorizeLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface oauthAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        appName: (oauthApplication: OAuthApplicationPublicMetadata | null) => string
         allOrganizations: (user: UserType | null) => OrganizationBasicType[]
         sortedTeams: (
             allTeams: TeamBasicType[] | null,
@@ -384,6 +449,8 @@ export interface oauthAuthorizeLogicMeta {
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        scopeRowsGrouped: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        scopeGroups: (adjustableScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
         showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
         effectiveScopes: (
@@ -410,6 +477,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
+        setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
         setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setTeamHint: (teamId: number | null) => ({ teamId }),
@@ -434,10 +502,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 loadAllTeams: async () => {
                     const user = userLogic.values.user
                     if (!user?.organizations?.length) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.loadPaginatedResults('api/projects')
                     }
                     const results = await Promise.all(
                         user.organizations.map((org) =>
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsList() from '~/generated/core/api' instead.
                             api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
                         )
                     )
@@ -481,6 +551,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             try {
                 const orgId = values.selectedOrganization
                 const endpoint = orgId ? `api/organizations/${orgId}/projects/` : 'api/projects/'
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 await api.create(endpoint, { name })
                 lemonToast.success(`Project "${name}" created`)
                 actions.setShowCreateProject(false)
@@ -521,6 +592,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopeAccess: (state, { scopeObject, level }) => ({
                     ...state,
                     overrides: { ...state.overrides, [scopeObject]: level },
+                }),
+                setScopeGroupAccess: (state, { scopeObjects, level }) => ({
+                    ...state,
+                    overrides: {
+                        ...state.overrides,
+                        ...Object.fromEntries(scopeObjects.map((scopeObject) => [scopeObject, level])),
+                    },
                 }),
                 setAllScopeAccess: (_, { level }) => ({ bulk: level, overrides: {} }),
                 setScopes: () => ({ bulk: null, overrides: {} }),
@@ -708,6 +786,14 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     selectors(() => ({
         // The server sets this flag once for the page, so no action changes it.
         accessControlsApply: [() => [], (): boolean => getAppContext()?.oauth_consent_access_controls_apply === true],
+        appName: [
+            (s) => [s.oauthApplication],
+            // The name is HTML-escaped at ingestion (see posthog/api/oauth/client_name.py). Decode
+            // it back to plain text so React's own output escaping renders it correctly instead of
+            // showing literal entities like "&amp;".
+            (oauthApplication: OAuthApplicationPublicMetadata | null): string =>
+                oauthApplication ? decode(oauthApplication.name) : '',
+        ],
         allOrganizations: [
             (s) => [s.user],
             (user: UserType): OrganizationBasicType[] => {
@@ -832,6 +918,25 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => !row.locked),
         ],
+        scopeRowsGrouped: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): boolean => adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS,
+        ],
+        // The adjustable rows, grouped by product area in API_SCOPE_GROUPS order. An object that is
+        // not in the map goes in the "Other" group at the end, so it still shows.
+        scopeGroups: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => {
+                const rowsByLabel = new Map<string, OAuthScopeRow[]>()
+                for (const row of adjustableScopeRows) {
+                    const label = getScopeGroupLabel(row.key)
+                    rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
+                }
+                return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
+                    .filter((label) => rowsByLabel.has(label))
+                    .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+            },
+        ],
         allScopesRequired: [
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): boolean => scopeRows.length > 0 && scopeRows.every((row) => row.locked),
@@ -899,8 +1004,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
             const oauthMcpConsent = getAppContext()?.oauth_mcp_consent
+            const scopeResolution = getAppContext()?.oauth_scope_resolution
+            // The screen needs a set it can submit, because an empty one renders no
+            // permissions and posts a blank scope the API rejects. An empty server
+            // resolution therefore falls back to the identity-only DEFAULT_OAUTH_SCOPES,
+            // which is safe: it grants no resource access, so the person consents to
+            // nothing they did not see. The URL's own tokens are deliberately not reused,
+            // since those are what the server resolved to nothing.
+            const fallbackScopes = scopeResolution || !requestedScopes.length ? DEFAULT_OAUTH_SCOPES : requestedScopes
 
-            const scopesWereDefaulted = requestedScopes.length === 0
+            const scopesWereDefaulted = scopeResolution?.was_defaulted ?? requestedScopes.length === 0
 
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
@@ -917,20 +1030,20 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             actions.loadAllTeams()
 
             if (scopesWereDefaulted && oauthMcpConsent?.is_mcp_resource) {
+                // The MCP branch narrows the resolved set to the scopes MCP tools actually
+                // require, so an app with a broad ceiling doesn't consent to more than the
+                // resource server can use.
                 actions.setIsMcpResource(true)
                 actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
-            } else if (scopesWereDefaulted) {
-                actions.setIsMcpResource(false)
-                actions.setScopes(DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setScopes(requestedScopes)
+                // `??` keeps an empty array, so the length is what to test here.
+                actions.setScopes(scopeResolution?.scopes.length ? scopeResolution.scopes : fallbackScopes)
             }
         }
 
         return {
             '/oauth/authorize': handleAuthorize,
-            '/oauth/authorize/': handleAuthorize,
         }
     }),
 ])

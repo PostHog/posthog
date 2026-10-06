@@ -33,9 +33,9 @@ class CDCErrorCategory(enum.StrEnum):
     SLOT_NOT_CONFIGURED = "slot_not_configured"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
+    PERMISSION_DENIED = "permission_denied"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
-    SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
     RESERVED_COLUMN_CONFLICT = "reserved_column_conflict"
     UNKNOWN = "unknown"
 
@@ -48,7 +48,7 @@ class CDCErrorInfo:
 
 
 class CDCTransactionTooLargeError(Exception):
-    """A single source transaction exceeded the in-memory decode budget.
+    """A single source transaction exceeded the decoder's per-transaction caps (changes, spill bytes or decode time).
 
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the
@@ -72,25 +72,14 @@ class CDCReservedColumnError(Exception):
 
     Non-retryable: the collision is a property of the customer's table, so replaying re-fails.
 
-    For the engine position column it is raised only on the buffered-ingress path — buffer
-    files derive their name, ordering, and retry cleanup from it, and a same-named source column
-    means the batcher could not append it. Writing anyway would order and clean up by customer
-    data, which can silently delete unconsumed buffer files. The legacy path passes the
-    customer's column through untouched.
+    For the engine position column it is raised when capture writes the buffer — buffer files
+    derive their name, ordering, and retry cleanup from it, and a same-named source column means
+    the batcher could not append it. Writing anyway would order and clean up by customer data,
+    which can silently delete unconsumed buffer files.
 
     For the history table's validity columns it is raised on every path, from the SCD2 stamp
     itself: Delta refuses the duplicate name at write time anyway, and failing before the writer
     names the column instead of a qualified field in a schema error.
-    """
-
-
-class CDCSchemaMergeError(Exception):
-    """A column's values can't be reconciled into one Parquet type across micro-batches.
-
-    Non-retryable: the conflicting batches replay identically, so re-running re-fails. The
-    activity raises this when an Arrow schema merge rejects the data (e.g. a source column
-    that genuinely changed type mid-stream — int in one batch, text in another). Defined
-    here so the shared classifier owns the mapping to ``SCHEMA_MERGE_INCOMPATIBLE``.
     """
 
 
@@ -152,6 +141,14 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "The replication slot is currently in use by another connection. PostHog will retry shortly.",
         True,
     ),
+    CDCErrorCategory.PERMISSION_DENIED: (
+        "The database role connected for change data capture lacks a privilege it needs on the "
+        "source database. This is often table ownership: managing the publication (for example "
+        "adding a table to it) requires owning every table in it, not just SELECT. Grant the "
+        "missing privilege or ownership, or switch the affected tables to Incremental sync instead "
+        "of CDC, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.WAL_DECODE_ERROR: (
         "PostHog could not decode the change stream from the source database. This usually points to "
         "an unsupported column type or replication setting. Contact support if it persists.",
@@ -162,16 +159,9 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "once. Reduce the size of bulk operations on the source, then re-sync.",
         False,
     ),
-    CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE: (
-        "A source column changed type partway through the change stream (for example, numbers and text "
-        "in the same column), so the changes can no longer be combined into one table. Disable and "
-        "re-enable change data capture to re-sync from a fresh snapshot.",
-        False,
-    ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog reserves for ordering change "
-        "data. Rename that column on the source table, or contact support to keep this table on the "
-        "previous sync mode.",
+        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
+        "Rename the column on your database, or choose another sync method for that table.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (
@@ -210,8 +200,6 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
             return cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED)
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
-        if isinstance(err, CDCSchemaMergeError):
-            return cdc_error_info(CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE)
         if isinstance(err, CDCReservedColumnError):
             return cdc_error_info(CDCErrorCategory.RESERVED_COLUMN_CONFLICT)
         if adapter is not None:

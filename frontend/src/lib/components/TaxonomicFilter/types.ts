@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -126,7 +127,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter
+    filter?: EntityFilter | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -139,6 +140,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     /**

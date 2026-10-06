@@ -1,4 +1,4 @@
-import { parseMcpToolName } from "@posthog/shared";
+import { formatMcpToolLabel, parseMcpToolName } from "@posthog/shared";
 
 const POSTHOG_SERVER_RE = /^(?:plugin_)?posthog(?:_[^_]+)*$/;
 const POSTHOG_VERB_RE =
@@ -53,7 +53,7 @@ export function getPostHogExecDisplay(
       const call = rest.match(POSTHOG_CALL_BODY_RE);
       if (!call) return null;
       return {
-        label: call[1],
+        label: formatMcpToolLabel(call[1]),
         input: explicitInput ?? ((call[2] ?? "").trim() || undefined),
       };
     }

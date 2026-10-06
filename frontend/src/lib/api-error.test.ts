@@ -1,6 +1,7 @@
 import {
     ApiError,
     NetworkError,
+    ResponseBodyReadError,
     isScopeNotFoundError,
     isTransientServerError,
     shouldReportApiFailure,
@@ -97,12 +98,13 @@ describe('api-error', () => {
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
+            ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
-            ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
+            ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
             // A route the backend does not serve stays reportable here. Only a caller that already
@@ -133,6 +135,19 @@ describe('api-error', () => {
             // The residual `network` reason can be an ad blocker, a proxy, or our own edge, so it
             // stays reportable rather than being folded into the suppression above.
             ['a classified NetworkError', new NetworkError('network'), true],
+            // The server answered 2xx and the body stream broke on the wire afterwards. Grouping is
+            // stack-based, so one flaky connection would otherwise open an issue per endpoint.
+            [
+                'a body-read failure on a 2xx',
+                new ResponseBodyReadError('Failed to read response body [GET /api/foo] (status 200)'),
+                false,
+            ],
+            // A body that arrived whole but would not parse can be a real backend bug, so it stays.
+            [
+                'a malformed JSON body on a 2xx',
+                new ApiError('Malformed JSON response [GET /api/foo] (status 200)'),
+                true,
+            ],
             // No HTTP response to excuse the failure.
             ['an error with no status', { message: 'boom' }, true],
             ['a thrown string', 'went wrong', true],

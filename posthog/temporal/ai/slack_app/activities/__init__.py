@@ -33,7 +33,6 @@ from posthog.temporal.ai.slack_app.activities.repo_selection import (
 )
 from posthog.temporal.ai.slack_app.activities.rules import (
     create_posthog_code_routing_rule_activity,
-    handle_posthog_code_rules_command_activity,
     handle_posthog_code_slack_mention_command_activity,
 )
 from posthog.temporal.ai.slack_app.activities.task_creation import (
@@ -65,7 +64,6 @@ __all__ = [
     "discover_posthog_code_repository_via_agent_activity",
     "enforce_posthog_code_billing_quota_activity",
     "forward_posthog_code_followup_activity",
-    "handle_posthog_code_rules_command_activity",
     "handle_posthog_code_slack_mention_command_activity",
     "mark_slack_app_message_processing_activity",
     "mark_slack_app_message_queued_activity",

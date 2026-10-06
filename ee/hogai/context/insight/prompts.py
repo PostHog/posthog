@@ -48,7 +48,7 @@ Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. I
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
 Do not copy the results table as the user sees it in the UI.
 {{#has_truncated_values}}
-Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
+Some cell values were shortened. You can write a more specific SQL query to inspect those values if needed.
 {{/has_truncated_values}}
 {{#has_null_values}}
 Cells shown as `(null)` are SQL NULL: the column had no value for those rows, usually because the property is absent on that event. Treat them as missing data. Never report `(null)` as a value, and never conclude a property is set to "null" or "None" from them.

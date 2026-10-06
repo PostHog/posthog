@@ -7,20 +7,20 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from prometheus_client import REGISTRY
+from rest_framework.exceptions import APIException
+
 from posthog.api.utils import ServiceRequest
 
 from products.approvals.backend.decorators import _create_change_request
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
-@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-class TestApprovalGateFailsClosed(APIBaseTest):
-    """The gate must derive team/org from the serializer instance when the
-    context lacks get_team/get_organization callables, instead of silently
-    skipping the approval workflow (fail-closed, not fail-open)."""
+class _ApprovalGateFixtures(APIBaseTest):
+    """Shared fixtures for gating a feature flag save behind an approval policy."""
 
     def _create_disabled_flag(self) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -54,6 +54,13 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         serializer = FeatureFlagSerializer(instance=flag, data=data, partial=True, context=context)
         serializer.is_valid()
         return serializer
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestApprovalGateFailsClosed(_ApprovalGateFixtures):
+    """The gate must derive team/org from the serializer instance when the
+    context lacks get_team/get_organization callables, instead of silently
+    skipping the approval workflow (fail-closed, not fail-open)."""
 
     def test_gate_blocks_when_context_lacks_org_and_team_callables(self, _mock_enabled):
         flag = self._create_disabled_flag()
@@ -92,6 +99,34 @@ class TestApprovalGateFailsClosed(APIBaseTest):
 
         with self.assertRaises(ApprovalRequired):
             serializer.save()
+
+        flag.refresh_from_db()
+        assert flag.active is False
+
+    def test_a_detect_that_raises_blocks_the_write(self, _mock_enabled):
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        serializer = self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+        # A broken detect() leaves the gate unable to answer. Reading that as "no policy applies"
+        # would disable the very policy this action implements.
+        with patch(
+            "products.approvals.backend.actions.feature_flags.EnableFeatureFlagAction.detect",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(APIException):
+                serializer.save()
 
         flag.refresh_from_db()
         assert flag.active is False
@@ -161,6 +196,37 @@ class TestApprovalGateFailsClosed(APIBaseTest):
         assert flag.active is False
 
 
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestDuplicateCheckForPostUpdate(_ApprovalGateFixtures):
+    def test_renamed_flag_still_matches_its_pending_change_request(self, _mock_enabled):
+        # An update of an existing flag can reach the gate as a POST, for example an experiment
+        # launch. Its change request then has no resource id, and its key can change while it waits.
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        request.method = "POST"
+        context = {
+            "request": request,
+            "team_id": self.team.id,
+            "project_id": self.team.project_id,
+            "get_team": lambda: self.team,
+            "get_organization": lambda: self.organization,
+        }
+
+        with self.assertRaises(ApprovalRequired) as first:
+            self._serializer(flag, {"active": True}, context).save()
+
+        FeatureFlag.objects.filter(id=flag.id).update(key="renamed-flag")
+        flag.refresh_from_db()
+
+        with self.assertRaises(ApprovalRequired) as second:
+            self._serializer(flag, {"active": True}, context).save()
+
+        assert second.exception.error_code == "change_request_pending"
+        assert second.exception.change_request.id == first.exception.change_request.id
+        assert ChangeRequest.objects.filter(team=self.team, state=ChangeRequestState.PENDING).count() == 1
+
+
 class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
     """`intent` holds the endpoint serializer's validated_data, which carries native Python
     objects for typed fields. A `datetime` in there used to abort the INSERT inside psycopg and
@@ -195,3 +261,49 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         stored = change_request.intent["full_request_data"]["last_called_at"]
         assert isinstance(stored, str), "the datetime must be rendered, not handed to psycopg as-is"
         assert abs(datetime.fromisoformat(stored) - called_at) < timedelta(milliseconds=1)
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestChangeRequestCreateFailureCounter(_ApprovalGateFixtures):
+    def _failures(self, action: str, error_type: str) -> float:
+        return (
+            REGISTRY.get_sample_value(
+                "posthog_approvals_change_request_create_failures_total",
+                {"action": action, "error_type": error_type},
+            )
+            or 0.0
+        )
+
+    def _gated_serializer(self) -> FeatureFlagSerializer:
+        flag = self._create_disabled_flag()
+        self._create_enable_policy()
+        request = self._drf_request({"active": True})
+        return self._serializer(
+            flag,
+            {"active": True},
+            {
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "get_organization": lambda: self.organization,
+            },
+        )
+
+    def test_failed_change_request_insert_increments_the_counter(self, _mock_enabled):
+        serializer = self._gated_serializer()
+        before = self._failures("feature_flag.enable", "TypeError")
+
+        # Patching the ORM boundary rather than _create_change_request keeps the helper's
+        # own display-data, expiry and JSON-safe steps in the path, so the no-row assertion
+        # below covers code that actually runs.
+        with patch.object(
+            ChangeRequest.objects,
+            "create",
+            side_effect=TypeError("Object of type datetime is not JSON serializable"),
+        ):
+            with self.assertRaises(APIException):
+                serializer.save()
+
+        assert self._failures("feature_flag.enable", "TypeError") == before + 1
+        assert ChangeRequest.objects.count() == 0

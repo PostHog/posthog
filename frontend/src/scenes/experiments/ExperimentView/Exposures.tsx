@@ -18,6 +18,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+import { getTotalExposures, hasSampleRatioMismatch } from 'products/experiments/frontend/health/exposureHealth'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
 import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
@@ -140,15 +142,10 @@ export function Exposures(): JSX.Element {
     const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
     const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
 
-    let totalExposures = 0
+    const totalExposures = getTotalExposures(exposures)
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
 
     if (exposures?.timeseries) {
-        for (const series of exposures.timeseries) {
-            const count = exposures.total_exposures?.[series.variant] || 0
-            totalExposures += Number(count)
-        }
-
         for (const series of exposures.timeseries) {
             const count = exposures.total_exposures?.[series.variant] || 0
             variants.push({
@@ -168,12 +165,31 @@ export function Exposures(): JSX.Element {
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
     // Detect sample ratio mismatch (p < 0.001 is significant)
-    const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
+    const hasSRM = hasSampleRatioMismatch(exposures)
 
-    const handleCollapseChange = useCallback((activeKey: string | null) => {
-        const isOpen = activeKey === 'cumulative-exposures'
-        setIsCollapsed(!isOpen)
-    }, [])
+    // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
+    // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
+    const hasZeroExposures =
+        !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
+
+    const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
+        hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null
+    )
+    // The collapsed header shows the total only, so the zero-exposure state is on screen in the open panel alone.
+    const { reportOpened: reportZeroExposuresOpened, reportActedOn: reportZeroExposuresActedOn } =
+        useHealthFindingReporting(hasZeroExposures ? { code: 'zero_exposures' } : null, !isCollapsed)
+
+    const handleCollapseChange = useCallback(
+        (activeKey: string | null) => {
+            const isOpen = activeKey === 'cumulative-exposures'
+            setIsCollapsed(!isOpen)
+            if (isOpen) {
+                reportSrmOpened('evidence')
+                reportZeroExposuresOpened('evidence')
+            }
+        },
+        [reportSrmOpened, reportZeroExposuresOpened]
+    )
 
     const headerContent = {
         style: { backgroundColor: 'var(--color-bg-table)' },
@@ -181,7 +197,7 @@ export function Exposures(): JSX.Element {
             <div className="flex items-center gap-3 metric-cell min-h-[33px]">
                 <span className="metric-cell-header font-bold inline-flex items-center gap-1">
                     Exposures
-                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event.">
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event. Each metric counts its own exposures and can exclude users whose conversion or retention window hasn't elapsed, so metric results can show fewer.">
                         <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </span>
@@ -301,7 +317,10 @@ export function Exposures(): JSX.Element {
                                                 size="xsmall"
                                                 className="flex items-center gap-2"
                                                 type="secondary"
-                                                onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                                                onClick={() => {
+                                                    reportZeroExposuresActedOn('edit_exposure_criteria')
+                                                    openExposureCriteriaModal(exposureCriteria)
+                                                }}
                                             >
                                                 Edit exposure criteria
                                             </LemonButton>

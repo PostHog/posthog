@@ -25,7 +25,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo, extract_linked_repo, extract_repo_from_scopes
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     Integration,
@@ -55,23 +54,38 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
-from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_project_picker_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
-from products.slack_app.backend.services import inbox_interactivity, turn_feedback
+from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
+    SlackChannel,
+    SlackSettings,
+    SlackThreadTaskMapping,
+    UntaggedFollowupMode,
+)
+from products.slack_app.backend.services import (
+    bare_mention,
+    inbox_interactivity,
+    project_picker,
+    slack_welcome_messages,
+    turn_feedback,
+)
+from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
-    format_project_candidate_list,
     load_integrations,
+    pick_a_project_message,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    unresolved_user_properties,
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
@@ -89,10 +103,16 @@ from products.slack_app.backend.services.slack_messages import (
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
+    app_home_url,
     parse_slack_file_refs,
+    post_slack_ephemeral,
     post_slack_thread_reply,
 )
-from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
+from products.slack_app.backend.services.slack_settings import (
+    resolve_channel_welcome_mode,
+    resolve_untagged_followup_mode,
+)
 from products.slack_app.backend.services.slack_user_info import (
     clear_workspace_profile_cache,
     get_cached_bot_user_id,
@@ -105,6 +125,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     build_invite_url,
     find_linked_posthog_user,
     post_link_invite_message,
+)
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_assistant_pane_welcome,
+    build_channel_welcome,
+    build_team_join_welcome,
 )
 from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
@@ -143,7 +168,10 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # cutover. A real re-join after this window should re-onboard — most likely the
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
-CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
+
+EDITED_MENTION_WINDOW_SECONDS = 60 * 60
+# Outlives the window, because an expired marker would let an edit start a second run.
+MESSAGE_HANDLED_MARKER_TTL_SECONDS = 2 * EDITED_MENTION_WINDOW_SECONDS
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
@@ -230,16 +258,11 @@ class SlackUserContext:
     slack_email: str | None
 
 
-@dataclass
+@frozen
 class RulesCommand:
-    """Parsed `@PostHog <command>` mention text.
+    """Parsed `/posthog <command>` text.
 
-    Most actions (``list``, ``add``, ``remove``, ``help``, ``default_*``) are
-    dispatched post-routing inside the Temporal workflow's first activity. The
-    ``project_*`` actions are dispatched pre-routing — they decide which
-    integration the workflow runs against — so the routing layer in `api.py`
-    handles them before ``start_workflow`` and the workflow activity ignores
-    them defensively.
+    The same parser reads mention text, where a match means the mention is not a task description.
     """
 
     action: Literal[
@@ -251,11 +274,14 @@ class RulesCommand:
         "project_show",
         "project_set",
         "project_set_workspace",
+        "welcome_show",
+        "welcome_set",
     ]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
     project_team_id: int | None = None
+    welcome_mode: ChannelWelcomeMode | None = None
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -312,17 +338,22 @@ def _post_slack_user_feedback(
     A thread post whose root has been deleted is skipped rather than posted — see
     ``post_slack_thread_reply``. That counts as "nothing reached Slack", which is
     accurate: the user retracted the message this feedback answers."""
+    # Every caller runs inside the Slack webhook, so the SDK's 30 second default would
+    # outlast the acknowledgement window. The client is held in a local because
+    # ``SlackIntegration.client`` builds a new one on every access.
+    client = slack.client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
     if prefer_thread_message:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_thread_post_failed", channel=channel, slack_user_id=slack_user_id)
 
     try:
-        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         try:
-            return post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=text) is not None
+            return post_slack_thread_reply(client, channel=channel, thread_ts=thread_ts, text=text) is not None
         except Exception:
             logger.warning("slack_user_feedback_failed", channel=channel, slack_user_id=slack_user_id)
             return False
@@ -734,20 +765,24 @@ def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
     return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
 
 
-def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+def does_other_region_claim_workspace(
+    *,
+    slack_team_id: str,
+    kinds: list[str],
+    incoming_host: str,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
 
-    Ownership is asked at workspace granularity on purpose. Project ids are issued per region, so
-    "does the other region hold project 2 for this workspace" compares two unrelated numbering
-    spaces and answers no almost every time — which reads as "we own this" and pins the event to
-    whichever region Slack happened to deliver it to.
-
-    Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
-    flake does not reroute the next event. None is never cached so the next event re-probes.
+    Project IDs differ between regions, so probes use Slack workspace and thread IDs.
+    Thread probes bypass the workspace cache because a notification can create a new mapping.
+    Returns None when the peer cannot confirm ownership. Workspace-only probes cache definitive
+    answers for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS``.
     """
     cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
-    cached = cache.get(cache_key)
+    thread_probe = bool(channel and thread_ts)
+    cached = None if thread_probe else cache.get(cache_key)
     if isinstance(cached, bool):
         logger.info(
             "slack_app_workspace_claims_cache_hit",
@@ -760,7 +795,10 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    payload: dict[str, Any] = {"slack_team_id": slack_team_id, "kinds": kinds}
+    if thread_probe:
+        payload.update(channel=channel, thread_ts=thread_ts)
+    body = json.dumps(payload).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -794,12 +832,13 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         logger.warning("slack_app_workspace_claims_bad_json", target_url=target_url)
         return None
 
-    claimed = data.get("claimed")
+    claimed = data.get("thread_claimed" if thread_probe else "claimed")
     if not isinstance(claimed, bool):
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
 
-    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
+    if not thread_probe:
+        cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
     return claimed
 
 
@@ -844,6 +883,13 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
         kind__in=filtered,
         integration_id=slack_team_id,
     ).exists()
+    channel, thread_ts = data.get("channel"), data.get("thread_ts")
+    if channel is not None or thread_ts is not None:
+        if not isinstance(channel, str) or not channel or not isinstance(thread_ts, str) or not thread_ts:
+            return HttpResponse("Invalid thread", status=400)
+        candidates = list(Integration.objects.filter(kind__in=filtered, integration_id=slack_team_id))
+        result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
+        return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})
 
 
@@ -855,6 +901,14 @@ def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: st
 def _strip_bot_mentions(text: str) -> str:
     """Remove all <@BOT_ID> mentions from text."""
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
+
+
+# The words people type in `/posthog welcome <value>`, mapped to the stored mode.
+WELCOME_COMMAND_VALUES: dict[str, ChannelWelcomeMode] = {
+    "channel": ChannelWelcomeMode.CHANNEL,
+    "private": ChannelWelcomeMode.INVITER,
+    "off": ChannelWelcomeMode.OFF,
+}
 
 
 def parse_rules_command(text: str) -> RulesCommand | None:
@@ -909,6 +963,14 @@ def parse_rules_command(text: str) -> RulesCommand | None:
         if team_id_str is None:
             return RulesCommand(action="project_show")
         return RulesCommand(action="project_set", project_team_id=int(team_id_str))
+
+    # Only the known values match, so a mention like "welcome the new hire" stays a task.
+    welcome_match = re.fullmatch(r"welcome(?:\s+(channel|private|off))?", cleaned, flags=re.IGNORECASE)
+    if welcome_match is not None:
+        value = welcome_match.group(1)
+        if value is None:
+            return RulesCommand(action="welcome_show")
+        return RulesCommand(action="welcome_set", welcome_mode=WELCOME_COMMAND_VALUES[value.lower()])
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
@@ -1315,12 +1377,109 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
+    return _mention_content_ignore_reason(event)
+
+
+def _mention_content_ignore_reason(event: dict[str, Any]) -> str | None:
     authorship = _app_authorship_ignore_reason(event)
     if authorship:
         return authorship
     if _every_mention_is_a_path_segment(event):
         return "path_mention"
     return None
+
+
+def _message_handled_cache_key(slack_team_id: str, event: dict[str, Any]) -> str | None:
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    if not isinstance(channel, str) or not channel or not isinstance(message_ts, str) or not message_ts:
+        return None
+    return f"slack_app:message_handled:v1:{slack_team_id}:{channel}:{message_ts}"
+
+
+def _mark_message_handled(slack_team_id: str, event: dict[str, Any], handled_as: str) -> None:
+    """Record that the pipeline acted on this message, so that a later edit of it starts nothing."""
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is not None:
+        cache.set(cache_key, handled_as, timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS)
+
+
+def _edited_mention_ignore_cause(event: dict[str, Any], slack_team_id: str) -> str | None:
+    """Why an edited ``app_mention`` must start nothing, or None when it must start a run.
+
+    The marker claim is atomic and comes last, so a second edit of the same message stops here.
+    """
+    # The envelope nests the message, so its top-level ``ts`` is the ts of the change.
+    if event.get("subtype") == "message_changed":
+        return "message_changed_envelope"
+    content_reason = _mention_content_ignore_reason(event)
+    if content_reason:
+        return content_reason
+    cache_key = _message_handled_cache_key(slack_team_id, event)
+    if cache_key is None:
+        return "no_message_ts"
+    try:
+        posted_at = float(event["ts"])
+    except ValueError:
+        return "no_message_ts"
+    if time.time() - posted_at > EDITED_MENTION_WINDOW_SECONDS:
+        return "too_old"
+    if not cache.add(cache_key, "edited_mention", timeout=MESSAGE_HANDLED_MARKER_TTL_SECONDS):
+        return f"handled_as_{cache.get(cache_key) or 'unknown'}"
+    return None
+
+
+def _awaits_request_from_author(event: dict[str, Any], slack_team_id: str, probe: Integration) -> bool:
+    """Whether this threaded message is the request a bare mention in its thread asked for."""
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts")
+    awaited_from = bare_mention.awaited_request_from(
+        slack_team_id,
+        channel if isinstance(channel, str) else None,
+        thread_ts if isinstance(thread_ts, str) else None,
+        now=time.time(),
+    )
+    if awaited_from is None:
+        return False
+    if awaited_from != event.get("user"):
+        if event.get("type") == "message":
+            _report_slack_mention_dropped(
+                event, slack_team_id, reason="awaited_reply_other_user", replied=False, integration=probe
+            )
+        return False
+    return True
+
+
+def _answer_bare_mention(
+    event: dict[str, Any], integration: Integration, slack_team_id: str, *, posthog_user: User
+) -> str:
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    slack_user_id = event.get("user")
+    replied = False
+    if isinstance(channel, str) and isinstance(message_ts, str) and isinstance(slack_user_id, str):
+        if bare_mention.await_request(slack_team_id, channel, message_ts, slack_user_id=slack_user_id):
+            replied = _post_slack_user_feedback(
+                SlackIntegration(integration),
+                channel,
+                slack_user_id,
+                message_ts,
+                bare_mention.BARE_MENTION_REPLY,
+                prefer_thread_message=True,
+            )
+        # No run started, so an edit that adds the request must be free to start one.
+        handled_key = _message_handled_cache_key(slack_team_id, event)
+        if handled_key is not None:
+            cache.delete(handled_key)
+    _report_slack_mention_dropped(
+        event,
+        slack_team_id,
+        reason="bare_mention",
+        replied=replied,
+        integration=integration,
+        posthog_user=posthog_user,
+    )
+    return ROUTE_HANDLED_LOCALLY
 
 
 def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
@@ -1610,7 +1769,7 @@ def resolve_posthog_user_from_event(
         candidate_org_ids=org_ids,
     )
     if linked_user is not None and is_slack_app_oauth_enabled(probe_integration):
-        return linked_user if linked_user.is_active else None
+        return linked_user
 
     if slack_email is None:
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
@@ -1644,11 +1803,10 @@ def _post_pick_a_project_hint(
     event: dict[str, Any],
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
-    projects, and that they should pick one.
+    projects, list the ones they can reach, and point at the two ways to pick one.
 
-    The selection command differs by surface: in a channel the user mentions the app
-    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
-    with `project <id>`.
+    The slash command reads the same on both surfaces this runs on: a channel mention, and a DM,
+    where there is no app to mention in the first place.
 
     Returns whether the hint was posted, so callers can record whether the user was
     left with an explanation or with silence.
@@ -1658,13 +1816,169 @@ def _post_pick_a_project_hint(
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return False
-    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
-    text = (
-        "This Slack workspace is connected to multiple PostHog projects:\n"
-        f"{format_project_candidate_list(candidates)}\n\n"
-        f"Use {pick_command} to pick one — that also saves it as your default."
+    text = pick_a_project_message(
+        "This Slack workspace is connected to multiple PostHog projects. You can work in any of these:",
+        candidates,
+        set_command=SLASH_COMMAND_PREFIX,
+        home_tab_url=app_home_url(probe.integration),
     )
     return _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
+def _post_project_picker(
+    candidates: list[Integration],
+    event: dict[str, Any],
+    event_id: str | None,
+    *,
+    posthog_user: User,
+    is_ext_shared_channel: bool,
+    mention_is_threaded: bool,
+) -> bool:
+    """Offer the projects as choices. Returns whether the picker reached Slack."""
+    probe = candidates[0]
+    slack_user_id = event.get("user")
+    channel = event.get("channel")
+    message_ts = event.get("ts")
+    if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(message_ts, str):
+        return False
+    if not is_slack_app_project_picker_enabled(probe, posthog_user.distinct_id):
+        return False
+
+    context_token = uuid.uuid4().hex
+    cache.set(
+        _picker_context_cache_key(context_token),
+        project_picker.build_project_picker_context(
+            event=event,
+            event_id=event_id,
+            probe=probe,
+            candidates=candidates,
+            slack_user_id=slack_user_id,
+            is_ext_shared_channel=is_ext_shared_channel,
+        ),
+        timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
+    )
+    client = SlackIntegration(probe).client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+    thread_ts = event.get("thread_ts")
+    try:
+        post_slack_ephemeral(
+            client,
+            channel=channel,
+            user=slack_user_id,
+            # Slack renders an ephemeral only on the surface the person is viewing.
+            thread_ts=thread_ts if mention_is_threaded and isinstance(thread_ts, str) else None,
+            text="Which PostHog project should I use?",
+            blocks=project_picker.build_project_picker_blocks(
+                candidates,
+                context_token=context_token,
+                slack_user_id=slack_user_id,
+                home_tab_url=app_home_url(probe),
+            ),
+        )
+    except Exception:
+        logger.warning(
+            "slack_app_project_picker_post_failed",
+            integration_id=probe.id,
+            slack_workspace_id=probe.integration_id,
+            slack_channel_id=channel,
+            exc_info=True,
+        )
+        cache.delete(_picker_context_cache_key(context_token))
+        return False
+    return True
+
+
+def _handle_project_picker_pick(payload: dict) -> HttpResponse:
+    """Run the mention the picker was raised for against the project the person picked."""
+    response_url = payload.get("response_url", "")
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != project_picker.PROJECT_PICKER_CONTEXT_KIND:
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": project_picker.PICKER_EXPIRED_MESSAGE}
+        )
+        return HttpResponse(status=200)
+
+    slack_team_id = payload.get("team", {}).get("id", "")
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+    event = context.get("event")
+    integration_id = project_picker.picked_integration_id(payload)
+    rejection: str | None = project_picker.pick_rejection(
+        context, clicker_slack_user_id=clicker_slack_user_id, integration_id=integration_id
+    )
+    integration = None
+    if rejection is None and integration_id is not None and slack_team_id:
+        integration = (
+            Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+                id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+                kind=SLACK_INTEGRATION_KIND,
+                integration_id=slack_team_id,
+            )
+            .select_related("team__organization")
+            .first()
+        )
+    # Access can change between the post and the click.
+    posthog_user = _is_org_member(integration, clicker_slack_user_id) if integration is not None else None
+    if (
+        not isinstance(event, dict)
+        or integration is None
+        or posthog_user is None
+        or not _can_access_team(posthog_user, integration)
+    ):
+        rejection = rejection or "no_access"
+        logger.info(
+            "slack_app_project_picker_pick_rejected",
+            reason=rejection,
+            slack_workspace_id=slack_team_id,
+            slack_user_id=clicker_slack_user_id,
+        )
+        if integration is not None:
+            capture_slack_event(
+                integration,
+                "slack app project picker rejected",
+                slack_user_id=clicker_slack_user_id,
+                posthog_user=posthog_user,
+                reason=rejection,
+            )
+        inbox_interactivity.post_response_url(
+            response_url, {"replace_original": True, "text": project_picker.PICK_REJECTED_MESSAGE}
+        )
+        return HttpResponse(status=200)
+
+    # The context is single use, so a second click finds none and starts nothing.
+    cache.delete(_picker_context_cache_key(context_token))
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_team_id,
+        slack_user_id=clicker_slack_user_id,
+        defaults={"default_integration": integration},
+    )
+    # The mention never reached the workflow, so its event id is still unused.
+    _dispatch_mention_to_target(
+        event,
+        integration,
+        slack_team_id,
+        context.get("event_id"),
+        posthog_user=posthog_user,
+        untagged_followup_mapping=None,
+        is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
+    )
+    inbox_interactivity.post_response_url(
+        response_url,
+        {
+            "replace_original": True,
+            "text": project_picker.project_picked_message(integration, home_tab_url=app_home_url(integration)),
+        },
+    )
+    capture_slack_event(
+        integration,
+        "slack app project picker picked",
+        slack_user_id=clicker_slack_user_id,
+        posthog_user=posthog_user,
+        candidate_count=len(context.get("candidate_integration_ids") or []),
+        seconds_to_pick=int(time.time()) - int(context.get("created_at") or time.time()),
+    )
+    return HttpResponse(status=200)
 
 
 def _post_user_resolution_failure_reply(
@@ -1698,7 +2012,13 @@ def _post_user_resolution_failure_reply(
     """
     if not channel or not thread_ts or not slack_user_id:
         return False
-    text = user_resolution_failure_reply(failure_reason, slack_email=slack_email)
+    linking_available = is_slack_app_oauth_enabled(probe)
+    text = user_resolution_failure_reply(
+        failure_reason,
+        slack_email=slack_email,
+        linking_available=linking_available,
+        home_tab_url=app_home_url(probe) if linking_available else None,
+    )
     if text is None:
         return False
     slack_client = SlackIntegration(probe)
@@ -1714,7 +2034,7 @@ def _post_user_resolution_failure_reply(
     posted = _post_slack_user_feedback(
         slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True
     )
-    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe):
+    if failure_reason == "user_not_found" and linking_available:
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,
@@ -1777,22 +2097,9 @@ _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Investigate an issue", "message": "Investigate why one of my insights is slow"},
     {"title": "Work an inbox item", "message": "Pick up a signals inbox item that needs a code fix"},
 ]
-_ASSISTANT_WELCOME = (
-    "Hi! I'm PostHog, an AI agent. DM me to investigate issues using your PostHog data and "
-    "open PRs in your connected repos to fix them!"
-)
-_ASSISTANT_INSTALL_WELCOME = (
-    "Thanks for adding PostHog! :tada: I'm an AI agent - DM me here or @mention me in a channel "
-    "to investigate issues or open PRs in your connected repos"
-)
 _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
-)
-_ASSISTANT_MEMBER_JOIN_WELCOME = (
-    ":wave: Welcome! I'm PostHog, an AI agent your team uses. DM me here to investigate issues "
-    "using your PostHog data or open PRs in your connected repos - you can also @mention me in "
-    "any channel."
 )
 
 
@@ -1858,7 +2165,7 @@ def _handle_assistant_thread_started(slack: SlackIntegration, channel_id: str, t
             prompts=_ASSISTANT_SUGGESTED_PROMPTS,
         )
         # Slack's own assistant container thread, not a reply to a user message that can be deleted.
-        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_WELCOME)
+        slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=build_assistant_pane_welcome())
     except Exception:
         logger.warning("assistant_thread_started_failed", exc_info=True)
     return ROUTE_HANDLED_LOCALLY
@@ -1870,19 +2177,6 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
         slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=_ASSISTANT_UNAVAILABLE)
     except Exception:
         logger.warning("assistant_unavailable_post_failed", exc_info=True)
-
-
-def send_assistant_install_welcome(integration: Integration) -> None:
-    """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not is_slack_app_assistant_enabled(integration):
-        return
-    slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
-    if not slack_user_id:
-        return
-    try:
-        SlackIntegration(integration).client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_INSTALL_WELCOME)
-    except Exception:
-        logger.warning("assistant_install_welcome_failed", exc_info=True)
 
 
 def _handle_assistant_dm_message(
@@ -1969,6 +2263,9 @@ def _route_assistant_event(
         other_domain=other_domain,
         incoming_host=incoming_host,
         can_defer=can_defer,
+        channel=fields.dm_channel_id,
+        thread_ts=fields.thread_ts if event.get("thread_ts") else None,
+        local_thread=result.source == "thread",
     )
     if region_route is not None:
         return region_route
@@ -2157,6 +2454,101 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     return ROUTE_HANDLED_LOCALLY
 
 
+def _dispatch_mention_to_target(
+    event: dict,
+    mention_target: Integration,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    posthog_user: User,
+    untagged_followup_mapping: SlackThreadTaskMapping | None,
+    is_ext_shared_channel: bool,
+    awaited_request_reply: bool = False,
+) -> str:
+    """Run the gates that need a resolved project, then start the mention workflow."""
+    slack = SlackIntegration(mention_target)
+    missing = slack.missing_scopes(REQUIRED_SLACK_SCOPES)
+    if missing:
+        if untagged_followup_mapping is not None:
+            logger.info(
+                "slack_app_thread_message_missing_scopes",
+                slack_team_id=slack_team_id,
+                integration_id=mention_target.id,
+            )
+            replied = False
+        else:
+            replied = _notify_missing_slack_scopes(slack, event, missing)
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            reason="missing_scopes",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+    if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
+        if untagged_followup_mapping is not None:
+            logger.info(
+                "slack_app_thread_message_channel_unapproved",
+                slack_team_id=slack_team_id,
+                channel=channel_id,
+            )
+            replied = False
+        else:
+            replied = _post_channel_approval_prompt(slack, mention_target, event)
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            reason="channel_not_approved",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    # Last gate on the untagged path: a thread whose creator has follow-ups off
+    # never reaches the workflow. ``ask`` is decided there instead, once the
+    # classifier has judged the reply worth forwarding.
+    if untagged_followup_mapping is not None and _untagged_followups_switched_off(
+        event,
+        mention_target,
+        slack_team_id,
+        mapping=untagged_followup_mapping,
+        posthog_user=posthog_user,
+    ):
+        return ROUTE_HANDLED_LOCALLY
+
+    if untagged_followup_mapping is not None:
+        _mark_message_handled(slack_team_id, event, "untagged_followup")
+
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if awaited_request_reply and isinstance(channel, str) and isinstance(thread_ts, str):
+        bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
+        _mark_message_handled(slack_team_id, event, "mention")
+    elif event.get("type") == "app_mention":
+        if bare_mention.is_bare_mention(event):
+            return _answer_bare_mention(event, mention_target, slack_team_id, posthog_user=posthog_user)
+        # An edit that adds the request to a bare mention starts the run here, so the
+        # thread must stop waiting for a reply that would otherwise start a second one.
+        if event.get("edited") and isinstance(channel, str) and isinstance(thread_ts, str):
+            bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
+
+    return _start_mention_workflow(
+        event,
+        mention_target,
+        slack_team_id,
+        event_id,
+        posthog_user=posthog_user,
+        untagged_followup=untagged_followup_mapping is not None,
+        is_ext_shared_channel=is_ext_shared_channel,
+        awaited_request_reply=awaited_request_reply,
+    )
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -2273,10 +2665,26 @@ def route_posthog_code_event_to_relevant_region(
 
         if event_type == "app_mention":
             ignore_reason = _app_mention_ignore_reason(event)
+            drop_context: dict[str, Any] = {}
+            if ignore_reason == "edit":
+                edit_ignore_cause = _edited_mention_ignore_cause(event, slack_team_id)
+                if edit_ignore_cause is None:
+                    ignore_reason = None
+                    logger.info(
+                        "slack_app_edited_mention_accepted",
+                        slack_team_id=slack_team_id,
+                        channel=event.get("channel"),
+                        message_ts=event.get("ts"),
+                    )
+                else:
+                    drop_context = {"edit_ignore_cause": edit_ignore_cause}
+            elif ignore_reason == "path_mention":
+                drop_context = _path_mention_drop_properties(event)
+            elif ignore_reason is None:
+                # Marked before the later gates, so that an edit of a refused mention does not
+                # repeat the explanation.
+                _mark_message_handled(slack_team_id, event, "mention")
             if ignore_reason:
-                drop_context: dict[str, Any] = (
-                    _path_mention_drop_properties(event) if ignore_reason == "path_mention" else {}
-                )
                 logger.info(
                     "slack_app_event_app_mention_ignored",
                     reason=ignore_reason,
@@ -2332,6 +2740,9 @@ def route_posthog_code_event_to_relevant_region(
             other_domain=other_domain,
             incoming_host=incoming_host,
             can_defer=can_defer_to_other_region,
+            channel=channel_str,
+            thread_ts=thread_ts_str if mention_is_threaded else None,
+            local_thread=workspace_result.source == "thread",
         )
         if region_route is not None:
             # A mention that no region claims is the most confusing failure of all: the
@@ -2361,6 +2772,7 @@ def route_posthog_code_event_to_relevant_region(
         # Threads we don't own are dropped here so the rest of the pipeline
         # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
+        awaited_request_reply = False
         if event_type == "message":
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
                 candidates=workspace_result.candidates,
@@ -2368,11 +2780,18 @@ def route_posthog_code_event_to_relevant_region(
                 thread_ts=thread_ts_str,
             )
             if untagged_followup_mapping is None:
-                return ROUTE_HANDLED_LOCALLY
+                if not _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0]):
+                    return ROUTE_HANDLED_LOCALLY
+                awaited_request_reply = True
             # A tagged reply also arrives as its own ``app_mention`` event, which owns
             # it. Letting this copy through would run the untagged-followup classifier
             # (and the ``ask`` prompt) on a message that explicitly addressed the app.
-            if _message_tags_bot(event, untagged_followup_mapping.integration):
+            if _message_tags_bot(
+                event,
+                untagged_followup_mapping.integration
+                if untagged_followup_mapping is not None
+                else workspace_result.candidates[0],
+            ):
                 logger.info(
                     "slack_app_thread_message_ignored",
                     reason="tagged_reply",
@@ -2381,6 +2800,8 @@ def route_posthog_code_event_to_relevant_region(
                     message_ts=event.get("ts"),
                 )
                 return ROUTE_HANDLED_LOCALLY
+        elif mention_is_threaded:
+            awaited_request_reply = _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0])
 
         # Both event types share the rest of the pipeline. Mention-only side
         # effects (failure reply, scope notice, approval prompt, rules command,
@@ -2408,6 +2829,7 @@ def route_posthog_code_event_to_relevant_region(
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
                     integration=untagged_followup_mapping.integration,
+                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -2443,6 +2865,7 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 integration=probe,
                 posthog_user=attributed_user,
+                **unresolved_user_properties(resolution, probe),
             )
             return ROUTE_HANDLED_LOCALLY
 
@@ -2450,10 +2873,19 @@ def route_posthog_code_event_to_relevant_region(
         candidates = resolution.candidates
         target = resolution.integration
 
-        # Rules command is meaningful only when the user actually typed
-        # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
-            return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
+        # Recognised but not run: unrecognised, ``@PostHog project 452770`` becomes a task about
+        # its own syntax. Only a message addressed to the app can be a command.
+        if untagged_followup_mapping is None:
+            mention_command = parse_rules_command(event.get("text", ""))
+            if mention_command is not None:
+                # The redirect reply is static, but its analytics event attributes to whichever
+                # install it is sent through, so use the resolution's stable tie-break rather than
+                # the head of ``candidates`` — that order reshuffles as auth verdicts expire.
+                redirect_probe = resolution.resolved_or_first()
+                if redirect_probe is not None:
+                    return _redirect_mention_command(
+                        mention_command, event, redirect_probe, slack_team_id, posthog_user=posthog_user
+                    )
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
         # the mapping was the user's last explicit choice in this thread, so no
@@ -2484,7 +2916,15 @@ def route_posthog_code_event_to_relevant_region(
                 return ROUTE_HANDLED_LOCALLY
             mention_target = untagged_followup_mapping.integration
         elif mention_target is None:
-            replied = _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+            picker_shown = _post_project_picker(
+                candidates,
+                event,
+                event_id,
+                posthog_user=posthog_user,
+                is_ext_shared_channel=is_ext_shared_channel,
+                mention_is_threaded=mention_is_threaded,
+            )
+            replied = picker_shown or _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
             # No integration is passed on purpose: this drop exists precisely because no
             # project was picked, and candidate order has nothing to do with what the
             # user meant. Attributing it to candidates[0] would pin workspace-level
@@ -2496,72 +2936,19 @@ def route_posthog_code_event_to_relevant_region(
                 replied=replied,
                 posthog_user=posthog_user,
                 candidate_count=len(candidates),
+                picker_shown=picker_shown,
             )
             return ROUTE_HANDLED_LOCALLY
 
-        slack = SlackIntegration(mention_target)
-        missing = slack.missing_scopes(REQUIRED_SLACK_SCOPES)
-        if missing:
-            if untagged_followup_mapping is not None:
-                logger.info(
-                    "slack_app_thread_message_missing_scopes",
-                    slack_team_id=slack_team_id,
-                    integration_id=mention_target.id,
-                )
-                replied = False
-            else:
-                replied = _notify_missing_slack_scopes(slack, event, missing)
-            _report_slack_mention_dropped(
-                event,
-                slack_team_id,
-                reason="missing_scopes",
-                replied=replied,
-                integration=mention_target,
-                posthog_user=posthog_user,
-            )
-            return ROUTE_HANDLED_LOCALLY
-
-        channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-        if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
-            if untagged_followup_mapping is not None:
-                logger.info(
-                    "slack_app_thread_message_channel_unapproved",
-                    slack_team_id=slack_team_id,
-                    channel=channel_id,
-                )
-                replied = False
-            else:
-                replied = _post_channel_approval_prompt(slack, mention_target, event)
-            _report_slack_mention_dropped(
-                event,
-                slack_team_id,
-                reason="channel_not_approved",
-                replied=replied,
-                integration=mention_target,
-                posthog_user=posthog_user,
-            )
-            return ROUTE_HANDLED_LOCALLY
-
-        # Last gate on the untagged path: a thread whose creator has follow-ups off
-        # never reaches the workflow. ``ask`` is decided there instead, once the
-        # classifier has judged the reply worth forwarding.
-        if untagged_followup_mapping is not None and _untagged_followups_switched_off(
-            event,
-            mention_target,
-            slack_team_id,
-            mapping=untagged_followup_mapping,
-            posthog_user=posthog_user,
-        ):
-            return ROUTE_HANDLED_LOCALLY
-
-        return _start_mention_workflow(
+        return _dispatch_mention_to_target(
             event,
             mention_target,
             slack_team_id,
             event_id,
             posthog_user=posthog_user,
-            untagged_followup=untagged_followup_mapping is not None,
+            untagged_followup_mapping=untagged_followup_mapping,
             is_ext_shared_channel=is_ext_shared_channel,
+            awaited_request_reply=awaited_request_reply,
         )
 
     if event_type == "member_joined_channel":
@@ -2706,6 +3093,9 @@ def resolve_region_or_terminal_route(
     other_domain: str,
     incoming_host: str,
     can_defer: bool,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+    local_thread: bool = False,
 ) -> str | None:
     """Shared region gate for every coding-agent surface (mentions, channel followups, DMs).
 
@@ -2713,11 +3103,74 @@ def resolve_region_or_terminal_route(
     local integration claims the workspace, or proxied to US under the US-precedence rule — else
     ``None`` to signal the caller should keep handling the event locally.
     """
+    if local_thread:
+        return None
+    if channel and thread_ts and not proxied and cross_region_routing_enabled():
+        thread_claimed = does_other_region_claim_workspace(
+            slack_team_id=slack_team_id,
+            kinds=kinds,
+            incoming_host=incoming_host,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        if thread_claimed is True:
+            return _proxy_event_and_return_route(request, other_domain)
+        if thread_claimed is None:
+            # Unknown ownership must not send report context to an unrelated project.
+            return ROUTE_PROXY_FAILED
     if not candidates_present:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
     if _us_should_handle_instead(slack_team_id, kinds, can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain)
     return None
+
+
+def _redirect_mention_command(
+    command: RulesCommand,
+    event: dict[str, Any],
+    probe: Integration,
+    slack_team_id: str,
+    *,
+    posthog_user: User,
+) -> str:
+    """Point a mention that reads as a command at the slash command, without running it.
+
+    ``probe`` needs no project resolved first, because the reply is static text. It is still the
+    resolution's stable pick, so the analytics event lands on the same project every time.
+
+    The reply goes out ephemerally with no fallback: a channel-visible one would announce the
+    integration in an externally-shared channel that has not approved it yet.
+    """
+    channel = event.get("channel")
+    slack_user_id = event.get("user")
+    if not isinstance(channel, str) or not isinstance(slack_user_id, str):
+        return ROUTE_HANDLED_LOCALLY
+
+    logger.info(
+        "slack_app_mention_command_redirected",
+        slack_team_id=slack_team_id,
+        channel=channel,
+        action=command.action,
+    )
+    capture_slack_event(
+        probe,
+        "slack app command used",
+        slack_user_id=slack_user_id,
+        posthog_user=posthog_user,
+        action=command.action,
+        source="mention",
+    )
+    # Slack sets ``thread_ts`` to ``ts`` on a thread-opening post as well, and an ephemeral
+    # anchored there is invisible from the channel view the mentioner is looking at.
+    thread_ts = event.get("thread_ts")
+    _post_slack_user_ephemeral(
+        SlackIntegration(probe),
+        channel,
+        slack_user_id,
+        thread_ts if isinstance(thread_ts, str) and not _is_top_level_channel_post(event) else None,
+        mention_command_redirect(command),
+    )
+    return ROUTE_HANDLED_LOCALLY
 
 
 def _start_command_workflow(
@@ -2727,7 +3180,7 @@ def _start_command_workflow(
     event_id: str | None,
     *,
     user_id: int | None,
-    command_prefix: str = "@PostHog",
+    command_prefix: str,
 ) -> str:
     # ``user_id=None`` defers user resolution into the workflow — the slash entry
     # point uses it to keep its ack under Slack's 3s budget.
@@ -2824,6 +3277,19 @@ def _route_member_joined_channel(
     if inbox_channel.is_inbox_channel(integration, channel_id):
         return ROUTE_HANDLED_LOCALLY
 
+    welcome_mode = resolve_channel_welcome_mode(slack_team_id)
+    inviter = event.get("inviter") if isinstance(event.get("inviter"), str) else None
+    # With no inviter on the event, there is nobody to show a private welcome to.
+    # Skip it rather than fall back to a post the whole channel sees.
+    if welcome_mode == ChannelWelcomeMode.OFF or (welcome_mode == ChannelWelcomeMode.INVITER and not inviter):
+        logger.info(
+            "slack_app_channel_onboarding_skipped_by_setting",
+            slack_team_id=slack_team_id,
+            channel_id=channel_id,
+            welcome_mode=welcome_mode.value,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
     if not _claim_channel_onboarding(slack_team_id, channel_id):
         logger.info(
             "slack_app_channel_onboarding_skipped_duplicate",
@@ -2832,7 +3298,12 @@ def _route_member_joined_channel(
         )
         return ROUTE_HANDLED_LOCALLY
 
-    posted = _post_channel_onboarding_message(slack, integration, channel_id)
+    posted = _post_channel_onboarding_message(
+        slack,
+        integration,
+        channel_id,
+        only_to_user=inviter if welcome_mode == ChannelWelcomeMode.INVITER else None,
+    )
     if not posted:
         # Release the dedupe slot so the next delivery (retry or future re-add)
         # gets another shot rather than being silently swallowed.
@@ -2865,58 +3336,36 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
     cache.delete(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
-def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integration, channel_id: str) -> bool:
-    """Post the welcome message. Returns True on success."""
-    blocks: list[dict[str, Any]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    ":wave: Thanks for adding the PostHog app to this channel! "
-                    "Mention me with `@PostHog` to get started – I can answer "
-                    "questions about your PostHog data, research your codebase, "
-                    "and kick off coding tasks backed by real usage data. "
-                    "I'll also unfurl PostHog links you share here."
-                ),
-            },
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Try one of these:*\n"
-                    "• `@PostHog what's our weekly active user count this month?`\n"
-                    "• `@PostHog open a PR that adds a unit test for src/utils.py`"
-                ),
-            },
-        },
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Read the docs"},
-                    "url": CHANNEL_ONBOARDING_DOCS_URL,
-                }
-            ],
-        },
-    ]
+def _post_channel_onboarding_message(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel_id: str,
+    *,
+    only_to_user: str | None = None,
+) -> bool:
+    """Post the welcome message. Returns True on success.
+
+    With ``only_to_user``, the welcome is ephemeral: only that user sees it, in the channel.
+    """
+    text, blocks = build_channel_welcome(integration)
 
     try:
-        slack.client.chat_postMessage(
-            channel=channel_id,
-            text="Thanks for adding the PostHog app – mention me with @PostHog to get started.",
-            blocks=blocks,
-            unfurl_links=False,
-            unfurl_media=False,
-        )
+        if only_to_user:
+            slack.client.chat_postEphemeral(channel=channel_id, user=only_to_user, text=text, blocks=blocks)
+        else:
+            slack.client.chat_postMessage(
+                channel=channel_id,
+                text=text,
+                blocks=blocks,
+                unfurl_links=False,
+                unfurl_media=False,
+            )
         logger.info(
             "slack_app_channel_onboarding_posted",
             integration_id=integration.id,
             slack_workspace_id=integration.integration_id,
             channel_id=channel_id,
+            ephemeral=bool(only_to_user),
         )
         return True
     except Exception:
@@ -2989,9 +3438,10 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
 
 
 def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+    text, blocks = build_team_join_welcome(integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
-            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+            channel=slack_user_id, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False
         )
         logger.info(
             "slack_app_team_join_welcome_posted",
@@ -3174,6 +3624,8 @@ def _post_untagged_followup_prompt(
         timeout=PICKER_TOKEN_MAX_AGE_SECONDS,
     )
 
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
@@ -3182,7 +3634,7 @@ def _post_untagged_followup_prompt(
                 "type": "mrkdwn",
                 "text": (
                     "I'm working in this thread. Want me to pick up your message? "
-                    "Only you can see this — nothing happens unless you say so."
+                    "Only you can see this, and I won't reply or start work unless you say so."
                 ),
             },
         },
@@ -3203,6 +3655,12 @@ def _post_untagged_followup_prompt(
                     "text": {"type": "plain_text", "text": "No thanks"},
                     "value": context_token,
                 },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": f"In the {home_tab_label} you can set what happens in threads you start."}
             ],
         },
     ]
@@ -3404,6 +3862,7 @@ def _report_slack_mention_received(
     slack_team_id: str,
     *,
     posthog_user: User | None = None,
+    awaited_request_reply: bool = False,
 ) -> User | None:
     """Capture a product-analytics event each time the @PostHog bot is mentioned.
 
@@ -3460,6 +3919,8 @@ def _report_slack_mention_received(
             # ``posthog code slack mention dropped`` reports the same field, so the two sides
             # add up to a funnel.
             "slack_event_type": event.get("type"),
+            "slack_message_edited": bool(event.get("edited")),
+            "awaited_request_reply": awaited_request_reply,
             # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
             "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
@@ -3558,6 +4019,7 @@ def _start_mention_workflow(
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     is_ext_shared_channel: bool = False,
+    awaited_request_reply: bool = False,
     fork_source_channel: str | None = None,
     fork_source_thread_ts: str | None = None,
     fork_source_message_ts: str | None = None,
@@ -3581,7 +4043,13 @@ def _start_mention_workflow(
     """
     is_fork = bool(fork_source_channel and fork_source_thread_ts)
     if not untagged_followup and not is_fork:
-        _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
+        _report_slack_mention_received(
+            event,
+            integration,
+            slack_team_id,
+            posthog_user=posthog_user,
+            awaited_request_reply=awaited_request_reply,
+        )
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
@@ -4907,6 +5375,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
+    project_picker_integration_id = project_picker.picked_integration_id(payload)
     # Both controls a reply carries, and the modal a thumbs-down opens, claim the same
     # workspace, so one hint serves all three. Only the modal needs its own extractor:
     # a view submission carries no action for the generic one to read.
@@ -4958,6 +5427,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # is gated only on owning the integration locally.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=inbox_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and project_picker_integration_id:
+        # Reached once the context expired, so that the handler can tell the person.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=project_picker_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -5080,17 +5556,19 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_untagged_followup_run(payload)
             if action_id == UNTAGGED_FOLLOWUP_ACTION_DISMISS:
                 return _handle_untagged_followup_dismiss(payload)
+            if project_picker.is_project_picker_action(action_id):
+                return _handle_project_picker_pick(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
-            if action_id == onboarding.INBOX_CREATE_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_CREATE_ACTION_ID:
                 return inbox_interactivity.handle_inbox_create(payload)
-            if action_id == onboarding.INBOX_JOIN_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_JOIN_ACTION_ID:
                 return inbox_interactivity.handle_inbox_join(payload)
-            if action_id == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+            if action_id == slack_welcome_messages.INBOX_SOURCES_CHECKBOXES_ACTION:
                 return inbox_interactivity.handle_inbox_sources(payload)
-            if action_id == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+            if action_id == slack_welcome_messages.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
             if action_id in _AI_PREFERENCES_ACTION_IDS:
                 return _handle_ai_preferences_block_action(payload, action)
