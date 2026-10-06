@@ -50,6 +50,7 @@ __all__ = [
     "AlertCheckOutcome",
     "AlertSnapshot",
     "AlertState",
+    "FIRING_STATES",
     "CheckResult",
     "ControlPlaneOutcome",
     "IncidentCloseReason",
@@ -98,9 +99,13 @@ class IncidentEdge(StrEnum):
 class IncidentCloseReason(StrEnum):
     RESOLVED = "resolved"
     BROKEN = "broken"
+    DISABLED = "disabled"
+    SNOOZED = "snoozed"
+    CONFIG_CHANGED = "config_changed"
+    DELETED = "deleted"
 
 
-def incident_edge(state_before: str, new_state: AlertState) -> IncidentEdge | None:
+def incident_edge(state_before: str, new_state: str) -> IncidentEdge | None:
     """Whether a transition starts or ends a firing.
 
     Read from the states, not from the notification, because cooldown can suppress a notification

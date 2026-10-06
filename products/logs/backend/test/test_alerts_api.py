@@ -654,6 +654,66 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.json()["state"] == "not_firing"
         assert response.json()["enabled"] is False
 
+    def _add_pagerduty_destination(self, alert_id: str) -> None:
+        self._sync_destination_templates()
+        response = self.client.post(
+            self._destinations_url(alert_id),
+            {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("disable", lambda: {"enabled": False}, True, "disabled"),
+            (
+                "snooze",
+                lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
+                True,
+                "snoozed",
+            ),
+            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed"),
+            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed"),
+            ("window_change", lambda: {"window_minutes": 10}, True, None),
+            ("rename", lambda: {"name": "Renamed"}, True, None),
+            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None),
+        ]
+    )
+    def test_leaving_firing_through_the_api_closes_the_incident(
+        self, _name, make_payload, has_pagerduty, expected_reason
+    ):
+        created = self._create_via_api()
+        if has_pagerduty:
+            self._add_pagerduty_destination(created["id"])
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+        payload = make_payload()
+
+        with (
+            patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        closes = [c.kwargs["properties"] for c in mock_produce.call_args_list]
+        if expected_reason is None:
+            assert closes == []
+        else:
+            assert [(close["alert_id"], close["reason"]) for close in closes] == [(created["id"], expected_reason)]
+
+    def test_deleting_a_firing_alert_sends_a_close_before_its_destinations_go(self):
+        created = self._create_via_api()
+        self._add_pagerduty_destination(created["id"])
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+
+        with patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce:
+            response = self.client.delete(f"{self.base_url}{created['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event_name"] == "$logs_alert_incident_closed"
+        assert mock_produce.call_args.kwargs["properties"]["reason"] == "deleted"
+
     # --- Edit behavior: recheck and state reset ---
 
     def test_threshold_change_resets_state_and_clears_next_check(self):
