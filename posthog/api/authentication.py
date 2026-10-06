@@ -137,7 +137,8 @@ def sso_enforcement_for_login_address(email: str, user: User | None) -> str | No
     return OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
 
 
-_LOGOUT_REASON_MESSAGES = {SECURITY_REFUSAL_CODE: ACCOUNT_BLOCKED_DETAIL}
+# Reasons a logout can pass to the login page, which holds the copy for each one.
+_LOGOUT_REASONS = frozenset({SECURITY_REFUSAL_CODE})
 
 
 @require_http_methods(["POST"])
@@ -153,10 +154,9 @@ def logout(request):
 
     auth_logout(request)
 
-    # A fixed reason, never request text, so the login page cannot be made to show arbitrary copy.
-    message = _LOGOUT_REASON_MESSAGES.get(request.POST.get("reason", ""))
-    if message:
-        return redirect(f"{settings.LOGIN_URL}?{urlencode({'message': message})}")
+    reason = request.POST.get("reason", "")
+    if reason in _LOGOUT_REASONS:
+        return redirect(f"{settings.LOGIN_URL}?{urlencode({'error_code': reason})}")
 
     next_url = request.POST.get("next")
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
@@ -1503,7 +1503,7 @@ def social_access_rules_allow(
         logger.exception("security_access_check_site_failed", call_site="sso_login")
         refused = False
     if refused:
-        raise AuthFailed(backend, ACCOUNT_BLOCKED_DETAIL)
+        raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
 
 def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:

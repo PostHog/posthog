@@ -4,7 +4,6 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from urllib.parse import urlencode
 
 import pytest
 import time_machine
@@ -40,7 +39,6 @@ from two_factor.utils import totp_digits
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
-    ACCOUNT_BLOCKED_DETAIL,
     ExportRendererAuthentication,
     InternalAPIUser,
     JwtAuthentication,
@@ -890,13 +888,13 @@ class TestLogoutRedirect(APIBaseTest):
         [
             ("no reason", {}, None),
             ("an unknown reason", {"reason": "Your account was hacked, call this number"}, None),
-            ("an access rule refusal", {"reason": "access_blocked"}, ACCOUNT_BLOCKED_DETAIL),
+            ("an access rule refusal", {"reason": "access_blocked"}, "access_blocked"),
         ]
     )
-    def test_logout_without_next_redirects_to_login(self, _name, data, message):
+    def test_logout_without_next_redirects_to_login(self, _name, data, error_code):
         response = self.client.post("/logout", data, format="multipart")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        expected = settings.LOGIN_URL if message is None else f"{settings.LOGIN_URL}?{urlencode({'message': message})}"
+        expected = settings.LOGIN_URL if error_code is None else f"{settings.LOGIN_URL}?error_code={error_code}"
         self.assertEqual(response["Location"], expected)
 
     def test_logout_forwards_safe_next_param(self):

@@ -11,8 +11,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
+from webauthn.helpers import bytes_to_base64url
 
-from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet
+from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLoginViewSet, user_uuid_to_handle
 from posthog.models import Organization, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
@@ -261,10 +262,6 @@ class TestWebAuthnLogin(APIBaseTest):
     )
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_is_refused_by_an_access_rule(self, mock_verify, _refuse):
-        from webauthn.helpers import bytes_to_base64url
-
-        from posthog.api.webauthn import user_uuid_to_handle
-
         self.client.logout()
         self.client.post("/api/webauthn/login/begin/")
         mock_verify.return_value = MagicMock(new_sign_count=1)
