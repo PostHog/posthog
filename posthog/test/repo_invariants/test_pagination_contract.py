@@ -239,6 +239,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.tasks.backend.presentation.views.channels_api.ChannelViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskActivityViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskMentionViewSet",
+    "products.cross_project_dashboards.backend.presentation.views.CrossProjectDashboardTileViewSet",
+    "products.cross_project_dashboards.backend.presentation.views.CrossProjectDashboardViewSet",
     "products.tasks.backend.presentation.views.channels_api.TaskThreadMessageViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksTeamConfigViewSet",
     "products.tasks.backend.presentation.views.config_api.TasksUserConfigViewSet",

@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import LOC
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+    DestinationDeliveryError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -211,8 +215,16 @@ class TestProcessSingle:
 
         assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.SUCCEEDED]
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("boom"),
+            DestinationDeliveryError("Prod", RuntimeError("connection timeout expired")),
+        ],
+        ids=["generic", "destination_connect_timeout"],
+    )
     @pytest.mark.asyncio
-    async def test_error_sets_waiting_retry(self):
+    async def test_error_sets_waiting_retry(self, error: Exception):
         consumer = _make_consumer(max_attempts=3)
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
@@ -221,7 +233,7 @@ class TestProcessSingle:
             states.append(job_state)
             return True
 
-        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+        consumer._process_batch = AsyncMock(side_effect=error)
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             side_effect=track_status,
@@ -238,6 +250,7 @@ class TestProcessSingle:
             "Source column type changed: 'price' has values that no longer fit its stored type int64",
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
+            str(DestinationConfigurationError("Prod", "The host name does not exist.")),
         ],
     )
     @pytest.mark.asyncio
@@ -273,6 +286,8 @@ class TestProcessSingle:
             # upstream/customer condition, not a pipeline bug.
             ("ExternalDataJob matching query does not exist.", False),
             ("ExternalDataSchema matching query does not exist.", False),
+            # A destination the customer configured refuses the connection.
+            (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -1720,14 +1735,17 @@ class TestFailRun:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
-                side_effect=lambda signal: seen.append(signal),
+                side_effect=lambda signal, failure_reason: seen.append((signal, failure_reason)),
             ),
         ):
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         assert len(seen) == 1
-        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
-        assert seen[0].team_id == 1
+        signal, failure_reason = seen[0]
+        assert signal.destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert signal.team_id == 1
+        # The abort path reads the reason to skip a destination that failed on its configuration.
+        assert failure_reason == "boom"
 
     @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):
