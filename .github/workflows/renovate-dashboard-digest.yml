@@ -25,19 +25,17 @@ on:
 permissions:
     contents: read
 
-env:
-    RENOVATE_REPORT_PATH: ${{ github.workspace }}/renovate-report.json
-
 jobs:
-    digest:
+    # The Renovate package and its dependency tree come from npm, so this job holds no secret:
+    # the Slack token lives only in the job below, which runs no third-party code.
+    lookup:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
-        # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
-        if: >-
-            github.repository == 'PostHog/posthog' &&
-            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        if: github.repository == 'PostHog/posthog'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -47,11 +45,45 @@ jobs:
               env:
                   GITHUB_COM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RENOVATE_REPORT_TYPE: file
+                  RENOVATE_REPORT_PATH: ${{ runner.temp }}/renovate-report.json
                   LOG_LEVEL: warn
+                  npm_config_ignore_scripts: 'true'
               run: npx --yes renovate@44.139.0 --platform=local --dry-run=lookup
+
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: renovate-report
+                  path: ${{ runner.temp }}/renovate-report.json
+                  retention-days: 7
+
+    post:
+        needs: lookup
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
+        if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/renovate-dashboard-digest.mjs
+                      .github/scripts/weekly-report-common.mjs
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: renovate-report
+                  path: ${{ runner.temp }}
 
             - name: Post the digest
               env:
+                  RENOVATE_REPORT_PATH: ${{ runner.temp }}/renovate-report.json
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   SLACK_CHANNEL: ${{ inputs.channel }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
