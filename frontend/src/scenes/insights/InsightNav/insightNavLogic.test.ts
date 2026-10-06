@@ -15,6 +15,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     InsightVizNode,
+    MetricsQuery,
     NodeKind,
     Node,
     ProductKey,
@@ -244,9 +245,7 @@ describe('insightNavLogic', () => {
                 expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
             })
 
-            // Regression: the metrics tab came from the custom-query tab, so it went away after a switch
-            // to another tab, and nothing could open it again.
-            it('keeps the metrics tab after switching to another tab and back', async () => {
+            it('keeps the metrics tab and its draft after switching to another tab and back', async () => {
                 enableMetricsBuilder()
 
                 await expectLogic(builtInsightDataLogic, () => {
@@ -254,6 +253,15 @@ describe('insightNavLogic', () => {
                 }).toFinishAllListeners()
                 expect(logic.values.activeView).toEqual(InsightType.METRICS)
                 expect(builtInsightDataLogic.values.query).toMatchObject({ kind: NodeKind.MetricsQuery, clauses: [] })
+
+                const editedQuery: MetricsQuery = {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'rate' }],
+                    dateRange: { date_from: '-6h' },
+                }
+                await expectLogic(builtInsightDataLogic, () => {
+                    builtInsightDataLogic.actions.setQuery(editedQuery)
+                }).toFinishAllListeners()
 
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.TRENDS)
@@ -264,6 +272,7 @@ describe('insightNavLogic', () => {
                     logic.actions.setActiveView(InsightType.METRICS)
                 }).toFinishAllListeners()
                 expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toEqual(editedQuery)
             })
         })
 
