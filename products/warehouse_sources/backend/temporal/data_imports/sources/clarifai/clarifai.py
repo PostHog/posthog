@@ -126,6 +126,7 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
                 "allowed_hosts": [],
                 "allow_redirects": False,
                 "request_timeout": (10, 60),
+                # PageNumberPaginatorConfig and the runtime constructor currently disagree on this field name.
                 "paginator": "single_page"
                 if probe
                 else cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
