@@ -363,8 +363,6 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             distinct_ids_live_in_postgres=1,
         )
 
-    # ── Repair ───────────────────────────────────────────────────────
-
     def _divergent_person(self, case: str) -> Person:
         if case == "hidden":
             person = self._pg_person(version=3)

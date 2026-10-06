@@ -422,8 +422,6 @@ def scan_stale_persons(
     )
 
 
-# ── Sample and team checks ───────────────────────────────────────────
-
 _SAMPLE_SQL = """
 SELECT team_id, toString(id), max(version) AS max_version, toUnixTimestamp(argMax(_timestamp, version)) AS written_at
 FROM person
@@ -457,11 +455,7 @@ def scan_sample(
     on_sampled: Callable[[SampledPerson], None],
     log: Callable[[str], None],
 ) -> SampleSummary:
-    """Classify a uniform sample of live ClickHouse persons against Postgres.
-
-    The sample is every person with ``cityHash64(id) % modulus == residue``. With a cutoff, each
-    person is also split by whether its winning ClickHouse row was written before the cutoff.
-    """
+    """Classify a uniform sample of live ClickHouse persons against Postgres."""
     if not 0 <= residue < modulus:
         raise ValueError("residue must be in [0, modulus)")
     rows = _ch(
@@ -530,7 +524,7 @@ LIMIT %(limit)s
 
 
 def check_team(*, team_id: int, sample_size: int, before: datetime) -> TeamCheck:
-    """Sample a team's live ClickHouse persons and mappings last written before ``before`` and count how many Postgres holds live."""
+    """Count how many of a team's old live ClickHouse persons and mappings Postgres still holds live."""
     args = {"team_id": team_id, "before": int(before.timestamp()), "limit": sample_size}
     person_uuids = [row[0] for row in _ch(_TEAM_PERSONS_SQL, args, _TEAM_CHECK_SETTINGS)]
     distinct_ids = [row[0] for row in _ch(_TEAM_MAPPINGS_SQL, args, _TEAM_CHECK_SETTINGS)]
@@ -556,9 +550,6 @@ def check_team(*, team_id: int, sample_size: int, before: datetime) -> TeamCheck
         distinct_ids_sampled=len(distinct_ids),
         distinct_ids_live_in_postgres=len({r.distinct_id for r in live_mappings}),
     )
-
-
-# ── Repair ───────────────────────────────────────────────────────────
 
 
 @frozen
