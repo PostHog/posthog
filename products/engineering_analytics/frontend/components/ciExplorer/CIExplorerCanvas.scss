@@ -348,12 +348,17 @@
         font-size: calc(13px * var(--i2));
     }
 
+    // The layout reserves three lines for a job name. A longer one is cut there, and the tooltip has all of it.
     &__jobName {
+        display: -webkit-box;
         flex: 1;
         min-width: 0;
+        overflow: hidden;
         font-weight: 500;
         line-height: 1.3;
         overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
     }
 
     &__unit--failure &__jobName {
@@ -399,6 +404,12 @@
         width: 744px;
         opacity: clamp(0, calc((var(--k) * var(--s) * 0.3226 - 0.4) * 10), 1);
         transform-origin: 0 0;
+    }
+
+    // Shards too small to see must not take clicks or the keyboard focus. The canvas marks a tile once its
+    // shards are large enough to show.
+    &__card:not([data-shards='true']) &__cellGrid {
+        visibility: hidden;
     }
 
     &__cell {
@@ -554,6 +565,11 @@
         gap: 8px;
         align-items: center;
         min-width: 0;
+
+        // The name gives way before a chip does, because a chip is what the log found.
+        .LemonTag {
+            flex: none;
+        }
     }
 
     &__stepName {

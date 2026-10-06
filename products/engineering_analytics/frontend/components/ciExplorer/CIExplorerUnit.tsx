@@ -98,7 +98,7 @@ export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number
                                     <button
                                         type="button"
                                         className="CIExplorer__cellHead"
-                                        aria-label={`${shard.job.name}, ${statusLabel(shard.job.conclusion)}`}
+                                        aria-label={`${shard.job.name}, ${statusLabel(shard.job.conclusion, shard.job.status)}`}
                                         aria-pressed={shardFocused}
                                         onClick={focus}
                                         data-attr="ci-explorer-shard"

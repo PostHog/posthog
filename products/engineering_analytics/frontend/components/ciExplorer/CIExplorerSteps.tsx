@@ -70,7 +70,7 @@ export function CIExplorerSteps({ job }: { job: WorkflowJobApi }): JSX.Element {
                                 to={githubJobUrl(repoOwner, repoName, job.run_id, job.id, step.number)}
                                 target="_blank"
                                 title="Open this step on GitHub in a new tab"
-                                aria-label={`${step.name}, ${statusLabel(step.conclusion)}`}
+                                aria-label={`${step.name}, ${statusLabel(step.conclusion, step.status)}`}
                                 data-attr="ci-explorer-step"
                                 {...compare}
                             >
