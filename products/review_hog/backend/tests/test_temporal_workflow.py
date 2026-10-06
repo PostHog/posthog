@@ -42,6 +42,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
+    SandboxStageInput,
     SelectPerspectivesInput,
     StatusCommentInput,
     SyncReviewSkillsInput,
@@ -124,6 +125,7 @@ async def _run_full_review_pr_workflow(
     review_authored_prs: bool = False,
     already_completed: bool = False,
     pr_open: bool = True,
+    review_design: str = "pipeline",
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -163,6 +165,13 @@ async def _run_full_review_pr_workflow(
     def _saw_mode(stage: str, mode: str) -> None:
         mode_calls.setdefault(stage, set()).add(mode)
 
+    # The design every consumer received, keyed by stage, like the mode above.
+    design_calls: dict[str, set[str]] = {}
+    single_agent_calls: list[str] = []
+
+    def _saw_design(stage: str, design: str) -> None:
+        design_calls.setdefault(stage, set()).add(design)
+
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
         return None
@@ -185,6 +194,7 @@ async def _run_full_review_pr_workflow(
             empty_diff=empty_diff,
             already_completed=already_completed,
             pr_open=pr_open,
+            review_design=review_design,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -261,8 +271,13 @@ async def _run_full_review_pr_workflow(
             raise ApplicationError("sandbox died", non_retryable=True)
         return True
 
+    @activity.defn(name="single_agent_review_activity")
+    async def single_agent_review(input: SandboxStageInput) -> None:
+        single_agent_calls.append(input.review_design)
+
     @activity.defn(name="dedup_activity")
-    async def dedup(input) -> DedupResult:
+    async def dedup(input: SandboxStageInput) -> DedupResult:
+        _saw_design("dedup", input.review_design)
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         # Two survivors in two different chunks, so validate fans out one warm session per chunk.
@@ -283,6 +298,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
+        _saw_design("body", input.review_design)
         finalize_will_publish.append(input.will_publish)
         return None
 
@@ -290,6 +306,7 @@ async def _run_full_review_pr_workflow(
     async def publish_act(input: PublishInput) -> PublishResult:
         _saw_mode("publish", input.review_mode)
         publish_calls.append(input.pr_number)
+        _saw_design("publish", input.review_design)
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
 
@@ -311,6 +328,7 @@ async def _run_full_review_pr_workflow(
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        _saw_design("status", input.review_design)
         marker_calls["status"] = input.marker
         return None
 
@@ -335,6 +353,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        _saw_design("track", input.review_design)
         marker_calls["track"] = input.marker
         return None
 
@@ -343,6 +362,7 @@ async def _run_full_review_pr_workflow(
         effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
+        _saw_design("track", input.review_design)
         return None
 
     result: str | None = None
@@ -370,6 +390,7 @@ async def _run_full_review_pr_workflow(
                 select_perspectives,
                 load_blind_spots,
                 review,
+                single_agent_review,
                 dedup,
                 load_validation,
                 validate_chunk,
@@ -440,6 +461,8 @@ async def _run_full_review_pr_workflow(
         "modes": mode_calls,
         "efforts": effort_calls,
         "markers": marker_calls,
+        "designs": design_calls,
+        "single_agent": single_agent_calls,
     }
 
 
@@ -604,6 +627,21 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
         stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
     }
     assert recorded["efforts"] == {stage: {effort} for stage in ("review", "validate", "track")}
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
+    # The design comes from the fetch result. A single-agent turn must run one session instead of the
+    # chunked wave, skip the validator, and tell every downstream stage its design: publish and the
+    # status comment route P3 findings by it, and the events and marker report the v2 arm by it.
+    recorded = await _run_full_review_pr_workflow(publish=True, review_mode="flash", review_design="single_agent")
+
+    assert recorded["single_agent"] == ["single_agent"]
+    assert recorded["split"] == []
+    assert recorded["review"] == []
+    assert recorded["validate"] == []
+    assert recorded["publish"] == [7]
+    assert recorded["designs"] == {stage: {"single_agent"} for stage in ("dedup", "body", "publish", "status", "track")}
 
 
 @pytest.mark.asyncio

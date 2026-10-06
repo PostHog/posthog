@@ -15,8 +15,10 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     FLASH_ARM,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     ReviewArm,
+    review_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -24,6 +26,7 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
     ChunkPerspectiveSelection,
     PerspectiveSelection,
 )
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
@@ -33,6 +36,7 @@ from products.review_hog.backend.temporal.activities import (
     SelectPerspectivesInput,
     review_chunk_activity,
     select_perspectives_activity,
+    single_agent_review_activity,
     split_chunks_activity,
 )
 from products.review_hog.backend.temporal.heartbeat import REPORT_HEARTBEAT_INTERVAL, ReviewActivityHeartbeater
@@ -440,3 +444,55 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     assert result is None
     assert mock_oneshot.called is False
     assert mock_load.called is False
+
+
+@pytest.mark.asyncio
+async def test_single_agent_review_persists_mapped_findings_under_the_arm_dedup_reads() -> None:
+    # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
+    # dedup asks for drops every single-agent finding without an error.
+    review = SingleAgentReview(
+        findings=[
+            SingleAgentFinding(
+                title="Guard the empty list", priority="P1", file="a.py", line_start=4, body="b", suggestion_code="x"
+            ),
+            SingleAgentFinding(
+                title="Rename the counter", priority="P3", file="a.py", line_start=9, line_end=9, body="b"
+            ),
+        ]
+    )
+    mock_review = AsyncMock(return_value=review)
+    mock_persist = MagicMock()
+    env = ActivityEnvironment()
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+    ):
+        await env.run(
+            single_agent_review_activity,
+            SandboxStageInput(
+                team_id=1,
+                user_id=2,
+                report_id="rep-1",
+                head_sha="sha1",
+                repository="o/r",
+                branch="feat",
+                run_index=1,
+                review_mode=REVIEW_MODE_FLASH,
+                review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            ),
+        )
+
+    dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
+    assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
+    assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
+        "gpt-6-luna",
+        ReasoningEffort.XHIGH,
+    )
+    persisted = next(iter(mock_persist.call_args.kwargs["results"].values())).issues
+    assert [(i.priority, i.lines, i.suggestion_code) for i in persisted] == [
+        (IssuePriority.MUST_FIX, [LineRange(start=4)], "x"),
+        (IssuePriority.CONSIDER, [LineRange(start=9)], None),
+    ]

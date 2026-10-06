@@ -198,6 +198,41 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-10-06 — Flash v2: one Codex session per PR replaces the Flash pipeline
+
+- **What.** Every Flash turn runs the single-agent design (`REVIEW_DESIGN_SINGLE_AGENT`, version `reviewhog-flash-2-0`):
+  one Codex sandbox session (`SINGLE_AGENT_FLASH_ARM`, `gpt-6-luna` at `xhigh`) gets the PR title, description, and
+  the whole numbered diff, and returns findings in one JSON answer. No chunking, perspective selection, blind-spot
+  sweep, or validator. Dedup against earlier turns and PR comments and the publish path stay.
+  `single_agent_review_activity` persists the answer as one `perspective_result` under `SINGLE_AGENT_PASS_NUMBER`, so
+  the shared dedup activity combines it; dedup then writes an accept-as-found verdict per survivor, because no
+  validator runs. Full turns are unchanged.
+- **Prompt.** Three files in `prompts/single_agent_review/`, so prompt iterations edit no code: `core.md` (the DevEx-owned
+  rubric, adapted from OpenAI's Apache-2.0 Codex review rubric with attribution, sent as the system prompt),
+  `prompt.jinja` (the PR, earlier findings, the team slot, the finding format), and the generated `schema.json`.
+  The team slot appends the latest body of a team skill named `review-hog-flash-guidance`, when the team created one,
+  as added guidance after the core rubric. It never replaces the rubric or the format.
+- **Finding format.** Title (at most 80 characters, imperative), priority P0-P3, file and line range, one body
+  paragraph that names trigger, consequence, and anchor, and an optional `suggestion_code`. Storage maps P0/P1 to
+  `must_fix`, P2 to `should_fix`, P3 to `consider`. The finding's `suggestion` is empty; `suggestion_code` posts as a
+  GitHub suggestion block only when the inline comment covers exactly the finding's range.
+- **Publishing.** P0-P2 post inline as before. P3 findings stay out of the review (`review_priorities_for`) and the
+  status comment lists them in a collapsed block.
+- **Fallback.** A Flash PR over `FLASH_SINGLE_AGENT_MAX_CHANGED_LINES` (2,500 changed lines) or
+  `FLASH_SINGLE_AGENT_MAX_FILES` (40 files), counted over the reviewable files, runs the Flash pipeline (`reviewhog-flash-1-1`).
+  The single-chunk gate (400 added lines) was too small for a one-session review.
+- **Rollback.** No per-user or per-team switch. `FLASH_DESIGN_DEFAULT` is the kill switch: set it to
+  `REVIEW_DESIGN_PIPELINE` and deploy to move every Flash turn back. A PostHog feature flag was not used because the
+  review pipeline evaluates no flags today (only the API viewsets gate on `review-hog`).
+- **Decision point.** The fetch activity picks the design, so the workflow branches on a recorded activity result,
+  behind the `flash-single-agent-2026-10` patch.
+- **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
+  prompt files, the dedup prompt, the stage pins, its arm, and the team guidance text. Events carry `review_design`
+  and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
+- **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
+  stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
+  accept-as-found note as the validator note. The standalone `publish_review` command republishes with pipeline routing.
+
 ### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
 
 - **What.** The resolution prompt (`prompts/thread_resolution/prompt.jinja`, `<reply_shape>`) fixes the reply's shape:

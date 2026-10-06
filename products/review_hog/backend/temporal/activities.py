@@ -40,13 +40,19 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
+    REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_CHUNK_ID,
+    SINGLE_AGENT_FLASH_ARM,
+    SINGLE_AGENT_PASS_NUMBER,
     VALIDATION_MAX_ATTEMPTS,
     ReviewArm,
     effective_priority,
-    published_priorities_for,
     review_arm_for_mode,
+    review_priorities_for,
+    select_review_design,
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
@@ -62,6 +68,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMe
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
+from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -82,6 +89,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_perspective_selection,
     persist_pr_snapshot,
     persist_verdict,
+    persist_verdicts,
     replace_deduplicated_findings,
     upsert_review_report,
 )
@@ -96,6 +104,7 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 )
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
+    load_flash_team_guidance,
     load_perspectives_for_run,
     load_validation_skill_for_run,
 )
@@ -130,6 +139,11 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import (
     generate_selection_prompt,
     normalize_selection,
     prunable_perspectives,
+)
+from products.review_hog.backend.reviewer.tools.single_agent_review import (
+    SingleAgentPrompt,
+    issues_from_review,
+    load_core_prompt,
 )
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
@@ -212,6 +226,9 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
+    # The design this turn runs on (`select_review_design`). Decided here so the workflow branches on
+    # a recorded activity result: histories from before the field decode as the pipeline.
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass
@@ -300,6 +317,7 @@ class SandboxStageInput:
     # their positional fields and pre-field payloads deserialize as full reviews.
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
+    review_design: str = field(default=REVIEW_DESIGN_PIPELINE, kw_only=True)
 
 
 @dataclass
@@ -382,6 +400,7 @@ class BuildBodyInput:
     # idle write to publish so the report never reads at-rest with the post still in flight.
     # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
     will_publish: bool = False
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass(frozen=False)
@@ -397,6 +416,7 @@ class PublishInput:
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_mode: str = REVIEW_MODE_FULL
     trigger_source: str = TRIGGER_MANUAL
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass
@@ -447,6 +467,7 @@ class TrackReviewCompletedInput:
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     marker: ReviewHogMarker | None = None
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @frozen
@@ -460,6 +481,7 @@ class RecordTurnMarkerInput:
     acting_user_id: int
     review_mode: str
     flash_reasoning_effort: str
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @frozen
@@ -473,6 +495,7 @@ class TrackReviewStartedInput:
     turn_trigger_source: str | None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @frozen
@@ -485,6 +508,7 @@ class TrackReviewFailedInput:
     turn_trigger_source: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 @dataclass(frozen=False)
@@ -494,6 +518,7 @@ class StatusCommentInput:
     team_id: int
     report_id: str
     review_mode: str = REVIEW_MODE_FULL
+    review_design: str = REVIEW_DESIGN_PIPELINE
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -508,10 +533,12 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     return f"{activity.info().workflow_id}:{step_name}".lower()
 
 
-async def _refresh_status_comment(team_id: int, report_id: str, review_mode: str) -> None:
+async def _refresh_status_comment(
+    team_id: int, report_id: str, review_mode: str, review_design: str = REVIEW_DESIGN_PIPELINE
+) -> None:
     """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
     await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(
-        team_id, report_id, review_mode=review_mode
+        team_id, report_id, review_mode=review_mode, review_design=review_design
     )
 
 
@@ -660,6 +687,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=pr_comments,
         pr_files=pr_files,
     )
+    review_design = select_review_design(
+        input.review_mode,
+        changed_lines=sum(f.additions + f.deletions for f in pr_files),
+        changed_files=len(pr_files),
+    )
     if already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")
     ):
@@ -684,6 +716,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not pr_files,
         already_completed=already_completed,
         pr_open=pr_metadata.state == "open",
+        review_design=review_design,
     )
 
 
@@ -846,6 +879,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             acting_user_id=input.acting_user_id,
             review_mode=input.review_mode,
             flash_reasoning_effort=input.flash_reasoning_effort,
+            review_design=input.review_design,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -1136,7 +1170,79 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
     return True
 
 
+# --- Single-agent review (the Flash design for PRs that fit one prompt) ---------------------------
+
+
+def _prepare_single_agent_prompt(team_id: int, report_id: str, head_sha: str, run_index: int, repository: str) -> str:
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    if snapshot is None:
+        raise ApplicationError("PR snapshot missing for the single-agent review", non_retryable=True)
+    return SingleAgentPrompt(
+        repository=repository,
+        pr_metadata=snapshot.pr_metadata,
+        pr_files=snapshot.pr_files,
+        prior_findings=load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index),
+        team_guidance=load_flash_team_guidance(team_id),
+    ).render()
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def single_agent_review_activity(input: SandboxStageInput) -> None:
+    """Review the whole PR in one sandbox session and persist the findings as one review result (idempotent).
+
+    The result persists under the reserved `SINGLE_AGENT_PASS_NUMBER`, stamped with the session's arm,
+    so the shared dedup activity combines it like any perspective result and a retry at the same head
+    reuses it instead of opening another session.
+    """
+    arm = SINGLE_AGENT_FLASH_ARM
+    done = await database_sync_to_async(load_perspective_results, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_arm=arm
+    )
+    if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) in done:
+        logger.info("Reusing the persisted single-agent review for this turn")
+        return
+    prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
+        input.team_id, input.report_id, input.head_sha, input.run_index, input.repository
+    )
+    step_name = "single-agent-review"
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
+        review = await run_sandbox_review(
+            team_id=input.team_id,
+            user_id=input.user_id,
+            repository=input.repository,
+            branch=input.branch,
+            prompt=prompt,
+            system_prompt=load_core_prompt(),
+            model_to_validate=SingleAgentReview,
+            step_name=step_name,
+            workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+            runtime_adapter=arm.runtime_adapter,
+            model=arm.model,
+            reasoning_effort=arm.reasoning_effort,
+            initial_permission_mode=arm.initial_permission_mode,
+        )
+    logger.info(
+        "Single-agent review returned %s finding(s); overall: %s",
+        len(review.findings),
+        review.overall_correctness,
+    )
+    await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        results={(SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID): IssuesReview(issues=issues_from_review(review))},
+        review_arm=arm,
+    )
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
+
+
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
+
+# The argumentation of a single-agent finding's verdict. The reviews API returns it as the finding's
+# validator note, so it says plainly that no validator judged the finding.
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
 
 
 def _combine_and_clean(team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm) -> list[Issue]:
@@ -1165,8 +1271,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         team_id=input.team_id, report_id=input.report_id
     )
     review_arm = review_arm_for_mode(
-        input.review_mode, persisted_arm, flash_reasoning_effort=input.flash_reasoning_effort
+        input.review_mode,
+        persisted_arm,
+        flash_reasoning_effort=input.flash_reasoning_effort,
+        review_design=input.review_design,
     )
+    single_agent = input.review_design == REVIEW_DESIGN_SINGLE_AGENT
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
         input.team_id, input.report_id, input.head_sha, review_arm
     )
@@ -1201,9 +1311,26 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         head_sha=input.head_sha,
         review_mode=input.review_mode,
         review_arm=review_arm,
-        validation_arm=validation_arm_for_mode(input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort),
+        validation_arm=(
+            None
+            if single_agent
+            else validation_arm_for_mode(input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort)
+        ),
+        review_design=input.review_design,
     )
-    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
+    if single_agent:
+        # No validator runs after the single agent, so every surviving finding is accepted as found.
+        # The verdict rows keep body, publish, the status comment, and telemetry on one read path.
+        await database_sync_to_async(persist_verdicts, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            issues=survivors,
+            validations={
+                issue.id: IssueValidation(is_valid=True, argumentation=SINGLE_AGENT_VERDICT_NOTE) for issue in survivors
+            },
+            run_index=input.run_index,
+        )
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
     return DedupResult(issue_ids=issue_ids)
 
 
@@ -1369,7 +1496,7 @@ def _build_and_finalize(input: BuildBodyInput) -> None:
         issues=issues,
         validations=validations,
         pr_files=pr_files,
-        published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
+        published_priorities=review_priorities_for(IssuePriority(input.urgency_threshold), input.review_design),
     )
     finalize_review_report(
         team_id=input.team_id,
@@ -1406,6 +1533,7 @@ def _publish(input: PublishInput) -> PublishResult:
         urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
         review_mode=input.review_mode,
+        review_design=input.review_design,
     )
     if input.trigger_source == TRIGGER_AUTOMATIC:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -1506,7 +1634,10 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             **review_routing_properties(
-                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+                report,
+                review_mode=input.review_mode,
+                flash_reasoning_effort=input.flash_reasoning_effort,
+                review_design=input.review_design,
             ),
             **_pr_size_properties(snapshot),
         },
@@ -1573,7 +1704,10 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
             "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
             **review_routing_properties(
-                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+                report,
+                review_mode=input.review_mode,
+                flash_reasoning_effort=input.flash_reasoning_effort,
+                review_design=input.review_design,
             ),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
@@ -1623,7 +1757,10 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
         properties={
             **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             **review_routing_properties(
-                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+                report,
+                review_mode=input.review_mode,
+                flash_reasoning_effort=input.flash_reasoning_effort,
+                review_design=input.review_design,
             ),
         },
         groups=groups(team=report.team),
@@ -1669,7 +1806,7 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
     (`ensure_status_comment` swallows failures), so it can't fail the review.
     """
     await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(
-        input.team_id, input.report_id, review_mode=input.review_mode
+        input.team_id, input.report_id, review_mode=input.review_mode, review_design=input.review_design
     )
 
 
