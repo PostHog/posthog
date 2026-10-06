@@ -713,6 +713,41 @@ describe('experimentMetricsLogic', () => {
             expect(createMock).toHaveBeenCalled()
         })
 
+        it('clears the recalculating marks when the create request is rejected', async () => {
+            // The marks are set before the POST so the shown values read as refreshing; a rejected POST
+            // (a 429 from the refresh window, or any error) never reaches the poll that would clear them.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        completedRecalculation,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                        429,
+                        {
+                            code: 'recalculation_rate_limited',
+                            detail: 'Metrics were recalculated less than 5 minutes ago.',
+                        },
+                    ],
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual')
+            })
+                .toDispatchActions(['triggerRecalculation', 'setRecalculatingMetricUuids'])
+                .toFinishAllListeners()
+
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+        })
+
         describe('queuing', () => {
             it('queues instead of posting when a run is active', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])

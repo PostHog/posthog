@@ -863,9 +863,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     }
                 } catch (error: any) {
                     /**
-                     * Re-enable the reload button: the run never started, so nothing else will clear loading.
+                     * re enable the reload button.
                      */
                     actions.setRecalculationLoading(false)
+                    /**
+                     * clears the metric badges and the metric group loading indicator
+                     */
+                    actions.setRecalculatingMetricUuids([])
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 } finally {
                     cache.createInFlight = false
