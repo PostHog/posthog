@@ -162,7 +162,7 @@ impl BatcherStateMachine {
     /// in flight.
     pub fn on_shutdown(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
         match self {
-            BatcherStateMachine::Running(active) => {
+            BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
                 BatcherStateMachine::Draining(active).on_wakeup(now, workers)
             }
             other => (other, Effects::default()),
@@ -802,6 +802,27 @@ mod tests {
         let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert!(matches!(batcher, BatcherStateMachine::Stopped));
         assert_eq!(effects.next_wakeup, None);
+    }
+
+    #[test]
+    fn a_second_shutdown_keeps_a_waiting_retrys_wakeup() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = batcher(4, now);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_request_failed(
+            now,
+            &workers,
+            request,
+            FailureCause::Busy,
+            vec![message("a", 0, 1)],
+        );
+        let (batcher, _) = batcher.on_shutdown(now, &workers);
+
+        let (batcher, effects) = batcher.on_shutdown(now, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Draining(_)));
+        assert_eq!(effects.next_wakeup, Some(now + BUSY_DELAY));
     }
 
     #[test]
