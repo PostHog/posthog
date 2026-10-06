@@ -402,27 +402,36 @@ def _node(script: str, files: list[str], env: dict[str, str]) -> object:
     return json.loads(result.stdout)
 
 
-def _lane(scope: Scope) -> tuple[list[str], object, object]:
-    """The changed paths, lane targets and lane summary, computed once per run for both lane checks."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Lane:
+    """The diff's lane as CI computes it, shared by both lane checks. Unchecked script output."""
+
+    changed: list[str]
+    targets: object
+    summary: object
+
+
+def _lane(scope: Scope) -> Lane:
     # CI lists a rename as its old path and its new one, and the old path can widen the lane.
     changed = tuple(sorted({*scope.changed, *_renamed_from(scope).values()}))
-    return list(changed), *_lane_for(changed, scope.merge_base)
+    return _lane_for(changed, scope.merge_base)
 
 
 @functools.cache
-def _lane_for(changed: tuple[str, ...], merge_base: str) -> tuple[object, object]:
+def _lane_for(changed: tuple[str, ...], merge_base: str) -> Lane:
     env = {**os.environ, "LANE_MERGE_BASE": merge_base}
     targets = _node(LANE_TARGETS_SCRIPT, list(changed), env)
-    lane = _node(
+    summary = _node(
         LANE_SUMMARY_SCRIPT, list(changed), {**env, "IMPACTED_TARGETS": json.dumps({"impactedTargets": targets})}
     )
-    return targets, lane
+    return Lane(changed=list(changed), targets=targets, summary=summary)
 
 
 def check_merge_queue_lane(scope: Scope) -> Outcome:
     if shutil.which("node") is None:
         return "skipped", "node not found"
-    changed, targets, lane = _lane(scope)
+    computed = _lane(scope)
+    changed, targets, lane = computed.changed, computed.targets, computed.summary
     env = {**os.environ, "LANE_MERGE_BASE": scope.merge_base}
     if not isinstance(lane, dict) or not isinstance(targets, list):
         return "skipped", "could not compute the merge queue lane"
@@ -462,7 +471,7 @@ def _first(files: list[str], total: int) -> str:
 def check_cross_lane(scope: Scope) -> Outcome:
     if shutil.which("node") is None:
         return "skipped", "node not found"
-    _, _, lane = _lane(scope)
+    lane = _lane(scope).summary
     verdict = lane.get("cross_lane") if isinstance(lane, dict) else None
     if verdict is False:
         return "pass", "stays on one side of the merge queue lanes"
