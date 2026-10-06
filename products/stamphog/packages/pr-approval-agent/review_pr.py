@@ -507,7 +507,7 @@ class Pipeline:
     def _author_on_team(self, team_slug: str) -> bool:
         if self.author_team_slugs is not None:
             return team_slug in self.author_team_slugs
-        return check_team_membership(self.pr.author, team_slug)
+        return check_team_membership(self.repo.split("/")[0], self.pr.author, team_slug)
 
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.

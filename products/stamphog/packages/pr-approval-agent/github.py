@@ -717,11 +717,11 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     )
 
 
-def check_team_membership(author: str, team_slug: str) -> bool:
-    """Check if author is an active member of the given GitHub team."""
+def check_team_membership(org: str, author: str, team_slug: str) -> bool:
+    """Check if author is an active member of the given GitHub team in ``org``."""
     try:
         result = subprocess.run(
-            ["gh", "api", f"orgs/PostHog/teams/{team_slug}/memberships/{author}"],
+            ["gh", "api", f"orgs/{org}/teams/{team_slug}/memberships/{author}"],
             capture_output=True,
             text=True,
             timeout=10,
