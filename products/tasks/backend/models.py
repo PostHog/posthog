@@ -1183,7 +1183,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             PrAuthorshipMode,
             RunSource,
             apply_runtime_adapter_run_state,
-            get_pr_authorship_mode,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -1215,11 +1214,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             runtime=runtime,
         )
-        authorship_mode = get_pr_authorship_mode(
-            task_stub,
-            {"run_source": RunSource.SIGNAL_REPORT.value}
-            if origin_product == Task.OriginProduct.SIGNAL_REPORT
-            else None,
+        authorship_mode = (
+            PrAuthorshipMode.USER if origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
         )
         if not github_resolution_allowed:
             pass

@@ -1559,7 +1559,7 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
     if run_state.pr_authorship_mode is not None:
         return run_state.pr_authorship_mode
 
-    if task.origin_product == TaskModel.OriginProduct.SIGNAL_REPORT:
+    if task.origin_product in (TaskModel.OriginProduct.SIGNAL_REPORT, TaskModel.OriginProduct.POSTHOG_AI):
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT

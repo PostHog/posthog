@@ -780,10 +780,9 @@ class TestGetGitIdentityEnvVars(TestCase):
         task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task) == {}
 
-    @parameterized.expand([(Task.OriginProduct.SLACK,), (Task.OriginProduct.POSTHOG_AI,)])
-    def test_user_authorable_origin_without_marker_returns_user_identity(self, origin_product: str) -> None:
+    def test_slack_task_returns_user_identity(self) -> None:
         user = self._make_user(first_name="Slack", last_name="User", email="slack@example.com")
-        task = self._make_task(origin_product, user=user)
+        task = self._make_task(Task.OriginProduct.SLACK, user=user)
         result = get_git_identity_env_vars(task)
         assert result == {
             "GIT_AUTHOR_NAME": "Slack User",
@@ -791,6 +790,11 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_NAME": "Slack User",
             "GIT_COMMITTER_EMAIL": "slack@example.com",
         }
+
+    def test_posthog_ai_without_marker_returns_empty(self) -> None:
+        user = self._make_user()
+        task = self._make_task(Task.OriginProduct.POSTHOG_AI, user=user)
+        assert get_git_identity_env_vars(task) == {}
 
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)
