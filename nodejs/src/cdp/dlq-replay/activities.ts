@@ -1,7 +1,7 @@
-import { Context } from '@temporalio/activity'
+import { ApplicationFailure, Context } from '@temporalio/activity'
 import { Message } from 'node-rdkafka'
 
-import type { CdpDlqReplayer, ReplayScope } from './cdp-dlq-replayer'
+import type { CdpDlqReplayer } from './cdp-dlq-replayer'
 import { UnreplayableRecordsError } from './cdp-dlq-replayer'
 import type { DlqPartitionReader } from './partition-reader'
 
@@ -9,159 +9,96 @@ import type { DlqPartitionReader } from './partition-reader'
 export const LIST_PARTITIONS_ACTIVITY = 'cdp-dlq-replay-list-partitions'
 export const REPLAY_PARTITION_ACTIVITY = 'cdp-dlq-replay-partition'
 
-const DEFAULT_BATCH_SIZE = 500
+const BATCH_SIZE = 500
 /** Keeps the result far below Temporal's payload limit however many records a run skips. */
 const MAX_SKIPPED_LISTED = 100
 const MAX_ERROR_LENGTH = 500
 
-export interface ListPartitionsInput {
-    topic?: string | null
-}
-
-export interface ListPartitionsResult {
-    topic: string
-    partitions: number[]
-}
-
 export interface ReplayPartitionInput {
-    topic: string
     partition: number
-    start_timestamp_ms: number
-    end_timestamp_ms: number
-    from_offset?: number | null
-    /** Exclusive. Fixed by the first call, so every later call reads the same range. */
-    end_offset?: number | null
-    team_id?: number | null
-    source_ids?: readonly string[] | null
-    dry_run?: boolean
     skip_unreplayable?: boolean
-    batch_size?: number | null
 }
 
-export interface ReplayRecordError {
+export interface SkippedRecord {
     offset: number
     error: string
 }
 
 export interface ReplayPartitionResult {
     partition: number
-    next_offset: number
-    end_offset: number
     records_read: number
-    records_in_scope: number
-    records_out_of_scope: number
-    records_unreadable: number
     records_skipped: number
     invocations_queued: number
-    skipped: ReplayRecordError[]
-    blocked: ReplayRecordError | null
+    skipped: SkippedRecord[]
 }
 
 export interface ReplayActivityContext {
-    heartbeat(details: ReplayPartitionResult): void
-    readonly heartbeatDetails: ReplayPartitionResult | undefined
+    heartbeat(): void
     readonly cancellationSignal: AbortSignal
 }
 
 export interface ReplayActivityDeps {
-    replayer: Pick<CdpDlqReplayer, 'replayBatch' | 'planBatch'>
+    replayer: Pick<CdpDlqReplayer, 'replayBatch'>
     openReader: () => Promise<DlqPartitionReader>
-    defaultTopic: string
+    topic: string
 }
 
 const truncate = (error: unknown): string =>
     String(error instanceof Error ? error.message : error).slice(0, MAX_ERROR_LENGTH)
 
-export async function listPartitions(
-    deps: ReplayActivityDeps,
-    input: ListPartitionsInput
-): Promise<ListPartitionsResult> {
-    const topic = input.topic || deps.defaultTopic
+export async function listPartitions(deps: ReplayActivityDeps): Promise<number[]> {
     const reader = await deps.openReader()
     try {
-        return { topic, partitions: await reader.partitions(topic) }
+        return await reader.partitions(deps.topic)
     } finally {
         await reader.close()
     }
 }
 
 /**
- * Replays one partition from where the last call stopped to the end of the window.
+ * Replays one partition from where the last replay committed to the end of the topic as it stood
+ * when this one began. Records parked while it runs are left for the next replay.
  *
- * It returns when the range is done, or early with `blocked` set when a record cannot be replayed
- * and the run was not told to skip such records. Everything before that record is delivered. The
- * workflow then waits for an operator to retry or skip, and calls this again from `next_offset`.
+ * The offset is committed after every queued batch, so a retry or the next replay never sends a
+ * committed record again. At most the batch in flight when a pod dies is sent twice, which is the
+ * same guarantee the events consumer gives.
  *
- * Progress is heartbeated after every batch. A retry after a crash resumes from the last
- * heartbeat, so at most the batch in flight is delivered twice, which is the same guarantee the
- * events consumer gives.
+ * A record that still cannot be replayed fails the activity without retries, naming its offset.
+ * Everything before it is committed, so running the replay again after the fix starts at it.
  */
 export async function replayPartition(
     deps: ReplayActivityDeps,
     input: ReplayPartitionInput,
     context: ReplayActivityContext
 ): Promise<ReplayPartitionResult> {
-    const { topic, partition } = input
-    const scope: ReplayScope = {
-        teamId: input.team_id ?? undefined,
-        sourceIds: input.source_ids?.length ? new Set(input.source_ids) : undefined,
+    const { topic } = deps
+    const { partition } = input
+    const result: ReplayPartitionResult = {
+        partition,
+        records_read: 0,
+        records_skipped: 0,
+        invocations_queued: 0,
+        skipped: [],
     }
-    const batchSize = input.batch_size || DEFAULT_BATCH_SIZE
 
     const reader = await deps.openReader()
     try {
-        const resumed = context.heartbeatDetails
-        const result: ReplayPartitionResult = resumed
-            ? { ...resumed, blocked: null }
-            : {
-                  partition,
-                  next_offset:
-                      input.from_offset ?? (await reader.offsetForTime(topic, partition, input.start_timestamp_ms)),
-                  end_offset: input.end_offset ?? (await reader.highWatermark(topic, partition)),
-                  records_read: 0,
-                  records_in_scope: 0,
-                  records_out_of_scope: 0,
-                  records_unreadable: 0,
-                  records_skipped: 0,
-                  invocations_queued: 0,
-                  skipped: [],
-                  blocked: null,
-              }
-        const checkpoint = (): void => context.heartbeat(result)
-
-        if (result.next_offset < result.end_offset) {
-            reader.seek(topic, partition, result.next_offset)
+        const end = await reader.highWatermark(topic, partition)
+        let next = await reader.startOffset(topic, partition)
+        if (next < end) {
+            reader.seek(topic, partition, next)
         }
-        while (result.next_offset < result.end_offset) {
+        while (next < end) {
             context.cancellationSignal.throwIfAborted()
-
-            const inRange = (await reader.read(Math.min(batchSize, result.end_offset - result.next_offset))).filter(
-                (message) => message.offset < result.end_offset
+            const batch = (await reader.read(Math.min(BATCH_SIZE, end - next))).filter(
+                (message) => message.offset < end
             )
-            const pastWindow = inRange.findIndex((message) => (message.timestamp ?? 0) > input.end_timestamp_ms)
-            const batch = pastWindow === -1 ? inRange : inRange.slice(0, pastWindow)
-
-            if (batch.length) {
-                result.records_read += batch.length
-                if (input.dry_run) {
-                    const plan = deps.replayer.planBatch(batch, scope)
-                    result.records_in_scope += plan.inScope
-                    result.records_out_of_scope += plan.outOfScope
-                    result.records_unreadable += plan.unreadable
-                    result.next_offset = batch[batch.length - 1].offset + 1
-                } else if (!(await replayRecords(deps, batch, scope, input, result, checkpoint))) {
-                    checkpoint()
-                    return result
-                }
+            if (!batch.length) {
+                break
             }
-
-            if (pastWindow !== -1) {
-                // Records are in timestamp order per partition, so nothing after this one is in the
-                // window. Pinning the end here keeps a later call from reading past it.
-                result.end_offset = inRange[pastWindow].offset
-                result.next_offset = result.end_offset
-            }
-            checkpoint()
+            result.records_read += batch.length
+            next = await replayRecords(deps, reader, batch, input, result)
+            context.heartbeat()
         }
         return result
     } finally {
@@ -169,28 +106,27 @@ export async function replayPartition(
     }
 }
 
+/** Replays a batch and commits past it. Returns the offset to continue from. */
 async function replayRecords(
     deps: ReplayActivityDeps,
+    reader: DlqPartitionReader,
     batch: Message[],
-    scope: ReplayScope,
     input: ReplayPartitionInput,
-    result: ReplayPartitionResult,
-    checkpoint: () => void
-): Promise<boolean> {
-    const add = (replayed: { rebuilt: number; outOfScope: number; queued: number }): void => {
-        result.records_in_scope += replayed.rebuilt
-        result.records_out_of_scope += replayed.outOfScope
-        result.invocations_queued += replayed.queued
+    result: ReplayPartitionResult
+): Promise<number> {
+    const { topic } = deps
+    const commitAfter = (message: Message): number => {
+        reader.commit(topic, input.partition, message.offset + 1)
+        return message.offset + 1
     }
 
     try {
-        add(await deps.replayer.replayBatch(batch, scope))
-        result.next_offset = batch[batch.length - 1].offset + 1
-        return true
+        result.invocations_queued += (await deps.replayer.replayBatch(batch)).queued
+        return commitAfter(batch[batch.length - 1])
     } catch (error) {
         // Any other error can come after part of the batch was queued, so replaying it again
         // record by record would deliver that part twice. It fails the attempt instead, and the
-        // retry resumes from the last checkpoint.
+        // retry starts from the last commit.
         if (!(error instanceof UnreplayableRecordsError)) {
             throw error
         }
@@ -198,38 +134,37 @@ async function replayRecords(
 
     // Nothing from the batch was queued, so each record can go on its own. Two records for the same
     // event name different sources, so replaying them apart rebuilds nothing twice.
+    let next = batch[0].offset
     for (const message of batch) {
         try {
-            add(await deps.replayer.replayBatch([message], scope))
+            result.invocations_queued += (await deps.replayer.replayBatch([message])).queued
         } catch (error) {
             if (!(error instanceof UnreplayableRecordsError)) {
                 throw error
             }
-            const entry = { offset: message.offset, error: truncate(error) }
             if (!input.skip_unreplayable) {
-                result.blocked = entry
-                result.next_offset = message.offset
-                return false
+                throw ApplicationFailure.nonRetryable(
+                    `Partition ${input.partition} offset ${message.offset} cannot be replayed: ${truncate(error)}`,
+                    'UnreplayableRecord'
+                )
             }
             result.records_skipped += 1
             if (result.skipped.length < MAX_SKIPPED_LISTED) {
-                result.skipped.push(entry)
+                result.skipped.push({ offset: message.offset, error: truncate(error) })
             }
         }
-        result.next_offset = message.offset + 1
-        checkpoint()
+        next = commitAfter(message)
     }
-    return true
+    return next
 }
 
 export function createReplayActivities(deps: ReplayActivityDeps): Record<string, (input: any) => Promise<unknown>> {
     return {
-        [LIST_PARTITIONS_ACTIVITY]: (input: ListPartitionsInput) => listPartitions(deps, input),
+        [LIST_PARTITIONS_ACTIVITY]: () => listPartitions(deps),
         [REPLAY_PARTITION_ACTIVITY]: (input: ReplayPartitionInput) => {
             const context = Context.current()
             return replayPartition(deps, input, {
-                heartbeat: (details) => context.heartbeat(details),
-                heartbeatDetails: context.info.heartbeatDetails as ReplayPartitionResult | undefined,
+                heartbeat: () => context.heartbeat(),
                 cancellationSignal: context.cancellationSignal,
             })
         },

@@ -1,13 +1,12 @@
 import uuid
-import asyncio
-import dataclasses
 from typing import Any
 
 import pytest
 
 import temporalio.worker
 from temporalio import activity
-from temporalio.client import WorkflowHandle
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -16,39 +15,13 @@ from posthog.temporal.cdp_dlq_replay.workflow import (
     REPLAY_PARTITION_ACTIVITY,
     CdpDlqReplayInputs,
     CdpDlqReplayWorkflow,
-    replay_workflow_id,
-)
-
-INPUTS = CdpDlqReplayInputs(
-    start_timestamp="2026-10-01T00:00:00+00:00",
-    end_timestamp="2026-10-02T00:00:00+00:00",
-    team_id=2,
-    source_ids=["fn-a"],
-    skip_unreplayable=False,
 )
 
 
-def _result(partition: int, **overrides: Any) -> dict[str, Any]:
-    return {
-        "partition": partition,
-        "next_offset": 10,
-        "end_offset": 10,
-        "records_read": 10,
-        "records_in_scope": 4,
-        "records_out_of_scope": 6,
-        "records_unreadable": 0,
-        "records_skipped": 0,
-        "invocations_queued": 4,
-        "skipped": [],
-        "blocked": None,
-        **overrides,
-    }
-
-
-async def _run(inputs: CdpDlqReplayInputs, replay: Any, drive: Any = None) -> Any:
+async def _run(replay: Any, skip_unreplayable: bool = False) -> Any:
     @activity.defn(name=LIST_PARTITIONS_ACTIVITY)
-    async def list_partitions(_input: dict[str, Any]) -> dict[str, Any]:
-        return {"topic": "cdp_events_dlq", "partitions": [0, 1]}
+    async def list_partitions() -> list[int]:
+        return [0, 1, 2]
 
     @activity.defn(name=REPLAY_PARTITION_ACTIVITY)
     async def replay_partition(input: dict[str, Any]) -> dict[str, Any]:
@@ -63,90 +36,38 @@ async def _run(inputs: CdpDlqReplayInputs, replay: Any, drive: Any = None) -> An
             activities=[list_partitions, replay_partition],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
-            handle = await env.client.start_workflow(
+            return await env.client.execute_workflow(
                 CdpDlqReplayWorkflow.run,
-                dataclasses.replace(inputs, task_queue=task_queue),
+                CdpDlqReplayInputs(skip_unreplayable=skip_unreplayable, task_queue=task_queue),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
-            if drive:
-                await drive(handle)
-            return await handle.result()
-
-
-async def _until_blocked(handle: WorkflowHandle) -> None:
-    for _ in range(200):
-        if any(p.status == "blocked" for p in await handle.query(CdpDlqReplayWorkflow.status)):
-            return
-        await asyncio.sleep(0.05)
-    raise AssertionError("no partition blocked")
 
 
 @pytest.mark.asyncio
-async def test_replays_every_partition_with_the_window_and_scope_it_was_given():
+@pytest.mark.parametrize("skip_unreplayable", [False, True])
+async def test_replays_every_partition_and_adds_up_the_results(skip_unreplayable):
     calls: list[dict[str, Any]] = []
 
     def replay(input: dict[str, Any]) -> dict[str, Any]:
         calls.append(input)
-        return _result(input["partition"])
+        return {"partition": input["partition"], "records_read": 5, "records_skipped": 1, "invocations_queued": 3}
 
-    result = await _run(INPUTS, replay)
+    result = await _run(replay, skip_unreplayable)
 
-    assert sorted(call["partition"] for call in calls) == [0, 1]
-    for call in calls:
-        assert call["topic"] == "cdp_events_dlq"
-        assert call["start_timestamp_ms"] == 1790812800000
-        assert call["end_timestamp_ms"] == 1790899200000
-        assert call["team_id"] == 2
-        assert call["source_ids"] == ["fn-a"]
-        assert call["from_offset"] is None
-    assert result.records_read == 20
-    assert result.invocations_queued == 8
-    assert all(p.status == "done" for p in result.partitions)
+    assert sorted(call["partition"] for call in calls) == [0, 1, 2]
+    assert all(call["skip_unreplayable"] is skip_unreplayable for call in calls)
+    assert (result.records_read, result.records_skipped, result.invocations_queued) == (15, 3, 9)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "decision,resume_from,skipped",
-    [
-        ("retry", 3, 0),
-        ("skip", 4, 1),
-    ],
-)
-async def test_a_blocked_partition_waits_and_resumes_where_the_decision_says(decision, resume_from, skipped):
-    calls: list[dict[str, Any]] = []
-
+async def test_a_record_that_cannot_be_replayed_fails_the_run_with_its_offset():
     def replay(input: dict[str, Any]) -> dict[str, Any]:
-        calls.append(input)
-        if input["partition"] == 0 and input["from_offset"] is None:
-            return _result(0, next_offset=3, blocked={"offset": 3, "error": "still fails to build"})
-        return _result(input["partition"])
+        if input["partition"] == 1:
+            raise ApplicationError("Partition 1 offset 7 cannot be replayed: still fails", non_retryable=True)
+        return {"partition": input["partition"], "records_read": 1, "records_skipped": 0, "invocations_queued": 1}
 
-    async def drive(handle: WorkflowHandle) -> None:
-        await _until_blocked(handle)
-        await handle.signal(decision, 0)
+    with pytest.raises(WorkflowFailureError) as failure:
+        await _run(replay)
 
-    result = await _run(INPUTS, replay, drive)
-
-    resumed = [call for call in calls if call["partition"] == 0 and call["from_offset"] is not None]
-    assert [call["from_offset"] for call in resumed] == [resume_from]
-    assert resumed[0]["end_offset"] == 10
-    partition = next(p for p in result.partitions if p.partition == 0)
-    assert partition.status == "done"
-    assert partition.records_skipped == skipped
-    assert result.records_skipped == skipped
-
-
-@pytest.mark.parametrize(
-    "change,same_id",
-    [
-        ({}, True),
-        ({"source_ids": ["fn-a"], "batch_size": 50}, True),
-        ({"dry_run": True}, False),
-        ({"team_id": 3}, False),
-        ({"source_ids": ["fn-b"]}, False),
-        ({"end_timestamp": "2026-10-03T00:00:00+00:00"}, False),
-    ],
-)
-def test_the_workflow_id_names_the_window_scope_and_mode(change, same_id):
-    assert (replay_workflow_id(INPUTS) == replay_workflow_id(dataclasses.replace(INPUTS, **change))) is same_id
+    assert "offset 7" in str(failure.value.cause.cause)

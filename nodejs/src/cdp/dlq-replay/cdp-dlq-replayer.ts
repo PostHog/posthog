@@ -54,14 +54,8 @@ export class UnreplayableRecordsError extends Error {
     }
 }
 
-export interface ReplayScope {
-    teamId?: number
-    sourceIds?: ReadonlySet<string>
-}
-
 export interface ReplayBatchResult {
     rebuilt: number
-    outOfScope: number
     queued: number
 }
 
@@ -93,17 +87,6 @@ class ReplayFailureCollector implements InvocationFailureSink {
 }
 
 const position = (message: Message): string => `${message.topic}:${message.partition}:${message.offset}`
-
-/** Null keeps every target the record names. An empty set means the scope excludes the record. */
-function scopedTargets(named: Set<string> | null, scope: ReplayScope): Set<string> | null {
-    if (!scope.sourceIds) {
-        return named
-    }
-    if (named === null) {
-        return new Set(scope.sourceIds)
-    }
-    return new Set([...named].filter((id) => scope.sourceIds!.has(id)))
-}
 
 function tryReadParkedEvent(message: Message): RawClickHouseEvent | null {
     try {
@@ -176,39 +159,6 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
     }
 
     /**
-     * Reads a batch the way `replayBatch` would and counts it, without rebuilding anything.
-     *
-     * A rebuild is not free of side effects: it reports billable invocations, takes rate limit
-     * tokens and writes masking state. So a dry run stops before it and answers only how many
-     * records the window holds and how many the scope selects.
-     */
-    public planBatch(
-        messages: Message[],
-        scope: ReplayScope = {}
-    ): { inScope: number; outOfScope: number; unreadable: number } {
-        const counts = { inScope: 0, outOfScope: 0, unreadable: 0 }
-        for (const message of messages) {
-            const record = readDeadLetterRecord(message)
-            const event = record ? tryReadParkedEvent(message) : null
-            if (!record || !event) {
-                counts.unreadable += 1
-            } else if (this.excludes(record, event, scope)) {
-                counts.outOfScope += 1
-            } else {
-                counts.inScope += 1
-            }
-        }
-        return counts
-    }
-
-    private excludes(record: DeadLetterRecord, event: RawClickHouseEvent, scope: ReplayScope): boolean {
-        if (scope.teamId !== undefined && event.team_id !== scope.teamId) {
-            return true
-        }
-        return scopedTargets(replayTargetIds(record), scope)?.size === 0
-    }
-
-    /**
      * Rebuilds one batch and queues the invocations.
      *
      * Everything here either succeeds for every record in the batch or throws. A record this
@@ -216,9 +166,8 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
      * throw can come after some invocations were queued, so a caller must not retry the batch
      * record by record on it.
      */
-    public async replayBatch(messages: Message[], scope: ReplayScope = {}): Promise<ReplayBatchResult> {
+    public async replayBatch(messages: Message[]): Promise<ReplayBatchResult> {
         this.buildFailures.clear()
-        let outOfScope = 0
         const selected: { message: Message; record: DeadLetterRecord; event: RawClickHouseEvent }[] = []
         for (const message of messages) {
             const record = readDeadLetterRecord(message)
@@ -231,17 +180,10 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
             if (!event) {
                 throw new UnreplayableRecordsError(`Could not read an event from ${position(message)}`)
             }
-            if (this.excludes(record, event, scope)) {
-                outOfScope += 1
-                continue
-            }
             selected.push({ message, record, event })
         }
-        if (outOfScope) {
-            counterReplayRecords.labels({ outcome: 'out_of_scope' }).inc(outOfScope)
-        }
         if (!selected.length) {
-            return { rebuilt: 0, outOfScope, queued: 0 }
+            return { rebuilt: 0, queued: 0 }
         }
 
         // Which sources each event may rebuild, held against the globals object the rebuild runs
@@ -269,7 +211,7 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
                     `The team of the event at ${position(message)} no longer exists, so it has nowhere to replay to`
                 )
             }
-            const targets = scopedTargets(replayTargetIds(record), scope)
+            const targets = replayTargetIds(record)
             const kinds = replayTargetKinds(record)
             // Present for every selected record: readDeadLetterRecord refuses one with no payload.
             const value = message.value!
@@ -362,7 +304,7 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
             this.invocationResultsService.invocationResultsRowsService.flush(),
         ])
 
-        return { rebuilt: selected.length, outOfScope, queued }
+        return { rebuilt: selected.length, queued }
     }
 
     /**
@@ -402,7 +344,7 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
             activities: createReplayActivities({
                 replayer: this,
                 openReader: () => DlqPartitionReader.open(),
-                defaultTopic: this.config.CDP_EVENTS_DLQ_TOPIC,
+                topic: this.config.CDP_EVENTS_DLQ_TOPIC,
             }),
             dataConverter: buildTemporalDataConverter(this.config),
             // One partition at a time per pod. Two activities rebuilding at once would share the
@@ -417,8 +359,8 @@ export class CdpDlqReplayer extends CdpConsumerBase<PluginsServerConfig> {
     }
 
     public override async stop(): Promise<void> {
-        // Shutdown lets a running activity finish its batch and heartbeat, so a retry on another
-        // pod resumes after the last queued batch instead of in the middle of one.
+        // Shutdown lets a running activity finish and commit its batch, so a retry on another pod
+        // starts after it instead of sending it again.
         this.worker?.shutdown()
         await this.workerRun
         await Promise.all([this.jobQueues.hogQueue.stopProducer(), this.jobQueues.hogflowQueue.stopProducer()])

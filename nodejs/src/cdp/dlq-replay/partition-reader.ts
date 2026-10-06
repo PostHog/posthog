@@ -3,15 +3,17 @@ import { hostname } from 'os'
 
 import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '~/common/kafka/config'
 
+export const REPLAY_GROUP_ID = 'cdp-dlq-replay'
+
 const MAX_EMPTY_READS = 30
 const READ_TIMEOUT_MS = 1000
 
 /**
- * Reads one partition of a topic from a given offset, with no consumer group.
+ * Reads one partition of a topic, and commits how far a replay got.
  *
- * The replay activity tracks its own position and checkpoints it in its heartbeat, so nothing is
- * committed here. Two runs over the same window read the same records, which is what lets an
- * operator re-run a replay or a retry pick up where the last attempt stopped.
+ * Partitions are assigned rather than subscribed, so the workflow decides what runs and the group
+ * never rebalances. The committed offsets are the only record of what was replayed, and the next
+ * replay starts from them.
  */
 export class DlqPartitionReader {
     private constructor(private consumer: KafkaConsumer) {}
@@ -23,9 +25,7 @@ export class DlqPartitionReader {
                 'security.protocol': 'plaintext',
                 'metadata.broker.list': 'kafka:9092',
                 ...getKafkaConfigFromEnv('CONSUMER'),
-                // librdkafka refuses a consumer without a group. Offsets are never stored or
-                // committed under it, so it only names the client in broker logs.
-                'group.id': 'cdp-dlq-replay',
+                'group.id': REPLAY_GROUP_ID,
                 'enable.auto.commit': false,
                 'enable.auto.offset.store': false,
                 'enable.partition.eof': false,
@@ -55,27 +55,33 @@ export class DlqPartitionReader {
     }
 
     async highWatermark(topic: string, partition: number): Promise<number> {
-        const offsets = await new Promise<{ highOffset: number }>((resolve, reject) =>
-            this.consumer.queryWatermarkOffsets(topic, partition, 10_000, (error, data) =>
-                error ? reject(error) : resolve(data)
-            )
-        )
-        return offsets.highOffset
+        return (await this.watermarks(topic, partition)).highOffset
     }
 
-    async offsetForTime(topic: string, partition: number, timestampMs: number): Promise<number> {
-        const [found] = await new Promise<{ offset: number }[]>((resolve, reject) =>
-            this.consumer.offsetsForTimes([{ topic, partition, offset: timestampMs }], 10_000, (error, data) =>
+    /**
+     * The committed offset, or the oldest record still on the topic when nothing was committed yet
+     * or retention already deleted past the commit.
+     */
+    async startOffset(topic: string, partition: number): Promise<number> {
+        const [committed] = await new Promise<{ offset?: number }[]>((resolve, reject) =>
+            this.consumer.committed([{ topic, partition }], 10_000, (error, data) =>
                 error ? reject(error) : resolve(data)
             )
         )
-        return found && found.offset >= 0 ? found.offset : await this.highWatermark(topic, partition)
+        const { lowOffset } = await this.watermarks(topic, partition)
+        return Math.max(committed?.offset ?? -1, lowOffset)
+    }
+
+    /** Marks every record before `nextOffset` as replayed. */
+    commit(topic: string, partition: number, nextOffset: number): void {
+        this.consumer.commitSync({ topic, partition, offset: nextOffset })
     }
 
     seek(topic: string, partition: number, offset: number): void {
         this.consumer.assign([{ topic, partition, offset }])
     }
 
+    /** An empty read is normal while a fetch is in flight. One that stays empty means the broker is not serving. */
     async read(max: number): Promise<Message[]> {
         for (let attempt = 0; attempt < MAX_EMPTY_READS; attempt++) {
             const messages = await new Promise<Message[]>((resolve, reject) =>
@@ -90,5 +96,13 @@ export class DlqPartitionReader {
 
     async close(): Promise<void> {
         await new Promise<void>((resolve) => this.consumer.disconnect(() => resolve()))
+    }
+
+    private async watermarks(topic: string, partition: number): Promise<{ lowOffset: number; highOffset: number }> {
+        return await new Promise((resolve, reject) =>
+            this.consumer.queryWatermarkOffsets(topic, partition, 10_000, (error, data) =>
+                error ? reject(error) : resolve(data)
+            )
+        )
     }
 }

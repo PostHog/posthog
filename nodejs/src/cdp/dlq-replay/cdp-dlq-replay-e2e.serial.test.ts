@@ -31,9 +31,10 @@ import { DlqPartitionReader } from './partition-reader'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
-// Truncated bytecode: resolving this input throws, the way a narrowed builtin arity did.
+// Truncated bytecode: resolving this input throws, the way a narrowed builtin arity did. Stamped
+// against another runtime, so the failure is ours and gets parked.
 const BROKEN_INPUTS: HogFunctionType['inputs'] = {
-    url: { order: 0, value: 'https://example.com', bytecode: ['_H', 1, 2] },
+    url: { order: 0, value: 'https://example.com', bytecode: ['_H', 1, 2], bytecode_contract: 'stale' },
 }
 
 describe('CDP dead-letter replay', () => {
@@ -144,20 +145,14 @@ describe('CDP dead-letter replay', () => {
 
     const runReplay = async (
         queues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        input: Partial<ReplayPartitionInput> = {},
-        heartbeatDetails?: ReplayPartitionResult
+        input: Partial<ReplayPartitionInput> = {}
     ): Promise<ReplayPartitionResult> => {
+        await replayer?.stop()
         replayer = new CdpDlqReplayer(hub, createCdpConsumerDeps(hub, kafkaProducer), queues)
         return await replayPartition(
-            { replayer, openReader: () => DlqPartitionReader.open(), defaultTopic: dlqTopic },
-            {
-                topic: dlqTopic,
-                partition: 0,
-                start_timestamp_ms: 0,
-                end_timestamp_ms: Date.now() + 60_000,
-                ...input,
-            },
-            { heartbeat: () => {}, heartbeatDetails, cancellationSignal: new AbortController().signal }
+            { replayer, openReader: () => DlqPartitionReader.open(), topic: dlqTopic },
+            { partition: 0, ...input },
+            { heartbeat: () => {}, cancellationSignal: new AbortController().signal }
         )
     }
 
@@ -205,7 +200,13 @@ describe('CDP dead-letter replay', () => {
         const replayed = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
         expect(replayed.map((invocation: any) => invocation.functionId)).toEqual([broken.id])
         expect(replayed[0].queueMetadata).toMatchObject({ replayed_from_dlq: true })
-        expect(result).toMatchObject({ records_read: 1, records_in_scope: 1, invocations_queued: 1, blocked: null })
+        expect(result).toMatchObject({ records_read: 1, invocations_queued: 1 })
+
+        // The commit is the only record of what was sent, so the next replay starts after it.
+        const againQueue = createMockJobQueue()
+        const again = await runReplay({ hogQueue: againQueue, hogflowQueue: againQueue })
+        expect(again).toMatchObject({ records_read: 0, invocations_queued: 0 })
+        expect(againQueue.queueInvocations).not.toHaveBeenCalled()
     })
 
     it('rebuilds each function once when one event is parked twice', async () => {
@@ -377,22 +378,18 @@ describe('CDP dead-letter replay', () => {
         await parkEvent()
 
         const replayQueue = createMockJobQueue()
-        const blocked = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
-        expect(blocked).toMatchObject({ next_offset: 0, blocked: { offset: 0 } })
-        expect(blocked.blocked!.error).toContain('still fail to build')
+        await expect(runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })).rejects.toThrow(
+            /offset 0 cannot be replayed: .*still fail to build/
+        )
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
 
-        // With the fix applied the workflow calls again from where it stopped, and the record goes
-        // through. A second worker, because the first cached the function as it was before the repair.
+        // With the fix applied the next replay starts at the record that stopped the last one. A
+        // second worker, because the first cached the function as it was before the repair.
         await repairInputs(broken)
-        await replayer!.stop()
         const fixedQueue = createMockJobQueue()
-        const resumed = await runReplay(
-            { hogQueue: fixedQueue, hogflowQueue: fixedQueue },
-            { from_offset: blocked.next_offset, end_offset: blocked.end_offset }
-        )
+        const resumed = await runReplay({ hogQueue: fixedQueue, hogflowQueue: fixedQueue })
         expect(fixedQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: broken.id })])
-        expect(resumed).toMatchObject({ next_offset: 1, blocked: null })
+        expect(resumed).toMatchObject({ records_read: 1, invocations_queued: 1 })
     })
 
     it('parks a workflow that cannot build, then replays it onto the workflow queue', async () => {
@@ -461,86 +458,19 @@ describe('CDP dead-letter replay', () => {
         expect(headers.dlq_kinds.toString()).toBe('')
 
         const replayQueue = createMockJobQueue()
-        const blocked = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
-        expect(blocked.blocked).toMatchObject({ offset: 0 })
-        expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
+        await expect(runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })).rejects.toThrow(
+            'offset 0 cannot be replayed'
+        )
 
-        await replayer!.stop()
         const skipped = await runReplay(
             { hogQueue: replayQueue, hogflowQueue: replayQueue },
             { skip_unreplayable: true }
         )
-        expect(skipped).toMatchObject({ next_offset: 1, records_skipped: 1, skipped: [{ offset: 0 }], blocked: null })
+        expect(skipped).toMatchObject({ records_skipped: 1, skipped: [{ offset: 0 }] })
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
-    })
 
-    it.each([
-        ['a window that ends before the record was parked', { end_timestamp_ms: 1 }, undefined],
-        ['another team', { team_id: 999_999 }, undefined],
-        ['other sources', { source_ids: ['00000000-0000-0000-0000-000000000000'] }, undefined],
-        ['a position past the record', { from_offset: 1 }, undefined],
-        ['a retry whose last heartbeat is past the record', {}, 'past'],
-    ] as const)('replays nothing for %s', async (_case, input, heartbeat) => {
-        // Each run reads only what it was asked for. Reading wider re-delivers what an earlier run,
-        // or an earlier attempt of this one, already queued.
-        const fn = await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'destination',
-            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS,
-        })
-
-        const sourceQueue = createMockJobQueue()
-        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
-        await parkEvent()
-        await repairInputs(fn)
-
-        const replayQueue = createMockJobQueue()
-        const result = await runReplay(
-            { hogQueue: replayQueue, hogflowQueue: replayQueue },
-            input,
-            heartbeat
-                ? {
-                      partition: 0,
-                      next_offset: 1,
-                      end_offset: 1,
-                      records_read: 1,
-                      records_in_scope: 1,
-                      records_out_of_scope: 0,
-                      records_unreadable: 0,
-                      records_skipped: 0,
-                      invocations_queued: 1,
-                      skipped: [],
-                      blocked: null,
-                  }
-                : undefined
-        )
-
-        const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
-        expect(queued).toEqual([])
-        expect(result.blocked).toBeNull()
-    })
-
-    it('reports what a dry run would replay without queueing anything', async () => {
-        // A rebuild reports billing, takes rate limit tokens and writes masking state, so a dry run
-        // that rebuilt anything would change what the real run then does.
-        await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'destination',
-            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS,
-        })
-
-        const sourceQueue = createMockJobQueue()
-        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
-        await parkEvent()
-
-        const replayQueue = createMockJobQueue()
-        const result = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue }, { dry_run: true })
-
-        expect(result).toMatchObject({ records_read: 1, records_in_scope: 1, invocations_queued: 0, blocked: null })
-        expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
+        // Skipping commits past the record, so no later replay stops at it again.
+        const after = await runReplay({ hogQueue: replayQueue, hogflowQueue: replayQueue })
+        expect(after.records_read).toBe(0)
     })
 })
