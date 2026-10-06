@@ -22,10 +22,8 @@ import {
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -157,7 +155,6 @@ export function ActionFilterRow({
             ensureAllTableFields()
         }
     }, [filter.type, ensureAllTableFields])
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -372,10 +369,7 @@ export function ActionFilterRow({
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
     // A behavioral filter compiles to a person_id subquery over the events table, which a warehouse series has no key for
-    const behavioralFiltersEnabled =
-        allowBehavioralPropertyFilter &&
-        !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] &&
-        !isDataWarehouseFilter
+    const behavioralFiltersEnabled = allowBehavioralPropertyFilter && !isDataWarehouseFilter
     // CDP destination/workflow filters restrict the picker to the one warehouse table family their
     // trigger fires on, so each family gets its own typeKey.
     const dataWarehouseGroupType =
