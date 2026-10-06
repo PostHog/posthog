@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
+    _defer_to_full_refresh,
     _maybe_flag_pre_extraction,
     _maybe_repartition_table,
     _rewrite_deadline,
@@ -85,9 +86,14 @@ def _schema(
     schema.repartition_swap = swap
     schema.repartition_pending = pending
     schema.repartition_rewrite = rewrite
+
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
-    schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
+    def set_repartition_claim(claim: dict) -> bool:
+        schema.repartition_claim = claim
+        return True
+
+    schema.set_repartition_claim.side_effect = set_repartition_claim
     # Same for the pending marker: the attempt is charged before the rewrite and refunded after, and
     # the refund only fires when it reads back the count it wrote.
     schema.set_repartition_pending.side_effect = lambda p: setattr(schema, "repartition_pending", p)
@@ -660,8 +666,7 @@ class TestKilledAttemptRetry:
             assert len(failed) == 1
             assert failed[0]["final"] is True
             assert failed[0]["error_type"] == "RepartitionAttemptsExhausted"
-            schema.clear_repartition_pending.assert_called_once()
-            schema.stamp_last_repartition_at.assert_called_once()
+            schema.abandon_repartition_if_claimed.assert_called_once()
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
@@ -1150,3 +1155,103 @@ class TestMaybeFlagPreExtraction:
 
         assert result is None
         mock_capture.assert_called_once_with(error)
+
+
+class TestFullRefreshDeferral:
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    def test_rejected_claim_stops_before_storage_work(self, mock_defer: AsyncMock) -> None:
+        schema = _schema(name="contacts", s3_folder_name="contacts")
+        schema.set_repartition_claim.side_effect = None
+        schema.set_repartition_claim.return_value = False
+
+        _defer_to_full_refresh(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            schema,
+            MagicMock(),
+            MagicMock(),
+            "proactive_threshold",
+            MagicMock(),
+        )
+
+        mock_defer.assert_not_awaited()
+
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    def test_wrapped_cancellation_is_propagated(self, mock_defer: AsyncMock) -> None:
+        wrapped_cancelled_error = type("CancelledError", (Exception,), {})
+        mock_defer.side_effect = wrapped_cancelled_error()
+
+        with pytest.raises(wrapped_cancelled_error):
+            _defer_to_full_refresh(
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                _schema(name="contacts", s3_folder_name="contacts"),
+                MagicMock(),
+                MagicMock(),
+                "proactive_threshold",
+                MagicMock(),
+            )
+
+    @pytest.mark.parametrize(
+        "sync_type, swap, swap_after_refresh, expect_deferred",
+        [
+            ("full_refresh", None, None, True),
+            ("incremental", None, None, False),
+            ("append", None, None, False),
+            ("full_refresh", {"state": "ready", "temp_uri": TEMP_URI}, None, False),
+            ("full_refresh", None, {"state": "ready", "temp_uri": TEMP_URI}, False),
+        ],
+        ids=[
+            "full_refresh_defers",
+            "incremental_rewrites",
+            "append_rewrites",
+            "staged_swap_still_completes",
+            "swap_staged_during_evaluation_still_completes",
+        ],
+    )
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.defer_repartition_to_full_refresh", new_callable=AsyncMock)
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_full_refresh_table_takes_its_new_scheme_from_the_next_sync(
+        self,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        mock_defer: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture: MagicMock,
+        sync_type: str,
+        swap: dict | None,
+        swap_after_refresh: dict | None,
+        expect_deferred: bool,
+    ) -> None:
+        # The next full refresh deletes the table and writes it again, so a rewrite only copies rows
+        # that sync throws away, and the sync moves the live version under any checkpoint it saves.
+        mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
+        schema = _schema(name="contacts", s3_folder_name="contacts", swap=swap)
+        schema.sync_type = sync_type
+        if swap_after_refresh is not None:
+            schema.refresh_from_db.side_effect = lambda **_kwargs: setattr(
+                schema, "repartition_swap", swap_after_refresh
+            )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.return_value = {"outcome": "completed"}
+        mock_defer.return_value = {"outcome": "deferred", "reason": "full_refresh_rewrites_the_table"}
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        assert mock_defer.await_count == (1 if expect_deferred else 0)
+        assert mock_repartition.await_count == (0 if expect_deferred else 1)
+        if expect_deferred:
+            await_args = mock_defer.await_args
+            assert await_args is not None
+            assert await_args.kwargs["target"].partition_format == PENDING_TARGET["partition_format"]
+            # A fresh claim fences out a rewrite attempt that may still be running as a zombie.
+            schema.set_repartition_claim.assert_called_once()
+            assert mock_capture.call_args.args[0] == "warehouse_repartition_skipped"
