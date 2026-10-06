@@ -14,7 +14,13 @@ const meta: Meta<typeof SourceDestinationsBanner> = {
 }
 export default meta
 
-const Template: StoryFn<typeof SourceDestinationsBanner> = () => <SourceDestinationsBanner />
+// LemonBanner is a CSS container, so it collapses to its content's minimum width without an
+// explicitly sized parent - `#storybook-root` is `display: inline-block` and gives it none.
+const Template: StoryFn<typeof SourceDestinationsBanner> = () => (
+    <div className="w-200">
+        <SourceDestinationsBanner />
+    </div>
+)
 
 export const Default = Template.bind({})
 
