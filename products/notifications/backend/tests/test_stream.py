@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import orjson
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from posthog.models import Organization, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notifications.backend import pubsub
 from products.notifications.backend.presentation.stream import notification_event_stream
 from products.notifications.backend.pubsub import (
@@ -18,14 +21,27 @@ from products.notifications.backend.pubsub import (
 )
 
 
-def _external_member() -> tuple[Organization, User]:
-    organization = Organization.objects.create(name="Domain Org")
-    return organization, User.objects.create_and_join(organization, "member@external.example.com", "password")
+def _member_of_new_project() -> tuple[Organization, Team, User]:
+    organization = Organization.objects.create(name="Access Org")
+    organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+    organization.save(update_fields=["available_product_features"])
+    team = Team.objects.create(organization=organization, name="Access Project")
+    return organization, team, User.objects.create_and_join(organization, "member@external.example.com", "password")
 
 
-def _enforce_verified_domains(organization: Organization) -> None:
+def _enforce_verified_domains(organization: Organization, team: Team, user: User) -> None:
     organization.enforce_verified_domains = True
     organization.save(update_fields=["enforce_verified_domains"])
+
+
+def _deny_project_access(organization: Organization, team: Team, user: User) -> None:
+    AccessControl.objects.create(
+        team=team,
+        resource="project",
+        resource_id=str(team.id),
+        organization_member=OrganizationMembership.objects.get(organization=organization, user=user),
+        access_level="none",
+    )
 
 
 class TestNotificationStream:
@@ -49,17 +65,24 @@ class TestNotificationStream:
             assert await other_user.receive(5) == orjson.dumps({"id": "n2"})
             assert await same_user_other_org.receive(5) == orjson.dumps({"id": "n3"})
 
+    @pytest.mark.parametrize("revoke_access", [_enforce_verified_domains, _deny_project_access])
     @pytest.mark.django_db(transaction=True)
-    async def test_stream_stops_delivering_once_domain_enforcement_blocks_the_user(self) -> None:
-        organization, user = await database_sync_to_async(_external_member, thread_sensitive=False)()
+    async def test_stream_stops_delivering_once_access_is_revoked(
+        self, revoke_access: Callable[[Organization, Team, User], None]
+    ) -> None:
+        organization, team, user = await database_sync_to_async(_member_of_new_project, thread_sensitive=False)()
         stream = notification_event_stream(organization.id, user.id, domain_enforcement_exempt=False)
         try:
             assert await anext(stream) == b"event: ready\ndata: subscribed\n\n"
-            publish_notification_payload(organization.id, {"id": "n1", "resolved_user_ids": [user.id]})
-            assert await anext(stream) == b'data: {"id":"n1"}\n\n'
+            publish_notification_payload(
+                organization.id, {"id": "n1", "team_id": team.id, "resolved_user_ids": [user.id]}
+            )
+            assert await anext(stream) == b'data: {"id":"n1","team_id":%d}\n\n' % team.id
 
-            await database_sync_to_async(_enforce_verified_domains, thread_sensitive=False)(organization)
-            publish_notification_payload(organization.id, {"id": "n2", "resolved_user_ids": [user.id]})
+            await database_sync_to_async(revoke_access, thread_sensitive=False)(organization, team, user)
+            publish_notification_payload(
+                organization.id, {"id": "n2", "team_id": team.id, "resolved_user_ids": [user.id]}
+            )
             with pytest.raises(StopAsyncIteration):
                 await anext(stream)
         finally:

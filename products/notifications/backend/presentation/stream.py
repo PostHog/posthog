@@ -2,6 +2,8 @@ import random
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
+import orjson
+
 from posthog.api.streaming import StreamBudget, sse_rotating_event_stream
 from posthog.sync import database_sync_to_async
 
@@ -27,10 +29,13 @@ async def notification_event_stream(
 
         async def receive(timeout: float) -> bytes | None:
             payload = await subscription.receive(timeout)
-            # The view checked access only when the stream opened. An admin can deactivate the user, remove
-            # them, or turn on verified-domain enforcement while the stream is open.
-            if payload is not None and not await still_allowed(
-                user_id, organization_id, domain_enforcement_exempt=domain_enforcement_exempt
+            if payload is None:
+                return None
+            # The view checked access only when the stream opened, and only for the project in its URL. An admin
+            # can revoke access while the stream is open, and each notification can belong to another project.
+            team_id = orjson.loads(payload).get("team_id")
+            if not await still_allowed(
+                user_id, organization_id, team_id, domain_enforcement_exempt=domain_enforcement_exempt
             ):
                 raise _AccessRevokedError()
             return payload

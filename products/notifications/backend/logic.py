@@ -10,7 +10,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Organization, OrganizationDomain, Team, User
 
-from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
 from products.notifications.backend.cache import invalidate_unread_count_for_users
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -72,15 +72,23 @@ def _filter_to_active_members(user_ids: list[int], organization_id: UUID) -> lis
     return [user_id for user_id in user_ids if user_id in allowed]
 
 
-def can_receive_notifications(user_id: int, organization_id: UUID, *, domain_enforcement_exempt: bool) -> bool:
-    """Whether the user is an active member of the organization whom verified-domain enforcement allows."""
-    user = (
-        User.objects.filter(id=user_id, is_active=True, organization_membership__organization_id=organization_id)
-        .only("email")
-        .first()
-    )
+def can_receive_notifications(
+    user_id: int, organization_id: UUID, team_id: int | None, *, domain_enforcement_exempt: bool
+) -> bool:
+    """Whether the user is an active member of the organization who can access the notification's project,
+    and whom verified-domain enforcement allows."""
+    user = User.objects.filter(
+        id=user_id, is_active=True, organization_membership__organization_id=organization_id
+    ).first()
     if user is None:
         return False
+    if team_id is not None:
+        team = Team.objects.filter(id=team_id, organization_id=organization_id).first()
+        if team is None:
+            return False
+        user_access_control = UserAccessControl(user, team)
+        if user_access_control.access_controls_supported and not user_access_control.has_project_access:
+            return False
     if domain_enforcement_exempt:
         return True
     organization = Organization.objects.filter(id=organization_id).first()
