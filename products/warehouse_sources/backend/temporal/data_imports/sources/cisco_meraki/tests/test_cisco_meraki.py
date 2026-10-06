@@ -160,6 +160,51 @@ def test_auth_survives_meraki_shard_redirect() -> None:
 
 
 @pytest.mark.parametrize(
+    "location",
+    [
+        "https://example.com/steal",
+        "http://api.meraki.com/steal",
+        "https://api.meraki.com:8443/steal",
+    ],
+)
+@responses.activate
+def test_redirect_rejects_unapproved_destination(location: str) -> None:
+    responses.get(f"{BASE_URL}/networks", status=308, headers={"Location": location})
+    result = cisco_meraki_source(make_config(), "networks", "v1", 1, "job", make_manager())
+
+    with pytest.raises(ValueError, match="unapproved destination"):
+        rows(result)
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_pagination_rejects_unapproved_destination() -> None:
+    responses.get(
+        f"{BASE_URL}/networks",
+        json=[{"id": "first"}],
+        headers={"Link": '<https://example.com/steal>; rel="next"'},
+    )
+    result = cisco_meraki_source(make_config(), "networks", "v1", 1, "job", make_manager())
+
+    with pytest.raises(ValueError, match="unapproved destination"):
+        rows(result)
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_resume_rejects_unapproved_destination() -> None:
+    manager = make_manager(CiscoMerakiResumeConfig(next_url="https://example.com/steal"))
+    result = cisco_meraki_source(make_config(), "networks", "v1", 1, "job", manager)
+
+    with pytest.raises(ValueError, match="unapproved destination"):
+        rows(result)
+
+    assert len(responses.calls) == 0
+
+
+@pytest.mark.parametrize(
     ("status", "schema", "expected"),
     [
         (200, None, (True, None)),

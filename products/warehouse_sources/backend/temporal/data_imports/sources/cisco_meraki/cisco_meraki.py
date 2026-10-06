@@ -1,7 +1,8 @@
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
-from requests import HTTPError
+from requests import HTTPError, PreparedRequest, Response, Session
 
 from posthog.dataclasses import frozen
 
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_mera
     REGION_ERROR,
     REGION_HOSTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -40,6 +42,28 @@ class CiscoMerakiResumeConfig:
     completed: bool = False
 
 
+class _MerakiSession(Session):
+    """Keep credentialed redirects, pagination links, and resume URLs on Meraki-owned HTTPS hosts."""
+
+    def __init__(self, allowed_domain: str, api_key: str) -> None:
+        super().__init__()
+        self._allowed_domain = allowed_domain
+        adapter = make_tracked_adapter(redact_values=(api_key,))
+        self.mount("https://", adapter)
+        self.mount("http://", adapter)
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        split = urlsplit(request.url or "")
+        hostname = (split.hostname or "").lower()
+        if (
+            split.scheme.lower() != "https"
+            or split.port not in (None, 443)
+            or (hostname != self._allowed_domain and not hostname.endswith(f".{self._allowed_domain}"))
+        ):
+            raise ValueError("Refusing to send Cisco Meraki credentials to an unapproved destination")
+        return super().send(request, **kwargs)
+
+
 def client_config(config: "CiscoMerakiSourceConfig", api_version: str) -> ClientConfig:
     host = REGION_HOSTS.get(config.region)
     if host is None:
@@ -47,11 +71,13 @@ def client_config(config: "CiscoMerakiSourceConfig", api_version: str) -> Client
     if not re.fullmatch(r"[A-Za-z0-9_-]+", config.organization_id):
         raise ValueError(ORGANIZATION_ERROR)
 
+    allowed_domain = host.removeprefix("api.")
     return {
         "base_url": f"https://{host}/api/{api_version}/organizations/{config.organization_id}/",
         # Meraki supports this header across shard redirects, where requests removes bearer authentication.
         "auth": {"type": "api_key", "name": "X-Cisco-Meraki-API-Key", "api_key": config.api_key, "location": "header"},
         "paginator": "header_link",
+        "session": _MerakiSession(allowed_domain, config.api_key),
         "request_timeout": (10, 60),
     }
 
@@ -69,6 +95,7 @@ def validate_credentials(
         base_url=settings["base_url"],
         auth=APIKeyAuth(api_key=config.api_key, name="X-Cisco-Meraki-API-Key"),
         paginator=SinglePagePaginator(),
+        session=settings["session"],
         request_timeout=(10, 30),
     )
     try:
