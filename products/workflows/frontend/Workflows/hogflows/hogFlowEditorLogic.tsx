@@ -30,7 +30,14 @@ import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
+import {
+    BOTTOM_HANDLE_POSITION,
+    MAX_ZOOM,
+    MIN_ZOOM,
+    NODE_HEIGHT,
+    NODE_WIDTH,
+    TOP_HANDLE_POSITION,
+} from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
@@ -2916,11 +2923,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const visibleWidth = wrapperWidth - panelWidth
                 // Size the padding for the zoom this fit lands on. With the current zoom each fit depends
                 // on the previous one, so the resize observer and the mount timeout leave a different
-                // viewport depending on how often they fire.
+                // viewport depending on how often they fire. fitView clamps its zoom to the instance limits,
+                // so clamp here too, or a small workflow gets padding for a zoom it never reaches.
+                const unclampedFitZoom = Math.min(visibleWidth / nodesBounds.width, wrapperHeight / nodesBounds.height)
                 const fitZoom =
                     noZoom || !nodesBounds.width || !nodesBounds.height
                         ? reactFlowInstance.getZoom()
-                        : Math.min(visibleWidth / nodesBounds.width, wrapperHeight / nodesBounds.height)
+                        : Math.min(Math.max(unclampedFitZoom, MIN_ZOOM), MAX_ZOOM)
                 const nodesWidthAdjusted = nodesBounds.width * fitZoom
                 // Calculate the padding right to fit the panel width to the wrapper width
                 // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
