@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useAsyncActions, useValues } from 'kea'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -16,7 +16,7 @@ export interface UtmTeamDefaultControlsProps {
 
 export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamDefaultControlsProps): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam } = useAsyncActions(teamLogic)
     const defaults = getTeamUtmDefaults(currentTeam?.workflows_config)
     const editDefaultsLink = (
         <Link to={urls.settings('environment-workflows', 'workflows-utm-defaults')} target="_blank">
@@ -34,8 +34,8 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                 type="secondary"
                 size="xsmall"
                 loading={currentTeamLoading}
-                onClick={() => {
-                    updateCurrentTeam({
+                onClick={async () => {
+                    await updateCurrentTeam({
                         workflows_config: {
                             ...currentTeam?.workflows_config,
                             capture_workflows_engagement_events:
@@ -44,7 +44,16 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                             email_utm_params: value,
                         },
                     })
-                    onSavedAsTeamDefault()
+                    // A failed save still resolves, so check what was saved. teamLogic shows the error, and the
+                    // email keeps its values as its own so a later bulk apply skips them.
+                    if (
+                        matchesTeamUtmDefaults(
+                            value,
+                            getTeamUtmDefaults(teamLogic.values.currentTeam?.workflows_config)
+                        )
+                    ) {
+                        onSavedAsTeamDefault()
+                    }
                 }}
                 data-attr="email-utm-save-as-team-default"
             >

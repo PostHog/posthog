@@ -905,6 +905,9 @@ class ApplyUtmDefaultsResponseSerializer(serializers.Serializer):
     emails_off = serializers.IntegerField(
         help_text="Email steps in scope that have UTM tags off. enable_where_off turns them on."
     )
+    workflows_without_access = serializers.IntegerField(
+        help_text="Workflows with emails to update that you can't edit. They keep their old values."
+    )
     workflows_failed = serializers.IntegerField(
         help_text="Workflows that could not be saved, for example because they fail validation. They keep their old values."
     )
@@ -2996,7 +2999,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         get_team = self.context.get("get_team")
         if isinstance(submitted_actions, list) and get_team is not None:
-            existing_ids = [a.get("id") for a in (instance.actions or []) if isinstance(a, dict)] if instance else []
+            existing_ids = (
+                [str(a["id"]) for a in (instance.actions or []) if instance and isinstance(a, dict) and a.get("id")]
+                if instance
+                else []
+            )
             seed_new_email_steps_with_utm_defaults(actions, existing_ids, load_team_utm_defaults(get_team().id))
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
@@ -6484,9 +6491,10 @@ class HogFlowViewSet(
 
         defaults = load_team_utm_defaults(self.team_id)
         pending_schedule_flow_ids = set(
-            HogFlowSchedule.objects.filter(
-                team_id=self.team_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=False
-            ).values_list("hog_flow_id", flat=True)
+            # next_run_at can be empty while the scheduler recalculates it, so an active schedule is enough.
+            HogFlowSchedule.objects.filter(team_id=self.team_id, status=HogFlowSchedule.Status.ACTIVE).values_list(
+                "hog_flow_id", flat=True
+            )
         )
         flows = HogFlow.objects.filter(team_id=self.team_id).exclude(status=HogFlow.State.ARCHIVED)
 
@@ -6497,6 +6505,7 @@ class HogFlowViewSet(
             "emails_turned_on": 0,
             "emails_off": 0,
             "workflows_failed": 0,
+            "workflows_without_access": 0,
         }
         for flow in flows:
             # A broadcast that already went out keeps the links it was sent with.
@@ -6507,21 +6516,28 @@ class HogFlowViewSet(
             ):
                 continue
             all_on = plan_flow_utm_update(flow.actions or [], flow.draft, defaults, enable_where_off=True)
-            result["emails_off"] += all_on.emails_turned_on if all_on else 0
+            if all_on is None:
+                continue
+            # Edit access to workflows in general can be narrowed on a single workflow.
+            if not self.user_access_control.check_access_level_for_object(flow, "editor"):
+                result["workflows_without_access"] += 1
+                continue
+            result["emails_off"] += all_on.emails_turned_on
             plan = all_on if enable_where_off else plan_flow_utm_update(flow.actions or [], flow.draft, defaults, False)
             if plan is None:
                 continue
-            result["emails_updated"] += plan.emails_updated
-            result["emails_turned_on"] += plan.emails_turned_on
-            result["workflows_updated"] += 1
-            if flow.status == HogFlow.State.ACTIVE:
-                result["active_workflows_updated"] += 1
             if not dry_run:
                 try:
                     self._apply_utm_defaults_to_flow(flow, defaults, enable_where_off)
                 except serializers.ValidationError as e:
                     logger.warning("utm_defaults_apply_failed", hog_flow_id=str(flow.id), error=str(e.detail))
                     result["workflows_failed"] += 1
+                    continue
+            result["emails_updated"] += plan.emails_updated
+            result["emails_turned_on"] += plan.emails_turned_on
+            result["workflows_updated"] += 1
+            if flow.status == HogFlow.State.ACTIVE:
+                result["active_workflows_updated"] += 1
 
         if not dry_run:
             self._report_utm_defaults_applied(result, enable_where_off)

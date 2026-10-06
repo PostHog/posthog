@@ -1,6 +1,8 @@
 from collections.abc import Iterable
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.workflows.backend.facade.contracts import FlowUtmUpdate, TeamUtmDefaults
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
@@ -42,9 +44,14 @@ def seed_new_email_actions(
         config = action["config"]
         if "utm_tags_enabled" in config:
             continue
+        # Values the caller supplied for this email are its own, so only the keys it left out follow the default.
+        supplied = clean_utm_params(config.get("utm_params"))
         config["utm_tags_enabled"] = defaults.enabled
-        config["utm_params"] = dict(defaults.params)
-        config[UTM_FROM_DEFAULT_KEY] = list(UTM_KEYS)
+        config["utm_params"] = {
+            **{key: value for key, value in defaults.params.items() if key not in supplied},
+            **supplied,
+        }
+        config[UTM_FROM_DEFAULT_KEY] = [key for key in UTM_KEYS if key not in supplied]
 
 
 def apply_defaults_to_email_config(
@@ -71,9 +78,14 @@ def apply_defaults_to_email_config(
     return new_config
 
 
-def _apply_to_actions(
-    actions: list[Any], defaults: TeamUtmDefaults, enable_where_off: bool
-) -> tuple[list[dict[str, Any]] | None, int, int]:
+@frozen
+class _ActionsUpdate:
+    actions: list[dict[str, Any]] | None
+    emails_updated: int
+    emails_turned_on: int
+
+
+def _apply_to_actions(actions: list[Any], defaults: TeamUtmDefaults, enable_where_off: bool) -> _ActionsUpdate:
     changed = False
     updated_count = 0
     turned_on = 0
@@ -91,25 +103,23 @@ def _apply_to_actions(
         if new_config.get("utm_tags_enabled") is True and action["config"].get("utm_tags_enabled") is not True:
             turned_on += 1
         new_actions.append({**action, "config": new_config})
-    return (new_actions if changed else None), updated_count, turned_on
+    return _ActionsUpdate(
+        actions=new_actions if changed else None, emails_updated=updated_count, emails_turned_on=turned_on
+    )
 
 
 def plan_flow_update(
     actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
 ) -> FlowUtmUpdate | None:
-    new_actions, updated_count, turned_on = _apply_to_actions(actions, defaults, enable_where_off)
+    live = _apply_to_actions(actions, defaults, enable_where_off)
     draft_actions = draft.get("actions") if isinstance(draft, dict) else None
-    new_draft_actions = None
-    if isinstance(draft_actions, list):
-        # A staged draft would undo the change on publish, so it gets the same edit.
-        new_draft_actions, draft_count, draft_turned_on = _apply_to_actions(draft_actions, defaults, enable_where_off)
-        updated_count = max(updated_count, draft_count)
-        turned_on = max(turned_on, draft_turned_on)
-    if new_actions is None and new_draft_actions is None:
+    # A staged draft would undo the change on publish, so it gets the same edit.
+    staged = _apply_to_actions(draft_actions, defaults, enable_where_off) if isinstance(draft_actions, list) else None
+    if live.actions is None and (staged is None or staged.actions is None):
         return None
     return FlowUtmUpdate(
-        actions=new_actions,
-        draft_actions=new_draft_actions,
-        emails_updated=updated_count,
-        emails_turned_on=turned_on,
+        actions=live.actions,
+        draft_actions=staged.actions if staged else None,
+        emails_updated=max(live.emails_updated, staged.emails_updated if staged else 0),
+        emails_turned_on=max(live.emails_turned_on, staged.emails_turned_on if staged else 0),
     )

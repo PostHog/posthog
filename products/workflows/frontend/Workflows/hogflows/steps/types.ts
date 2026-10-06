@@ -379,7 +379,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     utm_content: z.string().optional(),
                 })
                 .optional(),
-            // utm_params keys that follow the team default. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            // utm_params keys that follow the team default. Only the Django API reads it, so Node does not declare it.
             utm_params_from_default: z
                 .array(z.enum(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']))
                 .optional(),

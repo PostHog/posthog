@@ -12491,6 +12491,8 @@ export namespace Schemas {
       emails_turned_on: number;
       /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
       emails_off: number;
+      /** Workflows with emails to update that you can't edit. They keep their old values. */
+      workflows_without_access: number;
       /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
       workflows_failed: number;
     }

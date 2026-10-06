@@ -51,6 +51,12 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                         {preview.active_workflows_updated > 0 &&
                             ` ${preview.active_workflows_updated} of them are live, so their next send uses the new values.`}
                     </p>
+                    {preview.workflows_without_access > 0 && (
+                        <p className="m-0 text-secondary">
+                            {preview.workflows_without_access} more workflows have emails to update, but you don't have
+                            edit access to them. They keep their current values.
+                        </p>
+                    )}
                     {preview.emails_off > 0 && (
                         <LemonCheckbox
                             checked={enableWhereOff}

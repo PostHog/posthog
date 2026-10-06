@@ -967,7 +967,7 @@ class EmailUtmParamsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema_field(EmailUtmParamsSerializer)  # type: ignore[arg-type]
+@extend_schema_field(EmailUtmParamsSerializer)
 class EmailUtmParamsField(serializers.JSONField):
     def to_internal_value(self, data: Any) -> dict[str, str]:
         serializer = EmailUtmParamsSerializer(data=data)
