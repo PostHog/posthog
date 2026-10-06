@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth
     Auth0PaginationLimitError,
     Auth0PaginationStalledError,
     Auth0ResponseTooLargeError,
+    Auth0ResponseTooSlowError,
     Auth0ResumeConfig,
     Auth0RetryableError,
     Auth0TokenManager,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth
     _build_url,
     _format_window_value,
     _max_window_value,
+    _reject_redirect_response,
     auth0_source,
     get_rows,
     management_audience,
@@ -216,6 +218,7 @@ class TestTokenManager:
         assert body["grant_type"] == "client_credentials"
         assert body["audience"] == f"https://{DOMAIN}/api/v2/"
         assert session.post.call_args.kwargs["allow_redirects"] is False
+        assert session.post.call_args.kwargs["hooks"] == {"response": _reject_redirect_response}
 
     def test_re_mints_once_the_token_expires(self) -> None:
         session = mock.MagicMock()
@@ -258,6 +261,36 @@ class TestTokenManager:
             with pytest.raises(Auth0ResponseTooLargeError):
                 manager.get_token()
 
+    def test_download_deadline_closes_a_blocked_response(self) -> None:
+        class ImmediateTimer:
+            daemon = False
+
+            def __init__(self, interval: float, callback: Any) -> None:
+                self.callback = callback
+
+            def start(self) -> None:
+                self.callback()
+
+            def cancel(self) -> None:
+                pass
+
+        session = _token_session()
+        manager = Auth0TokenManager(session, DOMAIN, "cid", "secret", "v2")
+
+        with mock.patch.object(auth0_module.threading, "Timer", ImmediateTimer):
+            with pytest.raises(Auth0ResponseTooSlowError):
+                manager.get_token()
+
+        session.post.return_value.close.assert_called()
+
+    def test_redirect_hook_closes_before_raising(self) -> None:
+        response = _response(status_code=302)
+
+        with pytest.raises(Auth0HostNotAllowedError):
+            _reject_redirect_response(response)
+
+        response.close.assert_called_once()
+
 
 class TestGetRows:
     def _run(
@@ -288,13 +321,24 @@ class TestGetRows:
             )
         return batches, data_session, manager
 
-    def test_unpaginated_endpoint_yields_the_bare_array_once(self) -> None:
-        rows = [{"id": "lst_1", "type": "http"}]
+    def test_log_streams_omit_sink_credentials(self) -> None:
+        rows = [
+            {
+                "id": "lst_1",
+                "type": "http",
+                "sink": {
+                    "httpEndpoint": "https://example.com/logs",
+                    "httpAuthorization": "Bearer secret",
+                    "httpCustomHeaders": [{"header": "X-Api-Key", "value": "secret"}],
+                },
+            }
+        ]
         batches, session, manager = self._run("log_streams", [_response(json_data=rows)])
 
-        assert batches == [rows]
+        assert batches == [[{"id": "lst_1", "type": "http"}]]
         assert session.get.call_count == 1
         assert manager.saved == []
+        assert session.get.call_args.kwargs["hooks"] == {"response": _reject_redirect_response}
 
     def test_pagination_stops_once_total_is_reached(self) -> None:
         page_0 = {"clients": [{"client_id": str(i)} for i in range(100)], "total": 150}

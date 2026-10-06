@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import threading
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -103,23 +104,60 @@ def management_audience(domain: str, api_version: str) -> str:
     return f"{_base_url(domain)}/api/{api_version}/"
 
 
+def _reject_redirect_response(response: requests.Response, *args: Any, **kwargs: Any) -> requests.Response:
+    """Reject redirects in the response hook, before Requests can consume their bodies."""
+    if response.is_redirect or response.is_permanent_redirect:
+        response.close()
+        raise Auth0HostNotAllowedError(
+            f"Auth0 returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+        )
+    return response
+
+
+def _iter_response_content(response: requests.Response) -> Iterator[bytes]:
+    """Read response chunks while a watchdog enforces the total download deadline."""
+    expired = threading.Event()
+
+    def close_expired_response() -> None:
+        expired.set()
+        response.close()
+
+    watchdog = threading.Timer(MAX_DOWNLOAD_SECONDS, close_expired_response)
+    watchdog.daemon = True
+    watchdog.start()
+    try:
+        try:
+            for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
+                if expired.is_set():
+                    raise Auth0ResponseTooSlowError(
+                        f"Auth0 response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
+                    )
+                yield chunk
+        except (requests.exceptions.RequestException, OSError) as error:
+            if expired.is_set():
+                raise Auth0ResponseTooSlowError(
+                    f"Auth0 response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
+                ) from error
+            raise
+        if expired.is_set():
+            raise Auth0ResponseTooSlowError(
+                f"Auth0 response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
+            )
+    finally:
+        watchdog.cancel()
+
+
 def _read_capped_json(response: requests.Response) -> Any:
     """Parse a streamed JSON response, refusing a body past the size or time budget.
 
-    The domain is customer-supplied, so a body must never be buffered unbounded, nor be allowed
-    to hold the connection open by dribbling under the per-read timeout. ``iter_content`` decodes
-    any content-encoding, so the size cap bounds the decompressed body. Both caps are permanent —
-    re-fetching the same page yields the same body.
+    The domain is customer-supplied, so a body must never be buffered unbounded. ``iter_content``
+    decodes any content-encoding, so the size cap bounds the decompressed body. A watchdog closes
+    the response when the total deadline expires, including while a chunk read is blocked.
     """
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
     try:
-        for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
-            if time.monotonic() > deadline:
-                raise Auth0ResponseTooSlowError(
-                    f"Auth0 response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
-                )
+        for chunk in _iter_response_content(response):
             if not chunk:
                 continue
             total += len(chunk)
@@ -137,10 +175,7 @@ def _read_body_preview(response: requests.Response) -> str:
     """Read a bounded prefix of a streamed body for error logging, never buffering it whole."""
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
-    for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
-        if time.monotonic() > deadline:
-            break
+    for chunk in _iter_response_content(response):
         if not chunk:
             continue
         chunks.append(chunk)
@@ -187,6 +222,7 @@ class Auth0TokenManager:
             timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
             stream=True,
+            hooks={"response": _reject_redirect_response},
         )
 
         try:
@@ -346,12 +382,15 @@ def validate_credentials(
             timeout=10,
             allow_redirects=False,
             stream=True,
+            hooks={"response": _reject_redirect_response},
         )
         try:
             is_redirect = response.is_redirect or response.is_permanent_redirect
             status_code = response.status_code
         finally:
             response.close()
+    except Auth0HostNotAllowedError:
+        return False, HOST_NOT_ALLOWED_ERROR
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -405,7 +444,12 @@ def get_rows(
         # is what Auth0's rate limiter returns — no second retry layer here.
         headers = {"Authorization": f"Bearer {token_manager.get_token()}", "Accept": "application/json"}
         response = session.get(
-            url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False, stream=True
+            url,
+            headers=headers,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=False,
+            stream=True,
+            hooks={"response": _reject_redirect_response},
         )
         try:
             if response.is_redirect or response.is_permanent_redirect:
@@ -423,6 +467,8 @@ def get_rows(
 
     if not config.paginated:
         rows = _extract_rows(fetch(_build_url(domain, config, api_version, {})), config)
+        if endpoint == "log_streams":
+            rows = [{key: value for key, value in row.items() if key != "sink"} for row in rows]
         if rows:
             yield rows
         return
