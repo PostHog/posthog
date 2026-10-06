@@ -368,6 +368,10 @@ class StoredCiReader:
             since = datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach
         except ValueError:
             return None
+        # A floor below the stored days can never be served, and a lookup from a far-off floor
+        # walks every day up to now.
+        if since.date() < (datetime.now(UTC) - stored.days).date():
+            return None
         key = (stored.table, since)
         with self._lock:
             if key not in self._days:
