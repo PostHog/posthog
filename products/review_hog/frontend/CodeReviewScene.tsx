@@ -5,6 +5,7 @@ import {
     IconBolt,
     IconChat,
     IconChevronDown,
+    IconConfetti,
     IconDirectedGraph,
     IconExternal,
     IconFilter,
@@ -45,7 +46,6 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -681,8 +681,7 @@ function RecentReviewsSection(): JSX.Element | null {
  * start a publishing review, acting as the requesting user. A review resolves the PR's comment
  * threads afterwards when the user's resolve_comments setting is on; the split button's side
  * actions are the per-run variants (review without resolving / resolve only / flash). Hidden unless the
- * backend says this project can trigger reviews (limited to the designated ReviewHog team while
- * in alpha).
+ * backend says this project can trigger reviews.
  */
 function TriggerReviewSection(): JSX.Element | null {
     const { settings, triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
@@ -745,13 +744,17 @@ function TriggerReviewSection(): JSX.Element | null {
                                     >
                                         Only resolve existing comments
                                     </LemonButton>
-                                    <LemonButton
-                                        fullWidth
-                                        onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
-                                        tooltip="A faster, cheaper review that never resolves comments. Every message it posts is marked FLASH MODE."
-                                    >
-                                        Review in Flash mode
-                                    </LemonButton>
+                                    {settings.show_internal_features && (
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() =>
+                                                submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)
+                                            }
+                                            tooltip="A faster, cheaper review that never resolves comments. Its status comment is marked as flash."
+                                        >
+                                            Review in Flash mode
+                                        </LemonButton>
+                                    )}
                                 </>
                             ),
                         },
@@ -1150,81 +1153,90 @@ function TriggersSection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconFilter />} title="What gets reviewed">
-                Choose which pull requests PostHog Review picks up automatically, and whether reviews also resolve the
-                comment threads on them.
+                {settings?.show_internal_features
+                    ? 'Choose which pull requests PostHog Review picks up automatically, and whether reviews also resolve the comment threads on them.'
+                    : 'Choose whether reviews also resolve comment threads and how clean reviews appear on your pull requests.'}
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
-                        <Logomark />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Review all your Inbox PRs</div>
-                        <div className="text-xs text-secondary">
-                            When a self-driving implementation from your Inbox opens a pull request, PostHog Review
-                            reviews it and posts the review to the pull request automatically.
+                {/* Inbox reviews start in any project with a saved opt-in, so a switch that is on stays visible
+                and the user can turn it off. */}
+                {(settings?.show_internal_features || settings?.review_inbox_prs) && (
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
+                            <Logomark />
                         </div>
-                    </div>
-                    <LemonSwitch
-                        aria-label="Review all your Inbox PRs"
-                        checked={settings?.review_inbox_prs ?? false}
-                        onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
-                        disabledReason={switchDisabledReason}
-                    />
-                </div>
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconStamphog className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
-                        <div className="text-xs text-secondary">
-                            When a self-driving implementation from your Inbox opens a pull request, Stamphog reviews it
-                            and approves it if it passes.
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">Review all your Inbox PRs</div>
+                            <div className="text-xs text-secondary">
+                                When a self-driving implementation from your Inbox opens a pull request, PostHog Review
+                                reviews it and posts the review to the pull request automatically.
+                            </div>
                         </div>
+                        <LemonSwitch
+                            aria-label="Review all your Inbox PRs"
+                            checked={settings?.review_inbox_prs ?? false}
+                            onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
+                            disabledReason={switchDisabledReason}
+                        />
                     </div>
-                    <LemonSwitch
-                        aria-label="Let Stamphog review your Inbox PRs"
-                        checked={settings?.stamphog_review_inbox_prs ?? false}
-                        onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
-                        disabledReason={
-                            // A switch that is already on stays usable while disconnected, so
-                            // turning it off never requires connecting Stamphog first.
-                            settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
-                                ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
-                                : switchDisabledReason
-                        }
-                    />
-                </div>
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconGithub className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">
-                            Review all your PRs with the{' '}
-                            <CopyToClipboardInline
-                                explicitValue="reviewhog"
-                                description="label"
-                                iconSize="xsmall"
-                                className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
-                            >
-                                reviewhog
-                            </CopyToClipboardInline>{' '}
-                            label
+                )}
+                {(settings?.show_internal_features || settings?.stamphog_review_inbox_prs) && (
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                            <IconStamphog className="size-5" />
                         </div>
-                        <div className="text-xs text-secondary">
-                            Add the reviewhog label to a pull request you author in a connected repository and PostHog
-                            Review reviews it.
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
+                            <div className="text-xs text-secondary">
+                                When a self-driving implementation from your Inbox opens a pull request, Stamphog
+                                reviews it and approves it if it passes.
+                            </div>
                         </div>
+                        <LemonSwitch
+                            aria-label="Let Stamphog review your Inbox PRs"
+                            checked={settings?.stamphog_review_inbox_prs ?? false}
+                            onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                            disabledReason={
+                                // A switch that is already on stays usable while disconnected, so
+                                // turning it off never requires connecting Stamphog first.
+                                settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                    ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
+                                    : switchDisabledReason
+                            }
+                        />
                     </div>
-                    <LemonSwitch
-                        aria-label="Review all your PRs with the reviewhog label"
-                        checked={settings?.review_labeled_prs ?? true}
-                        onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
-                        disabledReason={switchDisabledReason}
-                    />
-                </div>
+                )}
+                {settings?.show_internal_features && (
+                    <div className="flex items-center gap-4 p-4">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                            <IconGithub className="size-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">
+                                Review all your PRs with the{' '}
+                                <CopyToClipboardInline
+                                    explicitValue="reviewhog"
+                                    description="label"
+                                    iconSize="xsmall"
+                                    className="rounded border border-warning bg-warning-highlight px-1.5 py-0.5 font-mono text-xs text-warning"
+                                >
+                                    reviewhog
+                                </CopyToClipboardInline>{' '}
+                                label
+                            </div>
+                            <div className="text-xs text-secondary">
+                                Add the reviewhog label to a pull request you author in a connected repository and
+                                PostHog Review reviews it.
+                            </div>
+                        </div>
+                        <LemonSwitch
+                            aria-label="Review all your PRs with the reviewhog label"
+                            checked={settings?.review_labeled_prs ?? true}
+                            onChange={(checked) => updateSettings({ review_labeled_prs: checked })}
+                            disabledReason={switchDisabledReason}
+                        />
+                    </div>
+                )}
                 <div className="flex items-center gap-4 p-4">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
                         <IconChat className="size-5" />
@@ -1243,55 +1255,78 @@ function TriggersSection(): JSX.Element {
                         disabledReason={switchDisabledReason}
                     />
                 </div>
-            </LemonCard>
-            <div className="mt-2">
-                <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>
-                <p className="m-0 text-xs text-secondary">These settings apply only to Flash reviews.</p>
-            </div>
-            <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 <div className="flex items-center gap-4 p-4">
                     <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconBolt className="size-5" />
+                        <IconConfetti className="size-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
+                        <div className="text-sm font-semibold">Celebrate clean reviews</div>
                         <div className="text-xs text-secondary">
-                            Automatically review PRs you author in PostHog/posthog, including drafts and new commits.
-                            Starts with future PR activity.
+                            When a review of your pull request finds nothing to raise, the review comment shows a fun
+                            image. Turn this off to end clean reviews with the text summary only.
                         </div>
                     </div>
                     <LemonSwitch
-                        aria-label="Review all your PRs in Flash mode"
-                        checked={settings?.review_authored_prs ?? false}
-                        onChange={(checked) => updateSettings({ review_authored_prs: checked })}
+                        aria-label="Celebrate clean reviews"
+                        data-attr="review-hog-celebrate-clean-reviews"
+                        checked={settings?.celebrate_clean_reviews ?? true}
+                        onChange={(checked) => updateSettings({ celebrate_clean_reviews: checked })}
                         disabledReason={switchDisabledReason}
-                        loading={settingsLoading}
-                    />
-                </div>
-                <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <IconBalance className="size-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold">Flash strength</div>
-                        <div className="text-xs text-secondary">
-                            Applies to automatic and manually requested Flash reviews. Extra high takes longer and costs
-                            more.
-                        </div>
-                    </div>
-                    <LemonSelect<ReviewUserSettingsFlashReasoningEffortEnumApi>
-                        aria-label="Flash strength"
-                        value={settings?.flash_reasoning_effort ?? 'medium'}
-                        options={[
-                            { value: 'medium', label: 'Medium' },
-                            { value: 'xhigh', label: 'Extra high' },
-                        ]}
-                        onChange={(value) => updateSettings({ flash_reasoning_effort: value })}
-                        disabledReason={switchDisabledReason}
-                        loading={settingsLoading}
                     />
                 </div>
             </LemonCard>
+            {settings?.show_internal_features && (
+                <>
+                    <div className="mt-2">
+                        <h4 className="mb-1 text-sm font-semibold">ReviewHog Flash - Experimental</h4>
+                        <p className="m-0 text-xs text-secondary">These settings apply only to Flash reviews.</p>
+                    </div>
+                    <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
+                        <div className="flex items-center gap-4 p-4">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                                <IconBolt className="size-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
+                                <div className="text-xs text-secondary">
+                                    Automatically review PRs you author in PostHog/posthog, including drafts and new
+                                    commits. Starts with future PR activity.
+                                </div>
+                            </div>
+                            <LemonSwitch
+                                aria-label="Review all your PRs in Flash mode"
+                                checked={settings?.review_authored_prs ?? false}
+                                onChange={(checked) => updateSettings({ review_authored_prs: checked })}
+                                disabledReason={switchDisabledReason}
+                                loading={settingsLoading}
+                            />
+                        </div>
+                        <div className="flex items-center gap-4 p-4">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                                <IconBalance className="size-5" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold">Flash strength</div>
+                                <div className="text-xs text-secondary">
+                                    Applies to automatic and manually requested Flash reviews. Extra high takes longer
+                                    and costs more.
+                                </div>
+                            </div>
+                            <LemonSelect<ReviewUserSettingsFlashReasoningEffortEnumApi>
+                                aria-label="Flash strength"
+                                value={settings?.flash_reasoning_effort ?? 'medium'}
+                                options={[
+                                    { value: 'medium', label: 'Medium' },
+                                    { value: 'xhigh', label: 'Extra high' },
+                                ]}
+                                onChange={(value) => updateSettings({ flash_reasoning_effort: value })}
+                                disabledReason={switchDisabledReason}
+                                loading={settingsLoading}
+                            />
+                        </div>
+                    </LemonCard>
+                </>
+            )}
         </section>
     )
 }
@@ -1760,16 +1795,14 @@ export const scene: SceneExport = {
  * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
  * guided-configuration page — every control is live from load, no save step. See
  * `reviewHogSettingsLogic` for the data flow. Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same
- * flag that shows the menu entry, so whoever discovers the entry can open the page. Staff bypass the
- * flag, keeping the page reachable by direct URL where the flag is off.
+ * flag that shows the menu entry, so whoever discovers the entry can open the page.
  */
 export function CodeReviewScene(): JSX.Element {
-    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { blindSpots, validators, resolutionSkills, initialLoadFailed } = useValues(reviewHogSettingsLogic)
     const { selectBlindSpots, selectValidator, selectResolutionSkill, loadAll } = useActions(reviewHogSettingsLogic)
 
-    if (user != null && !user.is_staff && !featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
+    if (!featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
     }
 

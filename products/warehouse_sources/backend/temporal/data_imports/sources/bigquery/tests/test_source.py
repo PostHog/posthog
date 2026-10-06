@@ -23,12 +23,13 @@ from requests.adapters import HTTPAdapter
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREATE_READ_SESSION_RETRY,
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
     BIGQUERY_INTEGRATION_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
@@ -1319,6 +1320,22 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             False,
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
+        (
+            RefreshError(
+                "('Unable to acquire impersonated credentials', "
+                '\'{"error": {"code": 403, "message": "Permission \\\'iam.serviceAccounts.getAccessToken\\\' '
+                'denied on resource (or it may not exist).", "status": "PERMISSION_DENIED"}}\')'
+            ),
+            BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
+            False,
+        ),
+        (
+            # Names the permission without denying it, so it must not match the check above and
+            # should fall through to the generic (captured) branch.
+            RefreshError("('Unable to acquire impersonated credentials', 'iam.serviceAccounts.getAccessToken')"),
+            BIGQUERY_VALIDATION_GENERIC_ERROR,
+            True,
+        ),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
@@ -2310,7 +2327,7 @@ def test_bigquery_build_pipeline_threads_resolved_rest_api_version(pin):
 # every client the run opens signs with what it returns.
 
 
-_BATCH_EXPORT_MODULE = "products.batch_exports.backend.temporal.destinations.bigquery_batch_export"
+_BATCH_EXPORT_MODULE = "products.batch_exports.backend.facade.destinations.bigquery"
 
 
 def _google_cloud_integration(team, *, with_key: bool, email: str = "sa@my-project.iam.gserviceaccount.com"):

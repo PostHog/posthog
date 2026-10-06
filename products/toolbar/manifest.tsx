@@ -26,6 +26,7 @@ export const manifest: ProductManifest = {
             type: 'toolbar',
             category: ProductItemCategory.TOOLS,
             iconType: 'toolbar',
+            iconColor: ['var(--color-product-toolbar-light)', 'var(--color-product-toolbar-dark)'],
             sceneKey: 'Toolbar',
         },
     ],

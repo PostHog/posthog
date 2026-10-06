@@ -1595,6 +1595,7 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     let mut config = Config::default_test_config();
     config.flag_definitions_rate_limits =
         format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
+    config.flag_definitions_conditional_rate_per_minute = 1;
     config.enable_metrics = true; // Enable metrics collection
 
     // Populate cache
@@ -1605,21 +1606,15 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         .await
         .unwrap();
 
-    // A second team whose `:etag` value cannot be decoded. Deleting `etag_read_failure_label`
+    // The rate-limited team's `:etag` value cannot be decoded. Deleting `etag_read_failure_label`
     // left `redis_error` with no coverage, and this is the only test that can scrape /metrics.
-    let (corrupt_team, corrupt_secret_token, _) = context
-        .create_team_with_secret_token(None, None, None)
-        .await
-        .unwrap();
-    context
-        .populate_flag_definitions_cache(redis_client.clone(), corrupt_team.id)
-        .await
-        .unwrap();
+    // No other test writes an undecodable `:etag`, so other tests running in the same process
+    // cannot add to the `redis_error` count asserted below.
     redis_client
         .set_bytes(
             format!(
                 "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json:etag",
-                corrupt_team.id
+                team.id
             ),
             b"not-a-pickle".to_vec(),
             None,
@@ -1627,47 +1622,49 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         .await
         .unwrap();
 
+    let (other_team, other_secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context
+        .populate_flag_definitions_cache(redis_client.clone(), other_team.id)
+        .await
+        .unwrap();
+
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Make first request (should succeed)
-    let response = client
-        .get(format!(
-            "http://{}/flags/definitions?token={}",
-            server.addr, team.api_token
-        ))
-        .header("Authorization", format!("Bearer {secret_token}"))
-        .send()
-        .await
-        .unwrap();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
 
+    let response = get_definitions(&client, &url, &secret_token, None).await;
     assert_eq!(response.status(), 200);
 
-    // Make second request (should be rate limited)
-    let response = client
-        .get(format!(
-            "http://{}/flags/definitions?token={}",
-            server.addr, team.api_token
-        ))
-        .header("Authorization", format!("Bearer {secret_token}"))
-        .send()
-        .await
-        .unwrap();
-
+    let response = get_definitions(&client, &url, &secret_token, None).await;
     assert_eq!(response.status(), 429);
 
-    // The corrupt team is not rate limited, so this request reaches the ETag read.
-    let corrupt_response = client
-        .get(format!(
-            "http://{}/flags/definitions?token={}",
-            server.addr, corrupt_team.api_token
-        ))
-        .header("Authorization", format!("Bearer {corrupt_secret_token}"))
-        .send()
-        .await
-        .unwrap();
+    let response = get_definitions(&client, &url, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "A stale ETag should pass the conditional budget and be refused by the spent full-response budget"
+    );
+    let response = get_definitions(&client, &url, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "The spent conditional budget should refuse a stale ETag before the ETag read"
+    );
 
-    assert_eq!(corrupt_response.status(), 200);
+    // The second team is not rate limited, so this request reaches the ETag read.
+    let other_url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, other_team.api_token
+    );
+    let response = get_definitions(&client, &other_url, &other_secret_token, None).await;
+    assert_eq!(response.status(), 200);
 
     // Fetch metrics from /metrics endpoint
     let metrics_response = client
@@ -1677,27 +1674,53 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         .unwrap();
 
     let metrics_text = metrics_response.text().await.unwrap();
+    let metric_value = |prefix: &str, labels: &[&str]| {
+        metrics_text
+            .lines()
+            .find(|line| {
+                line.starts_with(prefix) && labels.iter().all(|label| line.contains(label))
+            })
+            .and_then(|line| line.rsplit(' ').next())
+            .and_then(|value| value.parse::<f64>().ok())
+    };
 
-    // Verify that rate limit metrics are present
-    assert!(
-        metrics_text.contains("flags_flag_definitions_requests_total"),
-        "Metrics should include request counter"
+    // Both limiters share metric names and differ only in the `budget` label, so a dashboard
+    // that sums a counter sees every request. A stale ETag passes both limiters but counts
+    // once as a request. The full-response limiter still counts the 429 it returns for it.
+    let team_key = format!(r#"key="{}""#, team.id);
+    let team_count = |metric: &str, budget: &str| {
+        metric_value(
+            &format!("{metric}{{"),
+            &[&team_key, &format!(r#"budget="{budget}""#)],
+        )
+    };
+    assert_eq!(
+        team_count("flags_flag_definitions_requests_total", "full"),
+        Some(2.0),
+        "A stale ETag should not count as a second request. Metrics: {metrics_text}"
     );
-    assert!(
-        metrics_text.contains("flags_flag_definitions_rate_limited_total"),
-        "Metrics should include rate limited counter"
+    assert_eq!(
+        team_count("flags_flag_definitions_requests_total", "conditional"),
+        Some(2.0),
+        "Requests with an ETag in If-None-Match should count under the conditional budget. Metrics: {metrics_text}"
+    );
+    assert_eq!(
+        team_count("flags_flag_definitions_rate_limited_total", "full"),
+        Some(2.0),
+        "The full-response limiter should count the 429 it returns for a stale ETag. Metrics: {metrics_text}"
+    );
+    assert_eq!(
+        team_count("flags_flag_definitions_rate_limited_total", "conditional"),
+        Some(1.0),
+        "429s from the conditional limiter should count under the conditional budget. Metrics: {metrics_text}"
     );
 
     // Runbook step 2 picks which cluster to query from this gauge, so assert the series and
     // its value and not just the metric name. This config leaves the toggle off.
-    let gauge_value = metrics_text
-        .lines()
-        .find(|line| {
-            line.starts_with("flags_flag_definitions_reads_dedicated_redis{")
-                && line.contains(r#"reason="disabled""#)
-        })
-        .and_then(|line| line.rsplit(' ').next())
-        .and_then(|value| value.parse::<f64>().ok());
+    let gauge_value = metric_value(
+        "flags_flag_definitions_reads_dedicated_redis{",
+        &[r#"reason="disabled""#],
+    );
     assert_eq!(
         gauge_value,
         Some(0.0),
@@ -1705,30 +1728,209 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     );
 
     // An absent ETag writes no log record, so this counter is the only trace that it
-    // happened. populate_flag_definitions_cache writes no `:etag` key, so the first
-    // request above took that path.
+    // happened. populate_flag_definitions_cache writes no `:etag` key for the second team.
     assert!(
-        metrics_text.lines().any(|line| line
-            .starts_with("flags_flag_definitions_etag_total{")
-            && line.contains(r#"result="redis_missing""#)),
-        "An absent ETag should count as redis_missing rather than redis_error. Metrics: {metrics_text}"
+        metric_value(
+            "flags_flag_definitions_etag_total{",
+            &[r#"result="redis_missing""#]
+        )
+        .is_some(),
+        "An absent ETag should count as redis_missing. Metrics: {metrics_text}"
     );
 
     // Routing a decode failure back to Ok(None) would revert this to redis_missing, which sends
-    // the on-call to rebuild a cache tier when the fault is corrupt data.
-    assert!(
-        metrics_text.lines().any(
-            |line| line.starts_with("flags_flag_definitions_etag_total{")
-                && line.contains(r#"result="redis_error""#)
-        ),
-        "An undecodable ETag should count as redis_error. Metrics: {metrics_text}"
+    // the on-call to rebuild a cache tier when the fault is corrupt data. Only the rate-limited
+    // team's 200 and its first stale ETag read its undecodable ETag. A limiter check that runs
+    // after the ETag read raises the count, because the refused requests then read Redis too.
+    let redis_error = metric_value(
+        "flags_flag_definitions_etag_total{",
+        &[r#"result="redis_error""#],
+    );
+    assert_eq!(
+        redis_error,
+        Some(2.0),
+        "An undecodable ETag should count as redis_error, and only the 200 and the first stale ETag should read it. Metrics: {metrics_text}"
+    );
+}
+
+async fn get_definitions(
+    client: &reqwest::Client,
+    url: &str,
+    secret_token: &str,
+    if_none_match: Option<&str>,
+) -> reqwest::Response {
+    let request = client
+        .get(url)
+        .header("Authorization", format!("Bearer {secret_token}"));
+    match if_none_match {
+        Some(etag) => request.header("If-None-Match", etag),
+        None => request,
+    }
+    .send()
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn test_etag_304_does_not_consume_full_response_rate_limit() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    config.flag_definitions_rate_limits =
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
     );
 
-    // Verify key label is present in metrics (key is the generic label for team_id)
-    let key_label = format!("key=\"{}\"", team.id);
-    assert!(
-        metrics_text.contains(&key_label),
-        "Metrics should include key label. Metrics: {metrics_text}"
+    let matching_etag = format!("W/\"{etag_value}\"");
+
+    let response = get_definitions(&client, &url, &secret_token, None).await;
+    assert_eq!(response.status(), 200, "First full response should succeed");
+
+    // The full-response budget (1/minute) is now spent, but revalidation polls
+    // with a matching ETag draw from the separate conditional budget.
+    for _ in 0..3 {
+        let response = get_definitions(&client, &url, &secret_token, Some(&matching_etag)).await;
+        assert_eq!(
+            response.status(),
+            304,
+            "Matching ETag should return 304 even when the full-response budget is spent"
+        );
+    }
+
+    let response = get_definitions(&client, &url, &secret_token, None).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "Full response should still be rate limited"
+    );
+}
+
+#[tokio::test]
+async fn test_etag_304_rate_limit_enforced() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_conditional_rate_per_minute = 1;
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let matching_etag = format!("W/\"{etag_value}\"");
+
+    let response = get_definitions(&client, &url, &secret_token, Some(&matching_etag)).await;
+    assert_eq!(response.status(), 304, "First 304 should succeed");
+
+    let response = get_definitions(&client, &url, &secret_token, Some(&matching_etag)).await;
+    let status = response.status();
+    let body = response.text().await.unwrap();
+    assert_eq!(
+        status, 429,
+        "Second 304 should be rate limited. Response body: {body}"
+    );
+
+    // The limiter runs before the ETag read. It cannot tell a stale ETag from a matching one.
+    let response = get_definitions(&client, &url, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "A stale ETag should spend the conditional budget"
+    );
+
+    let response = get_definitions(&client, &url, &secret_token, None).await;
+    assert_eq!(
+        response.status(),
+        200,
+        "Full response should not be limited by the conditional budget"
+    );
+}
+
+#[tokio::test]
+async fn test_stale_etag_200_spends_both_budgets() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let mut config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let one_per_minute = format!(r#"{{"{}": "1/minute"}}"#, team.id);
+    config.flag_definitions_rate_limits = one_per_minute.parse().unwrap();
+    config.flag_definitions_conditional_rate_limits = one_per_minute.parse().unwrap();
+
+    let etag_value = "a1b2c3d4e5f6g7h8";
+    context
+        .populate_cache_for_team_with_etag(team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let matching_etag = format!("W/\"{etag_value}\"");
+
+    let response = get_definitions(&client, &url, &secret_token, Some("W/\"stale\"")).await;
+    assert_eq!(
+        response.status(),
+        200,
+        "A stale ETag should get a full response"
+    );
+
+    let response = get_definitions(&client, &url, &secret_token, Some(&matching_etag)).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "The stale ETag should have spent the team's 1/minute conditional override"
+    );
+
+    let response = get_definitions(&client, &url, &secret_token, None).await;
+    assert_eq!(
+        response.status(),
+        429,
+        "The stale ETag should have spent the team's 1/minute full-response override"
     );
 }
 
@@ -2386,7 +2588,7 @@ async fn test_flag_definitions_with_legacy_secret_token_fallback() {
 /// share the same `posthog_instancesetting` row.
 ///
 /// Scenarios tested:
-/// 1. Allowlisted team bypasses rate limit (200 instead of 429)
+/// 1. Allowlisted team bypasses both rate limits (200 or 304 instead of 429)
 /// 2. Non-allowlisted team gets rate limited (429)
 /// 3. With two teams, only the listed one bypasses
 /// 4. Env var allowlist preserved when DB row is missing
@@ -2421,17 +2623,19 @@ async fn test_db_rate_limit_allowlist() {
         config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
+        config.flag_definitions_conditional_rate_per_minute = 1;
 
         context
             .set_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS", &team1.id.to_string())
             .await
             .unwrap();
 
+        let etag_value = "a1b2c3d4e5f6g7h8";
         let redis_client =
             feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
                 .await;
         context
-            .populate_flag_definitions_cache(redis_client, team1.id)
+            .populate_cache_for_team_with_etag_on(redis_client, team1.id, etag_value)
             .await
             .unwrap();
 
@@ -2465,6 +2669,22 @@ async fn test_db_rate_limit_allowlist() {
             200,
             "Allowlisted team should bypass rate limit"
         );
+
+        // The conditional budget (1/minute) would reject the second poll, but the
+        // DB-refreshed allowlist applies to the conditional limiter too
+        let url = format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team1.api_token
+        );
+        let matching_etag = format!("W/\"{etag_value}\"");
+        for i in 0..2 {
+            let resp = get_definitions(&client, &url, &secret1, Some(&matching_etag)).await;
+            assert_eq!(
+                resp.status(),
+                304,
+                "Allowlisted team should bypass the conditional rate limit (poll {i})"
+            );
+        }
     }
 
     // --- Scenario 2: non-allowlisted team gets rate limited ---
@@ -2596,6 +2816,7 @@ async fn test_db_rate_limit_allowlist() {
             .parse()
             .unwrap();
         config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
+        config.flag_definitions_conditional_rate_per_minute = 1;
 
         // Ensure no DB row exists — env var default should be kept
         context
@@ -2606,8 +2827,9 @@ async fn test_db_rate_limit_allowlist() {
         let redis_client =
             feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone()))
                 .await;
+        let etag_value = "a1b2c3d4e5f6g7h8";
         context
-            .populate_flag_definitions_cache(redis_client, team1.id)
+            .populate_cache_for_team_with_etag_on(redis_client, team1.id, etag_value)
             .await
             .unwrap();
 
@@ -2641,6 +2863,20 @@ async fn test_db_rate_limit_allowlist() {
             200,
             "Env var allowlist should be preserved when DB row is missing"
         );
+
+        let url = format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team1.api_token
+        );
+        let matching_etag = format!("W/\"{etag_value}\"");
+        for _ in 0..2 {
+            let resp = get_definitions(&client, &url, &secret1, Some(&matching_etag)).await;
+            assert_eq!(
+                resp.status(),
+                304,
+                "Env var allowlist should bypass the conditional rate limit"
+            );
+        }
     }
 
     // --- Scenario 5: null DB value treated as empty allowlist ---
@@ -2909,12 +3145,18 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 /// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
 /// false after ~2s. The enqueue runs in a background task, so a bounded retry is
 /// needed rather than a single read.
-async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
-    use feature_flags::utils::test_utils::read_flag_definitions_rebuild_requests;
+async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32, s3_hit: bool) -> bool {
+    use feature_flags::utils::test_utils::{
+        read_flag_definitions_rebuild_requests, read_s3_rebuild_requests,
+    };
     use tokio::time::{sleep, Duration};
 
     for _ in 0..40 {
-        let members = read_flag_definitions_rebuild_requests(redis_url).await;
+        let members = if s3_hit {
+            read_s3_rebuild_requests(redis_url).await
+        } else {
+            read_flag_definitions_rebuild_requests(redis_url).await
+        };
         if members.contains(&team_id.to_string()) {
             return true;
         }
@@ -2927,7 +3169,9 @@ async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
 async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
     use feature_flags::{
         config::{Config, FlexBool},
-        utils::test_utils::{dummy_s3_client, TestContext},
+        utils::test_utils::{
+            dummy_s3_client, remove_flag_definitions_rebuild_request, TestContext,
+        },
     };
     use reqwest;
 
@@ -2939,6 +3183,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
     // Don't populate the cache, and inject a NotFound S3 so the read is a genuine
     // cache_miss (the flags test job has no object store, so real S3 would error).
     let server =
@@ -2955,7 +3200,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await,
         "team {} should be enqueued for rebuild after a cache-miss 503",
         team.id
     );
@@ -2966,8 +3211,8 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     use feature_flags::{
         config::{Config, FlexBool},
         utils::test_utils::{
-            clear_flag_definitions_rebuild_requests, dummy_s3_client,
-            read_flag_definitions_rebuild_requests, TestContext,
+            dummy_s3_client, read_flag_definitions_rebuild_requests,
+            remove_flag_definitions_rebuild_request, TestContext,
         },
     };
     use reqwest;
@@ -2984,10 +3229,8 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    // Only the dedicated db is cleared: the shared one is polled concurrently by the
-    // sibling self-heal tests in this binary, so the shared assertion below compares
-    // membership before and after instead of requiring an empty set.
-    clear_flag_definitions_rebuild_requests(&config.flags_redis_url).await;
+    remove_flag_definitions_rebuild_request(&config.flags_redis_url, team.id).await;
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
     let shared_before = read_flag_definitions_rebuild_requests(&config.redis_url).await;
 
     // Leave both caches unseeded and inject a NotFound S3 so the read is a genuine
@@ -3006,7 +3249,7 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id, false).await,
         "team {} should be enqueued on the dedicated redis, where the drain reads",
         team.id
     );
@@ -3024,10 +3267,94 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 }
 
 #[tokio::test]
+async fn test_s3_hit_enqueues_rebuild_and_keeps_first_score() {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{
+            remove_s3_rebuild_request, setup_redis_client, static_s3_client, TestContext,
+        },
+    };
+    use reqwest;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    remove_s3_rebuild_request(&config.redis_url, team.id).await;
+
+    let server = common::ServerHandle::for_config_with_s3(
+        config.clone(),
+        Some(static_s3_client(r#"{"flags": [], "cohorts": {}}"#)),
+    )
+    .await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "expected the S3 payload to be served"
+    );
+    assert!(
+        response.headers().get("etag").is_none(),
+        "an S3-served response has no ETag to send, which is what the rebuild repairs"
+    );
+
+    assert!(
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, true).await,
+        "team {} should be enqueued for rebuild after an S3-served response",
+        team.id
+    );
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let first_score_upper_bound = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let queue = "flag_definitions:rebuild_s3_requests".to_string();
+    redis
+        .zadd_nx(
+            queue.clone(),
+            team.id.to_string(),
+            first_score_upper_bound + 60_000,
+        )
+        .await
+        .unwrap();
+    let original_score_members = redis
+        .zrangebyscore(
+            queue,
+            "-inf".to_string(),
+            first_score_upper_bound.to_string(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        original_score_members.contains(&team.id.to_string()),
+        "a repeated NX write must keep the first enqueue score"
+    );
+}
+
+#[tokio::test]
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{
         config::Config,
-        utils::test_utils::{dummy_s3_client, read_flag_definitions_rebuild_requests, TestContext},
+        utils::test_utils::{
+            dummy_s3_client, read_flag_definitions_rebuild_requests,
+            remove_flag_definitions_rebuild_request, TestContext,
+        },
     };
     use reqwest;
     use tokio::time::{sleep, Duration};
@@ -3040,6 +3367,7 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
 
     // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
     // happens is the flag being off, not the miss classifying as s3_error.

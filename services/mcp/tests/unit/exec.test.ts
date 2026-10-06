@@ -10,11 +10,14 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
+    describeInputShape,
     describeValidationError,
     type ExecCommandMeta,
     type ExecInnerCallProperties,
@@ -56,6 +59,7 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
+    api: { config: { apiToken: 'phx_test' } },
 } as unknown as Context
 
 function createExec(
@@ -76,6 +80,35 @@ function createExec(
 }
 
 describe('exec tool', () => {
+    describe('help command', () => {
+        it('lists available commands and their argument shapes', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help' })
+
+            expect(result).toContain('search <words or regex_pattern>')
+            expect(result).toContain('call [--json] [--confirm] <tool_name> [json_input]')
+            expect(result).not.toContain('learn <topic...>')
+        })
+
+        it('shows usage for one command', async () => {
+            const result = await createExec().handler(mockContext, { command: 'help search' })
+
+            expect(result).toBe('search <words or regex_pattern> — find tools by name, title, or description')
+        })
+
+        it('shows learn only when it is available', async () => {
+            const exec = createExec(undefined, undefined, { learnCatalog: new ExecLearnCatalog([], undefined) })
+
+            await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
+        })
+
+        it('directs unknown help topics to the command list', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+                reason: 'unknown_command',
+                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+            })
+        })
+    })
+
     describe('learn command', () => {
         const guides = [
             {
@@ -392,14 +425,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> [json_input]'
             )
         })
 
@@ -476,13 +509,12 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
-        // Cowork (via the client-profile flag). All three surface structuredContent to
-        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code (via
+        // the client-profile flag). Both surface structuredContent to the model, so it
+        // must be dropped and the UI data re-homed onto _meta.
         it.each([
             ['posthog-code consumer', 'posthog-code', undefined],
             ['claude-code client', undefined, { isInlineExecUiHost: true }],
-            ['cowork client', undefined, { isInlineExecUiHost: true }],
         ])(
             'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
             async (_label, consumer, options) => {
@@ -680,6 +712,11 @@ describe('exec tool', () => {
                 expected: /parameter "id" must be of type number/,
             },
             {
+                case: 'a parameter of the wrong type, echoing the field description',
+                input: '{"id":1,"buckets":"day"}',
+                expected: /parameter "buckets" must be of type number \(Bucket count, not a time unit\.\)/,
+            },
+            {
                 // Plain z.object strips unknown keys at parse time (Zod v4), so the
                 // actionable signal is the absent required `id`, not the stray key.
                 case: 'an unexpected property displacing the required field',
@@ -696,7 +733,11 @@ describe('exec tool', () => {
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
+                schema: z.object({
+                    id: z.number(),
+                    description: z.string().max(400).optional(),
+                    buckets: z.number().optional().describe('Bucket count, not a time unit.'),
+                }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
@@ -1109,6 +1150,95 @@ describe('exec tool', () => {
         })
     })
 
+    describe('ignored input keys', () => {
+        const ignoredKeysTool = makeMockTool({
+            schema: z.preprocess(
+                normalizeParamAliases({ id: ['insightId'] }),
+                z.object({
+                    id: z.string().optional(),
+                    name: z.string().optional(),
+                    query: z.object({ kind: z.string() }).optional(),
+                    series: z.array(z.object({ event: z.string() })).optional(),
+                })
+            ) as unknown as ZodObjectAny,
+            handler: async () => ({ ok: true }),
+        })
+
+        it.each([
+            ['an unknown top-level key', '{"title":"x"}', ['title']],
+            ['an unknown nested key', '{"query":{"kind":"a","serie":1}}', ['query.serie']],
+            [
+                'an unknown key inside an array item',
+                '{"series":[{"event":"a"},{"event":"b","extra":1}]}',
+                ['series.1.extra'],
+            ],
+            ['several unknown keys', '{"title":"x","name":"y","other":1}', ['title', 'other']],
+            ['a key name with a newline', '{"a\\nb":1}', ['a?b']],
+            ['an undeclared key named like an inherited property', '{"constructor":"x"}', ['constructor']],
+            ['a declared alias that the schema folds', '{"insightId":"abc"}', undefined],
+            ['only declared keys', '{"id":"abc","name":"y"}', undefined],
+        ])('reports %s', async (_label, input, expected) => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed._ignoredKeys).toEqual(expected)
+            expect(parsed._ignoredKeysNote === undefined).toBe(expected === undefined)
+        })
+
+        it.each([
+            ['read-data-schema folding its own aliases', ReadDataSchemaSchema, '{"event":"$pageview"}'],
+            ['a union schema that normalizes with a transform', OrganizationSetActiveSchema, '{"id":"abc"}'],
+            [
+                'a root transform that renames a key',
+                z.object({ a: z.string() }).transform((v) => ({ b: v.a })),
+                '{"a":"x"}',
+            ],
+        ])('reports nothing for %s', async (_label, schema, input) => {
+            const exec = createExec([
+                makeMockTool({ schema: schema as unknown as ZodObjectAny, handler: async () => ({ ok: true }) }),
+            ])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            expect(JSON.parse(result)).toEqual({ ok: true })
+        })
+
+        it('appends the notice to the formatted text the agent reads', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => ({
+                    results: [1],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'table',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"title":"x"}' })) as string
+            expect(result).toContain('table')
+            expect(result).toContain('Ignored input keys: "title".')
+        })
+
+        it('keeps the informational wrapper on an array result and quotes key names in the notice', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => withInformationalResponse([{ id: 1 }], 'rows'),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"bad\\nkey":"x"}',
+            })) as string
+            expect(result).toContain('<rows informational="true"')
+            expect(result).toContain('Ignored input keys: "bad?key".')
+        })
+
+        it('leaves a clean call without a notice in text mode', async () => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"name":"x"}' })) as string
+            expect(result).not.toContain('Ignored input keys')
+        })
+    })
+
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
@@ -1350,6 +1480,35 @@ describe('exec tool', () => {
             expect(parsed.properties.filter.hint).toContain('before populating this field')
             // Scalar fields do not earn a hint
             expect(parsed.properties.name.hint).toBeUndefined()
+        })
+
+        // The 2026-08 rejections on over-long experiment descriptions came from
+        // exec-mode agents that had no way to see the 3,000-character cap: the
+        // generated schema carries `max(3000)`, but the summary the bare `schema`
+        // view always returns dropped every scalar constraint.
+        it.each(['experiment-create', 'experiment-update'])(
+            'keeps the description cap in the bare schema view and in info for %s',
+            async (name) => {
+                const base = GENERATED_TOOL_MAP[name]!()
+                const exec = createExec([makeMockTool({ name, schema: base.schema })])
+
+                const bare = JSON.parse((await exec.handler(mockContext, { command: `schema ${name}` })) as string)
+                expect(bare.properties.description).toMatchObject({ type: 'string', maxLength: 3000 })
+
+                // `info` summarizes only because these schemas overflow TOKEN_CHAR_LIMIT;
+                // the raw schema would carry `$schema` and nest the cap inside `anyOf`.
+                const info = JSON.parse((await exec.handler(mockContext, { command: `info --json ${name}` })) as string)
+                expect(info.inputSchema.$schema).toBeUndefined()
+                expect(info.inputSchema.properties.description).toMatchObject({ maxLength: 3000 })
+            }
+        )
+
+        // The cap is also stated in prose on all three description-taking tools, so an
+        // agent that reads only the tool description learns it without opening the
+        // schema. Pinned on `experiment-create-from-prompt`, the one whose schema the
+        // constraint assertions above do not cover.
+        it('states the description cap in prose for experiment-create-from-prompt', () => {
+            expect(getToolDefinition('experiment-create-from-prompt').description).toContain('3,000 characters')
         })
 
         it('does not attach a drill-down directive when no field carries a hint', async () => {
@@ -1749,6 +1908,7 @@ describe('exec tool', () => {
             ['query-generate-hogql-from-question', 'execute-sql'],
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
+            ['experiment-get-all', 'experiment-list'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -1795,8 +1955,41 @@ describe('exec tool', () => {
                 ])
 
                 await expect(exec.handler(mockContext, { command })).rejects.toThrow(
-                    /exists[\s\S]*endpoint:write[\s\S]*reauthorize[\s\S]*browser does not update MCP permissions/i
+                    /exists[\s\S]*endpoint:write[\s\S]*browser does not update MCP permissions/i
                 )
+            }
+        )
+
+        it.each([
+            { apiToken: 'pha_test', recovery: 'Reauthorize the PostHog MCP connection and approve these scopes.' },
+            {
+                apiToken: 'phx_test',
+                recovery:
+                    'Add these scopes to the personal API key. The change reaches this connection within 2 minutes, and reconnecting the client does not make it faster.',
+            },
+            {
+                apiToken: 'unrecognized-token',
+                recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
+            },
+        ])(
+            'gives the scope recovery step for the connection credential ($apiToken)',
+            async ({ apiToken, recovery }) => {
+                const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
+                const scopeGated = [
+                    {
+                        name: 'endpoint-create',
+                        title: 'Create endpoint',
+                        description: 'Create a new endpoint',
+                        missingScopes: ['endpoint:write'],
+                    },
+                ]
+                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+
+                await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
+                const search = JSON.parse(
+                    (await exec.handler(context, { command: 'search endpoint-create' })) as string
+                )
+                expect(search.hint).toContain(recovery)
             }
         )
 
@@ -1845,6 +2038,8 @@ describe('exec tool', () => {
         // from a mistyped verb in analytics. Flag handling differs per verb, so a
         // parser regression silently collapses the funnel back into one bucket.
         it.each([
+            ['help', 'help', undefined],
+            ['help search', 'help', undefined],
             ['tools', 'tools', undefined],
             ['search query-', 'search', undefined],
             ['info execute-sql', 'info', 'execute-sql'],
@@ -1948,6 +2143,7 @@ describe('exec tool', () => {
                     skillsEnabled: true,
                     docsSearchEnabled: true,
                     businessKnowledgeSearchEnabled: true,
+                    businessKnowledgeRepoSearchEnabled: true,
                 }),
                 commandReference,
                 undefined
@@ -1994,29 +2190,127 @@ describe('exec tool', () => {
         })
     })
 
-    describe('describeValidationError', () => {
-        it('surfaces the unaccepted top-level key on a union rejection without leaking values', () => {
-            // The switch-organization regression shape: a union rejection carries an
-            // empty issue path, so `inputKeys` is what makes the wrong alias diagnosable.
-            const schema = z.union([z.object({ orgId: z.string() }), z.object({ id: z.string() })])
-            const input = { organizationId: 'super-secret-org-uuid' }
-            const result = schema.safeParse(input, { reportInput: true })
-            expect(result.success).toBe(false)
+    describe('describeInputShape', () => {
+        const inputKeys = (input: unknown, schema?: z.ZodType): unknown =>
+            describeInputShape(input, schema).$mcp_input_keys
 
-            const detail = describeValidationError(result.error!, input, schema)
+        it('lists the top-level keys sorted, without values', () => {
+            const schema = z.object({ zeta: z.string(), alpha: z.number(), mid: z.object({ nested: z.string() }) })
+            const keys = inputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } }, schema)
 
-            expect(detail.inputKeys).toEqual(['organizationId'])
-            // Never record input values — the raw uuid must not appear anywhere.
-            expect(JSON.stringify(detail)).not.toContain('super-secret-org-uuid')
+            expect(keys).toEqual(['alpha', 'mid', 'zeta'])
+            expect(JSON.stringify(keys)).not.toContain('secret')
         })
 
+        it('caps the count at 20 and masks a key longer than 64 characters', () => {
+            const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
+            const schema = z.object(Object.fromEntries(Object.keys(wide).map((key) => [key, z.number()])))
+            expect(inputKeys(wide, schema)).toHaveLength(20)
+
+            // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
+            const long = 'x'.repeat(100)
+            expect(inputKeys({ [long]: 1 })).toEqual(['[redacted]'])
+        })
+
+        // `params.arguments` is an unvalidated cast until the schema runs; a string or
+        // array there is not an argument object, and walking one builds an entry per
+        // character or element.
+        it('records nothing for input that is not a plain object', () => {
+            expect(inputKeys('a'.repeat(1000))).toBeUndefined()
+            expect(inputKeys(['a', 'b'])).toBeUndefined()
+            expect(inputKeys(null)).toBeUndefined()
+        })
+
+        it('drops SDK-injected keys and masks a key that is not identifier-shaped', () => {
+            expect(
+                inputKeys({ context: {}, llm_model: 'x', conversation_id: 'c', id: 1 }, z.object({ id: z.number() }))
+            ).toEqual(['id'])
+            expect(inputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))).toEqual([
+                'context',
+                'id',
+            ])
+            // Free text in a key name is caller text; the property records names only.
+            expect(inputKeys({ 'drop table users; --': 1, ok_key: 2 }, z.object({ ok_key: z.number() }))).toEqual([
+                'ok_key',
+                '[redacted]',
+            ])
+        })
+
+        it.each([
+            ['a guessed spelling', 'requiredField', 'requiredField'],
+            [
+                'a long settings field',
+                'session_recording_minimum_duration_milliseconds',
+                'session_recording_minimum_duration_milliseconds',
+            ],
+            ['an email', 'jane@example.com', '[redacted]'],
+            ['a hostname', 'example.com', '[redacted]'],
+            ['a phone number', 'tel_15555550100', '[redacted]'],
+            ['a token', `ghp_${'aB3'.repeat(12)}`, '[redacted]'],
+            ['a PostHog token without digits', `phx_${'aBc'.repeat(15)}`, '[redacted]'],
+        ])('records an undeclared key that is %s', (_shape, key, recorded) => {
+            const shape = describeInputShape({ [key]: 'secret-value', id: 1 }, z.object({ id: z.number() }))
+
+            expect(shape.$mcp_input_keys).toEqual(['id', recorded])
+            expect(JSON.stringify(shape)).not.toContain('secret-value')
+        })
+
+        it('records declared names before misspelled ones when the limit is reached', () => {
+            const declared = Object.fromEntries(
+                Array.from({ length: 20 }, (_, i) => [`d${String(i).padStart(2, '0')}`, i])
+            )
+            const schema = z.preprocess(
+                (value) => value,
+                z.object(Object.fromEntries(Object.keys(declared).map((key) => [key, z.number()])))
+            )
+            const keys = inputKeys({ aaa_misspelled: 1, ...declared }, schema)
+            expect(keys).toEqual(Object.keys(declared))
+        })
+
+        describe('aliases', () => {
+            const schema = z.preprocess(
+                normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+                z.preprocess(normalizeParamAliases({ key: ['flagKey'] }), z.object({ id: z.number(), key: z.string() }))
+            )
+
+            it('records each alias the normaliser relied on, from every alias layer', () => {
+                expect(describeInputShape({ flagKey: 'k', experimentId: 1 }, schema)).toEqual({
+                    $mcp_input_keys: ['experimentId', 'flagKey'],
+                    $mcp_input_aliases_used: ['experimentId:id', 'flagKey:key'],
+                })
+            })
+
+            // Mirrors the normaliser: a canonical the input already carries is never filled
+            // from an alias, and only the first alias in map order fills it. Recording the
+            // rest would count rescues that never happened.
+            it('records only the alias the normaliser relied on', () => {
+                expect(describeInputShape({ id: 5, experimentId: 5 }, schema)).not.toHaveProperty(
+                    '$mcp_input_aliases_used'
+                )
+                expect(describeInputShape({ experimentId: 1, experiment_id: 2 }, schema)).toMatchObject({
+                    $mcp_input_aliases_used: ['experimentId:id'],
+                })
+                expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
+                    $mcp_input_keys: ['experimentId'],
+                })
+            })
+
+            it('never includes input values', () => {
+                expect(JSON.stringify(describeInputShape({ experimentId: 'secret-value' }, schema))).not.toContain(
+                    'secret-value'
+                )
+            })
+        })
+    })
+
+    describe('describeValidationError', () => {
         it('records field path + issue code for a wrong-typed field, still without values', () => {
             const schema = z.object({ projectId: z.number() })
             const input = { projectId: 'not-a-number' }
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
@@ -2037,9 +2331,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
-                expected,
-            ])
+            expect(describeValidationError(result.error!, schema).fields).toEqual([expected])
         })
 
         // The received type is only meaningful for the type-shaped codes; appending it
@@ -2050,7 +2342,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['description:too_big'])
         })
 
         // A malformed array produces one issue per element. Collapsing indices keeps
@@ -2069,7 +2361,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const { fields } = describeValidationError(result.error!, schema)
 
             expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
         })
@@ -2087,7 +2379,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+            const detail = describeValidationError(result.error!, schema)
 
             expect(detail.fields).toEqual(['params.*:invalid_type:number'])
             expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
@@ -2102,7 +2394,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+            expect(describeValidationError(result.error!, schema).fields).toEqual(['query.kind:invalid_value'])
         })
     })
 

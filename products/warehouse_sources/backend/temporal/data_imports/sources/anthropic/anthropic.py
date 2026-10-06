@@ -968,10 +968,15 @@ def anthropic_source(
                         "data_selector": config.data_selector,
                         "paginator": _list_paginator(config),
                         # A parent that does not serve this sub-resource, or that was archived or
-                        # deleted between enumeration and the child fetch, answers 404. Skip that
-                        # parent instead of failing the whole schema. 429/5xx are retried by the
-                        # client before hooks run, and any other 4xx still raises.
-                        "response_actions": [{"status_code": 404, "action": "ignore"}],
+                        # deleted between enumeration and the child fetch, answers 404 or 400 (the
+                        # organization's Default Workspace, for one, "has no member list of its own"
+                        # and answers 400 for workspace_members). Skip that parent instead of failing
+                        # the whole schema. 429/5xx are retried by the client before hooks run, and
+                        # any other 4xx still raises.
+                        "response_actions": [
+                            {"status_code": 404, "action": "ignore"},
+                            {"status_code": 400, "action": "ignore"},
+                        ],
                     },
                     "include_from_parent": ["id"],
                     "data_map": fan_out_data_map,

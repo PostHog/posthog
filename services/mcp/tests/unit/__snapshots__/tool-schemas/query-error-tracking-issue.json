@@ -27,6 +27,11 @@
             "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
+        "includeBreakdown": {
+            "default": false,
+            "description": "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.",
+            "type": "boolean"
+        },
         "includeSparkline": {
             "default": false,
             "description": "Set true to include a compact numeric occurrence sparkline. Defaults to false.",
@@ -38,7 +43,7 @@
         },
         "volumeResolution": {
             "default": 0,
-            "description": "Volume buckets. Maximum 200.",
+            "description": "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.",
             "maximum": 200,
             "minimum": 0,
             "type": "number"

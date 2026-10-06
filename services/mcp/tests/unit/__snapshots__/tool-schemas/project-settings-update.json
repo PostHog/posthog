@@ -279,7 +279,21 @@
             ],
             "description": "Enables the customer conversations / live chat product for this project."
         },
-        "conversations_settings": {},
+        "conversations_settings": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Settings for Conversations. Must be a JSON object or null."
+        },
         "cookieless_server_hash_mode": {
             "anyOf": [
                 {
@@ -320,6 +334,25 @@
                 },
                 "activity_event": {
                     "description": "Event used as the activity signal (DAU/WAU/MAU)."
+                },
+                "default_pinned_properties": {
+                    "description": "Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.",
+                    "items": {
+                        "properties": {
+                            "id": {
+                                "description": "Project-scoped custom property or relationship definition UUID.",
+                                "type": "string"
+                            },
+                            "kind": {
+                                "description": "Definition type for this default pinned account property.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship",
+                                "enum": ["custom_property", "relationship"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "id"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 },
                 "payment_event": {
                     "description": "Event used to count payments on dashboards."

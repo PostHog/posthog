@@ -1,14 +1,19 @@
 import re
 import json
+import subprocess
+import dataclasses
 import http.client
 import urllib.error
 import urllib.parse
 import importlib.util
-from collections.abc import Sequence
+import urllib.request
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+import yaml
 
 SCRIPT_PATH = Path(__file__).with_name("ci_backend_relay.py")
 SPEC = importlib.util.spec_from_file_location("ci_backend_relay", SCRIPT_PATH)
@@ -23,26 +28,24 @@ EVENT_AT = "2026-09-24T09:54:20Z"
 EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
 EVENT_WAIT = relay.wait_check_name(PR, EVENT_AT)
 PLAIN_WAIT = f"{relay.DEPOT_WORKFLOW} / {relay.WAIT_JOB}"
+OLDER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:19Z")
+NEWER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:22Z")
 
 
-def run(
-    id: int,
-    state: str,
-    workflow: str = "live",
-    started_at: str = "2026-09-24T09:56:00Z",
-    prs: Sequence[int] = (PR,),
-) -> Any:
+def api_run(id: int, state: str, workflow: str = "live", attempt: str = "") -> dict[str, Any]:
     completed = state not in relay.PENDING_STATES
-    return relay.CheckRun.from_api(
-        {
-            "id": id,
-            "status": "completed" if completed else state,
-            "conclusion": state if completed else None,
-            "started_at": started_at,
-            "pull_requests": [{"number": number} for number in prs],
-            "details_url": f"https://depot.dev/orgs/org1/workflows/{workflow}?job=j1&repo=PostHog%2Fposthog",
-        }
-    )
+    query = f"job=j1&attempt={attempt}" if attempt else "job=j1&repo=PostHog%2Fposthog"
+    return {
+        "id": id,
+        "status": "completed" if completed else state,
+        "conclusion": state if completed else None,
+        "app": {"id": relay.MIRROR_APP_ID if attempt else relay.DEPOT_APP_ID},
+        "details_url": f"https://depot.dev/orgs/ntsdt08fpt/workflows/{workflow}?{query}",
+    }
+
+
+def run(id: int, state: str, workflow: str = "live", started_at: str = "2026-09-24T09:56:00Z") -> Any:
+    return relay.CheckRun.from_api({**api_run(id, state, workflow), "started_at": started_at})
 
 
 def test_wait_job_name_matches_the_depot_workflow() -> None:
@@ -57,6 +60,20 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
         + "', github.event.pull_request.number, github.event.pull_request.updated_at) || '' }}"
     )
     assert name.group(1) == expected
+
+
+def test_mirrored_checks_carry_the_names_the_relay_reads() -> None:
+    jobs = yaml.safe_load(DEPOT_WORKFLOW_FILE.read_text())["jobs"]
+    steps = [step for job in jobs.values() for step in job.get("steps", [])]
+    handoff = next(step for step in steps if step.get("name") == "Post the hand-off checks for the relay")
+    gate = next(step for step in steps if step.get("name") == "Post the gate check for the relay")
+    wait_check = (
+        handoff["env"]["WAIT_CHECK"]
+        .replace("${{ github.event.pull_request.number }}", str(PR))
+        .replace("${{ github.event.pull_request.updated_at }}", EVENT_AT)
+    )
+    assert wait_check == EVENT_WAIT
+    assert handoff["env"]["GATE_CHECK"] == gate["env"]["GATE_CHECK"] == relay.MIRRORED_GATE_CHECK
 
 
 @pytest.mark.parametrize(
@@ -77,12 +94,6 @@ def test_wait_job_name_matches_the_depot_workflow() -> None:
             [run(9, "cancelled", workflow="stale"), run(10, "success")],
             (relay.Phase.FINISHED, "success"),
             id="this run's gate wins over a newer id elsewhere",
-        ),
-        pytest.param(
-            [run(1, "success", prs=())],
-            [run(10, "success", prs=())],
-            (relay.Phase.FINISHED, "success"),
-            id="checks that list no pull request",
         ),
         pytest.param(
             [run(1, "cancelled", workflow="dup1"), run(2, "success", workflow="dup2")],
@@ -121,7 +132,10 @@ class FakeReader:
         self.reads.append(name)
         if name == self._advance_on:
             self.poll += 1
-        return self._polls[min(self.poll, len(self._polls)) - 1].get(name, [])
+        answer = self._polls[min(self.poll, len(self._polls)) - 1].get(name, [])
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
 class FakeClock:
@@ -159,6 +173,84 @@ class FakeClock:
         ),
         pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no run fails after the grace window"),
         pytest.param(
+            [{EVENT_WAIT: [run(1, "success")]}] * 16
+            + [{EVENT_WAIT: relay.ReadFailedError("Cannot read")}]
+            + [{EVENT_WAIT: [run(1, "success")], relay.GATE_CHECK: [run(10, "success")]}],
+            (relay.Phase.FINISHED, "success"),
+            16,
+            id="a failed read after the grace window keeps waiting",
+        ),
+        pytest.param(
+            [
+                {
+                    OLDER_RACING_WAIT: [run(1, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "failure", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "failure"),
+            15,
+            id="an older racing event's run stands in for an absent run",
+        ),
+        pytest.param(
+            [
+                {
+                    EVENT_WAIT: [run(1, "cancelled")],
+                    NEWER_RACING_WAIT: [run(2, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="a newer racing event's run stands in for a cancelled run",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "cancelled", workflow="newer"), run(11, "success", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="the next racing event's run stands in when the followed one is cancelled",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="newer"), run(11, "failure", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="the newer of two racing runs stands in",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "skipped", workflow="declined")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="a racing run that declined the hand-off does not stand in",
+        ),
+        pytest.param(
+            [
+                {
+                    relay.wait_check_name(PR, "2026-09-24T09:54:17Z"): [run(1, "success", workflow="earlier")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="earlier")],
+                }
+            ],
+            (relay.Phase.ABSENT, ""),
+            15,
+            id="an event outside the race window does not stand in",
+        ),
+        pytest.param(
             [{EVENT_WAIT: [run(1, "success")]}],
             (relay.Phase.RUNNING, ""),
             90,
@@ -194,100 +286,6 @@ def test_poll_does_not_use_an_ambiguous_plain_named_wait() -> None:
 
 
 @pytest.mark.parametrize(
-    "checks,decision",
-    [
-        ([run(1, "success"), run(2, "skipped")], True),
-        ([run(1, "skipped")], False),
-        ([run(1, "cancelled"), run(2, "success", prs=(PR + 1,))], None),
-    ],
-)
-def test_handoff_decision_matches_the_router(checks: list[Any], decision: bool | None) -> None:
-    assert relay.handoff_decision(checks, PR) is decision
-
-
-def test_report_requires_a_confirmed_handoff_before_waiting_for_depot() -> None:
-    clock = FakeClock()
-    reader = FakeReader(
-        [{relay.HANDOFF_CHECK: [run(1, "queued")]}] * 2 + [{relay.HANDOFF_CHECK: [run(1, "success")]}],
-        advance_on=relay.HANDOFF_CHECK,
-    )
-    assert relay.wait_for_handoff(reader, EVENT, clock=clock, sleep=clock.sleep)
-    assert clock.now == 40
-
-
-def test_report_fails_when_handoff_cannot_be_read() -> None:
-    clock = FakeClock()
-    reader = FakeReader([{}], advance_on=relay.HANDOFF_CHECK)
-    with pytest.raises(relay.HandoffUnresolvedError):
-        relay.wait_for_handoff(reader, EVENT, clock=clock, sleep=clock.sleep)
-    assert clock.now == 10 * 60
-
-
-def test_report_waits_past_ten_minutes_after_handoff() -> None:
-    clock = FakeClock()
-    reader = FakeReader(
-        [{}] * 23
-        + [
-            {
-                EVENT_WAIT: [run(1, "success")],
-                relay.MIGRATION_CHECK: [run(2, "success")],
-            }
-        ]
-    )
-    result = relay.poll(
-        reader, EVENT, relay.MIGRATION_CHECK, deadline_minutes=70, absent_minutes=70, clock=clock, sleep=clock.sleep
-    )
-    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
-    assert clock.now > 10 * 60
-
-
-def test_migration_report_stops_when_depot_did_not_receive_the_handoff() -> None:
-    clock = FakeClock()
-    result = relay.poll(
-        FakeReader(
-            [
-                {
-                    EVENT_WAIT: [run(1, "success")],
-                    relay.CHANGES_CHECK: [run(2, "skipped")],
-                }
-            ]
-        ),
-        EVENT,
-        relay.MIGRATION_CHECK,
-        deadline_minutes=70,
-        absent_minutes=10,
-        clock=clock,
-        sleep=clock.sleep,
-    )
-    assert result.phase == relay.Phase.DECLINED
-    assert relay.report_migrations(result)[0] == 0
-    assert clock.now == 0
-
-
-def test_migration_report_waits_for_a_late_replacement_of_a_cancelled_run() -> None:
-    clock = FakeClock()
-    result = relay.poll(
-        FakeReader(
-            [{EVENT_WAIT: [run(1, "cancelled")]}] * 25
-            + [
-                {
-                    EVENT_WAIT: [run(1, "cancelled"), run(2, "success", workflow="replacement")],
-                    relay.MIGRATION_CHECK: [run(3, "success", workflow="replacement")],
-                }
-            ]
-        ),
-        EVENT,
-        relay.MIGRATION_CHECK,
-        deadline_minutes=70,
-        absent_minutes=70,
-        clock=clock,
-        sleep=clock.sleep,
-    )
-    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
-    assert clock.now > 10 * 60
-
-
-@pytest.mark.parametrize(
     "result,exit_code,first_line",
     [
         (relay.Progress(relay.Phase.FINISHED, "success"), 0, None),
@@ -311,33 +309,158 @@ def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | 
         assert first_line in lines[0]
 
 
-def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
-    _, lines = relay.relay_gate(
-        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT, "123"
-    )
-    assert "  depot ci retry <run ID> --org o1 --workflow w1 --failed" in lines
-    assert "  gh run rerun 123 --repo PostHog/posthog --failed   # relays the new Depot result" in lines
+@pytest.mark.parametrize(
+    "merge_queue,present,absent",
+    [
+        (False, "--add-label ci-backend-github", "CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT"),
+        (True, "CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT", "--add-label ci-backend-github"),
+    ],
+)
+def test_retry_instructions_route_back_to_github_the_way_that_works(
+    merge_queue: bool, present: str, absent: str
+) -> None:
+    event = dataclasses.replace(EVENT, merge_queue=merge_queue)
+    text = "\n".join(relay.retry_instructions(event, "https://depot.dev/orgs/o/workflows/w1", "123"))
+    assert present in text
+    assert absent not in text
+
+
+def shown(workflow: str, gate: str, executions: int) -> dict[str, Any]:
+    return {
+        "workflow": {"status": workflow},
+        "run": {"run_id": "r1"},
+        "executions": [{}] * executions,
+        "jobs": [
+            {"job_key": "ci-backend.yml:changes", "status": "finished"},
+            {"job_key": relay.GATE_JOB_KEY, "status": gate},
+        ],
+    }
+
+
+class FakeDepot:
+    def __init__(self, shows: Sequence[Any]) -> None:
+        self._shows = list(shows)
+        self._last: dict[str, Any] = {}
+        self.sent: list[tuple[str, ...]] = []
+
+    def __call__(self, *args: str) -> Any:
+        if args[0] != "workflow":
+            # Depot refuses a retry of a workflow that still runs.
+            assert self._last["workflow"]["status"] not in relay.DEPOT_LIVE_STATES
+            self.sent.append(args)
+            if self._last.get("refuses_retry"):
+                raise subprocess.CalledProcessError(1, "depot")
+            return {}
+        answer = self._shows.pop(0) if len(self._shows) > 1 else self._shows[0]
+        if isinstance(answer, Exception):
+            raise answer
+        self._last = answer
+        return answer
+
+
+RETRY_FAILED = ("retry", "r1", "--workflow", "w1", "--org", "o1", "--failed")
 
 
 @pytest.mark.parametrize(
-    "result,exit_code,outputs",
+    "shows,expected,sent",
     [
-        (
-            relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o/workflows/w1?job=j"),
-            0,
-            {"migration_state": "failure", "workflow_id": "w1"},
+        pytest.param(
+            [
+                shown("running", "failed", 1),
+                shown("failed", "failed", 1),
+                shown("failed", "failed", 1),
+                shown("running", "queued", 2),
+                shown("failed", "failed", 2),
+            ],
+            (relay.Phase.FINISHED, "failure"),
+            [RETRY_FAILED],
+            id="one retry, sent after the workflow finished, and the earlier verdict is not relayed",
         ),
-        (relay.Progress(relay.Phase.FINISHED, "success", "https://example.com/not-depot"), 1, {}),
-        (relay.Progress(relay.Phase.FINISHED, "skipped"), 0, {}),
-        (relay.Progress(relay.Phase.CANCELLED, "cancelled"), 0, {}),
-        (relay.Progress(relay.Phase.ABSENT), 1, {}),
-        (relay.Progress(relay.Phase.FINISHED, "timed_out"), 1, {}),
-        (relay.Progress(relay.Phase.RUNNING), 1, {}),
+        pytest.param(
+            [shown("running", "queued", 2), shown("running", "finished", 2)],
+            (relay.Phase.FINISHED, "success"),
+            [],
+            id="a gate that another retry turned green needs no retry",
+        ),
+        pytest.param(
+            [shown("failed", "failed", 1), shown("running", "queued", 2)],
+            (relay.Phase.RUNNING, ""),
+            [RETRY_FAILED],
+            id="a retry that never finishes hits the deadline",
+        ),
+        pytest.param([OSError("no depot CLI")], None, [], id="an unreachable Depot gives no verdict"),
+        pytest.param(
+            [{**shown("failed", "failed", 1), "refuses_retry": True}],
+            None,
+            [RETRY_FAILED],
+            id="a refused retry is not sent again",
+        ),
     ],
 )
-def test_report_migrations(result: Any, exit_code: int, outputs: dict[str, str]) -> None:
-    code, _, written = relay.report_migrations(result)
-    assert (code, written) == (exit_code, outputs)
+def test_retry_relays_only_the_verdict_of_the_new_execution(
+    shows: list[Any], expected: tuple[Any, str] | None, sent: list[tuple[str, ...]]
+) -> None:
+    depot = FakeDepot(shows)
+    clock = FakeClock()
+    result = relay.retry_failed_jobs("o1", "w1", depot=depot, clock=clock, sleep=clock.sleep)
+    assert (result and (result.phase, result.state)) == expected
+    assert depot.sent == sent
+
+
+@pytest.mark.parametrize(
+    "rerun,polls,prerequisite,retry_answer,expected,retries",
+    [
+        pytest.param(False, [run(10, "failure")], [], "success", "failure", 0, id="a first attempt retries nothing"),
+        pytest.param(True, [run(10, "failure")], [], "success", "success", 1, id="a failed gate is retried"),
+        pytest.param(True, [run(10, "success")], [], "failure", "success", 0, id="a passed gate is relayed"),
+        pytest.param(True, [run(10, "failure")], [], None, "failure", 1, id="Depot unreachable"),
+        pytest.param(True, [None, run(10, "success")], [], "failure", "success", 0, id="a running gate is awaited"),
+        pytest.param(
+            True,
+            [run(10, "cancelled")],
+            [run(20, "failure")],
+            "success",
+            "failure",
+            0,
+            id="a failed prerequisite is not retried",
+        ),
+    ],
+)
+def test_only_a_rerun_with_a_failed_gate_retries_on_depot(
+    rerun: bool, polls: list[Any], prerequisite: list[Any], retry_answer: str | None, expected: str, retries: int
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def retry(org: str, workflow: str) -> Any:
+        calls.append((org, workflow))
+        return retry_answer and relay.Progress(relay.Phase.FINISHED, retry_answer)
+
+    reader = FakeReader(
+        [
+            {
+                EVENT_WAIT: [run(1, "success")],
+                relay.GATE_CHECK: [gate] if gate else [],
+                f"{relay.DEPOT_WORKFLOW} / {relay.PREREQUISITES[0]}": prerequisite,
+            }
+            for gate in polls
+        ]
+    )
+    result = relay.gate_verdict(reader, EVENT, rerun=rerun, retry=retry)
+    assert result.state == expected
+    assert calls == [(relay.DEPOT_ORG, "live")] * retries
+
+
+def api_check() -> dict[str, Any]:
+    return {
+        "id": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "app": {"id": relay.DEPOT_APP_ID},
+        "name": relay.GATE_CHECK,
+        "head_sha": "abc",
+        "pull_requests": [{"number": PR}],
+        "details_url": "https://depot.dev/orgs/ntsdt08fpt/workflows/live?job=j1&repo=PostHog%2Fposthog",
+    }
 
 
 class FakeResponse:
@@ -346,7 +469,7 @@ class FakeResponse:
         self.headers = {"ETag": etag}
         self._body = body
 
-    def read(self) -> bytes:
+    def read(self, limit: int = -1) -> bytes:
         return self._body
 
     def __enter__(self) -> "FakeResponse":
@@ -356,30 +479,25 @@ class FakeResponse:
         return None
 
 
-def test_handoff_reader_uses_the_github_actions_app() -> None:
-    requested: list[str] = []
+def checks_opener(
+    checks: Mapping[int, Mapping[str, Sequence[dict[str, Any]] | None]],
+) -> Callable[[urllib.request.Request, int], FakeResponse]:
+    def opener(request: urllib.request.Request, timeout: int) -> FakeResponse:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        name = query["check_name"][0]
+        runs = checks[int(query["app_id"][0])][name]
+        if runs is None:
+            raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)  # type: ignore[arg-type]
+        body = [{**check, "name": name, "head_sha": EVENT.sha} for check in runs]
+        return FakeResponse(json.dumps({"check_runs": body}).encode(), "")
 
-    def opener(request: Any, timeout: int) -> FakeResponse:
-        requested.append(request.full_url)
-        return FakeResponse(
-            b'{"check_runs":[{"id":1,"status":"completed","conclusion":"success",'
-            b'"pull_requests":[{"number":105723}]}]}',
-            '"e1"',
-        )
-
-    reader = relay.CheckRunReader(
-        "PostHog/posthog", EVENT.sha, "token", opener=opener, app_id=relay.GITHUB_ACTIONS_APP_ID
-    )
-    assert relay.handoff_decision(reader.read(relay.HANDOFF_CHECK), PR) is True
-    assert urllib.parse.parse_qs(urllib.parse.urlsplit(requested[0]).query)["app_id"] == [
-        str(relay.GITHUB_ACTIONS_APP_ID)
-    ]
+    return opener
 
 
 def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> None:
     sent: list[dict[str, str]] = []
     answers: list[Any] = [
-        FakeResponse(b'{"check_runs": [{"id": 1, "status": "completed", "conclusion": "success"}]}', '"e1"'),
+        FakeResponse(json.dumps({"check_runs": [api_check()]}).encode(), '"e1"'),
         urllib.error.HTTPError("url", 304, "Not Modified", {}, None),  # type: ignore[arg-type]
         *[urllib.error.HTTPError("url", 403, "Forbidden", {}, None) for _ in range(relay.MAX_REFUSALS)],  # type: ignore[arg-type]
     ]
@@ -391,12 +509,13 @@ def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> Non
             raise answer
         return answer
 
-    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener)
+    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener, app_ids=(relay.DEPOT_APP_ID,))
     assert [check.state for check in reader.read(relay.GATE_CHECK)] == ["success"]
     assert [check.state for check in reader.read(relay.GATE_CHECK)] == ["success"]
     assert sent[1]["If-none-match"] == '"e1"'
     for _ in range(relay.MAX_REFUSALS - 1):
-        reader.read(relay.GATE_CHECK)
+        with pytest.raises(relay.ReadFailedError):
+            reader.read(relay.GATE_CHECK)
     with pytest.raises(relay.ReadRefusedError):
         reader.read(relay.GATE_CHECK)
 
@@ -407,7 +526,7 @@ def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> Non
     [ConnectionResetError("reset"), http.client.IncompleteRead(b""), ValueError("invalid JSON")],
 )
 def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: int, error: Exception) -> None:
-    payload = {"id": 1, "status": "completed", "conclusion": "success"}
+    payload = api_check()
     answers: list[Any] = [FakeResponse(json.dumps({"check_runs": [payload]}).encode(), '"e1"')]
     if page == 2:
         answers.append(FakeResponse(json.dumps({"check_runs": [payload] * relay.PAGE_SIZE}).encode(), '"e2"'))
@@ -419,8 +538,263 @@ def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: 
             raise answer
         return answer
 
-    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener)
+    reader = relay.CheckRunReader("PostHog/posthog", "abc", "token", opener=opener, app_ids=(relay.DEPOT_APP_ID,))
     assert reader.read(relay.GATE_CHECK)[0].state == "success"
-    assert reader.read(relay.GATE_CHECK) == []
+    with pytest.raises(relay.ReadFailedError):
+        reader.read(relay.GATE_CHECK)
     assert reader.read(relay.GATE_CHECK) == []
     assert not answers
+
+
+@pytest.mark.parametrize("name", relay.PREREQUISITES)
+@pytest.mark.parametrize(
+    "state,workflow,newer",
+    [
+        ("failure", "live", None),
+        ("failure", "other", None),
+        ("success", "live", None),
+        ("failure", "live", "pending"),
+        ("failure", "live", "success"),
+    ],
+)
+def test_cancelled_gate_reports_only_current_selected_prerequisite(
+    name: str, state: str, workflow: str, newer: str | None
+) -> None:
+    roots = [run(2, state, workflow)]
+    if newer:
+        roots.append(run(3, newer, workflow))
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [
+                {
+                    EVENT_WAIT: [run(1, "success")],
+                    relay.GATE_CHECK: [run(5, "cancelled")],
+                    f"{relay.DEPOT_WORKFLOW} / {name}": roots,
+                }
+            ]
+        ),
+        EVENT,
+        relay.GATE_CHECK,
+        deadline_minutes=90,
+        absent_minutes=15,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    code, lines = relay.relay_gate(result, EVENT, "123")
+    assert code == 1
+    if state == "failure" and workflow == "live" and newer is None:
+        assert clock.now == 0
+        assert lines == [f"::error::{name} failed on Depot (check 2). Push a fix; a retry will not help."]
+        assert result.root_check_id == 2
+    else:
+        assert result.phase == relay.Phase.CANCELLED
+        assert clock.now == 900
+
+
+@pytest.mark.parametrize("name", relay.PREREQUISITES)
+def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str) -> None:
+    # Without Depot's self-cancel, the prerequisite may have failed on a retryable setup step.
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [
+                {
+                    EVENT_WAIT: [run(1, "success")],
+                    relay.GATE_CHECK: [run(5, "failure")],
+                    f"{relay.DEPOT_WORKFLOW} / {name}": [run(2, "failure")],
+                }
+            ]
+        ),
+        EVENT,
+        relay.GATE_CHECK,
+        deadline_minutes=90,
+        absent_minutes=15,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    code, lines = relay.relay_gate(result, EVENT, "123")
+    assert code == 1
+    assert not result.root_failure
+    assert not any("a retry will not help" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("app", {"id": 99}),
+        ("app", None),
+        ("name", "other check"),
+        ("head_sha", "other"),
+        ("pull_requests", [{"number": PR + 1}]),
+        ("details_url", "https://depot.dev/orgs/other/workflows/live"),
+        ("details_url", "https://depot.dev.example.com/orgs/ntsdt08fpt/workflows/live"),
+        ("details_url", "https://depot.dev@evil.example.com/orgs/ntsdt08fpt/workflows/live"),
+        ("details_url", "http://depot.dev/orgs/ntsdt08fpt/workflows/live"),
+    ],
+)
+def test_reader_rejects_wrong_identity(field: str, value: Any) -> None:
+    payload = {**api_check(), field: value}
+    reader = relay.CheckRunReader(
+        "PostHog/posthog",
+        "abc",
+        "token",
+        pr_number=PR,
+        opener=lambda *a, **kw: FakeResponse(json.dumps({"check_runs": [payload]}).encode(), ""),
+    )
+    assert reader.read(relay.GATE_CHECK) == []
+
+
+def test_reader_keeps_valid_checks_beside_a_malformed_one() -> None:
+    answer = json.dumps({"check_runs": [{**api_check(), "app": None}, api_check()]}).encode()
+    reader = relay.CheckRunReader(
+        "PostHog/posthog", "abc", "token", pr_number=PR, opener=lambda *a, **kw: FakeResponse(answer, "")
+    )
+    assert len(reader.read(relay.GATE_CHECK)) == 1
+
+
+@pytest.mark.parametrize(
+    "mirror_gate,depot_gate,expected",
+    [
+        pytest.param(
+            [(2, "failure", "w1", "a1"), (5, "success", "w1", "a2")],
+            [],
+            (relay.Phase.FINISHED, "success"),
+            id="Depot's copies lag",
+        ),
+        pytest.param(
+            [(2, "failure", "w1", "a1"), (5, "success", "w1", "a2")],
+            [(9, "failure", "w1")],
+            (relay.Phase.FINISHED, "success"),
+            id="a late copy of an older attempt",
+        ),
+        pytest.param(
+            [(2, "failure", "w1", "a1"), (5, "success", "w1", "a2")],
+            [(8, "success", "w1"), (9, "failure", "w1")],
+            (relay.Phase.FINISHED, "success"),
+            id="late copies of both attempts",
+        ),
+        pytest.param(
+            [(2, "failure", "w1", "a1"), (5, "failure", "w1", "a2")],
+            [(4, "failure", "w1"), (9, "failure", "w1")],
+            (relay.Phase.FINISHED, "failure"),
+            id="a retry that failed again",
+        ),
+        pytest.param(
+            [(2, "success", "w1", "a1")],
+            [(4, "success", "w1"), (9, "failure", "w1")],
+            (relay.Phase.FINISHED, "failure"),
+            id="a newer attempt the mirror missed",
+        ),
+        pytest.param(
+            [(2, "failure", "w1", "a1")],
+            [(4, "failure", "w1"), (9, "in_progress", "w1")],
+            (relay.Phase.RUNNING, "in_progress"),
+            id="a running retry the mirror has not posted",
+        ),
+        pytest.param(
+            [(5, "success", "w1", "a2")],
+            [(4, "cancelled", "w1")],
+            (relay.Phase.FINISHED, "success"),
+            id="a replacement for a job cancelled before it started",
+        ),
+        pytest.param(
+            [(5, "success", "w1", "a2")],
+            [(4, "cancelled", "w1"), (9, "in_progress", "w1")],
+            (relay.Phase.RUNNING, "in_progress"),
+            id="a replacement Depot has not finished after a cancelled job",
+        ),
+        pytest.param(
+            [(5, "success", "other", "a1")],
+            [(9, "failure", "w1")],
+            (relay.Phase.FINISHED, "failure"),
+            id="another workflow's mirrored gate",
+        ),
+        pytest.param(
+            [(5, "success", "other", "a1")],
+            [],
+            (relay.Phase.RUNNING, ""),
+            id="only another workflow's mirrored gate",
+        ),
+        pytest.param([(5, "success", "w1", "a1")], None, None, id="Depot's app read fails"),
+    ],
+)
+def test_relay_reads_the_current_attempt_across_apps(
+    mirror_gate: list[tuple[int, str, str, str]],
+    depot_gate: list[tuple[int, str, str]] | None,
+    expected: tuple[Any, str] | None,
+) -> None:
+    mirror = {
+        EVENT_WAIT: [api_run(1, "success", "w1", "w")],
+        relay.GATE_CHECK: [],
+        relay.MIRRORED_GATE_CHECK: [api_run(*c) for c in mirror_gate],
+    }
+    depot = {
+        EVENT_WAIT: [api_run(3, "success", "w1")],
+        relay.GATE_CHECK: None if depot_gate is None else [api_run(*c) for c in depot_gate],
+    }
+
+    reader = relay.CheckRunReader(
+        EVENT.repo, EVENT.sha, "token", opener=checks_opener({relay.MIRROR_APP_ID: mirror, relay.DEPOT_APP_ID: depot})
+    )
+    wait = relay.newest_live(reader.read(EVENT_WAIT))
+    if expected is None:
+        with pytest.raises(relay.ReadFailedError):
+            reader.read(relay.GATE_CHECK)
+        return
+    current = relay.progress(wait, reader.read(relay.GATE_CHECK))
+    assert (current.phase, current.state) == expected
+
+
+@pytest.mark.parametrize(
+    "posted,unreadable,expected",
+    [
+        pytest.param([(relay.GATE_CHECK, "success")], None, "success", id="an older workflow revision"),
+        pytest.param(
+            [(relay.GATE_CHECK, "success")],
+            relay.MIRRORED_GATE_CHECK,
+            None,
+            id="a failed read of the mirror's new name",
+        ),
+        pytest.param(
+            [(relay.MIRRORED_GATE_CHECK, "success")],
+            relay.GATE_CHECK,
+            None,
+            id="a failed read of the mirror's old name",
+        ),
+        pytest.param(
+            [(relay.GATE_CHECK, "success"), (relay.MIRRORED_GATE_CHECK, "failure")],
+            None,
+            "failure",
+            id="a newer failed attempt under the new name",
+        ),
+        pytest.param(
+            [(relay.MIRRORED_GATE_CHECK, "success"), (relay.GATE_CHECK, "failure")],
+            None,
+            "failure",
+            id="a newer failed attempt under the old name",
+        ),
+    ],
+)
+def test_reader_reads_the_mirrored_gate_under_both_names(
+    posted: Sequence[tuple[str, str]], unreadable: str | None, expected: str | None
+) -> None:
+    mirror: dict[str, list[dict[str, Any]] | None] = {relay.GATE_CHECK: [], relay.MIRRORED_GATE_CHECK: []}
+    for index, (name, state) in enumerate(posted, start=1):
+        mirror[name] = [api_run(index, state, "w1", f"a{index}")]
+    if unreadable:
+        mirror[unreadable] = None
+    reader = relay.CheckRunReader(
+        EVENT.repo,
+        EVENT.sha,
+        "token",
+        opener=checks_opener({relay.MIRROR_APP_ID: mirror}),
+        app_ids=(relay.MIRROR_APP_ID,),
+    )
+    if expected is None:
+        with pytest.raises(relay.ReadFailedError):
+            reader.read(relay.GATE_CHECK)
+        return
+    current = relay.current_check(reader.read(relay.GATE_CHECK), "w1")
+    assert current is not None
+    assert current.state == expected

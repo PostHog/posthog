@@ -1,7 +1,7 @@
 import pytest
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from paramiko import RSAKey
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
@@ -105,6 +105,40 @@ def test_is_auth_valid_key_pair(private_key, passphrase, expected):
     res, error = ssh_tunnel.is_auth_valid()
 
     assert res is expected
+
+
+def _openssh_private_key(key: ed25519.Ed25519PrivateKey | rsa.RSAPrivateKey, passphrase: str | None) -> str:
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.OpenSSH,
+        encryption_algorithm=serialization.BestAvailableEncryption(passphrase.encode())
+        if passphrase
+        else serialization.NoEncryption(),
+    ).decode()
+
+
+@pytest.mark.parametrize(
+    "key_type,passphrase,paste",
+    [
+        (key_type, passphrase, paste)
+        for key_type in ("ed25519", "rsa")
+        for passphrase in (None, "correct-passphrase")
+        for paste in ("as_generated", "leading_whitespace", "indented", "line_breaks_joined")
+    ],
+)
+def test_is_auth_valid_accepts_openssh_key_as_pasted(key_type, passphrase, paste):
+    key = ed25519.Ed25519PrivateKey.generate() if key_type == "ed25519" else rsa.generate_private_key(65537, 2048)
+    pem = _openssh_private_key(key, passphrase)
+    pasted = {
+        "as_generated": pem,
+        "leading_whitespace": "  " + pem,
+        "indented": "\n".join("    " + line for line in pem.splitlines()),
+        "line_breaks_joined": pem.replace("\n", " "),
+    }[paste]
+
+    res, error = _keypair_tunnel(private_key=pasted, passphrase=passphrase).is_auth_valid()
+
+    assert (res, error) == (True, "")
 
 
 def test_is_auth_valid_unparseable_key_suggests_format():

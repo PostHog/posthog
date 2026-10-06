@@ -1,15 +1,20 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { within, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic } from 'kea'
+import { Slide, ToastContainer } from 'react-toastify'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
@@ -51,6 +56,10 @@ const starred: FileSystemEntry[] = [
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
     { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
+    { id: 'star-5', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+    // Starred before the rename, so the saved path still holds the old name.
+    { id: 'star-6', path: 'LLM analytics', type: 'llm_analytics', href: '/ai-observability/dashboard' },
+    { id: 'star-7', path: 'AI gateway', type: 'ai_gateway', href: '/ai-gateway' },
 ]
 
 function SidebarStory({
@@ -60,6 +69,8 @@ function SidebarStory({
     overlay = false,
     empty = false,
     recentsCollapsed = false,
+    allProductsOpen = true,
+    aiConsent = true,
     folderToOpen,
 }: {
     tab?: NavExperimentTab
@@ -68,20 +79,25 @@ function SidebarStory({
     overlay?: boolean
     empty?: boolean
     recentsCollapsed?: boolean
+    allProductsOpen?: boolean
+    aiConsent?: boolean
     folderToOpen?: string
 }): JSX.Element {
     const { setNavExperimentTab, toggleLayoutNavCollapsed, clearActivePanelIdentifier, setNavOverlayOpen } =
         useActions(panelLayoutLogic)
     const { setRecentsCollapsed } = useActions(navRecentsLogic)
-    const { setSearch } = useActions(navProductsTabLogic)
+    const { setSearch, setAllProductsOpen } = useActions(navProductsTabLogic)
     const { loadShortcutsSuccess } = useActions(projectTreeDataLogic)
+    const { loadCurrentOrganizationSuccess } = useActions(organizationLogic)
     useMountedLogic(navFilesTabLogic)
     useOnMountEffect(() => {
+        loadCurrentOrganizationSuccess({ ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: aiConsent })
         setNavExperimentTab(tab)
         toggleLayoutNavCollapsed(collapsed)
         setNavOverlayOpen(overlay)
         clearActivePanelIdentifier()
         setSearch(search)
+        setAllProductsOpen(allProductsOpen)
         if (tab === 'files') {
             projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actions.setSearchTerm(search)
         }
@@ -107,6 +123,7 @@ const meta: Meta<typeof SidebarStory> = {
             ),
             FEATURE_FLAGS.PRODUCT_AUTONOMY,
             FEATURE_FLAGS.SIMPLE_SIDEPANEL,
+            FEATURE_FLAGS.ML_INFERENCE_DECISIONS,
         ],
     },
     decorators: [
@@ -138,6 +155,30 @@ const meta: Meta<typeof SidebarStory> = {
                 '/api/environments/:team_id/file_system_shortcut/': [200, { results: starred }],
             },
             post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
+                    const { questions } = (await request.json()) as DecideRequestApi
+                    return [
+                        200,
+                        {
+                            model: 'storybook',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.entries(questions).map(([key, question]) => [
+                                    key,
+                                    {
+                                        type: 'noul',
+                                        probability: question.instructions.includes('App: Web analytics.')
+                                            ? 0.98
+                                            : question.instructions.includes('App: Product analytics.')
+                                              ? 0.8
+                                              : 0.1,
+                                    },
+                                ])
+                            ),
+                        },
+                    ]
+                },
                 '/api/projects/:team_id/file_system/home_folder/': [
                     200,
                     { id: 'home-folder', path: 'Users/Alex Example' },
@@ -157,12 +198,140 @@ export default meta
 
 type Story = StoryObj<typeof SidebarStory>
 export const Products: Story = {}
-export const ConfigureStarred: Story = {
+export const ProductsClosed: Story = { args: { allProductsOpen: false } }
+export const ProductsStarredCollapsed: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const body = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await canvas.findByLabelText('Starred options'))
-        await userEvent.click(await body.findByText('Configure starred', { exact: true }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Starred' }))
+    },
+}
+export const CustomizeSidebar: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Customize sidebar'))
+    },
+}
+export const CustomizeSidebarWithoutAIConsent: Story = {
+    args: { aiConsent: false },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': [
+                    200,
+                    { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+                ],
+            },
+        }),
+    ],
+    play: CustomizeSidebar.play,
+}
+export const CustomizeSidebarSaveFailure: Story = {
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
+    decorators: [
+        (Story, { globals }) => (
+            <>
+                <Story />
+                <ToastContainer
+                    autoClose={6000}
+                    transition={Slide}
+                    closeButton={<ToastCloseButton />}
+                    position="bottom-right"
+                    theme={globals.theme === 'dark' ? 'dark' : 'light'}
+                />
+            </>
+        ),
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/file_system_shortcut/bulk_update/': [500, { detail: 'Unavailable' }],
+            },
+        }),
+    ],
+    play: async (context) => {
+        await CustomizeSidebar.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        const dialog = within(body.getByRole('dialog'))
+        await userEvent.click(dialog.getByText('Actions', { exact: true }))
+        await userEvent.click(dialog.getByText('Save', { exact: true }))
+        await body.findByText('Could not save your starred products. Try again.')
+    },
+}
+export const CustomizeSidebarRanked: Story = {
+    play: async (context) => {
+        await CustomizeSidebar.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.click(body.getByText('Track website visitors', { exact: true }))
+        const matches = within(await body.findByRole('region', { name: 'Suggested' }))
+        await waitFor(() => {
+            if (!matches.getAllByRole('button')[0]?.textContent?.includes('Web analytics')) {
+                throw new Error('Waiting for Web analytics to be the first rendered match')
+            }
+        })
+    },
+}
+export const CustomizeSidebarNoMatches: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
+                    const { questions } = (await request.json()) as DecideRequestApi
+                    return [
+                        200,
+                        {
+                            model: 'storybook',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.keys(questions).map((key) => [key, { type: 'noul', probability: 0.1 }])
+                            ),
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    play: async (context) => {
+        await CustomizeSidebar.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.type(body.getByLabelText('Filter by jev'), 'Plan a hiking trip')
+        await body.findByText('No apps meet the match threshold. Try another description or choose from the list.')
+    },
+}
+export const CustomizeSidebarUnavailable: Story = {
+    decorators: [
+        mswDecorator({
+            post: { '/api/projects/:team_id/ml_inference/decisions/decide/': [503, { detail: 'Unavailable' }] },
+        }),
+    ],
+    play: async (context) => {
+        await CustomizeSidebar.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.click(body.getByText('Query databases', { exact: true }))
+        await body.findByText(
+            'Jev could not suggest apps. Edit your description to try again, or choose from all apps below.'
+        )
+    },
+}
+export const CustomizeSidebarDark: Story = { ...CustomizeSidebarRanked, globals: { theme: 'dark' } }
+export const CustomizeSidebarNarrow: Story = {
+    ...CustomizeSidebarRanked,
+    parameters: { testOptions: { viewport: { width: 600, height: 900 } } },
+}
+export const StarredSetupPrompt: Story = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/users/@me/': [200, { ...MOCK_DEFAULT_USER, ui_configuration: null }] },
+        }),
+    ],
+}
+export const StarredSetup: Story = {
+    ...StarredSetupPrompt,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Choose starred products'))
     },
 }
 export const Files: Story = { args: { tab: 'files' } }
@@ -185,6 +354,7 @@ export const FilesOptions: Story = {
 export const OpenFolder: Story = { args: { collapsed: true, folderToOpen: 'Product research' } }
 export const Chat: Story = {
     args: { tab: 'chat' },
+    parameters: { mockDate: '2026-01-01T12:00:00Z' },
     decorators: [
         mswDecorator({
             get: {
@@ -196,8 +366,8 @@ export const Chat: Story = {
                             title,
                             status: 'idle',
                             type: 'assistant',
-                            created_at: new Date().toISOString(),
-                            updated_at: new Date().toISOString(),
+                            created_at: '2026-01-01T11:59:00Z',
+                            updated_at: '2026-01-01T11:59:00Z',
                             user: MOCK_DEFAULT_BASIC_USER,
                         })),
                         next: null,
@@ -206,6 +376,11 @@ export const Chat: Story = {
             },
         }),
     ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('Review signup trends')
+        await canvas.findByText('Explore checkout events')
+    },
 }
 export const FilesSearch: Story = { args: { tab: 'files', search: 'Weekly' } }
 export const FilesFiltered: Story = { args: { tab: 'files', search: 'type:notebook' } }
@@ -274,4 +449,35 @@ export const FlagOffCollapsed: Story = { args: { collapsed: true }, parameters: 
 export const FlagOffFlatNav: Story = {
     args: { tab: 'files', recentsCollapsed: true },
     parameters: { featureFlags: [FEATURE_FLAGS.FLAT_NAV] },
+}
+
+export const FilesInsightTypes: Story = {
+    args: { tab: 'files', recentsCollapsed: false },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/file_system': [
+                    200,
+                    {
+                        results: ['hog', 'trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness'].map(
+                            (type) => ({
+                                id: `insight-${type}`,
+                                path:
+                                    type === 'hog'
+                                        ? 'SQL insight'
+                                        : `${type.charAt(0).toUpperCase()}${type.slice(1)} insight`,
+                                type: 'insight',
+                                ref: `example-${type}`,
+                                href: `/insights/example-${type}`,
+                                meta: { insight_type: type },
+                            })
+                        ),
+                        count: 7,
+                        next: null,
+                        has_more: false,
+                    },
+                ],
+            },
+        }),
+    ],
 }

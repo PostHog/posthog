@@ -1219,7 +1219,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                            ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                         ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
@@ -2459,21 +2459,23 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                const names = searchGroupTypes
-                    .map((type) => {
-                        const taxonomicGroup = allTaxonomicGroups.find(
-                            (tGroup) => tGroup.type == type
-                        ) as TaxonomicFilterGroup
-                        return taxonomicGroup.searchPlaceholder
-                    })
-                    .filter(Boolean)
-                return names
-                    .filter((a) => !!a)
+                // Meta groups such as "all", "recent" and "pinned" repeat the other groups, so they only name
+                // the search when nothing else can.
+                const contentGroupTypes = searchGroupTypes.filter((type) => !META_GROUP_TYPES.has(type))
+                const names = (contentGroupTypes.length > 0 ? contentGroupTypes : searchGroupTypes)
                     .map(
-                        (name, index) =>
-                            `${index !== 0 ? (index === searchGroupTypes.length - 1 ? ' or ' : ', ') : ''}${name}`
+                        (type) =>
+                            (allTaxonomicGroups.find((tGroup) => tGroup.type == type) as TaxonomicFilterGroup)
+                                .searchPlaceholder
                     )
-                    .join('')
+                    .filter(Boolean)
+                // A long list gets cut off in the search input, so name the first two groups only.
+                if (names.length > 3) {
+                    return `${names[0]}, ${names[1]}, and more`
+                }
+                return names.length > 1
+                    ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+                    : names.join('')
             },
         ],
         suggestedFilterGroupOrder: [
