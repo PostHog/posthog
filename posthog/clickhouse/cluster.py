@@ -900,7 +900,7 @@ def _is_authentication_failure(e: Exception) -> bool:
 _REJECTED_LOGIN_RETRY_POLICY = RetryPolicy(max_attempts=3, delay=5, exceptions=_is_authentication_failure)
 
 
-@dataclass
+@dataclass(frozen=False)
 class MutationWaiter:
     table: str
     mutation_ids: Set[str]

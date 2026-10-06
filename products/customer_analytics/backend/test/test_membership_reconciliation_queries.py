@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -28,6 +29,7 @@ from posthog.models.person_group_membership.sql import PERSON_GROUP_MEMBERSHIP_T
 from products.customer_analytics.backend.logic.membership_deletion import QUERY_SETTINGS, MembershipReconciliation
 
 
+@time_machine.travel("2025-02-01T00:00:00Z", tick=False)
 class TestMembershipReconciliationQueries(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()

@@ -61,7 +61,7 @@ class ClickHouse:
     def __init__(self, clock: Clock, mode: str = "done") -> None:
         self.clock = clock
         self.mode = mode
-        self.connection = SimpleNamespace(socket=None, context=None)
+        self.connection = SimpleNamespace(socket=None, context=SimpleNamespace(server_info=object()))
         self.ids = {"first@example.com", "second@example.com"}
         self.staged_ids = set(self.ids)
         self.deletes: list[list[str]] = []

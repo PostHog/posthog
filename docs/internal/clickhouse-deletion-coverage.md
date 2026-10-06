@@ -182,12 +182,18 @@ Empty membership leaves the existing source-table gap unchanged.
 
 Property removal stages keys only when the request removes a `$group_N` event property that has stored membership for the team.
 The check uses stored rows, not the configured index, because rows for a previous index stay after the index changes.
-It stages before fan-out and before shard work, then reconciles after all source rewrites pass verification.
+It stages before fan-out and again before each source delete, including a shard reexecuted on its own.
+Each table and shard copies cleaned rows to monthly S3 Native files, deletes originals, reingests, and verifies through separate public ops.
+S3 progress files preserve completed steps across retries.
+After every source passes shard and distributed verification, `cleanup_property_removal_staging` reconciles and verifies membership before clearing either stage.
+A membership failure keeps both the membership keys and S3 data for retry.
 Unrelated event properties and person properties do not rewrite membership.
-The staging rewrite lets ClickHouse recompute true `MATERIALIZED` group columns when properties change.
-It resets `DEFAULT` columns explicitly.
+The S3 copy omits true `MATERIALIZED` columns so reingestion recomputes them from cleaned properties.
+It resets affected `DEFAULT` columns in the copy's SELECT expressions.
+No temporary-table mutation is needed.
 A failed source rewrite or reconciliation fails the request.
 Existing native-JSON property-removal refusal gates still apply.
+The staging bucket must remain reachable from every source shard, and its lifecycle must retain data and progress files for the full retry window.
 
 Staging uses replicated `membership_deletion_keys_<hash>` storage with a distributed proxy.
 The hash comes from the request ID, or the serialized async drain's fixed operation ID.

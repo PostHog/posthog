@@ -1318,9 +1318,11 @@ def _copy_property_removal_target(
             description=f"[{target.mapping_key}] staged copy does not match the originals: "
             f"source={months}, staged={staged}. Re-execute this step."
         )
+    # MATERIALIZED columns are absent from the Native copy and checked after reingestion recomputes them.
+    staged_mat_cols = [column for column in predicate.mat_cols if column[0] in cleaned.columns]
     residual_sql = (
         f"SELECT count() FROM s3({staging.data_args(sorted(months))}) "
-        f"WHERE {_target_presence_clause(deletion_request, target, predicate.mat_cols)}"
+        f"WHERE {_target_presence_clause(deletion_request, target, staged_mat_cols)}"
     )
     if months and client.execute(residual_sql, _presence_params(deletion_request))[0][0]:
         raise dagster.Failure(description=f"[{target.mapping_key}] staged copy still carries target properties")

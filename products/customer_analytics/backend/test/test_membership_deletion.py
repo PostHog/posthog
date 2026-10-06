@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -15,18 +16,24 @@ from temporalio.testing import ActivityEnvironment
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import LightweightDeleteMutationRunner, MutationWaiter, Query, get_cluster
+from posthog.dags.common.s3_staging import S3StagingLocation
 from posthog.dags.data_deletion_requests import (
     DeletionRequestContext,
     PersonRemovalContext,
+    PropertyRemovalTarget,
+    cleanup_property_removal_staging,
     complete_event_deletion,
+    copy_property_removal_shard,
     data_deletion_request_event_removal,
     delete_event_removal_shard,
     delete_person_profiles_op,
+    delete_property_removal_shard,
     finalize_deletion_request,
     get_event_removal_shards,
     get_property_removal_shards,
-    process_property_removal_shard,
+    reingest_property_removal_shard,
     verify_property_removal,
+    verify_property_removal_shard,
 )
 from posthog.dags.deletes import deletes_job
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -64,6 +71,7 @@ from products.customer_analytics.backend.models.team_customer_analytics_config i
 from products.customer_analytics.backend.test.factories import create_account
 
 
+@time_machine.travel("2025-02-01T00:00:00Z", tick=False)
 class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -141,6 +149,24 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             delete_event_removal_shard(build_op_context(), self.cluster, shard.value, request) for shard in shards
         ]
         complete_event_deletion(build_op_context(), self.cluster, request, deleted)
+
+    def _rewrite_properties(
+        self, request: DeletionRequestContext, targets: list[PropertyRemovalTarget], *, copy: bool = True
+    ) -> list[dict]:
+        stats = []
+        for target in targets:
+            if copy:
+                copy_property_removal_shard(build_op_context(), self.cluster, target, request)
+            delete_property_removal_shard(build_op_context(), self.cluster, target, request)
+            reingest_property_removal_shard(build_op_context(), self.cluster, target, request)
+            stats.append(verify_property_removal_shard(build_op_context(), self.cluster, target, request))
+        verify_property_removal(build_op_context(), self.cluster, request, stats)
+        return stats
+
+    def _staged_property_files(self, request: DeletionRequestContext) -> list[tuple]:
+        location = S3StagingLocation.for_data_deletion()
+        args = location.s3_args(f"property_removal/{request.request_id}/*/*/data/*.native", "One")
+        return self.cluster.any_host(Query(f"SELECT _path FROM s3({args}) WHERE _size > 0")).result()
 
     @parameterized.expand([("sync", False), ("queued", True)])
     def test_profile_deletion_removes_every_attached_id(self, _name: str, queued: bool) -> None:
@@ -352,17 +378,33 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("configured_single", "only", "$group_0", 3, 0),
-            ("configured_multiple", "first", "$group_0", 4, 0),
-            ("unrelated", "only", "unrelated", 4, 0),
-            ("unconfigured_group", "only", "$group_1", 4, 0),
-            ("person_property", "only", "person:email", 4, 0),
-            ("previously_configured_group", "only", "$group_0", 3, 1),
+            (f"{name}_{schema}", event, prop, count, index, native)
+            for name, event, prop, count, index in [
+                ("configured_single", "only", "$group_0", 3, 0),
+                ("configured_multiple", "first", "$group_0", 4, 0),
+                ("unrelated", "only", "unrelated", 4, 0),
+                ("unconfigured_group", "only", "$group_1", 4, 0),
+                ("person_property", "only", "person:email", 4, 0),
+                ("previously_configured_group", "only", "$group_0", 3, 1),
+            ]
+            for schema, native in [("legacy", False), ("native", True)]
         ]
     )
     def test_property_removal(
-        self, _name: str, event: str, property_name: str, expected_count: int, account_index: int
+        self, _name: str, event: str, property_name: str, expected_count: int, account_index: int, native: bool
     ) -> None:
+        if native:
+            sync_execute(
+                "INSERT INTO sharded_events_json (team_id, event, uuid, timestamp, distinct_id, person_id, properties, inserted_at) "
+                "SELECT team_id, event, uuid, timestamp, distinct_id, person_id, properties, inserted_at FROM sharded_events "
+                "WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )
+            sync_execute(
+                "DELETE FROM sharded_events WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+                settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+            )
         if account_index != 0:
             self.account.delete()
             TeamCustomerAnalyticsConfig.objects.update_or_create(
@@ -371,12 +413,36 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
         request = self._request([event], [] if property_name.startswith("person:") else [property_name])
         if property_name.startswith("person:"):
             request.person_properties = ["email"]
+        source = "events_json" if native else "events"
+        properties_column = "toJSONString(properties)" if native else "properties"
+        property_query = f"SELECT event, {properties_column} FROM {source} WHERE team_id = %(team_id)s"
+        before_properties = {
+            name: json.loads(properties) for name, properties in sync_execute(property_query, {"team_id": self.team.pk})
+        }
+        assert set(before_properties) == {"only", "first", "last", "other"}
+        for name, properties in before_properties.items():
+            assert properties["$group_0"] == ("other" if name == "other" else "acme")
+            assert properties["unrelated"] == "value"
         context = build_op_context()
-        shards = list(get_property_removal_shards(context, self.cluster, request))
-        stats = [process_property_removal_shard(context, self.cluster, shard.value, request) for shard in shards]
-        verify_property_removal(context, self.cluster, request, stats)
-        assert len(self._rows()) == expected_count
-        if property_name == "$group_0":
+        refused = native and property_name in ("$group_0", "unrelated")
+        if refused:
+            before = self._rows()
+            with self.assertRaisesRegex(Failure, "property-rewrite machinery"):
+                list(get_property_removal_shards(context, self.cluster, request))
+            assert self._rows() == before
+        else:
+            targets = [output.value for output in get_property_removal_shards(context, self.cluster, request)]
+            stats = self._rewrite_properties(request, targets)
+            cleanup_property_removal_staging(context, self.cluster, request, stats)
+            assert len(self._rows()) == expected_count
+        rows = sync_execute(property_query, {"team_id": self.team.pk})
+        assert len(rows) == 4
+        for event_name, properties in rows:
+            expected_properties = dict(before_properties[event_name])
+            if event_name == event and not refused and property_name in ("$group_0", "unrelated"):
+                expected_properties.pop(property_name)
+            assert json.loads(properties) == expected_properties
+        if property_name == "$group_0" and not refused:
             if event == "only":
                 assert ("acme", "a") not in [row[:2] for row in self._rows()]
             else:
@@ -392,13 +458,64 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
         request = self._request(["only", "first"], ["$group_0"])
         request.hogql_predicate = "distinct_id = 'a'"
         context = build_op_context()
-        shards = list(get_property_removal_shards(context, self.cluster, request))
-        stats = [process_property_removal_shard(context, self.cluster, shard.value, request) for shard in shards]
-        verify_property_removal(context, self.cluster, request, stats)
+        targets = [output.value for output in get_property_removal_shards(context, self.cluster, request)]
+        stats = self._rewrite_properties(request, targets)
+        cleanup_property_removal_staging(context, self.cluster, request, stats)
         assert self._rows() == [
             ("acme", "a-alias", self.start + timedelta(days=1), self.start + timedelta(days=1)),
             ("acme", "b", self.start, self.start + timedelta(days=4)),
             ("other", "b", self.start + timedelta(days=3), self.start + timedelta(days=3)),
+        ]
+        rows = sync_execute(
+            "SELECT event, properties FROM events WHERE team_id = %(team_id)s AND event IN ('only', 'first') ORDER BY event",
+            {"team_id": self.team.pk},
+        )
+        assert [(event, json.loads(properties)) for event, properties in rows] == [
+            ("first", {"$group_0": "acme", "unrelated": "value"}),
+            ("only", {"unrelated": "value"}),
+        ]
+
+    @parameterized.expand(
+        [("after_source_delete", "sharded_events"), ("membership", SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE)]
+    )
+    def test_property_removal_retry_keeps_both_stages(self, _name: str, failed_table: str) -> None:
+        request = self._request(["only"], ["$group_0"])
+        target = PropertyRemovalTarget(table="sharded_events", shard=1, json_schema=False)
+        copy_property_removal_shard(build_op_context(), self.cluster, target, request)
+        stage = MembershipReconciliation(self.cluster, self.operation_id)
+        assert sync_execute("EXISTS TABLE " + stage.storage_table) == [(0,)]
+        original_call = LightweightDeleteMutationRunner.__call__
+
+        def fail_delete(runner: LightweightDeleteMutationRunner, client: Client) -> MutationWaiter:
+            if runner.table == failed_table:
+                if failed_table == "sharded_events":
+                    original_call(runner, client).wait(client)
+                raise RuntimeError("delete response lost")
+            return original_call(runner, client)
+
+        with patch.object(LightweightDeleteMutationRunner, "__call__", autospec=True, side_effect=fail_delete):
+            with self.assertRaisesRegex(Exception, "delete response lost"):
+                stats = self._rewrite_properties(request, [target], copy=False)
+                cleanup_property_removal_staging(build_op_context(), self.cluster, request, stats)
+        assert self._staged_property_files(request)
+        assert sync_execute(f"SELECT group_key, distinct_id FROM {stage.read_table}") == [("acme", "a")]
+        assert sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(team_id)s AND event = 'only' "
+            "AND JSONHas(properties, '$group_0')",
+            {"team_id": self.team.pk},
+        ) == [(0,)]
+
+        stats = self._rewrite_properties(request, [target], copy=False)
+        cleanup_property_removal_staging(build_op_context(), self.cluster, request, stats)
+        assert self._staged_property_files(request) == []
+        assert sync_execute("EXISTS TABLE " + stage.storage_table) == [(0,)]
+        assert [(key, did) for key, did, *_ in self._rows()] == [("acme", "a-alias"), ("acme", "b"), ("other", "b")]
+        rows = sync_execute(
+            "SELECT uuid, properties FROM events WHERE team_id = %(team_id)s AND event = 'only'",
+            {"team_id": self.team.pk},
+        )
+        assert [(uuid, json.loads(properties)) for uuid, properties in rows] == [
+            (self.event_ids[0], {"unrelated": "value"})
         ]
 
     def test_team_deletion_clears_membership_and_config(self) -> None:
