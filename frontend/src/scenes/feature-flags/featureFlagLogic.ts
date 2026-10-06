@@ -3493,7 +3493,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/projects/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-last_modified_at&limit=5`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
