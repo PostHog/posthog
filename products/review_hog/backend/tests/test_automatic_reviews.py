@@ -58,6 +58,7 @@ def _payload(*, action: str = "opened", draft: bool = False, repository: str = "
             "head": {"sha": _HEAD_SHA, "repo": {"full_name": repository.swapcase()}},
             "base": {"ref": "master", "repo": {"full_name": repository}},
         },
+        **({"changes": {"base": {"ref": {"from": "main"}}}} if action == "edited" else {}),
     }
 
 
@@ -110,6 +111,8 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             ("synchronize", False, "PostHog/posthog"),
             ("synchronize", True, "PostHog/posthog"),
             ("ready_for_review", False, "PostHog/posthog"),
+            ("unlabeled", False, "PostHog/posthog"),
+            ("edited", False, "PostHog/posthog"),
             ("opened", False, "PostHog/posthog-js"),
         ]
     )
@@ -160,6 +163,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     @parameterized.expand(
         [
             ("label", ("action",), "labeled"),
+            ("edit_without_base_change", ("action",), "edited"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
             ("fork", ("pull_request", "head", "repo", "full_name"), "octocat/posthog"),

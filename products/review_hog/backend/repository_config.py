@@ -125,6 +125,10 @@ class _UniqueKeySafeLoader(yaml.SafeLoader):
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
         seen: set[object] = set()
         for key_node, _ in node.value:
+            # A `<<` merge key has no constructor of its own, and an explicit key may override a
+            # merged one, so only the explicit keys are checked. The parent expands the merge.
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
             key = self.construct_object(key_node, deep=deep)
             try:
                 duplicate = key in seen

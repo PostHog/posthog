@@ -27,6 +27,15 @@ class TestParseRepositoryConfig(SimpleTestCase):
         assert config.flash_reasoning_effort is None
         assert config.skip_reason(**_EVENT) is None
 
+    @parameterized.expand(
+        [
+            ("merged", "<<: {drafts: false}\npushes: false", False),
+            ("explicit_key_overrides_merged", "<<: {drafts: false}\ndrafts: true", True),
+        ]
+    )
+    def test_merge_keys_are_expanded(self, _name: str, text: str, expected_drafts: bool) -> None:
+        assert parse_repository_config(text).drafts is expected_drafts
+
     def test_a_key_with_no_value_means_its_default(self) -> None:
         config = parse_repository_config("base_branches:\nskip_labels:\nignore_authors:\nflash:\ninstructions:\n")
 

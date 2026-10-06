@@ -99,7 +99,12 @@ class AuthoredPRReview:
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> "AuthoredPRReview | None":
         action = payload.get("action")
-        if action not in ("opened", "synchronize", "ready_for_review"):
+        # Removing a skip label or retargeting the base branch can clear a gate that skipped the
+        # PR's earlier events. An `edited` event that changes only the title or body clears nothing.
+        if action == "edited":
+            if "base" not in _mapping(payload.get("changes")):
+                return None
+        elif action not in ("opened", "synchronize", "ready_for_review", "unlabeled"):
             return None
         pull_request = _mapping(payload.get("pull_request"))
         if pull_request.get("state") != "open" or pull_request.get("merged"):

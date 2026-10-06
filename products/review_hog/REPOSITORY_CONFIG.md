@@ -6,7 +6,8 @@ The repository must be covered by the reviewing team's GitHub App installation, 
 
 The automatic trigger reads the file from the repository's **default branch**, never from the pull request's head.
 The file decides who is reviewed and adds guidance to the reviewer's prompt, so a pull request cannot change those rules for its own review.
-A change to the file takes effect for every pull request once it merges, including pull requests opened before it.
+A change to the file takes effect once it merges.
+An open pull request is evaluated against it on its next eligible event (a push, ready for review, a removed label, or a base branch change); open pull requests are not backfilled.
 A pull request whose head lives in a fork is never reviewed automatically.
 
 The file decides _whether_ a pull request is reviewed and with what budget.
