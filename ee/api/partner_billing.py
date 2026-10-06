@@ -15,6 +15,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.validators import URLValidator
+from django.db import models
 from django.db.models import QuerySet
 
 import requests
@@ -33,7 +34,12 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
-from posthog.permissions import OrganizationAdminReadPermissions
+from posthog.permissions import OrganizationAdminReadPermissions, TimeSensitiveActionPermission
+from posthog.rate_limit import (
+    BillingReadBurstRateThrottle,
+    BillingReadSustainedRateThrottle,
+    PersonalApiKeyOrUserRateThrottle,
+)
 from posthog.utils import get_trusted_client_ip
 
 from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
@@ -83,16 +89,18 @@ class PartnerPayerUpdateSerializer(serializers.Serializer):
 
 class PartnerPayerAdminUpdateSerializer(PartnerPayerUpdateSerializer):
     default_limits_usd = _usd_limits_field(
-        "Monthly spend limit in whole US dollars per product key, applied to each organization when it links "
-        "to the partner. Null for a product removes its default.",
+        "Default monthly spend limit in whole US dollars per product key. A default applies to every organization "
+        "the partner pays for that has no limit of its own for that product, including organizations that are "
+        "already linked. Null for a product removes its default. Products left out keep their default.",
         required=False,
     )
 
 
 class PartnerPayerOrganizationLimitsSerializer(serializers.Serializer):
     custom_limits_usd = _usd_limits_field(
-        "Monthly spend limit in whole US dollars per product key for this organization. Null for a product "
-        "clears this organization's limit for it."
+        "Monthly spend limit in whole US dollars per product key for this organization. It replaces the "
+        "partner's default for that product. Null for a product means no limit, even when the partner has a "
+        "default for it. Products left out keep their limit."
     )
 
 
@@ -119,10 +127,17 @@ class PartnerPayerPageQuerySerializer(serializers.Serializer):
     offset = serializers.IntegerField(required=False, min_value=0, help_text="Number of results to skip.")
 
 
+class PartnerPayerInvoiceStatus(models.TextChoices):
+    OPEN = "open"
+    PAID = "paid"
+    UNCOLLECTIBLE = "uncollectible"
+    VOID = "void"
+
+
 class PartnerPayerInvoicesQuerySerializer(PartnerPayerPageQuerySerializer):
     organization_id = serializers.UUIDField(required=False, help_text="Only return this organization's invoices.")
-    status = serializers.CharField(
-        required=False, max_length=32, help_text="Only return invoices in this status, for example `open` or `paid`."
+    status = serializers.ChoiceField(
+        choices=PartnerPayerInvoiceStatus.choices, required=False, help_text="Only return invoices in this status."
     )
 
     def validate_organization_id(self, value: uuid.UUID) -> str:
@@ -174,7 +189,11 @@ class PartnerPayerWebhookSerializer(serializers.Serializer):
 class PartnerPayerSpendSerializer(serializers.Serializer):
     month_to_date_usd = serializers.CharField(
         required=False,
-        help_text="Spend this month across the partner's organizations, as a decimal string in US dollars.",
+        allow_null=True,
+        help_text=(
+            "Spend this month across the partner's organizations as of billing's last daily count, as a decimal "
+            "string in US dollars. Null until billing has counted this month."
+        ),
     )
     alert_usd = serializers.CharField(
         required=False, allow_null=True, help_text="Spend alert threshold, as a decimal string in US dollars, or null."
@@ -207,7 +226,10 @@ class PartnerPayerStatusSerializer(serializers.Serializer):
     default_limits_usd = serializers.DictField(
         child=serializers.IntegerField(allow_null=True),
         required=False,
-        help_text="Monthly spend limit in whole US dollars per product key, applied to each new organization.",
+        help_text=(
+            "Default monthly spend limit in whole US dollars per product key. A default applies to every "
+            "organization the partner pays for that has no limit of its own for that product."
+        ),
     )
 
 
@@ -240,7 +262,10 @@ class PartnerPayerOrganizationSerializer(serializers.Serializer):
     custom_limits_usd = serializers.DictField(
         child=serializers.IntegerField(allow_null=True),
         required=False,
-        help_text="Monthly spend limit in whole US dollars per product key for this organization.",
+        help_text=(
+            "This organization's own monthly spend limits in whole US dollars per product key. Null means no "
+            "limit. A product that is not listed follows the partner's default limits."
+        ),
     )
 
 
@@ -254,8 +279,12 @@ class PartnerPayerInvoiceSerializer(serializers.Serializer):
     organization_id = serializers.CharField(required=False, help_text="ID of the organization the invoice is for.")
     period_start = serializers.DateTimeField(required=False, allow_null=True, help_text="Start of the billing period.")
     period_end = serializers.DateTimeField(required=False, allow_null=True, help_text="End of the billing period.")
-    amount_cents = serializers.IntegerField(required=False, help_text="Invoice total in the currency's minor unit.")
-    currency = serializers.CharField(required=False, help_text="Three-letter ISO currency code, for example `usd`.")
+    amount_cents = serializers.IntegerField(
+        required=False, help_text="What the payer owes for this invoice, after credits, in the currency's minor unit."
+    )
+    currency = serializers.CharField(
+        required=False, help_text="Three-letter ISO currency code in upper case, for example `USD`."
+    )
     status = serializers.CharField(required=False, help_text="Invoice status, for example `open` or `paid`.")
     settlement_id = serializers.CharField(
         required=False, allow_null=True, help_text="ID of the settlement that pays this invoice, or null."
@@ -273,7 +302,9 @@ class PartnerPayerSettlementSerializer(serializers.Serializer):
     period_start = serializers.DateTimeField(required=False, allow_null=True, help_text="Start of the billing period.")
     period_end = serializers.DateTimeField(required=False, allow_null=True, help_text="End of the billing period.")
     amount_cents = serializers.IntegerField(required=False, help_text="Settlement total in the currency's minor unit.")
-    currency = serializers.CharField(required=False, help_text="Three-letter ISO currency code, for example `usd`.")
+    currency = serializers.CharField(
+        required=False, help_text="Three-letter ISO currency code in upper case, for example `USD`."
+    )
     status = serializers.CharField(required=False, help_text="Settlement status, for example `paid` or `failed`.")
     attempt_count = serializers.IntegerField(required=False, help_text="Number of times billing tried the charge.")
     next_attempt_at = serializers.DateTimeField(
@@ -289,8 +320,19 @@ class PartnerPayerSettlementListSerializer(serializers.Serializer):
     results = PartnerPayerSettlementSerializer(many=True, help_text="This page of settlements.")
 
 
+class PartnerPayerSettlementInvoiceSerializer(PartnerPayerInvoiceSerializer):
+    amount_cents = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="What the payer owes for this invoice, after credits, in the currency's minor unit, or null when billing has not recorded the invoice yet.",
+    )
+    charged_cents = serializers.IntegerField(
+        required=False, help_text="What the settlement charged for this invoice, in the currency's minor unit."
+    )
+
+
 class PartnerPayerSettlementDetailSerializer(PartnerPayerSettlementSerializer):
-    invoices = PartnerPayerInvoiceSerializer(
+    invoices = PartnerPayerSettlementInvoiceSerializer(
         many=True, required=False, help_text="The organization invoices that the settlement pays."
     )
 
@@ -348,6 +390,21 @@ def billing_json(validated_data: dict[str, Any]) -> dict[str, Any]:
     return {key: str(value) if isinstance(value, Decimal) else value for key, value in validated_data.items()}
 
 
+class MalformedBillingResponse(Exception):
+    pass
+
+
+def serialize_billing_response(serializer_class: type[serializers.Serializer], payload: Any) -> dict[str, Any]:
+    # DRF raises one of these when a billing 200 lacks a key the contract requires or holds a value of the wrong type.
+    try:
+        return serializer_class(payload).data
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise MalformedBillingResponse(f"Billing's response does not fit {serializer_class.__name__}") from error
+
+
+PARTNER_BILLING_CALL_ERRORS = (BillingServiceResponseError, MalformedBillingResponse, requests.RequestException)
+
+
 class PartnerBillingRefusalError(APIException):
     def __init__(self, refusal: PartnerBillingRefusal) -> None:
         super().__init__(detail=refusal.message, code=refusal.code)
@@ -358,7 +415,7 @@ class PartnerBillingRefusalError(APIException):
 def _billing_refusals(application: OAuthApplication, fields: Collection[str] = ()) -> Iterator[None]:
     try:
         yield
-    except (BillingServiceResponseError, requests.RequestException) as error:
+    except PARTNER_BILLING_CALL_ERRORS as error:
         refusal = classify_partner_billing_error(error, fields)
         capture_exception(error, {"partner_application_id": str(application.id), "refusal_code": refusal.code})
         if refusal.field is not None:
@@ -377,12 +434,25 @@ CUSTOMER_ORGANIZATION_ID_PARAMETER = OpenApiParameter(
 )
 
 
+class PartnerBillingTestEventBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "partner_billing_test_event_burst"
+    rate = "5/minute"
+
+
+class PartnerBillingTestEventSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "partner_billing_test_event_sustained"
+    rate = "30/hour"
+
+
 @extend_schema(extensions={"x-product": "billing"})
 class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     # Session only. A partner's own machine path is the provisioning API, where it signs as itself, and a
     # personal API key that can read billing must not also rotate the webhook secret or raise a spend cap.
     scope_object = "INTERNAL"
-    permission_classes = [OrganizationAdminReadPermissions]
+    permission_classes = [OrganizationAdminReadPermissions, TimeSensitiveActionPermission]
+    # A test event changes no credential, limit or charge, so it skips the recent-login window.
+    time_sensitive_allow_actions = ["test_event"]
+    throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     queryset = OAuthApplication.objects.all()
     serializer_class = PartnerPayerApplicationSerializer
     pagination_class = None
@@ -412,8 +482,10 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         application = self.get_object()
         with _billing_refusals(application):
-            payer = self._billing_manager().get_payer(application)
-        return Response(PartnerPayerStatusSerializer(payer).data)
+            payer = serialize_billing_response(
+                PartnerPayerStatusSerializer, self._billing_manager().get_payer(application)
+            )
+        return Response(payer)
 
     @extend_schema(
         operation_id="partner_billing_partial_update",
@@ -426,9 +498,12 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         serializer = PartnerPayerAdminUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with _billing_refusals(application, fields=serializer.validated_data.keys()):
-            payer = self._billing_manager().update_payer(application, billing_json(serializer.validated_data))
+            payer = serialize_billing_response(
+                PartnerPayerStatusSerializer,
+                self._billing_manager().update_payer(application, billing_json(serializer.validated_data)),
+            )
         self._report_action(application, "settings_updated")
-        return Response(PartnerPayerStatusSerializer(payer).data)
+        return Response(payer)
 
     @extend_schema(
         operation_id="partner_billing_portal_create",
@@ -443,9 +518,12 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         serializer.is_valid(raise_exception=True)
         return_url = f"{settings.SITE_URL}{serializer.validated_data['return_path']}"
         with _billing_refusals(application):
-            portal = self._billing_manager().create_payer_portal_session(application, return_url)
+            portal = serialize_billing_response(
+                PartnerPayerPortalSerializer,
+                self._billing_manager().create_payer_portal_session(application, return_url),
+            )
         self._report_action(application, "portal_opened")
-        return Response(PartnerPayerPortalSerializer(portal).data)
+        return Response(portal)
 
     @extend_schema(
         operation_id="partner_billing_webhook_secret_create",
@@ -458,9 +536,11 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
     def webhook_secret(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         application = self.get_object()
         with _billing_refusals(application):
-            secret = self._billing_manager().rotate_payer_webhook_secret(application)
+            secret = serialize_billing_response(
+                PartnerPayerWebhookSecretSerializer, self._billing_manager().rotate_payer_webhook_secret(application)
+            )
         self._report_action(application, "webhook_secret_rotated")
-        return Response(PartnerPayerWebhookSecretSerializer(secret).data, headers={"Cache-Control": "no-store"})
+        return Response(secret, headers={"Cache-Control": "no-store"})
 
     @extend_schema(
         operation_id="partner_billing_test_event_create",
@@ -468,13 +548,26 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         request=None,
         responses={200: PartnerPayerTestEventSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    # Every test event makes billing deliver a request to the partner's webhook, so each person gets the budget
+    # the partner's own test event route has, on top of the shared billing budget.
+    @action(
+        methods=["POST"],
+        detail=True,
+        throttle_classes=[
+            BillingReadBurstRateThrottle,
+            BillingReadSustainedRateThrottle,
+            PartnerBillingTestEventBurstThrottle,
+            PartnerBillingTestEventSustainedThrottle,
+        ],
+    )
     def test_event(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         application = self.get_object()
         with _billing_refusals(application):
-            event = self._billing_manager().send_payer_test_event(application)
+            event = serialize_billing_response(
+                PartnerPayerTestEventSerializer, self._billing_manager().send_payer_test_event(application)
+            )
         self._report_action(application, "test_event_sent")
-        return Response(PartnerPayerTestEventSerializer(event).data)
+        return Response(event)
 
     @extend_schema(
         operation_id="partner_billing_organization_list",
@@ -488,8 +581,11 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         query = PartnerPayerPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         with _billing_refusals(application):
-            organizations = self._billing_manager().list_payer_organizations(application, **query.validated_data)
-        return Response(PartnerPayerOrganizationListSerializer(organizations).data)
+            organizations = serialize_billing_response(
+                PartnerPayerOrganizationListSerializer,
+                self._billing_manager().list_payer_organizations(application, **query.validated_data),
+            )
+        return Response(organizations)
 
     @extend_schema(
         operation_id="partner_billing_organization_limits_partial_update",
@@ -510,11 +606,16 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         serializer = PartnerPayerOrganizationLimitsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with _billing_refusals(application, fields=serializer.validated_data.keys()):
-            organization = self._billing_manager().update_payer_organization_limits(
-                application, str(uuid.UUID(customer_organization_id)), serializer.validated_data["custom_limits_usd"]
+            organization = serialize_billing_response(
+                PartnerPayerOrganizationSerializer,
+                self._billing_manager().update_payer_organization_limits(
+                    application,
+                    str(uuid.UUID(customer_organization_id)),
+                    serializer.validated_data["custom_limits_usd"],
+                ),
             )
         self._report_action(application, "organization_limits_updated")
-        return Response(PartnerPayerOrganizationSerializer(organization).data)
+        return Response(organization)
 
     @extend_schema(
         operation_id="partner_billing_invoices_list",
@@ -528,8 +629,11 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         query = PartnerPayerInvoicesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         with _billing_refusals(application):
-            invoices = self._billing_manager().list_payer_invoices(application, **query.validated_data)
-        return Response(PartnerPayerInvoiceListSerializer(invoices).data)
+            invoices = serialize_billing_response(
+                PartnerPayerInvoiceListSerializer,
+                self._billing_manager().list_payer_invoices(application, **query.validated_data),
+            )
+        return Response(invoices)
 
     @extend_schema(
         operation_id="partner_billing_settlements_list",
@@ -543,8 +647,11 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         query = PartnerPayerPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         with _billing_refusals(application):
-            settlements = self._billing_manager().list_payer_settlements(application, **query.validated_data)
-        return Response(PartnerPayerSettlementListSerializer(settlements).data)
+            settlements = serialize_billing_response(
+                PartnerPayerSettlementListSerializer,
+                self._billing_manager().list_payer_settlements(application, **query.validated_data),
+            )
+        return Response(settlements)
 
     @extend_schema(
         operation_id="partner_billing_settlements_retrieve",
@@ -556,8 +663,11 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
     def settlement(self, request: Request, settlement_id: str, *args: Any, **kwargs: Any) -> Response:
         application = self.get_object()
         with _billing_refusals(application):
-            settlement = self._billing_manager().get_payer_settlement(application, settlement_id)
-        return Response(PartnerPayerSettlementDetailSerializer(settlement).data)
+            settlement = serialize_billing_response(
+                PartnerPayerSettlementDetailSerializer,
+                self._billing_manager().get_payer_settlement(application, settlement_id),
+            )
+        return Response(settlement)
 
     @extend_schema(
         operation_id="partner_billing_settlement_retry_create",
@@ -570,6 +680,9 @@ class PartnerBillingViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
     def settlement_retry(self, request: Request, settlement_id: str, *args: Any, **kwargs: Any) -> Response:
         application = self.get_object()
         with _billing_refusals(application):
-            settlement = self._billing_manager().retry_payer_settlement(application, settlement_id)
+            settlement = serialize_billing_response(
+                PartnerPayerSettlementSerializer,
+                self._billing_manager().retry_payer_settlement(application, settlement_id),
+            )
         self._report_action(application, "settlement_retried")
-        return Response(PartnerPayerSettlementSerializer(settlement).data)
+        return Response(settlement)

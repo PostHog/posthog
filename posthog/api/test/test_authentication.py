@@ -2419,6 +2419,37 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 403, res.content
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
+    @parameterized.expand(
+        [
+            ("partner_billing_update", "patch", "", True),
+            ("partner_billing_portal", "post", "portal/", True),
+            ("partner_billing_webhook_secret", "post", "webhook_secret/", True),
+            (
+                "partner_billing_organization_limits",
+                "patch",
+                "organizations/00000000-0000-0000-0000-000000000002/limits/",
+                True,
+            ),
+            ("partner_billing_settlement_retry", "post", "settlements/stl_1/retry/", True),
+            ("partner_billing_test_event", "post", "test_event/", False),
+            ("partner_billing_status", "get", "", False),
+        ]
+    )
+    def test_partner_billing_credential_and_money_writes_need_recent_authentication(
+        self, _name, method, path, needs_reauth
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        url = f"/api/organizations/@current/partner_billing/00000000-0000-0000-0000-000000000001/{path}"
+        now = datetime.now()
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            res = getattr(self.client, method)(url, {}, format="json")
+            if needs_reauth:
+                assert res.status_code == 403, res.content
+                assert res.json()["code"] == "sensitive_action_required_reauth"
+            else:
+                assert res.status_code != 403, res.content
+
 
 class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):

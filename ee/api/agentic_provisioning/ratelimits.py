@@ -20,7 +20,8 @@ Charging happens two ways, mirroring where the partner becomes known:
   :func:`charge_partner_by_name`.
 
 A charge is refunded in ``handle_exception`` when the request provably did no
-work (the error code is in the declaration's ``refund_on``), so a partner
+work (the error code is in the declaration's ``refund_on`` and the handler did
+not call another service, see :func:`record_outbound_call`), so a partner
 debugging a 400 does not spend its budget on rejections.
 
 The buckets are best-effort: Redis eviction or an outage hands a caller a
@@ -345,8 +346,22 @@ def _did_no_work(error_code: str, refund_on: frozenset[str]) -> bool:
     return error_code in refund_on or error_code.startswith("invalid_")
 
 
+OUTBOUND_CALL_ATTR = "_provisioning_called_out"
+
+
+def record_outbound_call(request: Request) -> None:
+    """Keep the request's charges whatever error it ends with, because another service does work for it.
+
+    An endpoint that relays the other service's refusals can answer with a no-work code, such as
+    forbidden or invalid_request, after the call. The code alone cannot show that work was done.
+    """
+    setattr(request, OUTBOUND_CALL_ATTR, True)
+
+
 def refund_no_work(request: Request, error_code: str) -> None:
     """Give charges back when the request's failure proves it did no work."""
+    if getattr(request, OUTBOUND_CALL_ATTR, False):
+        return
     for ledger in getattr(request, RateLimitLedger.LEDGERS_ATTR, []):
         if ledger.refunded or not _did_no_work(error_code, ledger.declaration.refund_on):
             continue

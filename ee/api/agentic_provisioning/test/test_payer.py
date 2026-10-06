@@ -14,8 +14,16 @@ from parameterized import parameterized
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.models.oauth import OAuthApplication
+from posthog.token_bucket import Budget
 
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_SCOPES,
+    ProvisioningTestBase,
+    patched_budget,
+    provisioning_config,
+)
+from ee.api.agentic_provisioning.views import PayerView
 from ee.api.test.base import LicensedTestMixin
 from ee.api.test.test_partner_billing import (
     BILLING_DETAIL,
@@ -25,6 +33,7 @@ from ee.api.test.test_partner_billing import (
     PAYER_STATUS,
     PAYER_STATUS_FROM_BILLING,
     SETTLEMENT,
+    SETTLEMENT_INVOICES,
     billing_response,
 )
 from ee.settings import BILLING_SERVICE_URL
@@ -126,11 +135,7 @@ class TestPayerProvisioningAPI(LicensedTestMixin, ProvisioningTestBase):
                 "update",
                 "patch",
                 "",
-                {
-                    "webhook_url": "https://hooks.example.com/posthog",
-                    "spend_alert_usd": "1000",
-                    "default_limits_usd": {"product_analytics": 0},
-                },
+                {"webhook_url": "https://hooks.example.com/posthog", "spend_alert_usd": "1000"},
                 PAYER_STATUS_FROM_BILLING,
                 (
                     "PATCH",
@@ -204,9 +209,9 @@ class TestPayerProvisioningAPI(LicensedTestMixin, ProvisioningTestBase):
                 "get",
                 "/settlements/stl_example1",
                 None,
-                {**SETTLEMENT, "invoices": [INVOICE]},
+                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
                 ("GET", "/api/payer/settlements/stl_example1", None, None),
-                {**SETTLEMENT, "invoices": [INVOICE]},
+                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
             ),
         ]
     )
@@ -225,31 +230,76 @@ class TestPayerProvisioningAPI(LicensedTestMixin, ProvisioningTestBase):
         assert request.call_args.kwargs["params"] == expected_params
         assert request.call_args.kwargs["json"] == expected_body
 
+    def test_refuses_default_limits_which_only_organization_admins_change(self):
+        with patch("ee.billing.billing_manager.http_session.request") as request:
+            response = self._call("patch", "", {"default_limits_usd": {"product_analytics": 0}})
+
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "invalid_request"
+        assert response.json()["error"]["message"].startswith("default_limits_usd: ")
+        request.assert_not_called()
+
     @parameterized.expand(
         [
             (
                 "billing rejects a field the partner sent",
+                "patch",
+                "",
                 billing_response({"type": "validation_error", "attr": "webhook_url", "detail": BILLING_DETAIL}, 400),
                 400,
                 "invalid_request",
             ),
             (
                 "another organization manages the payer",
+                "patch",
+                "",
                 billing_response({"detail": BILLING_DETAIL}, 403),
                 403,
                 "forbidden",
             ),
-            ("billing unreachable", requests.ConnectionError(BILLING_DETAIL), 502, "billing_unavailable"),
+            ("billing unreachable", "patch", "", requests.ConnectionError(BILLING_DETAIL), 502, "billing_unavailable"),
+            (
+                "billing answers without a key the contract requires",
+                "post",
+                "/webhook_secret",
+                billing_response({"secret": "whsec_ZXhhbXBsZQ=="}),
+                502,
+                "billing_unavailable",
+            ),
         ]
     )
     def test_answers_billing_refusals_in_the_provisioning_envelope(
-        self, _name, outcome, expected_status, expected_code
+        self, _name, method, path, outcome, expected_status, expected_code
     ):
         side_effect = outcome if isinstance(outcome, Exception) else [outcome]
         with patch("ee.billing.billing_manager.http_session.request", side_effect=side_effect):
-            response = self._call("patch", "", {"webhook_url": "https://hooks.example.com/posthog"})
+            response = self._call(method, path, {"webhook_url": "https://hooks.example.com/posthog"})
 
         assert response.status_code == expected_status
         assert response.json()["type"] == "error"
         assert response.json()["error"]["code"] == expected_code
         assert BILLING_DETAIL not in response.content.decode()
+
+    @parameterized.expand(
+        [
+            (
+                "a rejected value",
+                billing_response({"type": "validation_error", "attr": "webhook_url", "detail": BILLING_DETAIL}, 400),
+                "invalid_request",
+            ),
+            ("a refused partner", billing_response({"detail": BILLING_DETAIL}, 403), "forbidden"),
+        ]
+    )
+    def test_keeps_the_rate_limit_charge_when_billing_refuses(self, _name, refusal, expected_code):
+        with (
+            patched_budget(
+                PayerView, "patch", "payer_writes", Budget(burst=1, per_hour=1), multipliers=FLAT_MULTIPLIERS
+            ),
+            patch("ee.billing.billing_manager.http_session.request", return_value=refusal) as request,
+        ):
+            refused = self._call("patch", "", {"webhook_url": "https://hooks.example.com/posthog"})
+            retried = self._call("patch", "", {"webhook_url": "https://hooks.example.com/posthog"})
+
+        assert refused.json()["error"]["code"] == expected_code
+        assert retried.status_code == 429
+        assert request.call_count == 1
