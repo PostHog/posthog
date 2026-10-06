@@ -79,7 +79,27 @@ describe('scaffold-yaml', () => {
         const result = mergeWithExisting(existing, thingsOps, 'things', validIds('things'), subset)
 
         expect('gone-list' in parseYaml(result.content).tools).toBe(kept)
-        expect(result[reported]).toEqual(['gone-list (gone_list)'])
+        expect(result[reported]).toEqual([expect.stringMatching(/^gone-list \(gone_list\)/)])
+    })
+
+    it.each([
+        {
+            name: 'drops a disabled entry without disabled_reason',
+            config: { operation: 'things_list', enabled: false },
+            kept: false,
+        },
+        {
+            name: 'keeps a disabled entry with disabled_reason',
+            config: { operation: 'things_list', enabled: false, disabled_reason: 'Superseded by things-search' },
+            kept: true,
+        },
+    ])('$name while its operation exists', ({ config, kept }) => {
+        const existing = category({ 'things-list': config })
+
+        const result = mergeWithExisting(existing, thingsOps, 'things', validIds('things'))
+
+        expect('things-list' in parseYaml(result.content).tools).toBe(kept)
+        expect(result.droppedDisabledTools).toEqual(kept ? [] : ['things-list (things_list): no disabled_reason'])
     })
 
     it('lists operations without an entry, deduplicated and sorted', () => {

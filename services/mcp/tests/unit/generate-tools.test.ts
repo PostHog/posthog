@@ -1533,7 +1533,6 @@ describe('ToolConfigSchema validation', () => {
     })
 
     it.each([
-        { name: 'rejects enabled: false without disabled_reason', extra: { enabled: false }, valid: false },
         { name: 'rejects a blank disabled_reason', extra: { enabled: false, disabled_reason: '  ' }, valid: false },
         { name: 'rejects disabled_reason on an enabled tool', extra: { disabled_reason: 'Old' }, valid: false },
         {

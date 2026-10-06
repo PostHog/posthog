@@ -101,7 +101,7 @@ tools:
   tool-name:
     operation: operation_id # must match an OpenAPI operationId
     enabled: true # false keeps the tool off on purpose
-    # disabled_reason: Superseded by other-tool # required with enabled: false, rejected with enabled: true
+    # disabled_reason: Superseded by other-tool # keeps enabled: false through sync; rejected with enabled: true
     # --- required when enabled: ---
     scopes: [product:read]
     annotations:

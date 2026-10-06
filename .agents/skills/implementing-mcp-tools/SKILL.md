@@ -254,7 +254,7 @@ A tool that a feature flag removes is a different case. It keeps its definition,
 
 Tools are opt-in: an operation without a YAML entry is not exposed, and nothing writes entries for new endpoints.
 Write an entry with `enabled: false` only to record a decision, for example a tool superseded by another one.
-Such an entry needs `disabled_reason: <why>`; codegen rejects `enabled: false` without it, and `disabled_reason` on an enabled tool.
+Such an entry needs `disabled_reason: <why>`. Sync removes an `enabled: false` entry without one as a leftover stub, and codegen rejects `disabled_reason` on an enabled tool.
 
 ### Syncing after endpoint changes
 

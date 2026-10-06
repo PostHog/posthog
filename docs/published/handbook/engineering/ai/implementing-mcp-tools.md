@@ -267,7 +267,7 @@ Product teams own their definitions and control which operations are exposed as 
 
    To keep an operation off on purpose, for example when another tool supersedes it,
    give its entry `enabled: false` and `disabled_reason: <why>`.
-   Codegen rejects `enabled: false` without a `disabled_reason`, and a `disabled_reason` on an enabled tool.
+   Sync removes an `enabled: false` entry without a `disabled_reason` as a leftover stub, and codegen rejects a `disabled_reason` on an enabled tool.
 
 2. **Configure** each entry – the title and description come from the API; set them in the YAML when they do not read well for an agent.
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.

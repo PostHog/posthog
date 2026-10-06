@@ -12,8 +12,8 @@ export const ToolConfigSchema = z
         operation: z.string(),
         enabled: z.boolean(),
         /**
-         * Why the tool stays off. Required with `enabled: false` and rejected otherwise, so every
-         * disabled entry records a decision. An operation nobody decided on has no entry at all.
+         * Why the tool stays off. Scaffold sync removes an `enabled: false` entry without one as a
+         * leftover stub, so every disabled entry records a decision. Rejected on an enabled tool.
          */
         disabled_reason: z.string().trim().min(1).optional(),
         scopes: z.array(z.string()).optional(),
@@ -331,11 +331,6 @@ export const ToolConfigSchema = z
     .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
         message: '`feature_flag_variant` requires `feature_flag` to be set',
         path: ['feature_flag_variant'],
-    })
-    .refine((data) => data.enabled || data.disabled_reason !== undefined, {
-        message:
-            '`enabled: false` requires `disabled_reason`. Remove the entry, or add disabled_reason to keep it disabled on purpose.',
-        path: ['disabled_reason'],
     })
     .refine((data) => !(data.enabled && data.disabled_reason !== undefined), {
         message: '`disabled_reason` applies only to `enabled: false`. Remove it from the enabled tool.',

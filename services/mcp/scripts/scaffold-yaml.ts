@@ -230,7 +230,8 @@ function loadCategoryConfig(filePath: string): CategoryConfig {
 
 /**
  * Never adds entries for new operations, because tools are opt-in (see `--add`).
- * An entry whose operation is gone:
+ * A disabled entry without a `disabled_reason` is a leftover stub: dropped and
+ * reported in `droppedDisabledTools`. An entry whose operation is gone:
  * - enabled: kept and reported in `lostEnabledTools`, because dropping it would
  *   silently remove a live tool.
  * - disabled (with its disabled_reason): dropped and reported in
@@ -261,6 +262,10 @@ function mergeWithExisting(
     const droppedDisabledTools: string[] = []
 
     for (const [name, config] of Object.entries(existing.tools)) {
+        if (!config.enabled && !config.disabled_reason) {
+            droppedDisabledTools.push(`${name} (${config.operation}): no disabled_reason`)
+            continue
+        }
         const op = openApiByBase.get(baseOperationId(config.operation))
         if (op) {
             // Keep the author's chosen operation variant if it still exists in
@@ -280,7 +285,7 @@ function mergeWithExisting(
             mergedTools[name] = { ...config }
             lostEnabledTools.push(`${name} (${config.operation})`)
         } else {
-            droppedDisabledTools.push(`${name} (${config.operation})`)
+            droppedDisabledTools.push(`${name} (${config.operation}): operation no longer in OpenAPI`)
         }
     }
 
@@ -316,9 +321,7 @@ function reportDroppedDisabledTools(droppedDisabledTools: string[]): void {
     if (droppedDisabledTools.length === 0) {
         return
     }
-    process.stdout.write(
-        `  ${droppedDisabledTools.length} disabled tool(s) removed because their operation no longer exists in OpenAPI:\n`
-    )
+    process.stdout.write(`  ${droppedDisabledTools.length} disabled tool(s) removed:\n`)
     for (const tool of droppedDisabledTools) {
         process.stdout.write(`    - ${tool}\n`)
     }
