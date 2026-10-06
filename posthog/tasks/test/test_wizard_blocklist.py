@@ -3,7 +3,10 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, revoke_oauth_session
 from posthog.models.user import User
@@ -53,11 +56,15 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         )
         return access_token
 
-    @patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=True)
-    def test_a_blocked_user_loses_the_access_and_refresh_token(self, mock_blocked: MagicMock) -> None:
+    @parameterized.expand([("banned by the flag", True, False), ("banned by an access rule", False, True)])
+    def test_a_blocked_user_loses_the_access_and_refresh_token(self, _name: str, flag: bool, rule: bool) -> None:
         self._token(token="live_token")
 
-        result = sweep_blocklisted_gateway_credentials()
+        with (
+            patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=flag),
+            patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=rule),
+        ):
+            result = sweep_blocklisted_gateway_credentials()
 
         assert (result.blocked_users, result.revoked_sessions) == (1, 1)
         # Without the refresh token a ban only holds until the next refresh.
@@ -209,14 +216,25 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert not OAuthAccessToken.objects.filter(token="blocked_token").exists()
         assert OAuthAccessToken.objects.filter(token="other_token").exists()
 
+    @parameterized.expand([("gateway in shadow", [], True), ("gateway enforced", ["ai_gateway"], False)])
+    @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
     @patch("posthog.tasks.wizard_blocklist.record_blocklist_outcome")
     @patch("posthog.tasks.wizard_blocklist.blocklist_flag_defined", return_value=False)
-    def test_a_run_with_no_flag_defined_reports_itself(self, mock_defined: MagicMock, mock_record: MagicMock) -> None:
+    def test_a_run_with_no_flag_defined_reports_itself(
+        self,
+        _name: str,
+        enforced: list[str],
+        kept: bool,
+        mock_defined: MagicMock,
+        mock_record: MagicMock,
+        _rule: MagicMock,
+    ) -> None:
         # A lost definitions cache looks the same as no ban list, so the skipped
-        # run has to reach the counter.
+        # run has to reach the counter. Enforced access rules still need the sweep.
         self._token(token="untouched")
 
-        revoke_blocklisted_gateway_credentials()
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            revoke_blocklisted_gateway_credentials()
 
-        mock_record.assert_called_once_with("revoke_sweep", "unconfigured")
-        assert OAuthAccessToken.objects.filter(token="untouched").exists()
+        mock_record.assert_any_call("revoke_sweep", "unconfigured")
+        assert OAuthAccessToken.objects.filter(token="untouched").exists() is kept

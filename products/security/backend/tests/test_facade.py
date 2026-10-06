@@ -11,6 +11,7 @@ from posthog.models import User
 from products.security.backend.facade.api import (
     access_refused,
     decide,
+    gateway_credentials_revoked,
     is_email_code_exempt,
     is_signup_risk_exempt,
     shadow_check,
@@ -153,3 +154,26 @@ class TestFacade(BaseTest):
             assert (
                 access_refused(SubjectInput(email="blocked@example.com"), Surface.APP, call_site="refuse_site") is False
             )
+
+    @parameterized.expand([("gateway enforced", ["ai_gateway"], True), ("gateway in shadow", ["signup", "app"], False)])
+    def test_gateway_credentials_are_revoked_only_while_the_gateway_is_enforced(
+        self, _name: str, enforced: list[str], expected: bool
+    ) -> None:
+        seed_rules(block_rule(targetValue="abuser@example.com", scope="ai_gateway"))
+        would_block_before = REGISTRY.get_sample_value(
+            "posthog_security_access_would_block_total",
+            {"surface": "ai_gateway", "call_site": "revoke_sweep", "target_type": "email"},
+        )
+
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            assert gateway_credentials_revoked(SubjectInput(email="abuser@example.com")) is expected
+
+        # The sweep re-reads every credential every few minutes, so a would-block from it would
+        # swamp the shadow data the flip depends on.
+        assert (
+            REGISTRY.get_sample_value(
+                "posthog_security_access_would_block_total",
+                {"surface": "ai_gateway", "call_site": "revoke_sweep", "target_type": "email"},
+            )
+            == would_block_before
+        )

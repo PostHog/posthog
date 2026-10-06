@@ -1,5 +1,8 @@
 """Revoke the gateway credentials a blocklisted identity already holds.
 
+An identity is blocklisted when the wizard blocklist flag names it, or when an access rule
+refuses it while the AI gateway is enforced.
+
 Consent refuses a banned user a new grant, but a ban still has to reach the
 credentials issued before it. This is what closes the legacy gateway, which
 authenticates the `pha_` straight out of Postgres and reads nothing else.
@@ -28,6 +31,13 @@ from posthog.llm.wizard_blocklist import (
 )
 from posthog.models.oauth import OAuthAccessToken, oauth_scope_tokens_expression, revoke_oauth_session
 from posthog.scoping_audit import skip_team_scope_audit
+
+from products.security.backend.facade.api import (
+    gateway_credentials_revoked as security_gateway_credentials_revoked,
+    is_enforced as security_is_enforced,
+)
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -83,6 +93,8 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
                 user_uuid=str(user.uuid),
                 organization_ids=question[1],
                 team_ids=question[2],
+            ) or security_gateway_credentials_revoked(
+                SecuritySubject(email=user.email, user_uuid=str(user.uuid), organization_ids=question[1])
             )
             verdicts[question] = blocked
             if blocked:
@@ -132,8 +144,10 @@ def revoke_blocklisted_gateway_credentials() -> None:
         # missing personal API key all reset them to empty. Recorded so a sweep
         # that checked nothing is not silence.
         record_blocklist_outcome("revoke_sweep", "unconfigured")
-        logger.info("wizard_blocklist: no blocklist flag defined, skipping the sweep")
-        return
+        # Enforced access rules do not depend on the flag, so their bans still need the sweep.
+        if not security_is_enforced(SecuritySurface.AI_GATEWAY):
+            logger.info("wizard_blocklist: no blocklist flag defined, skipping the sweep")
+            return
     result = sweep_blocklisted_gateway_credentials()
     logger.info(
         "wizard_blocklist: sweep complete",

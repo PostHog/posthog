@@ -14,7 +14,7 @@ import structlog
 
 from ..logic.accounts import email_for_user
 from ..logic.decisions import deciding_rule
-from ..logic.enforcement import is_enforced
+from ..logic.enforcement import is_enforced as _is_enforced
 from ..logic.snapshot import current_snapshot
 from ..logic.subjects import normalize_subject
 from ..metrics import DECISION_ERRORS_COUNTER, DECISIONS_COUNTER, REFUSALS_COUNTER, WOULD_BLOCK_COUNTER
@@ -82,6 +82,11 @@ def is_signup_risk_exempt(email: str) -> bool:
         return False
 
 
+def is_enforced(surface: Surface) -> bool:
+    """Whether a block rule refuses requests on this surface, rather than only recording them."""
+    return _is_enforced(surface)
+
+
 def _record_block(
     decision: contracts.Decision, subject: contracts.SubjectInput, call_site: str, *, refused: bool
 ) -> None:
@@ -108,7 +113,7 @@ def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_si
         decision = _counted(decide(subject, surface), call_site)
         if decision.outcome != Outcome.BLOCK:
             return False
-        refused = is_enforced(surface)
+        refused = _is_enforced(surface)
         _record_block(decision, subject, call_site, refused=refused)
         return refused
     except Exception:
@@ -127,3 +132,14 @@ def shadow_check(subject: contracts.SubjectInput, surface: Surface, *, call_site
     except Exception:
         logger.exception("security_access_shadow_check_failed", call_site=call_site)
         DECISION_ERRORS_COUNTER.labels(call_site=call_site).inc()
+
+
+def gateway_credentials_revoked(subject: contracts.SubjectInput) -> bool:
+    """Whether a block rule takes away the AI gateway credentials this identity already holds.
+
+    Always False while the AI gateway is not enforced, so a rule in shadow mode never revokes
+    anything and the sweep adds nothing to the would-block count. Never raises.
+    """
+    if not _is_enforced(Surface.AI_GATEWAY):
+        return False
+    return access_refused(subject, Surface.AI_GATEWAY, call_site="revoke_sweep")
