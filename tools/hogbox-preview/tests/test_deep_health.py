@@ -272,6 +272,15 @@ class TemplateSyncTest(unittest.TestCase):
         self.assertLess(events.index("sync_hog_function_templates"), events.index("up_web"))
         self.assertLess(events.index("sync_feature_flags"), events.index("up_web"))
 
+    def test_feature_flag_sync_mounts_the_pr_flag_list(self):
+        backend = _RecordingBackend()
+        stack = PostHogPreviewStack(backend)
+        stack.sync_feature_flags()
+
+        (script,) = backend.long_runs
+        constants = "frontend/src/lib/constants.tsx"
+        self.assertIn(f"-v {stack.repo_dir}/{constants}:/code/{constants}:ro web python manage.py", script)
+
     def test_cdp_service_uses_the_published_image_configuration(self):
         backend = _RecordingBackend()
         stack = PostHogPreviewStack(backend)
