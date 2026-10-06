@@ -199,9 +199,14 @@ def _parse_json_container(value: str) -> JSONValue | None:
     if not value.lstrip().startswith(("{", "[")):
         return None
     try:
-        return json.loads(value, parse_constant=_reject_json_constant)
+        parsed = json.loads(value, parse_constant=_reject_json_constant)
+        # `json.loads` accepts an unpaired UTF-16 surrogate escape such as `\ud800`, but cymbal's
+        # serde_json rejects it, and PostgreSQL rejects the character in jsonb. The encode raises
+        # UnicodeEncodeError, a ValueError, so such text stays an ordinary string, as in cymbal.
+        json.dumps(parsed, ensure_ascii=False).encode("utf-8")
     except ValueError:
         return None
+    return parsed
 
 
 class _PlaceholderKeys:

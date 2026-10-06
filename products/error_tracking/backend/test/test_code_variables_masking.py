@@ -55,6 +55,11 @@ class TestCodeVariablesMasking(SimpleTestCase):
                 {"user": '{"name": "bob", "password": "hunter22"}'},
                 {"user": f'{{"name":"bob","password":"{REDACTED}"}}'},
             ),
+            (
+                "json_string_with_a_lone_surrogate_stays_a_string",
+                {"user": f'{{"name": "\\ud800", "note": "Bearer {BEARER_TOKEN}"}}'},
+                {"user": f'{{"name": "\\ud800", "note": "Bearer {REDACTED}"}}'},
+            ),
             ("sk_at_a_word_start", {"stripe_sk_key": "abc"}, {"stripe_sk_key": REDACTED}),
             (
                 "distinct_placeholders",
