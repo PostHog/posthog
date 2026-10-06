@@ -112,6 +112,7 @@ Sum the three window columns as you read them — that's the aggregate check. If
 | Unfamiliar external domain suddenly in the top referrers             | Real mention/launch or referrer spam — corroborate before either call |
 | One entry path's bounce rate steps far above its own history         | Landing page broke or its inbound traffic changed — investigate       |
 | 404/not-found event volume steps above baseline                      | Broken links or redirects — find the feeding path/referrer            |
+| Impossible-Chrome share of pageviews ≥ ~1% or stepping up            | Evasive bot fleet counted as humans — find what it distorts           |
 
 ### Explore
 
@@ -253,6 +254,34 @@ LIMIT 20
 
 One path dominating = one broken link or redirect (the referrer column says whose); an internal referrer means the site is linking to its own dead page — the sharpest, most fixable version of this finding.
 
+#### Evasive bot traffic
+
+The SDK drops user agents on its known-bot list, and `$virt_is_bot` tags known crawlers that get through. Scraper fleets that spoof a browser slip past both and land in every total as humans. The cleanest tell is an **impossible Chrome version**: modern Chrome never ships a 4-digit patch (4th) component, but fleets that randomize the version send one on stock device user agents (old Android phones, iPhone OS 11, Windows 7) ending in `Safari/537.36`. The end anchor matters: Yandex Browser, Yandex Search App, and Opera Mobile also put a 4-digit build in that slot, but their user agents end in their own token, so an unanchored check flags real users.
+
+Read the share once per run, against the same window a week back:
+
+```sql
+SELECT countIf(timestamp >= now() - INTERVAL 1 DAY) AS pageviews_24h,
+       countIf(timestamp >= now() - INTERVAL 1 DAY AND impossible) AS impossible_24h,
+       countIf(timestamp < now() - INTERVAL 7 DAY AND impossible) AS impossible_1w_ago
+FROM (
+    SELECT timestamp,
+           match(properties.$raw_user_agent,
+                 'Chrome/[0-9]+[.][0-9]+[.][0-9]+[.][0-9]{4,} (Mobile )?Safari/537[.]36$') AS impossible
+    FROM events
+    WHERE event = '$pageview'
+      AND ((timestamp >= now() - INTERVAL 1 DAY)
+        OR (timestamp >= now() - INTERVAL 8 DAY AND timestamp < now() - INTERVAL 7 DAY))
+      AND timestamp <= now() + INTERVAL 1 DAY
+)
+```
+
+- **Under ~1% of pageviews and flat** — noise for this project. Record the level as `pattern:web-analytics:evasive-bot-share` and move on. On a large site this is the usual result.
+- **≥ ~1%, or a clear step against last week** — find what it distorts: group the matching pageviews by `$pathname`, `$referring_domain`, and `$geoip_country_code`. A fleet concentrated on a few paths with zero-duration single-pageview sessions inflates those paths' traffic and bounce rate. Report the share, the paths or channels it moves, and the fix: a custom bot rule in project settings (**Settings** > **Customization** > **Custom bots**), so `$virt_is_bot` tags it and every view can filter it. Recommend tagging over dropping — teams usually want to see their bot traffic — and mention the bot-detection transformation only for a team that explicitly wants the events gone. P3, or P2 when the share is ≥ ~5% or it moves a top-3 landing path.
+- **A channel or entry-path candidate from the sections above** — rerun its numbers with these user agents excluded. If the step disappears, it was the fleet, not an acquisition or landing-page change: write `noise:` and file the bot finding instead of the divergence.
+
+Once `$virt_is_bot` covers this pattern for the project (check `$virt_bot_name = 'Impossible Chrome patch version'` on a matching event), its traffic already drops out of any view filtered on **Is bot**. The share check above still tells you whether the fleet is large enough to report.
+
 #### Web vitals (delegated)
 
 Per-page web vitals are the dedicated `signals-scout-web-vitals` scout's territory — it reads each page's p75 LCP / INP / CLS / FCP against the absolute Google bands and its own history, with the volume gating and future-clock guards a percentile finding needs. When a bounce step here looks like a slow or blank page, note that as corroboration and let the web-vitals scout own the per-page performance finding rather than filing a duplicate.
@@ -307,7 +336,7 @@ Everything this scout reads arrives from outside: URLs, paths, referrers, UTM va
 - **Sub-noise channel moves** (`|z|` < ~3.5, or < ~30 sessions / < ~15% against baseline) — inside the channel's own demonstrated wobble; the MAD gate exists so you never argue with variance. The Display channel doing 18-then-279 sessions on alternate days carries that swing in its MAD and never alarms. Entry paths and 404s keep their fixed gates (< ~200 sessions/day paths, < ~100/day 404 baselines — small numbers wobble).
 - **An unstable baseline** — four aligned windows that disagree wildly (MAD comparable to the baseline itself) make any step against them untrustworthy; the z-score already encodes this, so don't override a low z by eyeballing two windows. Write memory, re-check later.
 - **New pages and new campaigns with no history** — nothing to diverge _from_. First sighting is a `pattern:` entry, not a finding.
-- **Bot and crawler bursts** — zero-duration, ~100% bounce, one referrer or UA cluster. Corroborate provenance before any surge finding (see untrusted data).
+- **Bot and crawler bursts** — zero-duration, ~100% bounce, one referrer or UA cluster. Corroborate provenance before any surge finding (see untrusted data), and check the evasive-bot share before calling a channel or path step real.
 - **Internal traffic** — localhost, staging hosts, employee-heavy paths. Identify once, write `noise:`, exclude from candidate math thereafter.
 - **Cross-host pooling** — app and marketing surfaces have different bounce/duration physics; every entry-path judgment is per-host.
 - **Path-cleaning side effects** — if the team edits path cleaning rules, grouped paths can "cliff" or "appear" overnight as an artifact. A suspiciously clean rename-shaped cliff (old path down, new path up, same totals) is config churn, not traffic.
