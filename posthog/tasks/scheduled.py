@@ -1235,7 +1235,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
-        60.0,
+        crontab(minute="*"),
         recover_pending_account_property_syncs.s(),
         name="recover pending account-property syncs",
         expires_seconds=60,
