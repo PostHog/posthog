@@ -10,8 +10,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
-import { Composer, QueuedMessageList, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { QueuedMessageList, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSlashCommandsLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'

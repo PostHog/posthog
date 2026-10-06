@@ -52,6 +52,7 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
+            listHref: () => urls.experiments(),
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },
