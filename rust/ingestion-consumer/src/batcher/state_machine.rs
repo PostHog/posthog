@@ -27,7 +27,7 @@ pub enum FailureCause {
 }
 
 #[derive(Debug)]
-pub struct Send {
+pub struct SendRequest {
     pub request: RequestId,
     pub worker: WorkerId,
     pub class: RequestClass,
@@ -49,7 +49,7 @@ pub struct WorkerOutcome {
 #[derive(Debug, Default)]
 pub struct Effects {
     /// Sends must begin in this order, which is the per-key send order.
-    pub sends: Vec<Send>,
+    pub sends: Vec<SendRequest>,
     /// One completion per partition, so each poll is credited per offset.
     pub completions: Vec<GroupCompletion>,
     pub key_acks: Vec<KeyAck>,
@@ -514,7 +514,7 @@ impl ActiveState {
         let id = self
             .in_flight
             .register(worker.clone(), request.class, &request.runs);
-        effects.sends.push(Send {
+        effects.sends.push(SendRequest {
             request: id,
             worker,
             class: request.class,
@@ -654,7 +654,7 @@ mod tests {
         }
     }
 
-    fn shape(send: &Send) -> Vec<(&str, Vec<i64>)> {
+    fn shape(send: &SendRequest) -> Vec<(&str, Vec<i64>)> {
         send.runs
             .iter()
             .map(|run| (&*run.routing_key, offsets(&run.messages)))

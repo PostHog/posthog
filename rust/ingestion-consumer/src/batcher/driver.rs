@@ -1,11 +1,10 @@
 use std::collections::HashSet;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
@@ -14,7 +13,7 @@ use tracing::error;
 
 use super::in_flight::RequestId;
 use super::key_queues::KeyRun;
-use super::state_machine::{BatcherStateMachine, Effects, FailureCause, Send};
+use super::state_machine::{BatcherStateMachine, Effects, FailureCause, SendRequest};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
@@ -54,8 +53,7 @@ pub(super) struct Load {
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
 
-type Response =
-    Pin<Box<dyn Future<Output = (RequestId, Result<u32, SendError>)> + std::marker::Send>>;
+type Response = BoxFuture<'static, (RequestId, Result<u32, SendError>)>;
 
 struct BatcherTask {
     inputs: mpsc::UnboundedReceiver<Input>,
@@ -317,7 +315,7 @@ impl BatcherTask {
             .store(state.in_flight_messages(), Ordering::Relaxed);
     }
 
-    fn begin(&mut self, send: Send, sentinel: &mut SentinelBatch<'_>) {
+    fn begin(&mut self, send: SendRequest, sentinel: &mut SentinelBatch<'_>) {
         let kind = if send.class.replay {
             SendKind::Resend
         } else {
@@ -333,7 +331,7 @@ impl BatcherTask {
                 .begin_send(&send.worker, &make_batch_id(), messages, send.class.replay);
         let request = send.request;
         self.responses
-            .push(Box::pin(async move { (request, pending.wait().await) }));
+            .push(async move { (request, pending.wait().await) }.boxed());
     }
 }
 
