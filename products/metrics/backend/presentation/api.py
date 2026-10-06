@@ -144,7 +144,6 @@ class _MetricClauseSerializer(serializers.Serializer):
 
 
 class MetricQueryInterval(models.TextChoices):
-    SECOND = "second", "second"
     SECOND_15 = "second_15", "second_15"
     SECOND_30 = "second_30", "second_30"
     MINUTE = "minute", "minute"

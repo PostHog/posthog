@@ -256,7 +256,6 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .union([
                     zod
                         .enum([
-                            'second',
                             'second_15',
                             'second_30',
                             'minute',
@@ -269,13 +268,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                             'week',
                         ])
                         .describe(
-                            '\* `second` - second\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                            '\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second` - second\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                    'Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).\n\n\* `second_15` - second_15\n\* `second_30` - second_30\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `minute_30` - minute_30\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
                 ),
             clauses: zod
                 .array(

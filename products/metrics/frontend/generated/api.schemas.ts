@@ -313,7 +313,6 @@ export const OtelMetricTypeEnumApi = {
 } as const
 
 /**
- * * `second` - second
  * * `second_15` - second_15
  * * `second_30` - second_30
  * * `minute` - minute
@@ -328,7 +327,6 @@ export const OtelMetricTypeEnumApi = {
 export type MetricQueryIntervalEnumApi = (typeof MetricQueryIntervalEnumApi)[keyof typeof MetricQueryIntervalEnumApi]
 
 export const MetricQueryIntervalEnumApi = {
-    Second: 'second',
     Second15: 'second_15',
     Second30: 'second_30',
     Minute: 'minute',
@@ -380,7 +378,6 @@ export interface _MetricExplainBodyApi {
     bucketStart: string
     /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
      *
-     * * `second` - second
      * * `second_15` - second_15
      * * `second_30` - second_30
      * * `minute` - minute
@@ -678,7 +675,6 @@ export interface _MetricQueryBodyApi {
     groupBy?: _MetricGroupByApi[]
     /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
      *
-     * * `second` - second
      * * `second_15` - second_15
      * * `second_30` - second_30
      * * `minute` - minute

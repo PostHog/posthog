@@ -28861,10 +28861,9 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, second_15, second_30, minute, minute_5,"
-            " minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range"
-            " when omitted. Coarsened when the range would need more than 10,000"
-            " buckets."
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"

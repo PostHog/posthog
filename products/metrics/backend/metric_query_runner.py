@@ -156,7 +156,6 @@ _MAX_BUCKET_COUNT = 10000
 
 # List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
-    ("second", dt.timedelta(seconds=1), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=1)])),
     ("second_15", dt.timedelta(seconds=15), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=15)])),
     ("second_30", dt.timedelta(seconds=30), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=30)])),
     ("minute", dt.timedelta(minutes=1), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=1)])),

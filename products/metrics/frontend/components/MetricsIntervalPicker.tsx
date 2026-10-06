@@ -1,6 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 
-// The backend's `_INTERVAL_LADDER`, finest first, without the 1-second step.
+// Mirrors the backend's `_INTERVAL_LADDER`, finest first.
 const INTERVAL_STEPS: { value: string; label: string }[] = [
     { value: 'second_15', label: '15 seconds' },
     { value: 'second_30', label: '30 seconds' },

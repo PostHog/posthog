@@ -103,8 +103,8 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("too_fine_is_coarsened", dt.timedelta(days=2), "second", "second_30"),
-            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second", "second"),
+            ("too_fine_is_coarsened", dt.timedelta(days=2), "second_15", "second_30"),
+            ("fitting_interval_is_kept", dt.timedelta(hours=2), "second_15", "second_15"),
             ("fifteen_seconds", dt.timedelta(hours=6), "second_15", "second_15"),
             ("thirty_minutes", dt.timedelta(days=2), "minute_30", "minute_30"),
         ]
@@ -966,9 +966,10 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         by_env = {s.labels["env"]: s for s in series}
         self.assertEqual(len(by_env["prod"].points), len(by_env["dev"].points))
 
-    def test_unknown_interval_raises(self):
+    @parameterized.expand([("removed_one_second_step", "second"), ("unknown", "fortnight")])
+    def test_unknown_interval_raises(self, _name, interval):
         with self.assertRaises(ValueError):
-            self._run(interval="fortnight")
+            self._run(interval=interval)
 
     def test_group_by_resource_scope(self):
         truncate_metrics_tables()
