@@ -154,8 +154,19 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert data["itemsPerPage"] == 0
         assert data["Resources"] == []
 
-    @parameterized.expand([("put", "put"), ("patch_add", "add"), ("patch_replace", "replace")])
-    def test_default_role_applies_to_provisioning_and_reactivation(self, _name: str, activation: str) -> None:
+    @parameterized.expand(
+        [
+            ("put", "put", False),
+            ("patch_add", "add", False),
+            ("patch_replace", "replace", False),
+            ("put_legacy_role", "put", True),
+            ("patch_add_legacy_role", "add", True),
+            ("patch_replace_legacy_role", "replace", True),
+        ]
+    )
+    def test_default_role_applies_to_provisioning_and_reactivation(
+        self, _name: str, activation: str, legacy_role: bool
+    ) -> None:
         self.organization.available_product_features += [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "Role-based access"},
@@ -163,9 +174,13 @@ class TestSCIMUsersAPI(APILicensedTest):
         role = self.organization.roles.create(name="Default role")
         self.organization.default_role = role
         self.organization.save()
+        initial_access = "admin" if legacy_role else "none"
         AccessControl.objects.create(
-            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level="none"
+            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level=initial_access
         )
+        if legacy_role:
+            user = User.objects.create_user(email="provisioned@example.com", password=None, first_name="Provisioned")
+            RoleMembership.objects.create(user=user, role=role, organization_member=None)
         user_data = {
             "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
             "userName": "provisioned@example.com",
@@ -179,7 +194,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         user = User.objects.get(email="provisioned@example.com")
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         assert RoleMembership.objects.get(user=user, role=role).organization_member_id == membership.id
-        assert UserAccessControl(user, self.team).get_user_access_level(self.team) == "none"
+        assert UserAccessControl(user, self.team).get_user_access_level(self.team) == initial_access
 
         url = f"/scim/v2/{self.config.scim_slug}/Users/{user.id}"
         response = self.client.patch(
@@ -192,6 +207,15 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert not RoleMembership.objects.filter(user=user, role=role).exists()
+
+        role = self.organization.roles.create(name="Replacement default role")
+        self.organization.default_role = role
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), role=role, access_level="none"
+        )
+        if legacy_role:
+            RoleMembership.objects.create(user=user, role=role, organization_member=None)
 
         for _ in range(2):
             if activation == "put":

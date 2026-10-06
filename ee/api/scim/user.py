@@ -163,7 +163,7 @@ class PostHogSCIMUser(SCIMUser):
             )
             if created and organization.default_role_id:
                 role = organization.roles.get(id=organization.default_role_id)
-                RoleMembership.objects.filter(role__organization=organization).get_or_create(
+                RoleMembership.objects.filter(role__organization=organization).update_or_create(
                     role=role, user=user, defaults={"organization_member": membership}
                 )
 
