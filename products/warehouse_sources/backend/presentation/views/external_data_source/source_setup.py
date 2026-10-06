@@ -1732,6 +1732,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 team_id=self.team_id,
                 source_id=new_source_model.pk,
                 destination_ids=selected_destination_ids,
+                authorize_resume=self._assert_can_write_schemas,
             )
         except Exception as e:
             # The source is already created and its tables are configured. Losing that over a

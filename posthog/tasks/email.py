@@ -1266,6 +1266,47 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     return delivered
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_warehouse_destination_paused(
+    team_id: int, destination_id: str, destination_name: str, latest_error: str, paused_at: str
+) -> None:
+    """Tell a project that PostHog paused a data warehouse destination after repeated configuration errors.
+
+    The destination stays paused until someone edits it, so one email per pause is enough. The
+    caller passes the details so this module does not read the warehouse product's models.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(
+        team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
+    )
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        campaign_key=f"warehouse_destination_paused_{destination_id}_{paused_at}",
+        subject=(
+            f"[Alert] Data warehouse destination '{single_line(destination_name)}' paused in project "
+            f"'{single_line(team.name)}'"
+        ),
+        template_name="warehouse_destination_paused",
+        template_context={
+            "team": team,
+            "destination_name": destination_name,
+            "latest_error": latest_error,
+            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
 

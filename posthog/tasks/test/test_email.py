@@ -50,6 +50,7 @@ from posthog.tasks.email import (
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
     send_team_matview_failure_digest,
+    send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
     send_workflow_email_sending_paused,
     send_workflow_email_sending_warning,
@@ -1053,6 +1054,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
+
+    def test_send_warehouse_destination_paused_names_the_error_and_respects_the_opt_out(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        destination_id = "0190a2b4-0000-0000-0000-000000000001"
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"warehouse_destination:{destination_id}": True},
+        }
+        self.user.save()
+
+        send_warehouse_destination_paused(
+            self.team.id, destination_id, "analytics postgres", "The host name does not exist.", "2026-01-01T00:00:00"
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+        assert "analytics postgres" in message.subject
+        assert "The host name does not exist." in message.html_body
+        assert f"/project/{self.team.id}/data-management/warehouse-destinations" in message.html_body
+
+    def test_send_warehouse_destination_paused_normalizes_subject_names(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.team.name = "project\nname"
+        self.team.save(update_fields=["name"])
+
+        send_warehouse_destination_paused(
+            self.team.id,
+            "0190a2b4-0000-0000-0000-000000000001",
+            "destination\r\nname",
+            "The host name does not exist.",
+            "2026-01-01T00:00:00",
+        )
+
+        assert mocked_email_messages[0].subject == (
+            "[Alert] Data warehouse destination 'destination name' paused in project 'project name'"
+        )
 
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

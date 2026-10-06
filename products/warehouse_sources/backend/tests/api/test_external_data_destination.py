@@ -77,6 +77,8 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert [d["id"] for d in listing["results"]] == [str(destination.id)]
         assert listing["results"][0]["is_posthog_warehouse"] is False
+        assert listing["results"][0]["status"] == ExternalDataDestination.Status.HEALTHY
+        assert listing["results"][0]["latest_error"] is None
 
     def test_a_destination_needs_an_integration(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTGRES, "name": "no creds"})
@@ -491,6 +493,52 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
 
         assert self.client.get(self.source_url).json()["destination_ids"] == [str(other.id)]
 
+    @parameterized.expand(
+        [
+            ("edit_paused", "edit", ExternalDataDestination.Status.PAUSED),
+            ("edit_failing", "edit", ExternalDataDestination.Status.FAILING),
+            ("select_on_source", "source", ExternalDataDestination.Status.PAUSED),
+            ("select_on_table", "schema", ExternalDataDestination.Status.PAUSED),
+        ]
+    )
+    def test_a_user_turns_a_paused_destination_back_on(self, _name: str, action: str, status_before: str) -> None:
+        other_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="other",
+            connection_id="conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        paused = status_before == ExternalDataDestination.Status.PAUSED
+        source_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=other_source, destination=self.destination, enabled=not paused
+        )
+        schema_link = ExternalDataSchemaDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, schema=self.schema, destination=self.destination, enabled=not paused
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=status_before, consecutive_configuration_failures=3, latest_error="The host name does not exist."
+        )
+
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        else:
+            url = self.source_url if action == "source" else self.schema_url
+            response = self.client.patch(url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        if action == "edit":
+            assert response.json()["status"] == ExternalDataDestination.Status.HEALTHY
+        self.destination.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.HEALTHY
+        assert self.destination.consecutive_configuration_failures == 0
+        assert self.destination.latest_error == "The host name does not exist."
+        source_link.refresh_from_db()
+        assert source_link.enabled is True
+        if action != "schema":
+            schema_link.refresh_from_db()
+            assert schema_link.enabled is True
+
     def test_an_unknown_destination_is_rejected(self) -> None:
         response = self.client.patch(self.source_url, {"destination_ids": ["00000000-0000-0000-0000-000000000000"]})
 
@@ -555,3 +603,67 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         body = self.client.get(self.schema_url).json()
         assert body["inherits_from_source"] is False
         assert body["destination_ids"] == [str(other.id)]
+
+
+@pytest.mark.ee
+class TestDestinationResumeAccessControl(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.editor = User.objects.create_and_join(self.organization, "editor@posthog.com", "testtest")
+        membership = self.organization.memberships.get(user=self.editor)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.hidden_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="hidden",
+            connection_id="hidden-conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=self.hidden_source, name="hidden_table")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(self.hidden_source.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.destination = self._create_destination()
+        self.hidden_link = ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.hidden_source, destination=self.destination, enabled=False
+        )
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=self.destination.id).update(
+            status=ExternalDataDestination.Status.PAUSED
+        )
+        self.client.force_login(self.editor)
+
+    @parameterized.expand([("edit",), ("select_on_source",), ("select_on_table",)])
+    def test_resuming_requires_editor_access_to_every_wired_table(self, action: str) -> None:
+        if action == "edit":
+            response = self.client.patch(f"{self.base}/{self.destination.id}", {"name": "fixed"})
+        elif action == "select_on_source":
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_sources/{self.source.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/external_data_schemas/{self.schema.id}/destinations",
+                {"destination_ids": [str(self.destination.id)]},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.destination.refresh_from_db()
+        self.hidden_link.refresh_from_db()
+        assert self.destination.status == ExternalDataDestination.Status.PAUSED
+        assert self.hidden_link.enabled is False
