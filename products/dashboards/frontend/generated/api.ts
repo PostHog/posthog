@@ -22,6 +22,7 @@ import type {
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
+    DashboardWriteOpenApiApi,
     DashboardsBulkUpdateTagsCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -272,7 +273,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboardApi?: NonReadonly<DashboardApi>,
+    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -280,7 +281,7 @@ export const dashboardsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
+        body: JSON.stringify(dashboardWriteOpenApiApi),
     })
 }
 
@@ -380,7 +381,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 export const dashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboardApi?: NonReadonly<DashboardApi>,
+    dashboardWriteOpenApiApi?: NonReadonly<DashboardWriteOpenApiApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<DashboardApi> => {
@@ -388,7 +389,7 @@ export const dashboardsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardApi),
+        body: JSON.stringify(dashboardWriteOpenApiApi),
     })
 }
 
