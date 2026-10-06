@@ -38,8 +38,8 @@ class SingleAgentFinding(BaseModel):
     @classmethod
     def normalize_priority(cls, value: object) -> object:
         """Accept 1, "1", "P1" or "[P1]" and store "P1"; anything else fails validation as given."""
-        digits = re.findall(r"[0-3]", str(value))
-        return f"P{digits[0]}" if digits else value
+        match = re.fullmatch(r"\s*\[?P?([0-3])\]?\s*", str(value), re.IGNORECASE)
+        return f"P{match.group(1)}" if match else value
 
 
 class SingleAgentReview(BaseModel):
