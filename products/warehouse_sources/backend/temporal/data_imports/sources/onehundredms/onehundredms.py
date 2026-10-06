@@ -93,7 +93,7 @@ def onehundredms_source(
     api_version: str,
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, inputs.schema_name)
-    params: dict[str, str | int] = {"limit": 100}
+    params: dict[str, Any] = {"limit": 100}
     incremental = inputs.schema_name == "sessions" and inputs.should_use_incremental_field
     if inputs.schema_name == "sessions":
         params["active"] = "false"
