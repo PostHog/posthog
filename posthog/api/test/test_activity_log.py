@@ -626,7 +626,9 @@ class TestAdvancedActivityLogExportPath(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_202_ACCEPTED
-        export_path = ExportedAsset.objects.get(id=response.json()["id"]).export_context["path"]
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.export_context is not None
+        export_path = exported_asset.export_context["path"]
 
         # The exporter rewrites the stored path and replays it against the list endpoint, so a
         # filter must survive both the stored encoding and that rewrite.
