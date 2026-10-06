@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
-import { render } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -498,7 +498,7 @@ describe('projectNoticeLogic', () => {
             initKeaTests()
         })
 
-        it('shows only after the other notices, and stays after they are dismissed for the session', () => {
+        it('shows only after the other notices, and stays after they are dismissed for the session', async () => {
             const logic = projectNoticeLogic()
             logic.mount()
             organizationLogic.actions.loadCurrentOrganizationSuccess({
@@ -522,6 +522,9 @@ describe('projectNoticeLogic', () => {
                 targetBlank: true,
                 children: 'Read the policy',
             })
+
+            const { container } = render(<>{logic.values.projectNotice?.message}</>)
+            await waitFor(() => expect(container.querySelector('b')?.textContent).toEqual('how'))
 
             logic.unmount()
         })
