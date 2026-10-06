@@ -49,7 +49,7 @@ locals {
     partition_by = "toYYYYMMDD(day)"
     order_by     = "(team_id, day, read_kind, subject_kind, subject_id, workflow_id, lc_kind, lc_product, lc_feature, lc_access_method, source, scene, has_user_id, read_alone)"
     ttl          = var.ttl ? "day + toIntervalDay(60)" : null
-    settings     = "index_granularity = 8192, ttl_only_drop_parts = 1"
+    settings     = "ttl_only_drop_parts = 1"
   }
 }
 
