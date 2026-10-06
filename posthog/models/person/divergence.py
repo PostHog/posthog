@@ -1065,8 +1065,7 @@ def repair_persons(
 def repair_distinct_id(team_id: int, distinct_id: str, *, delivery_timeout_seconds: float) -> RepairSummary | None:
     """Repair the live person that owns ``distinct_id``, and that one mapping, where ClickHouse disagrees.
 
-    It writes and publishes like ``repair_persons`` with ``apply``, and leaves a stale person alone.
-    Returns None when no live person owns the distinct id.
+    It always applies, and like ``repair_persons`` without ``include_stale`` it leaves a stale person alone.
     """
     owner = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
     if owner is None:

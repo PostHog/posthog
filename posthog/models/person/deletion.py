@@ -23,8 +23,7 @@ _PERSONHOG_UUID_BATCH = 250
 
 # ── Orphaned ClickHouse person repair ────────────────────────────────
 #
-# A person can be hard-deleted from the
-# persons DB (posthog_person + posthog_persondistinctid) with no matching
+# A person can be hard-deleted from the persons DB (posthog_person + posthog_persondistinctid) with no matching
 # ClickHouse tombstone. The row then stays visible to every ClickHouse-backed
 # read path (HogQL `persons`, the UI Persons page) while every persons-DB write
 # path 404s. This produces the missing tombstones so ClickHouse agrees with the
