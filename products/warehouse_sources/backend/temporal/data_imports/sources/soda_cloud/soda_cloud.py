@@ -102,7 +102,7 @@ def soda_cloud_source(
         PageNumberPaginatorConfig,
         {"type": "page_number", "base_page": 0, "total_path": "totalPages"},
     )
-    endpoint: Endpoint = {"path": inputs.schema_name, "data_selector": "content", "params": params}
+    endpoint: Endpoint = {"path": inputs.schema_name, "data_selector": "content", "params": cast(Any, params)}
     resource_config: EndpointResource = {"name": inputs.schema_name, "endpoint": endpoint}
     rest_config: RESTAPIConfig = {
         "client": {
