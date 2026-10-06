@@ -173,25 +173,26 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("GoogleAds",), ("BingAds",)])
     def test_landing_pages_exclude_non_search_traffic_and_keep_currencies(self, platform: str) -> None:
-        table = self._table(
-            "paid_landing_pages",
-            {
-                "segments_date": "Date",
-                "landing_page_view_unexpanded_final_url": "String",
-                "segments_ad_network_type": "String",
-                "customer_currency_code": "String",
-                "metrics_clicks": "Float64",
-                "metrics_impressions": "Float64",
-                "metrics_cost_micros": "Float64",
-                "metrics_conversions": "Float64",
-            },
-            "segments_date,landing_page_view_unexpanded_final_url,segments_ad_network_type,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions\n"
-            "2023-01-10,https://example.com/a,SEARCH,USD,10,100,20000000,2\n"
-            "2023-01-11,https://example.com/a,SEARCH_PARTNERS,USD,5,50,10000000,0.5\n"
-            "2023-01-10,https://example.com/a,SEARCH,EUR,3,30,6000000,1\n"
-            "2023-01-10,https://example.com/a,CONTENT,USD,900,9000,90000000,90\n",
-        )
-        if platform == "BingAds":
+        if platform == "GoogleAds":
+            table = self._table(
+                "paid_landing_pages",
+                {
+                    "segments_date": "Date",
+                    "landing_page_view_unexpanded_final_url": "String",
+                    "segments_ad_network_type": "String",
+                    "customer_currency_code": "String",
+                    "metrics_clicks": "Float64",
+                    "metrics_impressions": "Float64",
+                    "metrics_cost_micros": "Float64",
+                    "metrics_conversions": "Float64",
+                },
+                "segments_date,landing_page_view_unexpanded_final_url,segments_ad_network_type,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions\n"
+                "2023-01-10,https://example.com/a,SEARCH,USD,10,100,20000000,2\n"
+                "2023-01-11,https://example.com/a,SEARCH_PARTNERS,USD,5,50,10000000,0.5\n"
+                "2023-01-10,https://example.com/a,SEARCH,EUR,3,30,6000000,1\n"
+                "2023-01-10,https://example.com/a,CONTENT,USD,900,9000,90000000,90\n",
+            )
+        else:
             table = self._table(
                 "bing_landing_pages",
                 {

@@ -189,7 +189,7 @@ const MOCKS: Mocks = {
                 200,
                 {
                     results: (query.breakdown === 'page'
-                        ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
+                        ? ROWS.filter((row) => row.clicks > 0).map((row) => ({
                               ...row,
                               page: `https://example.com/${row.keyword?.replaceAll(' ', '-')}`,
                               keyword: null,
