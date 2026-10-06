@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
@@ -69,6 +70,17 @@ class TestOrganizationProvisioningFields(TestCase):
             algorithm="RS256",
             is_provisioning_partner=True,
         )
+
+    def test_setting_provisioning_application_logs_its_identity(self) -> None:
+        self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+        self.organization.provisioning_application = self.application
+        self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
+
+        log = ActivityLog.objects.get(organization_id=self.organization.id, scope="Organization", activity="updated")
+        assert log.detail is not None
+        change = next(change for change in log.detail["changes"] if change["field"] == "provisioning_application")
+        assert change["action"] == "created"
+        assert change["after"] == {"id": str(self.application.id), "name": self.application.name}
 
     @parameterized.expand(
         [
