@@ -331,6 +331,8 @@ describe('sidePanelNotificationsLogic', () => {
         }
         const djangoCalls = (): Parameters<typeof connectToNotificationsSSE>[] =>
             jest.mocked(connectToNotificationsSSE).mock.calls.filter(([url]) => url.endsWith('/notifications/stream/'))
+        const livestreamCalls = (): Parameters<typeof connectToNotificationsSSE>[] =>
+            jest.mocked(connectToNotificationsSSE).mock.calls.filter(([url]) => url.endsWith('/notifications'))
 
         beforeEach(() => {
             jest.mocked(connectToNotificationsSSE).mockClear()
@@ -350,7 +352,7 @@ describe('sidePanelNotificationsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('opens one tokenless django stream on mount and reconnects when the flag flips', () => {
+        it('opens one tokenless django stream on mount and switches transport when the flag flips', () => {
             setDjangoSSEFlag(true)
             logic.mount()
             expect(djangoCalls()).toHaveLength(1)
@@ -359,8 +361,12 @@ describe('sidePanelNotificationsLogic', () => {
 
             setDjangoSSEFlag(false)
             expect(firstSignal.aborted).toBe(true)
+            expect(livestreamCalls()).toHaveLength(1)
+            const [, , livestreamSignal] = livestreamCalls()[0]
+            expect(livestreamSignal.aborted).toBe(false)
 
             setDjangoSSEFlag(true)
+            expect(livestreamSignal.aborted).toBe(true)
             expect(djangoCalls()).toHaveLength(2)
         })
 
