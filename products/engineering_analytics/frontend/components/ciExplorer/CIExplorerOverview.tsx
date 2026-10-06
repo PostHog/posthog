@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
+import { pluralize } from 'lib/utils/strings'
 
 import { ciExplorerContextLogic } from '../../scenes/ciExplorerContextLogic'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
@@ -10,8 +12,9 @@ import { CIExplorerTrail } from './CIExplorerTrail'
 
 /** The CI of one commit: where the camera is, its share of the job time on request, and the canvas. */
 export function CIExplorerOverview(): JSX.Element {
-    const { activePush, selectedHeadSha, logicProps, jobTimeOpen } = useValues(ciExplorerLogic)
-    const { toggleJobTime } = useActions(ciExplorerLogic)
+    const { activePush, selectedHeadSha, logicProps, jobTimeOpen, failedJobRuns, jobsByRunLoading } =
+        useValues(ciExplorerLogic)
+    const { toggleJobTime, retryFailedJobs } = useActions(ciExplorerLogic)
     if (!activePush) {
         return (
             <div className="py-16 text-center text-sm text-secondary">
@@ -36,6 +39,21 @@ export function CIExplorerOverview(): JSX.Element {
                     Job time
                 </LemonButton>
             </div>
+            {failedJobRuns.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Retry',
+                        onClick: retryFailedJobs,
+                        loading: jobsByRunLoading,
+                        disabledReason: jobsByRunLoading ? 'Loading' : undefined,
+                        'data-attr': 'ci-explorer-retry-jobs',
+                    }}
+                >
+                    Couldn't load the jobs of {pluralize(failedJobRuns.length, 'workflow')}. Their tiles show no job
+                    graph.
+                </LemonBanner>
+            )}
             {jobTimeOpen && <CIExplorerShare />}
             {/* The canvas takes the height the header leaves, and no less than a readable minimum. */}
             <div

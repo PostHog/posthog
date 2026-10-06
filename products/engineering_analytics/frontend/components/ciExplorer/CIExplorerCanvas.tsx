@@ -15,7 +15,7 @@ import {
     useStoreApi,
 } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { IconArrowLeft, IconMinus, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -24,6 +24,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import {
     CIExplorerWorkflow,
+    INNER_SCALE,
     OVERVIEW_MIN_ZOOM,
     RAIL_LEFT,
     RAIL_TOP,
@@ -64,6 +65,8 @@ const JOB_MIN_ZOOM = 12 / 13
 const FRAMED_NODE_WIDTH = 900
 const FRAMED_NODE_TOP = 64
 const PAN_STEP = 72
+// Matches the zoom at which the shard grid starts to fade in, in CIExplorerCanvas.scss.
+const SHARDS_SHOWN_ZOOM = 0.4
 const LEAVE_ZOOM_RATIO = 0.75
 const DRAWER_ROOM = 352
 // Below this width the drawer lies over the canvas and takes no room from the camera.
@@ -139,8 +142,6 @@ function CIExplorerCanvasContent(): JSX.Element {
     })
     // True once the person has moved the camera since the canvas last framed something.
     const movedByPerson = useRef(false)
-    const [deep, setDeep] = useState(false)
-    const [pastOverview, setPastOverview] = useState(false)
 
     const rows = useMemo(
         () => tileRows(workflows.length, stageWidth - OVERVIEW_MARGIN_X, stageHeight - OVERVIEW_MARGIN_Y),
@@ -159,6 +160,9 @@ function CIExplorerCanvasContent(): JSX.Element {
     )
     const overviewZoom = Math.max(OVERVIEW_MIN_ZOOM, fitZoom)
     const minZoom = Math.max(MIN_ZOOM, Math.min(overviewZoom * OVERVIEW_ZOOM_FLOOR, fitZoom))
+    // Each selector returns a boolean, so the canvas renders again only when the camera crosses its threshold.
+    const deep = useStore((state) => state.transform[2] >= JOBS_ZOOM)
+    const pastOverview = useStore((state) => state.transform[2] > overviewZoom * 1.05)
 
     const findNode = useCallback(
         (nodeId: string): HTMLElement | null =>
@@ -231,8 +235,11 @@ function CIExplorerCanvasContent(): JSX.Element {
         const showZoom = (zoom: number): void => {
             stage.current?.style.setProperty('--k', String(zoom))
             stage.current?.setAttribute('data-deep', String(zoom >= JOBS_ZOOM))
-            setDeep(zoom >= JOBS_ZOOM)
-            setPastOverview(zoom > overviewZoom * 1.05)
+            // A tile's shards show once they are large enough, which depends on how far its graph was shrunk.
+            for (const card of world.current?.querySelectorAll<HTMLElement>('.CIExplorer__card') ?? []) {
+                const shown = zoom * Number(card.dataset.graphScale) * INNER_SCALE > SHARDS_SHOWN_ZOOM
+                card.setAttribute('data-shards', String(shown))
+            }
         }
         showZoom(store.getState().transform[2])
         return store.subscribe((state, previous) => {
@@ -240,7 +247,8 @@ function CIExplorerCanvasContent(): JSX.Element {
                 showZoom(state.transform[2])
             }
         })
-    }, [store, overviewZoom])
+        // A new layout changes how far a tile's graph is shrunk.
+    }, [store, layouts])
 
     // The camera moves when it is asked to, and when the stage changes size. A focus change that came from the
     // camera itself asks for nothing, so a zoom out is never pulled back.

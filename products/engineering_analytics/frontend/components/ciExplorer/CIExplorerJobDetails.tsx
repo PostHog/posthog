@@ -3,10 +3,9 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import type { WorkflowJobApi } from '../../generated/api.schemas'
-import { providerName, statusLabel } from '../../lib/ciExplorerDetails'
+import { elapsedLabel, providerName, statusLabel } from '../../lib/ciExplorerDetails'
 import { compactUsd } from '../../lib/format'
 import { githubJobUrl } from '../../lib/github'
 import { WorkflowRun, isDecisiveFailure } from '../../lib/lifecycle'
@@ -32,10 +31,8 @@ export function CIExplorerJobDetails({ job, run }: { job: WorkflowJobApi; run: W
         <>
             <h3 className="m-0 break-words text-sm font-semibold">{job.name}</h3>
             <dl className="m-0 flex flex-col gap-1.5">
-                <Row label="Status">{statusLabel(job.conclusion)}</Row>
-                <Row label="Elapsed">
-                    {job.duration_seconds === null ? 'Running' : humanFriendlyDuration(job.duration_seconds)}
-                </Row>
+                <Row label="Status">{statusLabel(job.conclusion, job.status)}</Row>
+                <Row label="Elapsed">{elapsedLabel(job.duration_seconds, job.status)}</Row>
                 {job.started_at && (
                     <Row label="Started">
                         <TZLabel time={job.started_at} />
