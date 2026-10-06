@@ -1200,6 +1200,7 @@ from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
+from .tessitura.source import TessituraSource
 from .testrail.source import TestrailSource
 from .thinkific.source import ThinkificSource
 from .thinkific_courses.source import ThinkificCoursesSource
