@@ -159,3 +159,18 @@ class TestGitLabIntegrationModel:
         assert mock_get.call_args.args[0] == (
             "https://gitlab.com/api/v4/projects/1/members/all?state=active&per_page=100&query=ad"
         )
+
+    @patch("posthog.models.integration.gitlab.requests.get")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_list_assignees_reports_the_gitlab_error(self, _mock_is_url_allowed, mock_get):
+        from posthog.models.integration import AssigneeLookupFailed, GitLabIntegration
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "project_id": 1},
+            sensitive_config={"access_token": "token123"},
+        )
+        mock_get.return_value.json.return_value = {"message": "403 Forbidden"}
+
+        with pytest.raises(AssigneeLookupFailed, match="403 Forbidden"):
+            GitLabIntegration(integration).list_assignees()
