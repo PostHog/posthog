@@ -71,6 +71,19 @@ class TestNonRetryableErrors:
         observed = "HTTPSConnectionPool(host='www.clarity.ms', port=443): Read timed out."
         assert not any(key in observed for key in errors)
 
+    def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
+        # `make_tracked_session`'s `DEFAULT_RETRY` already retries a read timeout before
+        # re-raising; this is what the exhausted error looks like once it reaches the activity.
+        # Without this classification it gets reported to error tracking as noise on every
+        # occurrence even though Temporal transparently retries the activity.
+        error_msg = (
+            "HTTPSConnectionPool(host='www.clarity.ms', port=443): Max retries exceeded with "
+            "url: /export-data/api/v1/project-live-insights?numOfDays=3 (Caused by "
+            "ReadTimeoutError(\"HTTPSConnectionPool(host='www.clarity.ms', port=443): Read "
+            'timed out. (read timeout=30)"))'
+        )
+        assert any(pattern in error_msg for pattern in MicrosoftClaritySource().get_retryable_errors())
+
 
 class TestSourceForPipeline:
     def test_plumbs_config_into_transport(self, monkeypatch: Any) -> None:

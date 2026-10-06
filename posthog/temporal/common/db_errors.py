@@ -2,6 +2,7 @@ import errno
 
 from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
 
+import psycopg
 import psycopg.errors
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
@@ -92,8 +93,21 @@ def is_transient_db_error(error: BaseException) -> bool:
             error.__cause__, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable
         ):
             return True
-        if isinstance(error, OperationalError | InterfaceError | InternalError):
-            sqlstate = getattr(error.__cause__, "sqlstate", None)
+        # Code that talks to Postgres through a raw psycopg connection instead of Django's ORM
+        # (e.g. the warehouse-sources postgres queue producer) raises psycopg's own exception
+        # classes directly, never wrapped in Django's — so both class families are checked here,
+        # and sqlstate is read off the error itself first since a native psycopg error carries it
+        # directly, falling back to __cause__ for Django's wrapped errors.
+        if isinstance(
+            error,
+            OperationalError
+            | InterfaceError
+            | InternalError
+            | psycopg.OperationalError
+            | psycopg.InterfaceError
+            | psycopg.InternalError,
+        ):
+            sqlstate = getattr(error, "sqlstate", None) or getattr(error.__cause__, "sqlstate", None)
             if isinstance(sqlstate, str) and (
                 sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES) or sqlstate in _TRANSIENT_SQLSTATES
             ):

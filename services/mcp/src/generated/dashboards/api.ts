@@ -73,6 +73,12 @@ export const DashboardsListQueryParams = () => zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-last_viewed_at'])
+        .optional()
+        .describe(
+            'Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.'
+        ),
     pinned: zod.boolean().optional().describe('Optional. Return only pinned dashboards.'),
     search: zod
         .string()

@@ -26,11 +26,6 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
     emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
-from products.replay_vision.backend.temporal.activities.evaluate_prompt_suggestion import (
-    finalize_evaluation_activity,
-    record_evaluation_result_activity,
-    select_evaluation_sessions_activity,
-)
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
@@ -62,12 +57,13 @@ from products.replay_vision.backend.temporal.activities.reconciler_activities im
     list_scanner_schedules_activity,
     upsert_scanner_schedule_activity,
 )
-from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
-    refresh_prompt_suggestion_activity,
-)
 from products.replay_vision.backend.temporal.activities.refresh_scanner_estimate import (
     refresh_scanner_estimate_activity,
 )
+from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
+    resolve_experiment_variant_activity,
+)
+from products.replay_vision.backend.temporal.activities.start_launched_scanners import start_launched_scanners_activity
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 
 __all__ = [
@@ -90,7 +86,6 @@ __all__ = [
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "fetch_session_network_activity",
-    "finalize_evaluation_activity",
     "finalize_observation_thumbnail_activity",
     "finalize_observation_media_activity",
     "find_backfill_candidates_activity",
@@ -110,10 +105,9 @@ __all__ = [
     "reap_backfill_schedules_activity",
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
-    "record_evaluation_result_activity",
-    "refresh_prompt_suggestion_activity",
+    "resolve_experiment_variant_activity",
+    "start_launched_scanners_activity",
     "refresh_scanner_estimate_activity",
-    "select_evaluation_sessions_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",
 ]

@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconGridMasonry, IconPlus, IconSearch } from '@posthog/icons'
 import {
@@ -35,6 +37,8 @@ import { ViewRow } from './ViewRow'
 import { viewsLogic } from './viewsLogic'
 import { VIEW_TYPES, VIEW_TYPE_INFO, ViewTypeFilter } from './viewsUtils'
 
+const SCROLL_PREFETCH_MARGIN = '1200px 0px'
+
 export const scene: SceneExport = {
     component: Views,
     logic: viewsLogic,
@@ -52,10 +56,38 @@ export function Views(): JSX.Element {
     return viewsEnabled ? <ViewsContent /> : <NotFound object="page" />
 }
 
+function ViewRowSkeletons({ count }: { count: number }): JSX.Element {
+    return (
+        <>
+            {Array.from({ length: count }, (_, index) => (
+                <Item key={index} variant="outline" size="sm">
+                    <ItemMedia variant="icon">
+                        <Skeleton className="size-4" />
+                    </ItemMedia>
+                    <ItemContent className="gap-1.5">
+                        <Skeleton className="h-3.5 w-48 max-w-full" />
+                        <Skeleton className="h-3 w-32 max-w-full" />
+                    </ItemContent>
+                </Item>
+            ))}
+        </>
+    )
+}
+
 function ViewsContent(): JSX.Element {
-    const { views, visibleViews, viewsLoading, loadFailed, search, typeFilter } = useValues(viewsLogic)
-    const { setSearch, setTypeFilter, loadViews } = useActions(viewsLogic)
-    const failedTypes = views?.failedTypes ?? []
+    const { feed, feedStale, search, typeFilter } = useValues(viewsLogic)
+    const { setSearch, setTypeFilter, loadViews, loadMoreViews } = useActions(viewsLogic)
+    const { ref: endRef, inView: endInView } = useInView({
+        root: document.getElementById('main-content'),
+        rootMargin: SCROLL_PREFETCH_MARGIN,
+    })
+    const { items, initialized, loading, hasMore, failedTypes, loadFailed } = feed
+
+    useEffect(() => {
+        if (endInView && hasMore) {
+            loadMoreViews()
+        }
+    }, [endInView, hasMore, items.length, loadMoreViews])
 
     const newViewButton = (
         <NewViewMenu trigger={<Button variant="primary" size="sm" data-attr="views-new" />}>
@@ -65,41 +97,29 @@ function ViewsContent(): JSX.Element {
     )
 
     const renderList = (): JSX.Element => {
-        if (!views || (viewsLoading && !visibleViews.length)) {
-            return loadFailed ? (
+        if (loadFailed) {
+            return (
                 <Empty>
                     <EmptyHeader>
                         <EmptyTitle>Couldn’t load your views</EmptyTitle>
                         <EmptyDescription>Try again, and if it keeps happening contact support.</EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent>
-                        <Button
-                            variant="outline"
-                            loading={viewsLoading}
-                            onClick={() => loadViews()}
-                            data-attr="views-retry"
-                        >
+                        <Button variant="outline" loading={loading} onClick={() => loadViews()} data-attr="views-retry">
                             Try again
                         </Button>
                     </EmptyContent>
                 </Empty>
-            ) : (
+            )
+        }
+        if (!initialized) {
+            return (
                 <ItemGroup combined aria-busy aria-label="Loading your views">
-                    {Array.from({ length: 6 }, (_, index) => (
-                        <Item key={index} variant="outline" size="sm">
-                            <ItemMedia variant="icon">
-                                <Skeleton className="size-4" />
-                            </ItemMedia>
-                            <ItemContent className="gap-1.5">
-                                <Skeleton className="h-3.5 w-48 max-w-full" />
-                                <Skeleton className="h-3 w-32 max-w-full" />
-                            </ItemContent>
-                        </Item>
-                    ))}
+                    <ViewRowSkeletons count={6} />
                 </ItemGroup>
             )
         }
-        if (!visibleViews.length) {
+        if (!items.length) {
             const filterLabel = typeFilter === 'all' ? 'views' : VIEW_TYPE_INFO[typeFilter].pluralLabel.toLowerCase()
             return (
                 <Empty>
@@ -119,10 +139,15 @@ function ViewsContent(): JSX.Element {
             )
         }
         return (
-            <ItemGroup combined>
-                {visibleViews.map((view) => (
+            <ItemGroup
+                combined
+                aria-busy={feedStale || hasMore}
+                className={feedStale ? 'opacity-60 transition-opacity' : 'transition-opacity'}
+            >
+                {items.map((view) => (
                     <ViewRow key={`${view.type}-${view.id}`} view={view} />
                 ))}
+                {hasMore && <ViewRowSkeletons count={3} />}
             </ItemGroup>
         )
     }
@@ -165,19 +190,17 @@ function ViewsContent(): JSX.Element {
                         ))}
                     </ToggleGroup>
                 </div>
-                {views && (loadFailed || failedTypes.length > 0) && (
+                {initialized && !loadFailed && failedTypes.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2" role="alert">
                         <Text size="sm" variant="destructive">
-                            {loadFailed
-                                ? 'Couldn’t refresh your views, so this list may be out of date.'
-                                : `${failedTypes
-                                      .map((type) => VIEW_TYPE_INFO[type].pluralLabel)
-                                      .join(' and ')} didn’t load, so this list may be incomplete.`}
+                            {`${failedTypes
+                                .map((type) => VIEW_TYPE_INFO[type].pluralLabel)
+                                .join(' and ')} didn’t load, so this list may be incomplete.`}
                         </Text>
                         <Button
                             variant="outline"
                             size="xs"
-                            loading={viewsLoading}
+                            loading={loading}
                             onClick={() => loadViews()}
                             data-attr="views-retry"
                         >
@@ -185,17 +208,8 @@ function ViewsContent(): JSX.Element {
                         </Button>
                     </div>
                 )}
-                {views?.truncated && (
-                    <Text size="sm" variant="muted">
-                        Some views are not shown. Use search to find more views.
-                    </Text>
-                )}
-                {viewsLoading && visibleViews.length > 0 && (
-                    <Text size="sm" variant="muted" role="status">
-                        Loading more views…
-                    </Text>
-                )}
                 {renderList()}
+                <div ref={endRef} aria-hidden />
             </div>
         </SceneContent>
     )

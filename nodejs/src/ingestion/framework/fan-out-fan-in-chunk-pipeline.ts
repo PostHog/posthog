@@ -216,6 +216,7 @@ export class FanOutFanInChunkPipeline<
                     // The parent's origin, by reference, so sub crash logs
                     // identify the message the sub-element came from.
                     debugContext: element.context.debugContext,
+                    traceContext: element.context.traceContext,
                     sideEffects: [],
                     warnings: [],
                     [FAN_OUT_PARENT]: ref,
