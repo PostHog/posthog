@@ -4569,10 +4569,11 @@ Today (4): `activities`, `contacts`, `jobs`, `tasks`
 Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11PpG4x?segregateAuth=true&versionTag=latest>
 
 - [ ] `/api1/v2/invoices` — billed revenue per job - the core financial fact table (high)
-- [ ] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
-- [ ] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
-- [ ] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
-- [ ] `/api1/account/settings (workflows, statuses, lead sources, custom fields)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
+- [x] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
+- [x] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
+- [x] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
+- [x] `/api1/account/settings (workflows, statuses, lead sources)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
+- [ ] `/api1/account/settings (custom fields)` — not in the documented settings response (medium)
 - [ ] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
 - [ ] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
 - [ ] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium)
@@ -4630,14 +4631,14 @@ Note: Two separate specs: v1 at https://docs.jumpcloud.com/api/1.0/index.yaml (2
 
 ## JustCall — gaps
 
-Today (6): `calls`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `texts`, `users`
+Today (9): `calls`, `calls_ai`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `sales_dialer_campaigns`, `texts`, `user_groups`, `users`
 
 Diffed against: <https://developer.justcall.io/llms.txt>
 
-- [ ] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
-- [ ] `/v2.1/calls/ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
-- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high)
-- [ ] `/v2.1/users/groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
+- [x] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
+- [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
+- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
+- [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
 - [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
 - [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
 - [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
