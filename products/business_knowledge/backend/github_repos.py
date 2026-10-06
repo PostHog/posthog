@@ -7,6 +7,8 @@ File reads go to GitHub for one path that is already in that tree.
 from __future__ import annotations
 
 import re
+import json
+import dataclasses
 from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
@@ -212,9 +214,9 @@ def search_repositories(team: Team, user: User, query: str, repo: str | None) ->
     states = _cache_states(team.id, integration.id, targets)
     hits = _search_paths(team.id, integration.id, targets, terms)
     hits.extend(_search_readmes(team.id, integration.id, targets, terms))
-    result_chars = sum(len(hit.repo) + len(hit.path) + len(hit.url) + len(hit.excerpt) for hit in hits)
-    _capture_tool(team, user, "search", len(hits), states, result_chars=result_chars)
-    return RepositorySearchOutcome(hits=hits, repositories=states)
+    outcome = RepositorySearchOutcome(hits=hits, repositories=states)
+    _capture_tool(team, user, "search", len(hits), states, result_chars=_serialized_chars(outcome))
+    return outcome
 
 
 def read_repository_file(team: Team, user: User, repo: str, path: str) -> RepositoryFile:
@@ -234,7 +236,7 @@ def read_repository_file(team: Team, user: User, repo: str, path: str) -> Reposi
     except GithubReposError:
         _capture_tool(team, user, "file", 0, states, result_chars=0)
         raise
-    _capture_tool(team, user, "file", 1, states, result_chars=len(loaded.content))
+    _capture_tool(team, user, "file", 1, states, result_chars=_serialized_chars(loaded))
     return loaded
 
 
@@ -559,6 +561,10 @@ def _repo_names(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _serialized_chars(result: RepositorySearchOutcome | RepositoryFile) -> int:
+    return len(json.dumps(dataclasses.asdict(result)))
 
 
 def _capture_tool(

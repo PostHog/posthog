@@ -100,8 +100,18 @@ class _QuietCallbackHandler(CallbackHandler):
     Records successful generations only. On a model error the base handler
     records the error message and calls ``capture_exception``. That message can
     contain prompt or output text, which privacy mode does not redact, and every
-    caller here already handles the failure itself.
+    caller here already handles the failure itself. The base handler also logs
+    every prompt at DEBUG level, which privacy mode does not redact either.
     """
+
+    def _log_debug_event(
+        self,
+        event_name: str,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        _ = event_name, run_id, parent_run_id, kwargs
 
     def on_llm_error(
         self,

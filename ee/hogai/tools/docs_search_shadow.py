@@ -22,9 +22,9 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
 
-from products.business_knowledge.backend.llm_telemetry import RetrievalTrace
 from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
+    RetrievalTrace,
     has_docs_shadow_feature_flag,
     search_knowledge_for_team,
 )
