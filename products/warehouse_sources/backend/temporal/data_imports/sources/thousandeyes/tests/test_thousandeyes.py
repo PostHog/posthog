@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.thousandeyes import (
@@ -33,7 +34,7 @@ def inputs(name: str, incremental: bool = False, watermark: str | None = None) -
         db_incremental_field_last_value=watermark,
         db_incremental_field_earliest_value=None,
         incremental_field="date" if incremental else None,
-        incremental_field_type="datetime" if incremental else None,
+        incremental_field_type=IncrementalFieldType.DateTime if incremental else None,
         reset_pipeline=False,
         logger=MagicMock(),
     )

@@ -112,7 +112,7 @@ def thousandeyes_source(
         params.update(startDate=start_date, endDate=end_date)
     if endpoint.alert_state:
         params["state"] = endpoint.alert_state
-    resources: list[EndpointResource] = []
+    resources: list[str | EndpointResource] = []
     if is_results:
         resources.append(
             {
