@@ -55,6 +55,18 @@ class QueryRetrievalError(Exception):
     pass
 
 
+def set_query_status_error(query_status: QueryStatus, error: APIException) -> None:
+    query_status.error_message = str(error.detail)
+    query_status.error_status_code = error.status_code
+    codes = error.get_codes()
+    # Compound validation errors have no single code for the frontend to match.
+    query_status.error_code = codes if isinstance(codes, str) else None
+    wait = getattr(error, "wait", None)
+    query_status.retry_after = (
+        datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=wait) if wait is not None else None
+    )
+
+
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
@@ -322,11 +334,7 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
             if isinstance(err, APIException):
-                # get_codes() returns a list/dict for compound validation errors; only scalar codes
-                # are meaningful to the frontend, which matches on specific code strings.
-                codes = err.get_codes()
-                if isinstance(codes, str):
-                    query_status.error_code = codes
+                set_query_status_error(query_status, err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

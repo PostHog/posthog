@@ -7,7 +7,7 @@ import traceback
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from enum import StrEnum
-from functools import lru_cache
+from functools import lru_cache, partial
 from time import perf_counter
 from typing import Any, Optional, TypedDict, Union
 
@@ -16,6 +16,7 @@ from django.conf import settings as app_settings
 import sqlparse
 import structlog
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.errors import ErrorCodes
 from opentelemetry import trace
 from prometheus_client import Counter
 
@@ -49,7 +50,11 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
 )
 from posthog.dataclasses import frozen
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.direct_query_cancellation import (
+    build_direct_query_cancellation_token,
+    is_direct_query_cancellation_requested,
+)
+from posthog.errors import CHQueryErrorQueryWasCancelled, clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
@@ -392,14 +397,26 @@ def _query_router_target(
     return _RouterTarget(pool=pool, query_class=query_class)
 
 
+def _check_query_cancellation(team_id: int, cancellation_token: str) -> None:
+    cancelled = is_direct_query_cancellation_requested(team_id, cancellation_token)
+    if cancelled:
+        raise CHQueryErrorQueryWasCancelled("Query was cancelled", code=ErrorCodes.QUERY_WAS_CANCELLED)
+
+
 @contextmanager
-def _query_router_slot(target: Optional[_RouterTarget]) -> Iterator[Optional[router_admission.Admission]]:
+def _query_router_slot(
+    target: Optional[_RouterTarget], *, team_id: Optional[int], tags: QueryTags
+) -> Iterator[Optional[router_admission.Admission]]:
     if target is None:
         yield None
         return
 
     router = router_admission.get_query_router()
-    with router.admit(pool=target.pool, query_class=target.query_class) as admission:
+    check_cancelled = None
+    if team_id is not None and tags.client_query_id and tags.celery_task_id:
+        cancellation_token = build_direct_query_cancellation_token(tags.client_query_id, str(tags.celery_task_id))
+        check_cancelled = partial(_check_query_cancellation, team_id, cancellation_token)
+    with router.admit(pool=target.pool, query_class=target.query_class, check_cancelled=check_cancelled) as admission:
         yield admission
 
 
@@ -632,7 +649,7 @@ def sync_execute(
         with (
             _llm_analytics_concurrency_slot(ch_user, team_id),
             # Entered before the pool checkout so that a query waiting for admission holds no ClickHouse connection.
-            _query_router_slot(router_target) as admission,
+            _query_router_slot(router_target, team_id=team_id, tags=tags) as admission,
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             if admission is not None and admission.outcome == router_admission.AdmissionOutcome.ADMITTED_AFTER_WAIT:

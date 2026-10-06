@@ -365,12 +365,22 @@ class QueryRouter:
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
 
-    def _poll(self, slot: _Slot, *, enforcing: bool, limit: int, started_at: float) -> _Decision:
+    def _poll(
+        self,
+        slot: _Slot,
+        *,
+        enforcing: bool,
+        limit: int,
+        started_at: float,
+        check_cancelled: Callable[[], None] | None,
+    ) -> _Decision:
         deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
+            if queued and check_cancelled is not None:
+                check_cancelled()
             reply = self._try_enter(slot, rank=rank, limit=limit, enforcing=enforcing, first_attempt=not queued)
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
@@ -395,8 +405,10 @@ class QueryRouter:
                 self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
-    def _enter(self, slot: _Slot, *, enforcing: bool) -> Admission:
+    def _enter(self, slot: _Slot, *, mode: RouterMode, check_cancelled: Callable[[], None] | None) -> Admission:
         started_at = self.get_time()
+        if mode == RouterMode.ERROR:
+            return self._fail_open(slot, started_at)
         try:
             limit = config.get_pool_limit(slot.pool)
         except Exception:
@@ -404,7 +416,13 @@ class QueryRouter:
             return self._fail_open(slot, started_at)
 
         try:
-            decision = self._poll(slot, enforcing=enforcing, limit=limit, started_at=started_at)
+            decision = self._poll(
+                slot,
+                enforcing=mode == RouterMode.ENFORCE,
+                limit=limit,
+                started_at=started_at,
+                check_cancelled=check_cancelled,
+            )
         except RedisError:
             admission = self._fail_open(slot, started_at)
             # The script may have added the slot before its reply was lost. Without this removal the
@@ -440,7 +458,9 @@ class QueryRouter:
         )
 
     @contextmanager
-    def admit(self, *, pool: Pool, query_class: QueryClass) -> Iterator[Admission]:
+    def admit(
+        self, *, pool: Pool, query_class: QueryClass, check_cancelled: Callable[[], None] | None = None
+    ) -> Iterator[Admission]:
         """Hold a slot in the pool while the block runs.
 
         Raises ClickHouseAtCapacity when the query is dropped. Any other failure of the router lets
@@ -452,7 +472,7 @@ class QueryRouter:
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(slot, enforcing=mode == RouterMode.ENFORCE)
+        admission = self._enter(slot, mode=mode, check_cancelled=check_cancelled)
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
         if holds_slot:

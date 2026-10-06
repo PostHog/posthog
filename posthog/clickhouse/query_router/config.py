@@ -33,6 +33,7 @@ class RouterMode(StrEnum):
     # Count every query but never make one wait.
     OBSERVE = "observe"
     ENFORCE = "enforce"
+    ERROR = "error"
 
 
 # Every class may start a query while the pool is under its limit; the class decides only the order of the
@@ -135,20 +136,17 @@ def _load_settings(_minute: int) -> _RouterSettings:
     try:
         values = get_instance_settings(_SETTING_KEYS)
         mode = RouterMode(values["QUERY_ROUTER_MODE"])
+        if mode == RouterMode.OFF:
+            return _RouterSettings(mode=mode, enforced=frozenset(), limits={})
         limits = _limits_from(values)
-        try:
-            enforced = _enforced_pairs(values["QUERY_ROUTER_ENFORCE"])
-        except ValueError:
-            # A mistyped enforce list stops enforcement but keeps the router counting.
-            logger.warning("query_router_enforce_setting_invalid", value=values["QUERY_ROUTER_ENFORCE"])
-            enforced = frozenset()
+        enforced = _enforced_pairs(values["QUERY_ROUTER_ENFORCE"])
         return _RouterSettings(mode=mode, enforced=enforced, limits=limits)
     except Exception:
         # The settings table does not exist during the first Postgres migrations, and a mistyped
-        # value must not take queries down. Both cases turn the router off, and an off router reads
-        # no limit.
+        # value must not take queries down. Distinguish this from an intentional off switch so
+        # queries that bypass admission still count toward the failed-open alert.
         logger.warning("query_router_settings_unreadable", exc_info=True)
-        return _RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), limits={})
+        return _RouterSettings(mode=RouterMode.ERROR, enforced=frozenset(), limits={})
 
 
 def _settings() -> _RouterSettings:

@@ -1,4 +1,5 @@
 import json
+import uuid
 from types import TracebackType
 from typing import Any
 
@@ -6,10 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from redis import Redis
+
+from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager, cancel_query
 from posthog.clickhouse.query_router.admission import get_query_router
 from posthog.clickhouse.query_router.config import (
     Pool,
@@ -21,7 +26,8 @@ from posthog.clickhouse.query_router.config import (
     waiting_key,
     waiting_seen_key,
 )
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
 
@@ -144,3 +150,38 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
 
         assert self.ch_client.running_during_execute == 0
         assert "query_router_class" not in self.ch_client.log_comment()
+
+    @parameterized.expand([("slot_freed", True), ("pool_still_full", False)])
+    def test_cancelled_waiter_never_starts_and_leaves_the_queue(self, _name: str, free_slot: bool) -> None:
+        held_key = self._enforce_with_a_full_pool()
+        self.redis.lpush(durations_key(Pool.OFFLINE), 500)
+        query_id = uuid.uuid4().hex
+        task_id = uuid.uuid4()
+        manager = QueryStatusManager(query_id, 1)
+        manager.store_query_status(QueryStatus(id=query_id, team_id=1, task_id=str(task_id)))
+
+        def cancel_while_waiting(seconds: float) -> None:
+            cancel_query(1, query_id)
+            if free_slot:
+                self.redis.zrem(held_key, "held")
+            self.clock.sleep(seconds)
+
+        with (
+            patch.object(get_query_router(), "sleep", cancel_while_waiting),
+            patch("posthog.clickhouse.cancel.cancel_query_on_cluster"),
+            patch("posthog.clickhouse.client.execute_async.celery.app.control.revoke"),
+            tags_context(
+                kind="celery",
+                id="posthog.tasks.tasks.process_query_task",
+                access_method=AccessMethod.PERSONAL_API_KEY,
+                client_query_id=query_id,
+                celery_task_id=task_id,
+            ),
+            self.assertRaises(CHQueryErrorQueryWasCancelled),
+        ):
+            sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
+
+        self.client_from_pool.assert_not_called()
+        assert _running_slots(self.redis, Pool.OFFLINE) == (0 if free_slot else 1)
+        assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
+        assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
