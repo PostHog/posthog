@@ -1766,6 +1766,66 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('cost estimate requests', () => {
+        const ESTIMATE = { estimated_credits_per_month: 120, matched_sessions_in_window: 40, window_days: 7 }
+        let estimateSpy: jest.Mock
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            estimateSpy = jest.fn(() => [200, ESTIMATE])
+            useMocks({ post: { '/api/projects/:team/vision/scanners/estimate/': (info) => estimateSpy(info) } })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            ['the prompt', 0, ['scanner_config', 'prompt'], 'Find rage clicks'],
+            ['the name', 0, ['name'], 'Rage clicks'],
+            ['the sampling rate', 1, ['sampling_rate'], 0.5],
+            ['the model', 1, ['model'], 'gemini-2.5-pro'],
+        ])('editing %s sends %i estimate requests', async (_, expectedCalls, field, value) => {
+            logic.actions.setScannerValue(['sampling_rate'], 0.3)
+            await jest.advanceTimersByTimeAsync(1000)
+            estimateSpy.mockClear()
+
+            logic.actions.setScannerValue(field as string[], value)
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(estimateSpy).toHaveBeenCalledTimes(expectedCalls)
+        })
+
+        it('keeps the last estimate on a 429 and retries only after Retry-After', async () => {
+            logic.actions.setScannerValue(['sampling_rate'], 0.3)
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(logic.values.scannerEstimate).toMatchObject(ESTIMATE)
+
+            estimateSpy.mockImplementationOnce(
+                () =>
+                    new Response(JSON.stringify({ detail: 'Throttled' }), {
+                        status: 429,
+                        headers: { 'Content-Type': 'application/json', 'Retry-After': '30' },
+                    })
+            )
+            logic.actions.setScannerValue(['sampling_rate'], 0.5)
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(estimateSpy).toHaveBeenCalledTimes(2)
+            expect(logic.values.scannerEstimate).toMatchObject(ESTIMATE)
+            expect(logic.values.scannerEstimateError).toBeNull()
+
+            logic.actions.setScannerValue(['sampling_rate'], 0.6)
+            await jest.advanceTimersByTimeAsync(20_000)
+            expect(estimateSpy).toHaveBeenCalledTimes(2)
+
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(estimateSpy).toHaveBeenCalledTimes(3)
+            const body = await (estimateSpy.mock.calls.at(-1) as any)[0].request.json()
+            expect(body).toMatchObject({ sampling_rate: 0.6 })
+        })
+    })
+
     describe('team refresh on tab visibility', () => {
         const setHidden = (hidden: boolean): void => {
             Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })

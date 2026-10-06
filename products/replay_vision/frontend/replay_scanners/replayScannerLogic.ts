@@ -247,6 +247,27 @@ function draftScannerTypeAndConfig(
     }
 }
 
+// The estimate endpoint sends Retry-After with a 429. This wait applies when the header is missing.
+const ESTIMATE_THROTTLE_FALLBACK_MS = 60_000
+
+/** The fields the estimate request reads. Edits to other fields (prompt, name, tags) do not change the estimate. */
+function estimateInputsKey(scanner: ReplayScanner): string {
+    return JSON.stringify([
+        scanner.query,
+        scanner.scanner_type,
+        scanner.experiment_targeting,
+        scannerExperimentScope(scanner),
+        scanner.sampling_rate,
+        scanner.sampling_mode,
+        scanner.model,
+    ])
+}
+
+function retryAfterMs(error: any): number {
+    const seconds = Number(error?.headers?.get?.('Retry-After'))
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : ESTIMATE_THROTTLE_FALLBACK_MS
+}
+
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
@@ -1726,6 +1747,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             }
             actions.loadObservationStats()
         }
+        const requestEstimateIfInputsChanged = (): void => {
+            if (values.scanner && estimateInputsKey(values.scanner) !== cache.estimateInputsKey) {
+                actions.requestScannerEstimate()
+            }
+        }
         const persistDraft = (): void => {
             if (props.id !== 'new' || cache.restoringDraft) {
                 return
@@ -2207,13 +2233,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.dismissTagSuggestions()
             },
 
-            // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
+            // kea-forms fires setScannerValue(s) per field change. Only edits to the estimate inputs
+            // request a new estimate, so typing the prompt does not use up the endpoint's rate limit.
             setScannerValue: () => {
-                actions.requestScannerEstimate()
+                requestEstimateIfInputsChanged()
                 persistDraft()
             },
             setScannerValues: () => {
-                actions.requestScannerEstimate()
+                requestEstimateIfInputsChanged()
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
@@ -2256,8 +2283,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             requestScannerEstimate: () => {
+                if (values.scanner) {
+                    cache.estimateInputsKey = estimateInputsKey(values.scanner)
+                }
+                // Debounced so drags don't fire a request per tick, and held until a 429's Retry-After passes.
+                const delay = Math.max(300, (cache.estimateRetryAt ?? 0) - Date.now())
                 cache.disposables.add(() => {
-                    const id = setTimeout(() => actions.loadScannerEstimate(), 300)
+                    const id = setTimeout(() => actions.loadScannerEstimate(), delay)
                     return () => clearTimeout(id)
                 }, 'scannerEstimateDebounce')
             },
@@ -2269,6 +2301,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.loadScannerEstimateFailure()
                     return
                 }
+                if ((cache.estimateRetryAt ?? 0) > Date.now()) {
+                    actions.requestScannerEstimate()
+                    return
+                }
+                cache.estimateInputsKey = estimateInputsKey(scanner)
                 const version = values.estimateRequestVersion
                 try {
                     const scope = scannerExperimentScope(scanner)
@@ -2310,7 +2347,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     // eslint-disable-next-line no-console
                     console.warn('[replay-vision] scanner estimate failed', error)
+                    if (error?.status === 429) {
+                        cache.estimateRetryAt = Date.now() + retryAfterMs(error)
+                    }
                     if (values.estimateRequestVersion !== version) {
+                        return
+                    }
+                    if (error?.status === 429) {
+                        // Keep the last good estimate on screen and ask again once the throttle clears.
+                        actions.requestScannerEstimate()
                         return
                     }
                     const detail = typeof error?.detail === 'string' ? error.detail : null
