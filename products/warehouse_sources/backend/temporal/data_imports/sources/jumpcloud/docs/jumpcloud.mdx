@@ -58,6 +58,11 @@ the last synced event timestamp. The directory tables (`users`, `systems`, `user
 `applications`) have no server-side "updated since" filter in JumpCloud's API, so they sync as a **full
 refresh** — schedule them at a cadence that fits how often your directory changes.
 
+The association tables (`user_group_members`, `system_group_members`, `application_users`,
+`application_user_groups`, and `system_users`) also sync as a full refresh. Each one requests JumpCloud once per
+parent group, application, or system, so a large directory takes longer to sync. Join them to the directory tables
+on the parent ID column (`group_id`, `application_id`, or `system_id`) and on `id`.
+
 ## Configuration
 
 <SourceParameters />
