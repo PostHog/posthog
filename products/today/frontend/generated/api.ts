@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BriefingApi,
     CandidateListApi,
+    ReportPageApi,
     TodayBriefingRefreshCreateParams,
     TodayBriefingRetrieveParams,
     TodayCandidatesRetrieveParams,
@@ -104,6 +105,25 @@ export const todayCandidatesRetrieve = async (
     options?: RequestInit
 ): Promise<CandidateListApi> => {
     return apiMutator<CandidateListApi>(getTodayCandidatesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayReportsPageRetrieveUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/today/reports/${reportId}/page/`
+}
+
+/**
+ * What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well, because the page shows the report's signals.
+ * @summary Get a report's page
+ */
+export const todayReportsPageRetrieve = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<ReportPageApi> => {
+    return apiMutator<ReportPageApi>(getTodayReportsPageRetrieveUrl(projectId, reportId), {
         ...options,
         method: 'GET',
     })

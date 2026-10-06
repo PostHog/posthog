@@ -7,10 +7,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.models import SignalReport
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
+from products.today.backend.tests.factories import page_source
+
+REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 
 
 @patch("products.today.backend.logic.briefings.sync_connect")
@@ -148,3 +157,93 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
         assert DailyBriefing.objects.for_team(self.team.id).count() == 2
+
+    @parameterized.expand(
+        [
+            ("a report", True, REPORT_ID, status.HTTP_200_OK, "Lead."),
+            ("flag off", False, REPORT_ID, status.HTTP_404_NOT_FOUND, None),
+            ("a sample report", True, "sample-pr", status.HTTP_200_OK, "Safari users can’t finish checkout"),
+            ("an unknown sample", True, "sample-nope", status.HTTP_404_NOT_FOUND, None),
+        ]
+    )
+    def test_report_page_answers_people_with_the_new_navigation(
+        self, _sync_connect: MagicMock, _name: str, flag: bool, report_id: str, expected: int, lead: str | None
+    ) -> None:
+        with (
+            self._flag(flag),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report_id}/page/")
+
+        assert response.status_code == expected
+        if lead is not None:
+            assert response.json()["lead"].startswith(lead)
+
+    @parameterized.expand(
+        [
+            ("today only", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("today and signals", ["today:read", "task:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_a_scoped_key_reads_the_report_page_only_with_the_signals_scope(
+        self, _sync_connect: MagicMock, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        raw_key = "today_report_page_key"
+        PersonalAPIKey.objects.create(
+            user=self.user, label="Today", secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/page/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+            )
+
+        assert response.status_code == expected
+
+    @parameterized.expand(
+        [
+            ("can read inbox reports", None, status.HTTP_200_OK),
+            ("may not read inbox reports", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_member_reads_the_report_page_only_with_access_to_inbox_reports(
+        self, _sync_connect: MagicMock, _name: str, task_access: str | None, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if task_access is not None:
+            AccessControl.objects.create(team=self.team, resource="task", resource_id=None, access_level=task_access)
+        self.client.force_login(User.objects.create_and_join(self.organization, "member@example.com", "testtest"))
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/page/")
+
+        assert response.status_code == expected
+
+    @parameterized.expand([("a deleted report", True, False), ("another team's report", False, True)])
+    def test_report_page_answers_404_for(
+        self, _sync_connect: MagicMock, _name: str, deleted: bool, other: bool
+    ) -> None:
+        team = Team.objects.create(organization=self.organization) if other else self.team
+        report = SignalReport.objects.create(
+            team=team,
+            title="Checkout fails",
+            summary="Checkout fails for some shoppers.",
+            status=SignalReport.Status.DELETED if deleted else SignalReport.Status.READY,
+            signal_count=1,
+            total_weight=1.0,
+        )
+        with (
+            self._flag(True),
+            patch("products.signals.backend.report_page_source.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report.id}/page/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
