@@ -495,10 +495,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return
         if not is_reserved_models_name(self.name):
             return
-        if (
-            self.external_data_source_id
-            and self.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
-        ):
+        source = self.external_data_source
+        if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT:
             return
         # A table saved with this name before the reservation existed must stay editable and deletable.
         # soft_delete() calls save(), so rejecting an unchanged name would leave the table stuck.
