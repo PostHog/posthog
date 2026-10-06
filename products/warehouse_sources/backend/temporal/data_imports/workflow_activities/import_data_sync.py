@@ -90,7 +90,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    resolve_resume_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
@@ -98,6 +101,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.attempt_budget import (
+    FailedAttemptBudget,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -117,6 +123,9 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
+    # Set when the retry policy has no attempt cap, so the activity must end a failing run itself.
+    # None, which is also what a payload from an older workflow decodes to, leaves it to the policy.
+    max_failed_attempts: int | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -128,6 +137,7 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
+            "max_failed_attempts": self.max_failed_attempts,
         }
 
 
@@ -346,19 +356,26 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
     await asyncio.to_thread(report_heartbeat_timeout, inputs, logger)
 
+    attempt_budget = FailedAttemptBudget(
+        team_id=inputs.team_id, run_id=str(inputs.run_id), limit=inputs.max_failed_attempts, logger=logger
+    )
+
     # Async variant: teardown joins the sampler thread and talks to Redis, which must not block
     # this activity's event loop (or its heartbeats).
-    async with aworkload_reporting(
-        team_id=inputs.team_id,
-        schema_id=str(inputs.schema_id),
-        run_id=str(inputs.run_id),
-        host=socket.gethostname(),
-        # Retries share the run_id; the attempt lets the newest reporter own the run key while a
-        # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
-        attempt=current_activity_attempt(),
+    async with (
+        attempt_budget,
+        aworkload_reporting(
+            team_id=inputs.team_id,
+            schema_id=str(inputs.schema_id),
+            run_id=str(inputs.run_id),
+            host=socket.gethostname(),
+            # Retries share the run_id; the attempt lets the newest reporter own the run key while a
+            # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
+            attempt=current_activity_attempt(),
+        ),
     ):
         try:
-            return await _import_data_with_reporting(inputs, logger)
+            return await _import_data_with_reporting(inputs, logger, attempt_budget)
         except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
             # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
             # own app DB through the Django ORM before the source's error handling takes over. A
@@ -380,7 +397,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
-async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
+async def _import_data_with_reporting(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, attempt_budget: FailedAttemptBudget
+) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -636,6 +655,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # otherwise bypass the guard in `_run` and be retried up to the activity's
                 # maximum on every scheduled sync. Route it through the same policy.
                 await _handle_import_error(job_inputs, logger, e)
+
+            if resolve_resume_manager(resumable_source_manager, source_response) is not None:
+                attempt_budget.mark_attempt_resumable()
 
             return await _run(
                 job_inputs=job_inputs,

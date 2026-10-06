@@ -44,6 +44,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -70,6 +71,7 @@ from products.warehouse_sources.backend.models.external_table_definitions import
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    MAX_RESUMABLE_SOURCE_RETRIES,
     WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataJobWorkflow,
 )
@@ -118,6 +120,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source import ZendeskSource
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -3335,9 +3338,21 @@ async def test_worker_shutdown_desc_sort_order(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands):
+@pytest.mark.parametrize(
+    "can_resume,shutdown_attempts,triggers_buffer_one",
+    [
+        pytest.param(False, None, True, id="a_run_that_cannot_resume_uses_up_its_retries"),
+        pytest.param(True, MAX_RESUMABLE_SOURCE_RETRIES + 1, False, id="a_resumable_run_outlasts_its_retry_cap"),
+    ],
+)
+async def test_worker_shutdown_against_the_retry_cap(
+    team, zendesk_brands, can_resume: bool, shutdown_attempts: int | None, triggers_buffer_one: bool
+):
     def mock_raise_if_is_worker_shutdown(self):
-        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+        if shutdown_attempts is None or current_activity_attempt() <= shutdown_attempts:
+            raise WorkerShuttingDownError(
+                "test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type"
+            )
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -3347,7 +3362,10 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
+        contextlib.ExitStack() as stack,
     ):
+        if not can_resume:
+            stack.enter_context(mock.patch.object(ZendeskSource, "resume_covers_run", return_value=False))
         _, inputs = await _run(
             team=team,
             schema_name="brands",
@@ -3364,8 +3382,6 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             ignore_assertions=True,
         )
 
-    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
-
     run: ExternalDataJob | None = await sync_to_async(
         ExternalDataJob.objects.filter(team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id)
         .order_by("-created_at")
@@ -3373,6 +3389,12 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
     )()
 
     assert run is not None
+    if not triggers_buffer_one:
+        mock_trigger_schedule_buffer_one.assert_not_called()
+        assert run.status == ExternalDataJobStatus.COMPLETED
+        return
+
+    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
     if _current_pipeline_mode == "v3":
         assert run.status == ExternalDataJobStatus.FAILED
         assert run.latest_error == WORKER_RESTART_ERROR_MESSAGE
@@ -3913,7 +3935,7 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
     # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
     # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
     # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
-    # short-circuit; the prod caps (20 / 3) are just larger values of the same mechanism.
+    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
     resumable_retry_cap = 3
     non_retryable_attempts = 2
 

@@ -76,6 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.post_import_job im
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
+    RESUMABLE_IMPORT_DEADLINE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -99,6 +100,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     acquire_v3_pipeline_lock_activity,
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.attempt_budget import (
+    ATTEMPTS_EXHAUSTED_ERROR_TYPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
@@ -377,6 +381,9 @@ def _customer_facing_error(cause: BaseException | None) -> str:
     if isinstance(cause, exceptions.TimeoutError):
         if cause.type in (TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE):
             return SYNC_RUN_TOO_LONG_MESSAGE
+        return SYNC_RUN_STALLED_MESSAGE
+    # Attempts that kept ending with no error are the stall above, repeated until the budget ran out.
+    if getattr(cause, "type", None) == ATTEMPTS_EXHAUSTED_ERROR_TYPE:
         return SYNC_RUN_STALLED_MESSAGE
     message = getattr(cause, "message", None)
     return message or str(cause)
@@ -997,10 +1004,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
 
             if is_resumable_source:
+                # A worker hand-off continues from the saved cursor, so it must not use up the retry
+                # cap. Temporal counts every attempt, so the policy has no cap and the activity ends
+                # the run after `max_failed_attempts` attempts that were not hand-offs.
+                job_inputs = dataclasses.replace(job_inputs, max_failed_attempts=max_resumable_attempts)
                 timeout_params = {
-                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "schedule_to_close_timeout": RESUMABLE_IMPORT_DEADLINE,
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=max_resumable_attempts,
+                        maximum_attempts=0,
                         non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }

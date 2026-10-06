@@ -16,6 +16,7 @@ import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
+from temporalio.exceptions import ApplicationError
 
 from posthog.integration_secrets.errors import (
     IntegrationServiceMisconfiguredError,
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
     SimpleSource,
     SourceExtractionNotImplementedError,
 )
@@ -392,6 +394,39 @@ async def test_worker_shutdown_is_reraised_unwrapped_as_a_handoff_not_an_excepti
     assert exc_info.value is error
     logger.ainfo.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_class,supports_resume,handoff_is_free",
+    [
+        (ResumableSource, True, True),
+        (ResumableSource, False, False),
+        (SimpleSource, True, False),
+    ],
+)
+async def test_only_a_handoff_from_an_attempt_that_can_resume_spares_the_failed_attempt_budget(
+    source_class: type, supports_resume: bool, handoff_is_free: bool
+):
+    shutdown = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 1, "wf", "wt")
+    source = mock.MagicMock(spec=source_class)
+    source.parse_config.return_value = {}
+    source.get_required_parent_schemas.return_value = []
+    source.source_for_pipeline.return_value = mock.MagicMock(supports_resume=supports_resume)
+
+    with (
+        _patched_activity(source),
+        mock.patch.object(module, "_run", new=mock.AsyncMock(side_effect=shutdown)),
+        pytest.raises((WorkerShuttingDownError, ApplicationError)) as exc_info,
+    ):
+        await import_data_activity_sync(dataclasses.replace(_inputs(), max_failed_attempts=1))
+
+    if handoff_is_free:
+        assert exc_info.value is shutdown
+    else:
+        assert isinstance(exc_info.value, ApplicationError)
+        assert exc_info.value.type == "WorkerShuttingDownError"
+        assert exc_info.value.non_retryable
 
 
 @pytest.mark.asyncio

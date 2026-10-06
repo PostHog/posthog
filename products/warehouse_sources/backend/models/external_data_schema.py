@@ -179,8 +179,9 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
     )
 
 
-# A run parks one cursor per displaced attempt, so the bound must cover the largest attempt cap an
-# import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
+# A run parks one cursor per displaced attempt. A resumable import has no attempt cap, because a
+# worker hand-off does not count toward its retry cap, so this bound cannot cover every attempt.
+# The trim keeps the newest entries, and a live run's entries are the newest.
 STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
 
