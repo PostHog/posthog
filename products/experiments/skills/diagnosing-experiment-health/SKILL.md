@@ -1,9 +1,9 @@
 ---
-name: diagnosing-experiment-results
-description: "Runs diagnostics and a health check on a PostHog experiment whose results look wrong, biased, empty or stale. Covers 0 exposures, sample ratio mismatch, lost or uneven exposures, users in multiple variants, identity faults, significance traps (peeking, A/A, 'target reached', Bayesian vs Frequentist, sequential testing, CUPED), PostHog-vs-SQL or dashboard discrepancies, mid-run edits, pause and freeze, and qualitative follow-up via a survey.\nTRIGGER when: user asks 'is my experiment healthy / biased?' or 'why 0 exposures?', mentions the bias or mismatch warning, an uneven split, a variant that looks wrong, significance that flips, numbers that disagree with their SQL or insight, results that changed after an edit, or wants user feedback on an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
+name: diagnosing-experiment-health
+description: "Runs diagnostics and a health check on one PostHog experiment: its setup, exposures, results and changes during the run. Covers 0 exposures, sample ratio mismatch, lost or uneven exposures, users in multiple variants, identity faults, who the experiment counts, significance traps (peeking, A/A, 'target reached', Bayesian vs Frequentist, sequential, CUPED), mid-run edits, pause and freeze, and survey follow-up.\nTRIGGER when: user asks 'is my experiment healthy / set up right / biased?' or 'why 0 exposures?', asks why it counts different people than their insight, mentions the bias or mismatch warning, an uneven split, significance that flips, numbers that disagree with their SQL, results that changed after an edit, or wants user feedback on an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
 ---
 
-# Diagnosing experiment results
+# Diagnosing experiment health
 
 This skill answers: **My PostHog experiment results look wrong, biased, or empty — what's going on?**
 It is the diagnostics and health check for one experiment: its setup, its exposures, its results and what changed during the run.
