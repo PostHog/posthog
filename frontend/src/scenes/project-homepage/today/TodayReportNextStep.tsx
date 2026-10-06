@@ -81,7 +81,7 @@ export function TodayReportNextStep({
     reportTaskToOpen: ReportTaskEntry | null
     slotClaim: ImplementationSlotClaim | null
 }): JSX.Element | null {
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const logic = todayReportLogic({ reportId: report.id })
     const { reportState, reportUrl, isSample, page, askingAi, composerOpen, draft } = useValues(logic)
     const { askAboutReport, openComposer, setDraft } = useActions(logic)
@@ -118,7 +118,10 @@ export function TodayReportNextStep({
                         report={report}
                         reportUrl={reportUrl}
                         isSample={isSample}
-                        startReason={startDisabledReason(report, taskPickedUp, createPrDisabledReason)}
+                        startReason={startDisabledReason(report, taskPickedUp, {
+                            createPrDisabledReason,
+                            aiConsentDisabledReason,
+                        })}
                     />
                 )}
                 <TodayActionButton

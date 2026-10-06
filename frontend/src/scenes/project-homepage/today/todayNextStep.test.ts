@@ -97,7 +97,22 @@ describe('todayNextStep', () => {
             slotClaimed: false,
             runningTask: null,
         })
-        expect(startDisabledReason(input, taskPickedUp, null)).toEqual(expected)
+        expect(
+            startDisabledReason(input, taskPickedUp, { createPrDisabledReason: null, aiConsentDisabledReason: null })
+        ).toEqual(expected)
+    })
+
+    test.each([
+        ['an implementation', 'immediately_actionable', 'Free trials can’t open pull requests.'],
+        ['an investigation', 'requires_human_input', null],
+    ])('keeps the free trial limit to %s', (_, actionability, expected) => {
+        const report = makeReport({ actionability: actionability as SignalReport['actionability'] })
+        expect(
+            startDisabledReason(report, false, {
+                createPrDisabledReason: 'Free trials can’t open pull requests.',
+                aiConsentDisabledReason: null,
+            })
+        ).toEqual(expected)
     })
 
     test.each([

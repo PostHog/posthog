@@ -144,10 +144,15 @@ export function resolveDisabledReason(report: SignalReport, sampleReason: string
     return canResolveReport(report) ? null : 'You can resolve a report only after the agent finishes its research.'
 }
 
+export interface TodayKickoffReasons {
+    createPrDisabledReason: string | null
+    aiConsentDisabledReason: string | null
+}
+
 export function startDisabledReason(
     report: SignalReport,
     taskPickedUp: boolean,
-    createPrDisabledReason: string | null
+    { createPrDisabledReason, aiConsentDisabledReason }: TodayKickoffReasons
 ): string | null {
     if (taskPickedUp) {
         return 'A task already picked this up.'
@@ -155,7 +160,7 @@ export function startDisabledReason(
     if (!isActionCapableReport(report)) {
         return 'This report can’t start work. Ask about it instead.'
     }
-    return createPrDisabledReason
+    return reportWorkKind(report) === 'implement' ? createPrDisabledReason : aiConsentDisabledReason
 }
 
 export function reportWorkPrompt(report: SignalReport, reportUrl: string): string {
