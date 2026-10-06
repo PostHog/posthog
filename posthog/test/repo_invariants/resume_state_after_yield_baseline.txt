@@ -230,7 +230,6 @@ jamf_pro/jamf_pro.py::get_rows
 jellyfish/jellyfish.py::_get_fan_out_rows
 jellyfish/jellyfish.py::_get_month_windowed_rows
 jenkins/jenkins.py::_get_build_rows
-jfrog_artifactory/jfrog_artifactory.py::get_rows
 jumpcloud/jumpcloud.py::_get_event_rows
 jumpcloud/jumpcloud.py::_get_rest_rows
 klaus/klaus.py::_iter_endpoint_pages

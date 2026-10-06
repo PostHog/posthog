@@ -410,16 +410,16 @@ def _iter_aql_pages(
             break
 
         has_more = len(results) >= AQL_PAGE_SIZE
+        if has_more:
+            offset += len(results)
+            resumable_source_manager.save_state(
+                JfrogArtifactoryResumeConfig(next_offset=offset, incremental_filter_value=filter_value)
+            )
+
         yield [_strip_domain_prefix(item, config.aql_domain) for item in results]
 
         if not has_more:
             break
-        offset += len(results)
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes on the primary key.
-        resumable_source_manager.save_state(
-            JfrogArtifactoryResumeConfig(next_offset=offset, incremental_filter_value=filter_value)
-        )
         resumable_source_manager.safe_point()
 
 
@@ -471,18 +471,20 @@ def _iter_xray_violations(
             break
 
         has_more = len(violations) >= XRAY_PAGE_SIZE
+        if has_more:
+            page += 1
+            if (page - 1) * XRAY_PAGE_SIZE >= XRAY_MAX_SCROLL_ROWS:
+                restart_filter = _xray_restart_filter(violations[-1].get("created"), filter_value)
+                if restart_filter is not None:
+                    filter_value, page = restart_filter, 1
+            resumable_source_manager.save_state(
+                JfrogArtifactoryResumeConfig(next_offset=page, incremental_filter_value=filter_value)
+            )
+
         yield violations
 
         if not has_more:
             break
-        page += 1
-        if (page - 1) * XRAY_PAGE_SIZE >= XRAY_MAX_SCROLL_ROWS:
-            restart_filter = _xray_restart_filter(violations[-1].get("created"), filter_value)
-            if restart_filter is not None:
-                filter_value, page = restart_filter, 1
-        resumable_source_manager.save_state(
-            JfrogArtifactoryResumeConfig(next_offset=page, incremental_filter_value=filter_value)
-        )
         resumable_source_manager.safe_point()
 
 
