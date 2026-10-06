@@ -46,6 +46,7 @@ from products.access_control.backend.presentation.access_control import (
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
+from ..llm.providers.openrouter import is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -183,12 +184,12 @@ class _EvaluationConfigField(serializers.JSONField):
             "min": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive minimum numeric score. Omit for no lower bound.",
+                "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.",
             },
             "max": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive maximum numeric score. Omit for no upper bound.",
+                "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.",
             },
             "step": {
                 "type": "number",
@@ -365,6 +366,11 @@ class ModelConfigurationSerializer(serializers.Serializer):
         errors = {field: "This field is required." for field in ("provider", "model") if field not in data}
         if errors:
             raise serializers.ValidationError(errors, code="required")
+        if data["provider"] == LLMProvider.SYSTEM_ONE:
+            if not data.get("provider_key_id"):
+                raise serializers.ValidationError(
+                    {"provider_key_id": "Select a System One connection for this evaluation."}
+                )
         return data
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -560,6 +566,15 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
+        model_provider = (
+            model_configuration.get("provider")
+            if isinstance(model_configuration, dict)
+            else getattr(model_configuration, "provider", None)
+        )
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical", "numeric"):
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a model that supports this evaluation output type."}
+            )
 
         if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
             raise serializers.ValidationError(
@@ -578,6 +593,9 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
+
+        if data.get("model_configuration") or data.get("enabled"):
+            self._validate_chat_model(data)
 
         should_validate_configs = (
             self.instance is None
@@ -603,6 +621,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
+
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type == "numeric":
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if config.get("min") is None or config.get("max") is None or config["min"] >= config["max"]:
+                raise serializers.ValidationError(
+                    {"output_config": "System One numeric evaluations require a minimum score below the maximum score."}
+                )
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
         # message index). An aggregate target emits a single evaluation event for the whole unit,
@@ -641,6 +666,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 self._validate_re_enable(data)
 
         return data
+
+    def _validate_chat_model(self, data: dict) -> None:
+        """The judge calls chat completions, so a model without text output fails on every run."""
+        model_config = self._effective_model_configuration(data)
+        if not model_config or model_config.get("provider") != LLMProvider.OPENROUTER:
+            return
+        model = model_config.get("model")
+        if model and is_non_chat_model(model):
+            raise serializers.ValidationError(
+                {
+                    "model_configuration": (
+                        f"'{model}' does not support chat completions, so it cannot be an LLM judge. Choose a chat model."
+                    )
+                }
+            )
 
     def _validate_can_run(self, data: dict) -> None:
         """An eval being turned on — created enabled or re-enabled — must be able to resolve a

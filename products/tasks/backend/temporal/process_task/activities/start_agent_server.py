@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.connection_token import (
     create_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import launch_preparation_metric_context
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -456,7 +457,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
-        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes, run_id=ctx.run_id)
     except OAuthTokenError:
         raise
     except Exception as e:
@@ -500,38 +501,54 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     if ctx.model_access.adapter == "codex":
         codex_run_token = create_codex_subscription_run_token(task_run, sandbox_id=sandbox_id)
 
-    mcp_configs = get_sandbox_ph_mcp_configs(
-        token=access_token,
-        project_id=ctx.team_id,
-        scopes=scopes,
-        interaction_origin=ctx.interaction_origin,
-        slack_reply_context=ctx.slack_reply_context,
-        task_id=str(ctx.task_id),
-        origin_product=task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+    mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_sandbox_ph_mcp_configs(
+            token=access_token,
+            project_id=ctx.team_id,
+            scopes=scopes,
+            interaction_origin=ctx.interaction_origin,
+            slack_reply_context=ctx.slack_reply_context,
+            task_id=str(ctx.task_id),
+            origin_product=task.origin_product,
+            exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+        )
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
-        token=access_token,
-        team_id=ctx.team_id,
-        user_id=actor_user.id if actor_user else None,
-        include_personal=include_personal,
-        interaction_origin=ctx.interaction_origin,
-        slack_reply_context=ctx.slack_reply_context,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
-        origin_product=task.origin_product,
-        task_agent_key=task.mcp_builtin_agent_key,
-        credential_owner_id=task.mcp_credential_owner_id,
-        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+    user_mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_user_mcp_server_configs(
+            token=access_token,
+            team_id=ctx.team_id,
+            user_id=actor_user.id if actor_user else None,
+            include_personal=include_personal,
+            interaction_origin=ctx.interaction_origin,
+            slack_reply_context=ctx.slack_reply_context,
+            allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+            origin_product=task.origin_product,
+            task_agent_key=task.mcp_builtin_agent_key,
+            credential_owner_id=task.mcp_credential_owner_id,
+            allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        )
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
 
-    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    imported_mcp_configs = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+    )
     if imported_mcp_configs:
         mcp_configs = mcp_configs + imported_mcp_configs
 
-    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    relayed_names = (
+        []
+        if task.is_scout_trial_judge is True
+        else get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    )
     if relayed_names:
         emit_agent_log(
             ctx.run_id,
@@ -634,6 +651,9 @@ def _invoke_start_agent_server(
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
             codex_run_token=params.codex_run_token,
+            sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
+            if isinstance(sandbox, ModalSandbox)
+            else None,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 

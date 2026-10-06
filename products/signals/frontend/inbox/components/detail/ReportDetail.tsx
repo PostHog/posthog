@@ -24,7 +24,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -49,6 +49,7 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
@@ -172,8 +173,6 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    impactArtefacts?: SignalReportArtefact[] | null
-    onImpactApproved?: () => void
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -204,8 +203,6 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
-    impactArtefacts,
-    onImpactApproved,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -232,9 +229,12 @@ export function InboxDetailFrame({
         evidenceExpanded,
         priorityExplanation,
         chartPlacements,
+        chartsById,
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        reportChecks,
+        reportChecksError,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -334,48 +334,48 @@ export function InboxDetailFrame({
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+    const hasMeasurements = reportChecks?.some(
+        (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
+    )
     const expectedImpact =
-        expectedImpactEnabled && !summaryPending ? (
-            <ReportExpectedImpact
-                report={report}
-                reportUrl={reportUrl}
-                artefacts={impactArtefacts}
-                onApprovalComplete={onImpactApproved}
-            />
+        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
 
-            <div>
-                {report.summary ? (
-                    <ReportSummaryBody
-                        summary={report.summary}
-                        chartPlacements={chartPlacements}
-                        implementButton={implementButton}
-                        pullRequestNote={pullRequestNote}
-                        impactMetrics={impactMetrics}
-                        expectedImpact={expectedImpact}
-                    />
-                ) : (
-                    <div className="flex flex-col gap-6">
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet. An agent is still investigating.
-                        </p>
-                        {pullRequestNote}
-                        {impactMetrics}
-                        {expectedImpact}
-                    </div>
-                )}
-                {trailingCharts.length > 0 && (
-                    <div className="flex flex-col gap-4 mt-5">
-                        {trailingCharts.map((chart) => (
-                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                        ))}
-                    </div>
-                )}
-            </div>
+            <ReportChartsContext.Provider value={chartsById}>
+                <div>
+                    {report.summary ? (
+                        <ReportSummaryBody
+                            summary={report.summary}
+                            chartPlacements={chartPlacements}
+                            implementButton={implementButton}
+                            pullRequestNote={pullRequestNote}
+                            impactMetrics={impactMetrics}
+                            expectedImpact={expectedImpact}
+                        />
+                    ) : (
+                        <div className="flex flex-col gap-6">
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet. An agent is still investigating.
+                            </p>
+                            {pullRequestNote}
+                            {impactMetrics}
+                            {expectedImpact}
+                        </div>
+                    )}
+                    {trailingCharts.length > 0 && (
+                        <div className="flex flex-col gap-4 mt-5">
+                            {trailingCharts.map((chart) => (
+                                <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </ReportChartsContext.Provider>
             {/* The rating closes out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 <ReportFeedbackFooter report={report} align="end" />
@@ -626,7 +626,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest, loadReportArtefacts } = useActions(logic)
+    const { selectPullRequest } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -656,8 +656,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
-            impactArtefacts={reportArtefacts}
-            onImpactApproved={loadReportArtefacts}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (

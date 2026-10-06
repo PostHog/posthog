@@ -63,6 +63,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'members_can_use_personal_api_keys'
         | 'members_can_see_org_members'
         | 'read_only_mcp_access'
+        | 'member_notice'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
         | 'allow_publicly_shared_resources'

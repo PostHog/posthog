@@ -165,17 +165,16 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
-# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
-# Copying them onto every job row was most of the snapshot's storage cost.
-_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
+# `schema_metadata` is the source table's column list, not configuration. Copying it onto every
+# job row would be most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     """The schema as it was when this job started, for debugging a run after the fact.
 
-    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
-    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
     `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
     """
     sync_type_config = {
@@ -436,13 +435,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
