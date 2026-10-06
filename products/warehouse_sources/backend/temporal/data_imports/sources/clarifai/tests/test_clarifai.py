@@ -78,7 +78,7 @@ class TestClarifaiTransport:
         with requests_mock.Mocker() as http:
             http.get(BASE_URL + "models", json={"status": {"code": 10000}, **terminal})
             response = ClarifaiClient(config, 42, "v2").source("models", "test-job", manager)
-            assert not any(response.items())
+            assert not any(cast(Iterable[Any], response.items()))
             assert http.call_count == 1
             manager.save_state.assert_not_called()
 
@@ -106,7 +106,12 @@ class TestClarifaiTransport:
         with requests_mock.Mocker() as http:
             http.get(BASE_URL + "models", status_code=http_status, json={"status": {"code": api_status}})
             with pytest.raises((HTTPError, ValueError), match=message) as error:
-                list(ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items())
+                list(
+                    cast(
+                        Iterable[Any],
+                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
+                    )
+                )
             assert any(pattern in str(error.value) for pattern in ClarifaiSource().get_non_retryable_errors())
             assert http.call_count == 1
             manager.save_state.assert_not_called()
@@ -125,7 +130,12 @@ class TestClarifaiTransport:
         ):
             http.get(BASE_URL + "models", status_code=http_status, json={"status": {"code": api_status}})
             with pytest.raises(RESTClientRetryableError):
-                list(ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items())
+                list(
+                    cast(
+                        Iterable[Any],
+                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
+                    )
+                )
             assert http.call_count == 5
             manager.save_state.assert_not_called()
 
@@ -138,14 +148,24 @@ class TestClarifaiTransport:
         with requests_mock.Mocker() as http:
             http.get(BASE_URL + "models", json=body)
             with pytest.raises(ValueError, match="unsuccessful response"):
-                list(ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items())
+                list(
+                    cast(
+                        Iterable[Any],
+                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
+                    )
+                )
             manager.save_state.assert_not_called()
 
     def test_redirect_is_not_followed(self, config: ClarifaiSourceConfig, manager: MagicMock) -> None:
         with requests_mock.Mocker() as http:
             http.get(BASE_URL + "models", status_code=302, headers={"Location": "https://other.example.com/"})
             with pytest.raises(ValueError, match="redirect"):
-                list(ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items())
+                list(
+                    cast(
+                        Iterable[Any],
+                        ClarifaiClient(config, 42, "v2").source("models", "test-job", manager).items(),
+                    )
+                )
             assert http.call_count == 1
 
     def test_unknown_endpoint_does_not_request(self, config: ClarifaiSourceConfig, manager: MagicMock) -> None:
