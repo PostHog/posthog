@@ -142,6 +142,7 @@ class TestSavedQuery(APIBaseTest):
     def test_create_and_update_report_user_action(
         self, _source: str, headers: dict[str, str], mock_report_user_action: mock.Mock
     ) -> None:
+        self.client.credentials(**headers)
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -149,7 +150,6 @@ class TestSavedQuery(APIBaseTest):
                 "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             },
             format="json",
-            **headers,
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
@@ -180,7 +180,6 @@ class TestSavedQuery(APIBaseTest):
                 "edited_history_id": saved_query["latest_history_id"],
             },
             format="json",
-            **headers,
         )
         self.assertEqual(response.status_code, 200, response.content)
 
