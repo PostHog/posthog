@@ -6083,6 +6083,7 @@ export enum ActivityScope {
     GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
+    CROSS_PROJECT_DASHBOARD = 'CrossProjectDashboard',
     REPLAY = 'Replay',
     REPLAY_SCANNER = 'ReplayScanner',
     VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
@@ -7320,6 +7321,7 @@ export interface CyclotronJobFilterActions extends CyclotronJobFilterBase {
 
 export type CyclotronJobFilterPropertyFilter =
     | EventPropertyFilter
+    | EventMetadataPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
     | GroupPropertyFilter
