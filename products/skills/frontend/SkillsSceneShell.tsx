@@ -2,8 +2,6 @@ import { useValues } from 'kea'
 
 import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -23,9 +21,7 @@ export const COMMUNITY_SKILLS_TAB_DESCRIPTION = 'Discover and install agent skil
  *
  * Community is a separate scene (at /skills/community), so each scene renders this with only its own
  * tab's content; the other tabs navigate via their `link` and are never mounted here. That keeps the
- * two scenes' logics independent while presenting them as one tabbed surface. The Community tab is
- * gated behind the community-skills flag (but stays visible when it's already the active tab, so a
- * direct URL still renders cleanly).
+ * two scenes' logics independent while presenting them as one tabbed surface.
  */
 export function SkillsSceneShell({
     activeTabKey,
@@ -38,11 +34,9 @@ export function SkillsSceneShell({
     description: string
     content: JSX.Element
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     // Mounted on the Community scene too, so switching to Community doesn't drop the category tabs
     // out of the row. It only probes the per-category counts, not the skills list.
     const { categoryCounts } = useValues(skillTabsLogic)
-    const communityEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
 
     const tabs: LemonTab<string>[] = [
         { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills', link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY) },
@@ -51,9 +45,7 @@ export function SkillsSceneShell({
             label: tab.label,
             link: skillTabUrl(tab.key),
         })),
-        ...(communityEnabled || activeTabKey === COMMUNITY_SKILLS_TAB_KEY
-            ? [{ key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community', link: urls.communitySkills() }]
-            : []),
+        { key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community', link: urls.communitySkills() },
     ]
 
     return (

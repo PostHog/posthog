@@ -3,19 +3,16 @@ from typing import Any, cast
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import _FORCE_ENABLED_FLAGS, get_organization_from_view
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from ..models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
@@ -48,8 +45,6 @@ from .skill_template_services import (
 
 logger = structlog.get_logger(__name__)
 
-COMMUNITY_SKILL_FEATURE_FLAG = "llm-analytics-community-skills"
-
 
 class CommunitySkillBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Web-aware burst throttle: this endpoint is session-authenticated, so the default
@@ -63,43 +58,6 @@ class CommunitySkillSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "4800/hour"
 
 
-class CommunitySkillFeatureFlagPermission(BasePermission):
-    def has_permission(self, request, view) -> bool:
-        user = cast(User, request.user)
-        organization = get_organization_from_view(view)
-        org_id = str(organization.id)
-        distinct_id = user.distinct_id or str(user.uuid)
-
-        groups: dict[str, str] = {"organization": org_id}
-        group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
-        # Match in-app flag evaluation: posthog-js carries project (team) context, so a per-project
-        # rollout evaluates True in the UI but would 403 here if we only sent the organization group.
-        try:
-            team_for_flag = view.team
-        except (ValueError, KeyError, AttributeError):
-            team_for_flag = None
-        if team_for_flag is not None:
-            project_id = str(team_for_flag.id)
-            groups["project"] = project_id
-            group_properties["project"] = {"id": project_id}
-
-        # Honor POSTHOG_FEATURE_FLAGS_FORCE_ENABLED so self-hosted deployments can enable the
-        # marketplace without a round-trip to PostHog Cloud, matching the canonical permission.
-        if COMMUNITY_SKILL_FEATURE_FLAG in _FORCE_ENABLED_FLAGS:
-            return True
-
-        return bool(
-            posthoganalytics.feature_enabled(
-                COMMUNITY_SKILL_FEATURE_FLAG,
-                distinct_id,
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-
-
 class CommunitySkillViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -110,7 +68,6 @@ class CommunitySkillViewSet(
     # exposed for personal-API-key scoping. Team context comes from the URL for install/vote.
     scope_object = "INTERNAL"
     serializer_class = CommunitySkillSerializer
-    permission_classes = [CommunitySkillFeatureFlagPermission]
     lookup_field = "slug"
 
     def get_throttles(self):

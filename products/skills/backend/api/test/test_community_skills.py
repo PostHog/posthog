@@ -84,15 +84,11 @@ def _create_scout_skill(*, slug: str = "signals-scout-feed", scout_config: dict 
     )
 
 
-@patch(
-    "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled",
-    return_value=True,
-)
 class TestCommunitySkillAPI(APIBaseTest):
     def _url(self, path: str = "") -> str:
         return f"/api/projects/{self.team.id}/community_skills/{path}"
 
-    def test_list_returns_published_skills_ordered_by_installs(self, _mock_flag) -> None:
+    def test_list_returns_published_skills_ordered_by_installs(self) -> None:
         _create_community_skill(slug="alpha", install_count=1)
         _create_community_skill(slug="beta", install_count=5)
 
@@ -102,33 +98,33 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual([s["slug"] for s in results], ["beta", "alpha"])
         self.assertNotIn("body", results[0])  # list serializer omits body
 
-    def test_list_excludes_deleted(self, _mock_flag) -> None:
+    def test_list_excludes_deleted(self) -> None:
         _create_community_skill(slug="visible")
         _create_community_skill(slug="gone", deleted=True)
 
         response = self.client.get(self._url())
         self.assertEqual([s["slug"] for s in response.json()["results"]], ["visible"])
 
-    def test_filter_by_trust_tier(self, _mock_flag) -> None:
+    def test_filter_by_trust_tier(self) -> None:
         _create_community_skill(slug="official-one", trust_tier="official")
         _create_community_skill(slug="community-one", trust_tier="community")
 
         response = self.client.get(self._url(), {"trust_tier": "community"})
         self.assertEqual([s["slug"] for s in response.json()["results"]], ["community-one"])
 
-    def test_filter_by_tag_is_case_insensitive(self, _mock_flag) -> None:
+    def test_filter_by_tag_is_case_insensitive(self) -> None:
         _create_community_skill(slug="tagged")  # stored tag is lowercase "web-analytics"
         # A differently-cased tag query must still match the stored tag.
         response = self.client.get(self._url(), {"tag": "Web-Analytics"})
         self.assertEqual([s["slug"] for s in response.json()["results"]], ["tagged"])
 
-    def test_retrieve_by_slug_includes_body(self, _mock_flag) -> None:
+    def test_retrieve_by_slug_includes_body(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
         response = self.client.get(self._url("web-analytics-triage/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["body"], "# Triage\nDo the thing.")
 
-    def test_install_creates_team_skill_and_increments_count(self, _mock_flag) -> None:
+    def test_install_creates_team_skill_and_increments_count(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         CommunitySkillFile.objects.create(skill=skill, path="references/playbook.md", content="hints")
 
@@ -143,13 +139,13 @@ class TestCommunitySkillAPI(APIBaseTest):
         skill.refresh_from_db()
         self.assertEqual(skill.install_count, 1)
 
-    def test_install_with_custom_name(self, _mock_flag) -> None:
+    def test_install_with_custom_name(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
         response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": "my-triage"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertTrue(LLMSkill.objects.filter(team=self.team, name="my-triage").exists())
 
-    def test_install_default_name_conflict_omits_new_name_attr(self, _mock_flag) -> None:
+    def test_install_default_name_conflict_omits_new_name_attr(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
         LLMSkill.objects.create(team=self.team, name="web-analytics-triage", description="x", body="y")
 
@@ -158,7 +154,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         # Caller never supplied new_name, so the response must not blame that field.
         self.assertNotIn("attr", response.json())
 
-    def test_install_custom_name_conflict_blames_new_name(self, _mock_flag) -> None:
+    def test_install_custom_name_conflict_blames_new_name(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
         LLMSkill.objects.create(team=self.team, name="taken", description="x", body="y")
 
@@ -166,14 +162,14 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "new_name")
 
-    def test_install_blank_new_name_falls_back_to_slug(self, _mock_flag) -> None:
+    def test_install_blank_new_name_falls_back_to_slug(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
         # A controlled empty text input sends "" — it must mean "use the default", not 400.
         response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": ""})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertTrue(LLMSkill.objects.filter(team=self.team, name="web-analytics-triage").exists())
 
-    def test_install_rejects_unsafe_bundled_file_path(self, _mock_flag) -> None:
+    def test_install_rejects_unsafe_bundled_file_path(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         # A traversal path in the catalog must not be persisted into the team skill.
         CommunitySkillFile.objects.create(skill=skill, path="../escape.md", content="x")
@@ -192,14 +188,14 @@ class TestCommunitySkillAPI(APIBaseTest):
             ("reviewhog_canonical", "review-hog-perspective-logic-correctness"),
         ]
     )
-    def test_install_rejects_reserved_auto_running_names(self, _mock_flag, _name, reserved_name) -> None:
+    def test_install_rejects_reserved_auto_running_names(self, _name, reserved_name) -> None:
         _create_community_skill(slug="web-analytics-triage")
         # These namespaces auto-run community-controlled instructions on install, so they're refused.
         response = self.client.post(self._url("web-analytics-triage/install/"), {"new_name": reserved_name})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name=reserved_name).exists())
 
-    def test_install_strips_internal_reviewhog_provenance(self, _mock_flag) -> None:
+    def test_install_strips_internal_reviewhog_provenance(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         # ReviewHog prunes rows by seeded_by, so these keys must not be copied through on install —
         # otherwise a catalog entry could make a user's freshly installed skill disappear.
@@ -214,7 +210,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertNotIn("canonical_hash", installed.metadata)
         self.assertEqual(installed.metadata["keep"], "me")
 
-    def test_install_rejects_blank_description(self, _mock_flag) -> None:
+    def test_install_rejects_blank_description(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         # A blank description installs a skill that later fails export validation.
         CommunitySkill.objects.filter(pk=skill.pk).update(description="   ")
@@ -222,7 +218,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_install_accepts_description_at_spec_limit(self, _mock_flag) -> None:
+    def test_install_accepts_description_at_spec_limit(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * SPEC_DESCRIPTION_MAX_LENGTH)
 
@@ -231,7 +227,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         self.assertTrue(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_install_rejects_description_over_spec_limit(self, _mock_flag) -> None:
+    def test_install_rejects_description_over_spec_limit(self) -> None:
         skill = _create_community_skill(slug="web-analytics-triage")
         CommunitySkill.objects.filter(pk=skill.pk).update(description="x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1))
 
@@ -245,11 +241,11 @@ class TestCommunitySkillAPI(APIBaseTest):
         )
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_install_unknown_slug_returns_404(self, _mock_flag) -> None:
+    def test_install_unknown_slug_returns_404(self) -> None:
         response = self.client.post(self._url("does-not-exist/install/"), {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_retrieve_surfaces_template_variables(self, _mock_flag) -> None:
+    def test_retrieve_surfaces_template_variables(self) -> None:
         _create_template_skill(slug="feed-scout")
         response = self.client.get(self._url("feed-scout/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -260,7 +256,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         )
         self.assertFalse(variables[1]["is_required"])  # has a default
 
-    def test_install_template_renders_variables(self, _mock_flag) -> None:
+    def test_install_template_renders_variables(self) -> None:
         skill = _create_template_skill(slug="feed-scout")
         CommunitySkillFile.objects.create(
             skill=skill, path="references/notes.md", content="Query {{ feed_table }} carefully."
@@ -283,7 +279,7 @@ class TestCommunitySkillAPI(APIBaseTest):
             installed.metadata["variable_bindings"], {"feed_table": "slack_abc", "default_branch": "develop"}
         )
 
-    def test_install_template_uses_default_when_omitted(self, _mock_flag) -> None:
+    def test_install_template_uses_default_when_omitted(self) -> None:
         _create_template_skill(slug="feed-scout")
         response = self.client.post(
             self._url("feed-scout/install/"),
@@ -294,14 +290,14 @@ class TestCommunitySkillAPI(APIBaseTest):
         installed = LLMSkill.objects.get(team=self.team, name="feed-scout")
         self.assertEqual(installed.body, "# Scout\nWatch table slack_abc on main.")
 
-    def test_install_template_missing_required_returns_400(self, _mock_flag) -> None:
+    def test_install_template_missing_required_returns_400(self) -> None:
         _create_template_skill(slug="feed-scout")
         response = self.client.post(self._url("feed-scout/install/"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "variables")
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
 
-    def test_install_template_oversized_variable_returns_400(self, _mock_flag) -> None:
+    def test_install_template_oversized_variable_returns_400(self) -> None:
         _create_template_skill(slug="feed-scout")
         response = self.client.post(
             self._url("feed-scout/install/"),
@@ -311,7 +307,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
 
-    def test_install_template_undeclared_placeholder_is_logged(self, _mock_flag) -> None:
+    def test_install_template_undeclared_placeholder_is_logged(self) -> None:
         skill = _create_template_skill(slug="feed-scout")
         skill.body = "Watch {{ feed_table }} and {{ undeclared }}."
         skill.save(update_fields=["body"])
@@ -329,7 +325,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         mock_exception.assert_called_once()
         self.assertFalse(LLMSkill.objects.filter(team=self.team, name="feed-scout").exists())
 
-    def test_vote_toggles_on_and_off(self, _mock_flag) -> None:
+    def test_vote_toggles_on_and_off(self) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
         first = self.client.post(self._url("web-analytics-triage/vote/"))
@@ -340,7 +336,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertFalse(CommunitySkillVote.objects.exists())
 
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_vote_reports_event_with_state_and_count(self, mock_capture, _mock_flag) -> None:
+    def test_vote_reports_event_with_state_and_count(self, mock_capture) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
         self.client.post(self._url("web-analytics-triage/vote/"))
@@ -352,7 +348,7 @@ class TestCommunitySkillAPI(APIBaseTest):
             [("web-analytics-triage", True, 1), ("web-analytics-triage", False, 0)],
         )
 
-    def test_filter_by_kind(self, _mock_flag) -> None:
+    def test_filter_by_kind(self) -> None:
         _create_community_skill(slug="a-skill")
         _create_scout_skill(slug="signals-scout-feed")
 
@@ -364,7 +360,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         skills = self.client.get(self._url(), {"kind": "skill"}).json()["results"]
         self.assertEqual([s["slug"] for s in skills], ["a-skill"])
 
-    def test_install_refuses_a_scout(self, _mock_flag) -> None:
+    def test_install_refuses_a_scout(self) -> None:
         # The whole point of the scout route: a scout must never land as an inert plain skill.
         _create_scout_skill(slug="signals-scout-feed")
 
@@ -373,7 +369,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertIn("scout", response.json()["detail"])
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_install_rechecks_the_kind_after_locking(self, _mock_flag) -> None:
+    def test_install_rechecks_the_kind_after_locking(self) -> None:
         skill = _create_community_skill(slug="changes-to-scout")
         skill.kind = CommunitySkillKind.SCOUT
 
@@ -387,7 +383,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertIn("scout", response.json()["detail"])
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_render_returns_a_scouts_body_and_settings(self, _mock_flag) -> None:
+    def test_render_returns_a_scouts_body_and_settings(self) -> None:
         _create_scout_skill(slug="signals-scout-feed")
 
         response = self.client.post(self._url("signals-scout-feed/render/"), {}, format="json")
@@ -397,7 +393,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(payload["body"], "# Scout\nWatch the feed.")
         self.assertEqual(payload["scout_config"], {"run_interval_minutes": 720, "emit": False})
 
-    def test_render_binds_template_variables_without_persisting(self, _mock_flag) -> None:
+    def test_render_binds_template_variables_without_persisting(self) -> None:
         _create_template_skill(slug="feed-scout")
 
         response = self.client.post(
@@ -409,14 +405,14 @@ class TestCommunitySkillAPI(APIBaseTest):
         self.assertEqual(payload["variable_bindings"], {"feed_table": "events", "default_branch": "main"})
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
 
-    def test_render_missing_required_variable_returns_400(self, _mock_flag) -> None:
+    def test_render_missing_required_variable_returns_400(self) -> None:
         _create_template_skill(slug="feed-scout")
 
         response = self.client.post(self._url("feed-scout/render/"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "variables")
 
-    def test_render_unknown_slug_returns_404(self, _mock_flag) -> None:
+    def test_render_unknown_slug_returns_404(self) -> None:
         response = self.client.post(self._url("missing/render/"), {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -430,7 +426,7 @@ class TestCommunitySkillAPI(APIBaseTest):
         ]
     )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_install_failure_reports_event(self, reason, mock_capture, _mock_flag) -> None:
+    def test_install_failure_reports_event(self, reason, mock_capture) -> None:
         # Each branch shape (return, raised ValidationError, hand-built 500) must still emit the
         # failure event, so cover one representative path per shape plus the not-found path.
         if reason == "not_found":
@@ -456,10 +452,6 @@ class TestCommunitySkillAPI(APIBaseTest):
 
 
 @pytest.mark.ee
-@patch(
-    "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled",
-    return_value=True,
-)
 class TestCommunitySkillWriteAccess(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -479,7 +471,7 @@ class TestCommunitySkillWriteAccess(APIBaseTest):
         self.client.force_login(viewer)
 
     @parameterized.expand([("install",), ("vote",)])
-    def test_viewer_cannot_write(self, _mock_flag, action: str) -> None:
+    def test_viewer_cannot_write(self, action: str) -> None:
         _create_community_skill(slug="web-analytics-triage")
 
         response = self.client.post(f"/api/projects/{self.team.id}/community_skills/web-analytics-triage/{action}/")
@@ -487,27 +479,6 @@ class TestCommunitySkillWriteAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
         self.assertFalse(CommunitySkillVote.objects.exists())
-
-
-class TestCommunitySkillFeatureFlagGate(APIBaseTest):
-    @parameterized.expand(
-        [
-            ("only_community_flag_enabled", {"llm-analytics-community-skills"}, status.HTTP_200_OK),
-            ("no_flags_enabled", set(), status.HTTP_403_FORBIDDEN),
-        ]
-    )
-    def test_gate_depends_only_on_the_community_flag(
-        self, _name: str, enabled_flags: set[str], expected_status: int
-    ) -> None:
-        _create_community_skill(slug="web-analytics-triage")
-
-        with patch(
-            "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled",
-            side_effect=lambda flag, *args, **kwargs: flag in enabled_flags,
-        ):
-            response = self.client.get(f"/api/projects/{self.team.id}/community_skills/")
-
-        self.assertEqual(response.status_code, expected_status, response.content)
 
 
 class TestSkillTemplateRendering(APIBaseTest):

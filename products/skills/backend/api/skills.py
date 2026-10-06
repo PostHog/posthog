@@ -83,7 +83,6 @@ from .community_publish_services import (
     publish_skill_to_community,
     publishable_tags,
 )
-from .community_skills import CommunitySkillFeatureFlagPermission
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
@@ -380,20 +379,6 @@ ALLOWED_LIST_ORDERINGS = frozenset(
 )
 
 
-class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission):
-    """Gates publishing to the community marketplace, and nothing else on this viewset.
-
-    The Skills product is GA and the marketplace is not, so the flag can only bind to the one action —
-    otherwise the whole product goes dark, and without it publish goes live everywhere the moment the
-    GitHub App is installed and the 503 fail-safe stops firing.
-    """
-
-    def has_permission(self, request, view) -> bool:
-        if getattr(view, "action", None) != "publish_to_community":
-            return True
-        return super().has_permission(request, view)
-
-
 class CommunityPublishOwnerPermission(BasePermission):
     """Restricts publishing to the community to the skill's own owners, and gates nothing else here.
 
@@ -570,7 +555,6 @@ class LLMSkillViewSet(
     serializer_class = LLMSkillSerializer
     permission_classes = [
         AccessControlPermission,
-        CommunityPublishFeatureFlagPermission,
         CommunityPublishOwnerPermission,
     ]
 
