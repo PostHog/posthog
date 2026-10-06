@@ -12,6 +12,17 @@ const isCompletedCompaction = (event: AgentConversationEvent): boolean =>
   event.status === "compacting" &&
   event.isComplete === true;
 
+// Whether the agent is compacting its context. A request to compact can give up first, so this reads the chat's events.
+export function isCompacting(entries: StoredLogEntry[]): boolean {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const event = entries[index].type === "pi_event" && entries[index].event;
+    if (!event || event.type !== "runtime_status") continue;
+    if (event.status === "compacting_failed") return false;
+    if (event.status === "compacting") return event.isComplete !== true;
+  }
+  return false;
+}
+
 // How full the agent's context was after its last turn, the way the desktop reads it from turn usage.
 // A compaction since then leaves the size unknown until the next turn reports it.
 export function contextFill(entries: StoredLogEntry[]): ContextFill | null {
