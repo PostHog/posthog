@@ -1081,7 +1081,7 @@ mod tests {
 
     fn make_msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset: 0,
             timestamp: 0,
@@ -1104,7 +1104,7 @@ mod tests {
 
     fn make_unkeyed_msg() -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 7,
             offset: 42,
             timestamp: 0,
