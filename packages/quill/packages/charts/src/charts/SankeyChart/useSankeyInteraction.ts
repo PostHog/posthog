@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo } from 'react'
 
 import { originatesInInteractiveOverlay } from '../../core/hooks/useChartInteraction'
 import { useLatest } from '../../core/hooks/useLatest'
+import { useTapTracking } from '../../core/hooks/useTapTracking'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
 import type { Series, TooltipContext } from '../../core/types'
 import { hitToHoverIndex, hoverIndexToHit, sankeyHitAt } from './sankey-data'
@@ -118,7 +119,6 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     }, [showTooltip, setTooltipCtx])
 
     const hoverIndexRef = useLatest(hoverIndex)
-    const tooltipCtxRef = useLatest(tooltipCtx)
 
     const showHit = useCallback(
         (hit: SankeyHit, cursor: { x: number; y: number }) => {
@@ -155,21 +155,9 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
         clearTooltip()
     }, [clearTooltip])
 
-    // Touch devices fire no mousemove before a tap, so the click has to resolve what was tapped
-    // itself. As on the cartesian charts, the first tap on a node or ribbon shows its tooltip and
-    // only a tap on the element already showing one fires the click handler. Both refs are read
-    // at pointerdown because a tap's compatibility mouse events arrive after pointerup.
-    const lastPointerTypeRef = useRef<string>('mouse')
-    const tapDownTooltipIndexRef = useRef<number>(-1)
-
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>) => {
-            lastPointerTypeRef.current = e.pointerType
-            // The visible tooltip, not the hover: hover can outlive a tooltip that was just hidden.
-            tapDownTooltipIndexRef.current = tooltipCtxRef.current?.dataIndex ?? -1
-        },
-        [tooltipCtxRef]
-    )
+    // As on the cartesian charts, the first tap on a node or ribbon shows its tooltip and only a
+    // tap on the element already showing one fires the click handler.
+    const { lastPointerTypeRef, tapDownTooltipIndexRef, onPointerDown } = useTapTracking(tooltipCtx)
 
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -203,7 +191,17 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 onLinkClick?.(resolved.link)
             }
         },
-        [layoutRef, hoverIndexRef, clearTooltip, showHit, showTooltip, onNodeClick, onLinkClick]
+        [
+            layoutRef,
+            hoverIndexRef,
+            lastPointerTypeRef,
+            tapDownTooltipIndexRef,
+            clearTooltip,
+            showHit,
+            showTooltip,
+            onNodeClick,
+            onLinkClick,
+        ]
     )
 
     const handlers = useMemo(

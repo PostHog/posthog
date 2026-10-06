@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useMemo } from 'react'
 
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
@@ -22,6 +22,7 @@ import type {
 } from '../types'
 import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
+import { useTapTracking } from './useTapTracking'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
 
 function originatesInElement(e: React.SyntheticEvent, selector: string): boolean {
@@ -353,24 +354,7 @@ export function useChartInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    // Touch support state. Touch devices fire no mousemove before a tap, so hover state is
-    // absent (or stale) when the tap's click arrives; the click handler must resolve the tapped
-    // point itself. `lastPointerTypeRef` tells it whether the click came from a touch, and
-    // `tapDownTooltipIndexRef` records which point's tooltip was showing when the gesture
-    // started. Both are captured at pointerdown because a tap's compatibility mouse events
-    // (mouseover/mousemove/mousedown) fire after pointerup, which means by click time the
-    // tooltip state may already reflect this very tap.
-    const tooltipCtxRef = useLatest(tooltipCtx)
-    const lastPointerTypeRef = useRef<string>('mouse')
-    const tapDownTooltipIndexRef = useRef<number>(-1)
-
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>) => {
-            lastPointerTypeRef.current = e.pointerType
-            tapDownTooltipIndexRef.current = tooltipCtxRef.current?.dataIndex ?? -1
-        },
-        [tooltipCtxRef]
-    )
+    const { lastPointerTypeRef, tapDownTooltipIndexRef, onPointerDown } = useTapTracking(tooltipCtx)
 
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
@@ -489,6 +473,8 @@ export function useChartInteraction<Meta = unknown>({
             unpin,
             shouldSwallowClick,
             hoverIndexRef,
+            lastPointerTypeRef,
+            tapDownTooltipIndexRef,
             hoverPositionRef,
             wrapClickData,
             scales,
