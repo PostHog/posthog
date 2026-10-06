@@ -154,11 +154,16 @@ class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
     private distinctIdToPersonId = new Map<string, string>()
     private personUpdateCache = new Map<string, PersonUpdate | null>()
+    /** Distinct keys the primary had no row for; the update cache is keyed by person id and cannot hold them. */
+    private absentOnPrimary = new Set<string>()
+    /** Generation of each key's last purge, so a read that began before the purge cannot re-install the marker. */
+    private absentPurgedAt = new Map<string, number>()
+    private absentGeneration = 0
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
-    private pendingPrefetchesByBatchId = new Map<number, number>()
-    private releasedBatchIdsWithPendingPrefetch = new Set<number>()
+    private pendingReadsByBatchId = new Map<number, number>()
+    private releasedBatchIdsWithPendingRead = new Set<number>()
     private cacheMetrics: CacheMetrics = {
         updateCacheHits: 0,
         updateCacheMisses: 0,
@@ -289,6 +294,10 @@ class BatchWritingPersonsCache {
     getCachedPersonForUpdateByDistinctId(teamId: number, distinctId: string): PersonUpdate | null | undefined {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
         const personId = this.distinctIdToPersonId.get(cacheKey)
+        if (personId === undefined && this.absentOnPrimary.has(cacheKey)) {
+            this.cacheMetrics.updateCacheHits++
+            return null
+        }
 
         return this.getCachedPersonForUpdateByPersonId(teamId, personId)
     }
@@ -305,6 +314,7 @@ class BatchWritingPersonsCache {
             return
         }
 
+        this.absentOnPrimary.delete(cacheKey)
         this.distinctIdToPersonId.set(cacheKey, person.id)
 
         const existingPersonUpdate = this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, person.id))
@@ -322,7 +332,9 @@ class BatchWritingPersonsCache {
     }
 
     setDistinctIdToPersonId(teamId: number, distinctId: string, personId: string): void {
-        this.distinctIdToPersonId.set(this.getDistinctCacheKey(teamId, distinctId), personId)
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        this.absentOnPrimary.delete(cacheKey)
+        this.distinctIdToPersonId.set(cacheKey, personId)
     }
 
     clearPersonCacheForPersonId(teamId: number, personId: string): void {
@@ -346,7 +358,9 @@ class BatchWritingPersonsCache {
     }
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
-        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        this.distinctIdToPersonId.delete(cacheKey)
+        this.purgeAbsentOnPrimary(cacheKey)
     }
 
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {
@@ -354,6 +368,7 @@ class BatchWritingPersonsCache {
         const personId = this.distinctIdToPersonId.get(cacheKey)
 
         this.distinctIdToPersonId.delete(cacheKey)
+        this.purgeAbsentOnPrimary(cacheKey)
 
         if (personId) {
             this.clearPersonCacheForPersonId(teamId, personId)
@@ -362,10 +377,35 @@ class BatchWritingPersonsCache {
         this.personCheckCache.delete(cacheKey)
     }
 
+    absentReadGeneration(): number {
+        return this.absentGeneration
+    }
+
+    /** Records a primary miss read at `readGeneration`, unless a person or a later purge superseded it. */
+    markAbsentOnPrimary(teamId: number, distinctId: string, readGeneration: number): void {
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        if (this.distinctIdToPersonId.has(cacheKey)) {
+            return
+        }
+        if ((this.absentPurgedAt.get(cacheKey) ?? -1) > readGeneration) {
+            return
+        }
+        this.absentOnPrimary.add(cacheKey)
+    }
+
+    forgetAbsentOnPrimary(teamId: number, distinctId: string): void {
+        this.purgeAbsentOnPrimary(this.getDistinctCacheKey(teamId, distinctId))
+    }
+
+    private purgeAbsentOnPrimary(cacheKey: string): void {
+        this.absentOnPrimary.delete(cacheKey)
+        this.absentPurgedAt.set(cacheKey, ++this.absentGeneration)
+    }
+
     releaseBatchId(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)
-        if (this.pendingPrefetchesByBatchId.has(batchId)) {
-            this.releasedBatchIdsWithPendingPrefetch.add(batchId)
+        if (this.pendingReadsByBatchId.has(batchId)) {
+            this.releasedBatchIdsWithPendingRead.add(batchId)
         }
         if (!keys) {
             return
@@ -384,26 +424,26 @@ class BatchWritingPersonsCache {
         this.batchDistinctKeys.delete(batchId)
     }
 
-    trackPendingPrefetch(batchIds: Set<number>): void {
+    trackPendingRead(batchIds: Set<number>): void {
         for (const batchId of batchIds) {
-            this.pendingPrefetchesByBatchId.set(batchId, (this.pendingPrefetchesByBatchId.get(batchId) ?? 0) + 1)
+            this.pendingReadsByBatchId.set(batchId, (this.pendingReadsByBatchId.get(batchId) ?? 0) + 1)
         }
     }
 
-    finishPendingPrefetch(batchIds: Set<number>): void {
+    finishPendingRead(batchIds: Set<number>): void {
         for (const batchId of batchIds) {
-            const pendingCount = (this.pendingPrefetchesByBatchId.get(batchId) ?? 1) - 1
+            const pendingCount = (this.pendingReadsByBatchId.get(batchId) ?? 1) - 1
             if (pendingCount <= 0) {
-                this.pendingPrefetchesByBatchId.delete(batchId)
-                this.releasedBatchIdsWithPendingPrefetch.delete(batchId)
+                this.pendingReadsByBatchId.delete(batchId)
+                this.releasedBatchIdsWithPendingRead.delete(batchId)
             } else {
-                this.pendingPrefetchesByBatchId.set(batchId, pendingCount)
+                this.pendingReadsByBatchId.set(batchId, pendingCount)
             }
         }
     }
 
-    isBatchReleasedWithPendingPrefetch(batchId: number): boolean {
-        return this.releasedBatchIdsWithPendingPrefetch.has(batchId)
+    isBatchReleasedWithPendingRead(batchId: number): boolean {
+        return this.releasedBatchIdsWithPendingRead.has(batchId)
     }
 
     processDeferredEvictions(): void {
@@ -455,6 +495,8 @@ class BatchWritingPersonsCache {
         }
 
         this.personCheckCache.delete(distinctKey)
+        this.absentOnPrimary.delete(distinctKey)
+        this.absentPurgedAt.delete(distinctKey)
     }
 
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
@@ -535,6 +577,11 @@ class BatchBoundPersonsCache {
     setDistinctIdToPersonId(teamId: number, distinctId: string, personId: string): void {
         this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
         this.cache.setDistinctIdToPersonId(teamId, distinctId, personId)
+    }
+
+    markAbsentOnPrimary(teamId: number, distinctId: string, readGeneration: number): void {
+        this.cache.trackBatchEntry(this.batchId, teamId, distinctId)
+        this.cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
     }
 }
 
@@ -1216,10 +1263,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         const prefetchBatchIds = new Set(uncachedEntries.map(({ batchId }) => batchId))
-        this.personCache.trackPendingPrefetch(prefetchBatchIds)
+        this.personCache.trackPendingRead(prefetchBatchIds)
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
+        const readGeneration = this.personCache.absentReadGeneration()
         const batchFetchPromise = this.personRepository
             .fetchPersonsByDistinctIds(
                 uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })),
@@ -1237,7 +1285,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
                 // Cache all results (found persons and nulls for missing ones).
                 for (const { teamId, distinctId, batchId, cacheKey } of uncachedEntries) {
-                    if (this.personCache.isBatchReleasedWithPendingPrefetch(batchId)) {
+                    if (this.personCache.isBatchReleasedWithPendingRead(batchId)) {
                         continue
                     }
 
@@ -1249,6 +1297,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                     } else {
                         cache.setCheckCachedPerson(teamId, distinctId, null)
+                        cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
                     }
                 }
 
@@ -1259,7 +1308,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 for (const { cacheKey } of uncachedEntries) {
                     this.fetchPromisesForChecking.delete(cacheKey)
                 }
-                this.personCache.finishPendingPrefetch(prefetchBatchIds)
+                this.personCache.finishPendingRead(prefetchBatchIds)
             })
 
         // Register per-key promises so fetchForChecking/fetchForUpdate can wait on the in-flight
@@ -1325,14 +1374,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (!fetchPromise) {
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
+                const readBatchIds = new Set([batchId])
+                this.personCache.trackPendingRead(readBatchIds)
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
+                    const readGeneration = this.personCache.absentReadGeneration()
                     const person = await this.personRepository.fetchPerson(teamId, distinctId, {
                         useReadReplica: false,
                         callerTag: 'ingestion/person-update-conflict',
                     })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
+                    if (this.personCache.isBatchReleasedWithPendingRead(batchId)) {
+                        return person ?? null
+                    }
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
@@ -1348,12 +1403,13 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         // From this point, all operations are synchronous to avoid further race conditions.
                         const currentCache = cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
                         if (currentCache === undefined) {
-                            cache.setCachedPersonForUpdate(teamId, distinctId, null)
+                            cache.markAbsentOnPrimary(teamId, distinctId, readGeneration)
                             return null
                         }
                         return currentCache === null ? null : toInternalPerson(currentCache)
                     }
                 } finally {
+                    this.personCache.finishPendingRead(readBatchIds)
                     this.fetchPromisesForUpdate.delete(cacheKey)
                 }
             })()
@@ -1914,6 +1970,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     fromInternalPerson(person, extraDistinctId.distinctId),
                     batchId
                 )
+            }
+        } else if (result.error === 'CreationConflict') {
+            for (const { distinctId } of [primaryDistinctId, ...(extraDistinctIds || [])]) {
+                this.personCache.forgetAbsentOnPrimary(teamId, distinctId)
+                this.getCheckCache().delete(this.getDistinctCacheKey(teamId, distinctId))
             }
         }
 
