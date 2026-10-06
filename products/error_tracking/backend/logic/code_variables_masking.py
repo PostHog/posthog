@@ -25,11 +25,8 @@ _MAX_DEPTH = 12
 _SECRET_MIN_LENGTH = 16
 _SECRET_MIN_ENTROPY_BITS = 3.8
 _SECRET_MIN_CHAR_CLASSES = 3
-# Shorter values are prose, such as "the bearer of", and so is a word of up to 15 letters
-# that is lowercase or starts with a capital, such as "bearer transportation" or
-# "basic: Configuration". A random token mixes case or is longer than that. A `Basic`
-# credential of any length is still redacted when it decodes to `user:password`, e.g.
-# `YTpi` for `a:b`.
+# Shorter values are prose, such as "the bearer of". A `Basic` credential of any length is
+# still redacted when it decodes to `user:password`, e.g. `YTpi` for `a:b`.
 _AUTH_CREDENTIAL_MIN_LENGTH = 8
 _AUTH_PROSE_WORD_MAX_LENGTH = 15
 _PEM_PRIVATE_KEY_MARKER = "PRIVATE KEY-----"
@@ -92,6 +89,7 @@ _URL_CREDENTIALS = re.compile(r"(?i)([a-z][a-z0-9+.\-]{0,30}://)([^/?#\s]*)@")
 # `basicConfig` stay untouched.
 _AUTH_HEADER_CREDENTIALS = re.compile(r"(?i)\b(bearer|basic)((?:\s*:\s*|\s+)['\"]?)([A-Za-z0-9._~+/-]+=*)")
 
+_MORE_TEXT = re.compile(r"\s+[A-Za-z]")
 _UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 _PATH_WORD = re.compile(r"[a-z][a-z.]*")
 # A key that matches a mask pattern is kept only in this shape. Other text, such as
@@ -160,16 +158,27 @@ def _is_basic_credential(credential: str) -> bool:
         return False
 
 
-def _redact_auth_credential(match: re.Match[str]) -> str:
+def _is_auth_credential(match: re.Match[str]) -> bool:
+    # A plain word of up to 15 letters is prose only when more text follows it, as in "Basic
+    # Configuration loaded". At the end of a value, the same word looks exactly like a header
+    # value such as "Bearer Sunflower", so it counts as a credential.
     credential = match.group(3)
-    is_basic_pair = match.group(1).lower() == "basic" and _is_basic_credential(credential)
-    is_prose_word = (
+    if match.group(1).lower() == "basic" and _is_basic_credential(credential):
+        return True
+    if len(credential) < _AUTH_CREDENTIAL_MIN_LENGTH:
+        return False
+    is_plain_word = (
         len(credential) <= _AUTH_PROSE_WORD_MAX_LENGTH
         and credential[:1].isascii()
         and credential[:1].isalpha()
         and all("a" <= c <= "z" for c in credential[1:])
     )
-    if not is_basic_pair and (len(credential) < _AUTH_CREDENTIAL_MIN_LENGTH or is_prose_word):
+    more_text_follows = _MORE_TEXT.match(match.string, match.end()) is not None
+    return not (is_plain_word and more_text_follows)
+
+
+def _redact_auth_credential(match: re.Match[str]) -> str:
+    if not _is_auth_credential(match):
         return match.group(0)
     return f"{match.group(1)}{match.group(2)}{REDACTED}"
 
