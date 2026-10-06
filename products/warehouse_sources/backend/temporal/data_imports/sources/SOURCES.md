@@ -169,6 +169,7 @@ the row lists both.
 | buy_me_a_coffee                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | buzzsprout                       | HTTP                        | requests                                                        | ✅                          |
 | cal_com                          | HTTP                        | requests                                                        | ✅                          |
+| calendarific                     | HTTP                        | requests                                                        | ✅                          |
 | calendly                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | callrail                         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor                 | HTTP                        | requests                                                        | ✅                          |
@@ -179,6 +180,7 @@ the row lists both.
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
 | cast_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| catchpoint                       | HTTP                        | requests                                                        | ✅                          |
 | cdc_open_data                    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
@@ -447,6 +449,7 @@ the row lists both.
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| kisi                             | HTTP                        | requests                                                        | ✅                          |
 | klaus                            | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                          | HTTP                        | requests                                                        | ✅                          |
 | knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -482,6 +485,7 @@ the row lists both.
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | lob                              | HTTP                        | requests                                                        | ✅                          |
 | lodgify                          | HTTP                        | requests                                                        | ✅                          |
+| logicmonitor                     | HTTP                        | requests                                                        | ✅                          |
 | logz_io                          | HTTP                        | requests                                                        | ✅                          |
 | loop_returns                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -510,6 +514,7 @@ the row lists both.
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
 | metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mezmo                            | HTTP                        | requests                                                        | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mintlify                         | HTTP                        | requests                                                        | ✅                          |
@@ -819,6 +824,7 @@ the row lists both.
 | us_bea                           | HTTP                        | requests                                                        | ✅                          |
 | us_census                        | HTTP                        | requests                                                        | ✅                          |
 | us_eia                           | HTTP                        | requests                                                        | ✅                          |
+| us_treasury_fiscal_data          | HTTP                        | requests                                                        | ✅                          |
 | usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
 | uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
@@ -1001,7 +1007,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - buffer
 - cal_com
-- calendarific
 - calibre
 - campaign_manager_360
 - captain_data
@@ -1009,7 +1014,6 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - cashfree
 - castor_edc
-- catchpoint
 - checkly
 - chift
 - chorus
@@ -1204,7 +1208,6 @@ doesn't conflict with concurrent PRs.
 - kickstarter
 - kinde
 - kion
-- kisi
 - kissmetrics
 - klarna
 - komodor
@@ -1223,7 +1226,6 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - liveblocks
 - llama_cloud
-- logicmonitor
 - logrocket
 - lokalise
 - looker
@@ -1240,7 +1242,6 @@ doesn't conflict with concurrent PRs.
 - metricool
 - metriport
 - mews
-- mezmo
 - microsoft_365_usage_reports
 - microsoft_advertising
 - microsoft_dataverse
@@ -1474,7 +1475,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
-- us_treasury_fiscal_data
 - uservoice
 - vanta
 - vespa
