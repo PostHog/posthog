@@ -286,6 +286,7 @@ def run_person_id_update_mutations(
     enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
         runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        runner.patch_parts = placement.target.uses_patch_parts
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
     # Every mutation is already in flight, so these waits overlap and cost the longest rather than
