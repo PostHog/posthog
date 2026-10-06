@@ -2029,6 +2029,8 @@ class TestGetQueueDepth:
             slot_waiting_batches=1,
             serialized_batches=0,
         )
+        assert depth.slot_waiting_batches is not None
+        assert depth.serialized_batches is not None
         assert depth.claimable_batches - freshness.blocked_batches == (
             depth.slot_waiting_batches + depth.serialized_batches
         )
