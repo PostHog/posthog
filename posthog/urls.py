@@ -268,7 +268,7 @@ urlpatterns = [
         csrf_exempt(ConversationsInternalTicketView.as_view()),
     ),
     path(
-        "api/projects/<str:team_id>/internal/conversations/workflow-emails",
+        "api/projects/<str:team_id>/internal/conversations/workflow_emails",
         csrf_exempt(ConversationsInternalWorkflowEmailView.as_view()),
     ),
     # Account routes for the CDP worker's workflow actions (auth: scoped service JWT)
