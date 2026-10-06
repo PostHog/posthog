@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import date
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import requests
 
@@ -329,6 +329,17 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(self._normalize_job_inputs(job_inputs))
+
+    def serialize_config(self, config: AppleSearchAdsSourceConfig) -> dict[str, Any]:
+        serialized = config.to_dict()
+        if config.auth_method.selection == "key_pair":
+            serialized.update(
+                client_id=config.auth_method.client_id,
+                apple_team_id=config.auth_method.apple_team_id,
+                key_id=config.auth_method.key_id,
+                private_key=config.auth_method.private_key,
+            )
+        return serialized
 
     def validate_credentials(
         self,

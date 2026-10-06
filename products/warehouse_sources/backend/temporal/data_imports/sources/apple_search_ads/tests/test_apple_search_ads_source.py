@@ -328,6 +328,7 @@ class TestAppleSearchAdsSource:
         assert valid, errors
         assert config.auth_method.selection == "key_pair"
         assert config.auth_method.private_key == "pem"
+        assert self.source.serialize_config(config)["private_key"] == "pem"
 
     def test_validate_credentials_rejects_a_grant_against_the_retired_api_version(self) -> None:
         # Apple issues a service provider grant for the Platform API only. A v5-pinned source has
