@@ -246,6 +246,25 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_seals_at_the_byte_target_with_the_event_target_off() {
+        let now = Instant::now();
+        let first = ready("a", FRESH, 0, 1);
+        let mut packer = Packer::new(PackTargets {
+            events: 0,
+            bytes: first.bytes * 2,
+            latency_budget: Duration::from_secs(1),
+        });
+        packer.push(first, now);
+        assert!(
+            packer.take_ready(now, 10).is_empty(),
+            "below the byte target"
+        );
+
+        packer.push(ready("b", FRESH, 10, 1), now);
+        assert_eq!(keys(&packer.take_ready(now, 10)[0]), vec!["a", "b"]);
+    }
+
+    #[test]
     fn a_batch_below_target_seals_at_its_deadline() {
         let now = Instant::now();
         let budget = Duration::from_millis(50);
