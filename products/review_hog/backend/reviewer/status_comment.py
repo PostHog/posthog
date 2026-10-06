@@ -36,6 +36,7 @@ from products.review_hog.backend.reviewer.constants import (
     message_prefix_for_mode,
     published_priorities_for,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
@@ -196,6 +197,7 @@ def render_final_body(
     report_url: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     celebrate_clean_reviews: bool = True,
+    marker: ReviewHogMarker | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -241,6 +243,8 @@ def render_final_body(
                 sentence += f" [View them in PostHog]({report_url})."
             lines.append(sentence)
     lines.extend(["", status_marker(report_id)])
+    if marker is not None:
+        lines.append(marker.hidden_comment())
     return message_prefix_for_mode(review_mode) + "\n".join(lines)
 
 
@@ -522,6 +526,7 @@ class FinalizeStatusCommentInput:
     resolved_from: str = "author"
     review_mode: str = REVIEW_MODE_FULL
     celebrate_clean_reviews: bool = True
+    marker: ReviewHogMarker | None = None
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -550,6 +555,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
+            marker=input.marker,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

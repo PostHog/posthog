@@ -368,6 +368,18 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     arm's model mid-turn (`review_arm_fallback`). Best-effort: telemetry can never fail a review.
     Turn event IDs distinguish Full and Flash while preserving the legacy Full IDs across deployments.
     Completion-rate calculations match failures and completions by report, turn, and mode; an absent mode means Full for legacy events.
+    After the skill sync, `record_turn_marker_activity` records the turn's version marker: a version id per review mode
+    (`reviewhog-flash-1-0`, built by `reviewhog_version_for_mode` from the manual (major, minor) bumps in `REVIEWHOG_VERSIONS`,
+    `reviewer/constants.py`) plus a 7-character fingerprint (`reviewer/fingerprint.py`).
+    Full and Flash evolve on separate designs, so each mode bumps its own version.
+    The fingerprint hashes the review mode, the review and validator arms, the chunking / dedup / one-shot pins,
+    the review-turn prompts and schemas, and the content of the skills the acting user runs, team edits included.
+    A prompt or skill edit changes it without a version bump.
+    The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
+    goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
+    status comment as a hidden `<!-- reviewhog-version: <version id> <fingerprint> -->` line (no visible text).
+    Best-effort like the events.
+    A turn without a marker (started before the patch, or the marker failed) sends both properties as null.
 
 ---
 

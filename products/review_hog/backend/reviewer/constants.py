@@ -65,6 +65,21 @@ DEFAULT_REVIEW_ARM = ReviewArm(
 REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
+# RELEASE VERSION, one per review mode, because Full and Flash evolve on separate designs.
+# Bump a mode's (major, minor) with a pipeline or design change. Prompt, skill, and model pin edits
+# change the turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSIONS: dict[str, tuple[int, int]] = {
+    REVIEW_MODE_FULL: (1, 0),
+    REVIEW_MODE_FLASH: (1, 0),
+}
+
+
+def reviewhog_version_for_mode(review_mode: str) -> str:
+    """The version id a turn of this mode reports, like a model id: `reviewhog-flash-1-0`."""
+    major, minor = REVIEWHOG_VERSIONS[review_mode]
+    return f"reviewhog-{review_mode}-{major}-{minor}"
+
+
 # Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
 FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
