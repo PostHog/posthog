@@ -1360,6 +1360,34 @@ class TestIncrementalHandoffCheckpoint:
         assert stage_mock.call_args.args == ("run-1", 55, None)
 
     @pytest.mark.asyncio
+    async def test_ownership_follows_a_queue_row_only_once_it_is_actually_inserted(self) -> None:
+        # The first batch an attempt holds is not inserted yet, so a crash right there must not grant
+        # this attempt ownership of a queue row it does not yet have.
+        pipeline = self._pipeline(lambda: iter(()), [], resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+        pipeline._pg_producer = _recording_producer()
+
+        await pipeline._stage_batch(pa.table({"id": ["a"], "n": [1]}), 0, 1)
+        assert pipeline._queued_own_batch is False
+
+        # Holding a second batch flushes the first one into the queue, so it is now this attempt's.
+        await pipeline._stage_batch(pa.table({"id": ["b"], "n": [2]}), 1, 2)
+        assert pipeline._queued_own_batch is True
+
+    @pytest.mark.asyncio
+    async def test_releasing_a_held_batch_also_grants_ownership(self) -> None:
+        pipeline = self._pipeline(lambda: iter(()), [], resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+        pipeline._pg_producer = _recording_producer()
+
+        await pipeline._stage_batch(pa.table({"id": ["a"], "n": [1]}), 0, 1)
+        assert pipeline._queued_own_batch is False
+
+        pipeline._release_held_batches()
+
+        assert pipeline._queued_own_batch is True
+
+    @pytest.mark.asyncio
     async def test_a_handoff_stages_the_buffered_rows_and_then_records_where_to_continue(self) -> None:
         events: list[Any] = []
 

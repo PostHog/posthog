@@ -364,6 +364,9 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
+        # `hold_batch` only inserts the batch this attempt is already holding, not the one it is
+        # about to hold. A row from this attempt exists in the queue only once this call flushes one.
+        flushes_a_held_batch = self._pg_producer.has_held_batch
         try:
             self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
         except Exception:
@@ -371,9 +374,10 @@ class PipelineV3(Generic[ResumableData]):
             # counts that batch, so no later value of it is safe. The value staged earlier stays valid.
             self._handoff_checkpoint = None
             raise
-        # This attempt now owns a queue row of its own, so any resume value it stages from here
-        # describes rows it holds, not rows an earlier attempt queued.
-        self._queued_own_batch = True
+        if flushes_a_held_batch:
+            # This attempt now owns an inserted queue row, so any resume value it stages from here
+            # describes rows it holds, not rows an earlier attempt queued.
+            self._queued_own_batch = True
         return pa_table.num_rows
 
     def _total_batches(self) -> int:
@@ -397,7 +401,9 @@ class PipelineV3(Generic[ResumableData]):
 
     def _release_held_batches(self) -> None:
         """Put every held queue row into the queue now, as a non-final row."""
-        self._pg_producer.release_held_batch()
+        if self._pg_producer.release_held_batch():
+            # The row this attempt was holding is inserted now, so it owns a queue row of its own.
+            self._queued_own_batch = True
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
