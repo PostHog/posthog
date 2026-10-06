@@ -7,6 +7,7 @@ use common_database::{
 use common_hypercache::HyperCacheError;
 use common_redis::CustomRedisError;
 use serde::Serialize;
+use std::sync::Arc;
 use thiserror::Error;
 
 use crate::utils::graph_utils::DependencyType;
@@ -118,6 +119,8 @@ pub enum FlagError {
     DependencyNotFound(DependencyType, i64),
     #[error("Flag dependency {0} failed to evaluate")]
     DependencyFailed(i64),
+    #[error("Group type mapping lookup failed: {0}")]
+    GroupTypeLookupFailed(Arc<FlagError>),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -262,6 +265,7 @@ impl FlagError {
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
+            FlagError::GroupTypeLookupFailed(cause) => cause.error_metadata(),
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -334,6 +338,7 @@ impl FlagError {
             }
             FlagError::TimeoutError(Some(t)) => format!("timeout:{t}"),
             FlagError::TimeoutError(None) => "timeout_error".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_code(),
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
                 DependencyType::Flag => "dependency_not_found_flag".to_string(),
@@ -378,6 +383,7 @@ impl FlagError {
                 DependencyType::Flag => "Flag dependency not found".to_string(),
             },
             FlagError::DependencyFailed(_) => "Flag dependency failed to evaluate".to_string(),
+            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_description(),
             FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
@@ -561,6 +567,14 @@ impl IntoResponse for FlagError {
             FlagError::DependencyFailed(dependency_id) => {
                 tracing::error!("Flag dependency {dependency_id} failed to evaluate");
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Flag dependency {dependency_id} failed to evaluate"))
+            }
+            FlagError::GroupTypeLookupFailed(cause) => {
+                tracing::error!("Group type mapping lookup failed: {cause:?}");
+                (
+                    StatusCode::from_u16(cause.status_code())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    "Group type mapping lookup failed".to_string(),
+                )
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);

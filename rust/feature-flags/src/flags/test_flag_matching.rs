@@ -11,7 +11,10 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        api::types::{FlagValue, LegacyFlagsResponse},
+        api::{
+            errors::FlagError,
+            types::{FlagValue, LegacyFlagsResponse},
+        },
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
             cohort_models::{Cohort, CohortId, CohortType, MembershipStampPolicy},
@@ -1943,6 +1946,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -1995,6 +1999,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2081,6 +2086,7 @@ mod tests {
             person_properties: Some(&person_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2111,6 +2117,7 @@ mod tests {
             person_properties: Some(&mismatched_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher2
             .is_condition_match(&flag, &condition, &ctx2, None, &None)
@@ -2136,6 +2143,7 @@ mod tests {
             person_properties: Some(&person_properties),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher3
             .is_condition_match(&flag, &condition, &ctx3, None, &None)
@@ -2194,6 +2202,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2253,6 +2262,7 @@ mod tests {
             person_properties: Some(&overridden_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2370,6 +2380,13 @@ mod tests {
         false,
         "a loaded mapping that lacks the filter's index says nothing about the group, so is_not must not match"
     )]
+    #[case::no_group_key_stale_mapping_matches(
+        false,
+        false,
+        false,
+        true,
+        "a request with no group context gets the same answer under a stale mapping as under a loaded one"
+    )]
     #[tokio::test]
     async fn test_is_condition_match_group_is_not_honors_group_property_fetch_state(
         #[case] with_group_key: bool,
@@ -2411,6 +2428,7 @@ mod tests {
             person_properties: None,
             group_properties: &group_properties,
             aggregation: None,
+            request_has_group_context: with_group_key,
         };
         let (is_match, _) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -2418,8 +2436,8 @@ mod tests {
         assert_eq!(is_match, expected_match, "{scenario}");
     }
 
-    /// Regression test: a real `GroupTypeCacheManager` failure must reach the fail-closed
-    /// guard, and its outcome must be reused for the rest of the request. Without the mapping
+    /// Regression test: a real `GroupTypeCacheManager` failure must fail the flag, and its
+    /// outcome must be reused for the rest of the request. Without the mapping
     /// the matcher cannot tell "the request sent no organization" from "the lookup broke", and
     /// the former reading would let `is_not` match an empty property map for an organization
     /// that is in fact excluded. The batch path also asks for the mapping once during setup
@@ -2453,8 +2471,8 @@ mod tests {
             .unwrap();
 
         // A matching person filter alongside the group filter keeps the flag in DB
-        // preparation — a failed mapping leaves nothing to fetch for the group filter
-        // itself — and leaves the guard as the only thing stopping the match.
+        // preparation, which succeeds. The flag can then fail only in evaluation, where the
+        // failed lookup leaves the group filter unknown.
         let mut flag = mixed_targeting_flag(team.id, OperatorType::IsNot);
         flag.filters.groups[0]
             .properties
@@ -2483,7 +2501,7 @@ mod tests {
         );
 
         // A mapping failure is deliberately not propagated: it must not poison person flags in
-        // the same batch, so evaluation proceeds and the guard is what stops the match.
+        // the same batch, so evaluation proceeds and fails only the flags that read a group.
         let result = matcher
             .evaluate_all_feature_flags(
                 flag_list_with_metadata(vec![flag.clone()]),
@@ -2498,9 +2516,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            result.flags.get(&flag.key).unwrap().to_value(),
-            FlagValue::Boolean(false),
-            "a failed mapping lookup knows nothing about the organization, so is_not must not match"
+            result.flags[&flag.key].reason.code, "database_unavailable",
+            "a failed mapping lookup knows nothing about the organization, so the flag must fail"
         );
         assert_eq!(
             mapping_fetch_calls.load(std::sync::atomic::Ordering::SeqCst),
@@ -2841,6 +2858,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &ctx, None, &None)
@@ -3292,6 +3310,7 @@ mod tests {
             person_properties: Some(&empty_person),
             group_properties: &empty_groups,
             aggregation: None,
+            request_has_group_context: false,
         };
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &flag.filters.groups[0], &ctx, None, &None)
@@ -8199,7 +8218,7 @@ mod tests {
             router,
             Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
             Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
-            None,
+            Some(HashMap::from([("project".to_string(), json!("p1"))])),
         )
         .with_persons_db_deadline(Some(deadline));
 
@@ -8223,7 +8242,19 @@ mod tests {
             key: "group_flag".mock_into(),
             filters: mock!(FlagFilters, aggregation_group_type_index: Some(0))
         );
-        let mut flag_list = vec![rollout_flag, person_flag, group_flag];
+        // A failed group type lookup keeps this flag out of DB preparation, so the failed
+        // properties fetch does not fail it.
+        let group_filter_flag = mock!(FeatureFlag,
+            id: 5,
+            key: "group_filter_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "tier".mock_into(),
+                value: Some(json!("enterprise")),
+                prop_type: PropertyType::Group,
+                group_type_index: Some(0)
+            ).mock_into()
+        );
+        let mut flag_list = vec![rollout_flag, person_flag, group_flag, group_filter_flag];
         if with_continuity_flag {
             flag_list.push(continuity_flag);
         }
@@ -8260,6 +8291,10 @@ mod tests {
         );
         assert_eq!(
             response.flags["person_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert_eq!(
+            response.flags["group_filter_flag"].reason.code,
             "timeout:persons_db_deadline"
         );
         assert_eq!(
@@ -10816,6 +10851,106 @@ mod tests {
         assert_eq!(result.condition_index, expected_condition_index);
     }
 
+    fn organization_rollout_condition() -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, aggregation_group_type_index: Some(Some(1)))
+    }
+
+    fn person_rollout_condition(rollout_percentage: f64) -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, rollout_percentage: Some(rollout_percentage))
+    }
+
+    fn person_condition_with_organization_filter(operator: OperatorType) -> FlagPropertyGroup {
+        mock!(FlagPropertyGroup, properties: Some(vec![organization_tier_filter(operator)]))
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum RequestGroupContext {
+        GroupKey,
+        PropertyOverrideOnly,
+        Nothing,
+    }
+
+    /// Regression test: when the group type lookup fails, a flag whose answer depends on a
+    /// group condition must fail, so client SDKs keep their cached value instead of reading
+    /// `false`. Early exit is on, so a person condition outside its rollout must not settle the
+    /// flag after an unknown one.
+    #[rstest::rstest]
+    #[case::group_aggregation_fails_the_flag(
+        vec![organization_rollout_condition()],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::group_filter_fails_the_flag(
+        vec![person_condition_with_organization_filter(OperatorType::Exact)],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::group_property_override_fails_the_flag(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::PropertyOverrideOnly,
+        None
+    )]
+    #[case::no_groups_in_request_settles_false(
+        vec![organization_rollout_condition()],
+        RequestGroupContext::Nothing,
+        Some((false, Some(0)))
+    )]
+    #[case::no_groups_in_request_matches_is_not(
+        vec![person_condition_with_organization_filter(OperatorType::IsNot)],
+        RequestGroupContext::Nothing,
+        Some((true, Some(0)))
+    )]
+    #[case::later_person_match_settles_true(
+        vec![organization_rollout_condition(), person_rollout_condition(100.0)],
+        RequestGroupContext::GroupKey,
+        Some((true, Some(1)))
+    )]
+    #[case::later_person_miss_fails_the_flag(
+        vec![organization_rollout_condition(), person_rollout_condition(0.0)],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[tokio::test]
+    async fn test_failed_group_type_lookup_fails_only_unsettled_flags(
+        #[case] conditions: Vec<FlagPropertyGroup>,
+        #[case] request_groups: RequestGroupContext,
+        #[case] expected_match: Option<(bool, Option<usize>)>,
+    ) {
+        let (_context, mut matcher) = group_matcher_without_group_prep(
+            matches!(request_groups, RequestGroupContext::GroupKey),
+            true,
+        )
+        .await;
+        let group_property_overrides =
+            matches!(request_groups, RequestGroupContext::PropertyOverrideOnly).then(|| {
+                HashMap::from([(
+                    "organization".to_string(),
+                    HashMap::from([("tier".to_string(), json!("enterprise"))]),
+                )])
+            });
+        matcher.set_group_type_mapping_failed_for_test(FlagError::DatabaseUnavailable);
+        let flag = mock!(FeatureFlag,
+            filters: FlagFilters {
+                groups: conditions,
+                early_exit: Some(true),
+                ..Default::default()
+            }
+        );
+
+        let result = matcher.get_match(&flag, None, group_property_overrides.as_ref(), None, &None);
+
+        match expected_match {
+            Some(expected) => {
+                let flag_match = result.unwrap();
+                assert_eq!((flag_match.matches, flag_match.condition_index), expected);
+            }
+            None => assert_eq!(
+                result.unwrap_err().evaluation_error_code(),
+                "database_unavailable"
+            ),
+        }
+    }
+
     #[tokio::test]
     async fn test_mixed_targeting_group_condition_matches_before_person_condition() {
         // When both conditions could match, the first one (group) wins because conditions
@@ -11607,6 +11742,7 @@ mod tests {
                 person_properties: Some(&person_props),
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&person_filter("plan"));
             assert_eq!(result.get("plan"), Some(&json!("pro")));
@@ -11619,6 +11755,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&person_filter("plan"));
             assert!(result.is_empty());
@@ -11635,6 +11772,7 @@ mod tests {
                 person_properties: Some(&person_props),
                 group_properties: &group_props,
                 aggregation: Some(1),
+                request_has_group_context: false,
             };
             // Explicit group_type_index takes precedence over aggregation
             let result = ctx.resolve_for_filter(&group_filter("size", Some(0)));
@@ -11649,6 +11787,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: Some(1),
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&group_filter("tier", None));
             assert_eq!(result.get("tier"), Some(&json!("premium")));
@@ -11662,6 +11801,7 @@ mod tests {
                 person_properties: None,
                 group_properties: &group_props,
                 aggregation: None,
+                request_has_group_context: false,
             };
             let result = ctx.resolve_for_filter(&group_filter("size", None));
             assert!(result.is_empty());

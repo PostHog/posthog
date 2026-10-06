@@ -96,6 +96,9 @@ The shared fetch has its own 5s cap instead of any request's deadline.
 Without the cap, a fetch stuck on an unreachable database keeps running.
 Every later request for the team then waits on that fetch instead of starting a new one.
 A slow group type lookup uses up the shared deadline, so the properties fetch after it can fail even when person queries are fast.
+When the group type lookup stops at the deadline and the request sends groups, a flag that reads a group also returns `timeout:persons_db_deadline`, unless another of its conditions matches.
+That includes a flag that skips DB preparation because its only group filter has no resolved group type.
+See [Unfetched properties fail closed](flag-evaluation-engine.md#unfetched-properties-fail-closed).
 Each stopped call increments `flags_database_error_total` with `timeout_type="persons_db_deadline"` and the call's `operation`.
 The canonical log line records the first stopped call in `persons_db_deadline_exceeded`.
 The internal batch evaluation endpoint does not apply the deadline. When a person's evaluation returns an error, Django leaves that person out of the static cohort and still reports the run as a success.

@@ -170,7 +170,7 @@ enum GroupTypeMappingState {
     /// The lookup ran and returned a mapping, which may be empty for a team with no group types
     Loaded(GroupTypeMapping),
     /// The lookup ran and failed
-    Failed,
+    Failed(Arc<FlagError>),
 }
 
 impl GroupTypeMappingState {
@@ -388,6 +388,7 @@ pub(crate) struct PropertyContext<'a> {
     pub person_properties: Option<&'a HashMap<String, Value>>,
     pub group_properties: &'a HashMap<GroupTypeIndex, HashMap<String, Value>>,
     pub aggregation: Option<GroupTypeIndex>,
+    pub request_has_group_context: bool,
 }
 
 impl PropertyContext<'_> {
@@ -542,6 +543,14 @@ fn ids_of_failed_flags<'a>(
     details
         .filter(|details| details.failed)
         .map(|details| details.metadata.id)
+}
+
+fn is_usable_group_key(group_key: &Value) -> bool {
+    match group_key {
+        Value::String(s) => !s.is_empty(),
+        Value::Number(_) => true,
+        _ => false,
+    }
 }
 
 // This is a plain fn rather than an `async fn` so that it boxes `call` before any async state
@@ -1473,6 +1482,11 @@ impl FeatureFlagMatcher {
                         "Feature flag '{}' failed because dependency {} failed",
                         flag.key, dependency_id
                     ),
+                    // The group type lookup already logged or counted its own failure.
+                    FlagError::GroupTypeLookupFailed(cause) => debug!(
+                        "Feature flag '{}' failed because the group type lookup failed: {:?}",
+                        flag.key, cause
+                    ),
                     _ => error!(
                         "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
@@ -1772,6 +1786,12 @@ impl FeatureFlagMatcher {
         // `failed: true` as false. Failing every dependent would therefore turn a settled `true`
         // into false.
         let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
+        // A later condition that matches still settles the flag. The skipped condition could
+        // have picked a different variant.
+        let mut group_lookup_error: Option<Arc<FlagError>> = None;
+        let request_has_group_context = self.request_has_usable_group_key()
+            || group_property_overrides
+                .is_some_and(|overrides| overrides.values().any(|props| !props.is_empty()));
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1827,6 +1847,18 @@ impl FeatureFlagMatcher {
                 if buckets_on_device_id && has_device_id {
                     with_canonical_log(|log| log.eval.flags_device_id_bucketing += 1);
                 }
+            }
+
+            if let Some(error) =
+                self.group_lookup_error_for(condition, aggregation, request_has_group_context)
+            {
+                inc(
+                    FLAG_CONDITION_SKIPPED_COUNTER,
+                    &[("reason".to_string(), "group_type_lookup_failed".to_string())],
+                    1,
+                );
+                group_lookup_error = Some(error);
+                continue;
             }
 
             // For group-aggregated conditions, verify we have the group key. If not, this
@@ -1891,6 +1923,7 @@ impl FeatureFlagMatcher {
                 person_properties: cached_person_properties.as_ref(),
                 group_properties: &cached_group_properties,
                 aggregation,
+                request_has_group_context,
             };
 
             let (is_match, reason) = self.is_condition_match(
@@ -1926,12 +1959,12 @@ impl FeatureFlagMatcher {
                         answer: ConditionAnswer::NoMatch,
                     });
                 } else {
-                    if let Some(dependency) = self.dependency_that_changes_answer(
+                    if let Some(error) = self.no_match_error(
                         flag,
                         &answers_if_dependency_matched,
-                        &ConditionAnswer::NoMatch,
+                        group_lookup_error,
                     ) {
-                        return Err(FlagError::DependencyFailed(dependency.into()));
+                        return Err(error);
                     }
                     return Ok(FeatureFlagMatch {
                         matches: false,
@@ -2002,12 +2035,10 @@ impl FeatureFlagMatcher {
             }
         }
 
-        if let Some(dependency) = self.dependency_that_changes_answer(
-            flag,
-            &answers_if_dependency_matched,
-            &ConditionAnswer::NoMatch,
-        ) {
-            return Err(FlagError::DependencyFailed(dependency.into()));
+        if let Some(error) =
+            self.no_match_error(flag, &answers_if_dependency_matched, group_lookup_error)
+        {
+            return Err(error);
         }
 
         condition_timer.label("outcome", "success").fin();
@@ -2118,6 +2149,21 @@ impl FeatureFlagMatcher {
                 }
             })
             .map(|candidate| candidate.failed_dependency)
+    }
+
+    fn no_match_error(
+        &self,
+        flag: &FeatureFlag,
+        answers_if_dependency_matched: &[AnswerIfDependencyMatched],
+        group_lookup_error: Option<Arc<FlagError>>,
+    ) -> Option<FlagError> {
+        self.dependency_that_changes_answer(
+            flag,
+            answers_if_dependency_matched,
+            &ConditionAnswer::NoMatch,
+        )
+        .map(|dependency| FlagError::DependencyFailed(dependency.into()))
+        .or_else(|| group_lookup_error.map(FlagError::GroupTypeLookupFailed))
     }
 
     /// This function determines the highest priority match evaluation for feature flag conditions.
@@ -2304,15 +2350,16 @@ impl FeatureFlagMatcher {
         self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_group_type_mapping_failed_for_test(&mut self, error: FlagError) {
+        self.group_type_mapping = GroupTypeMappingState::Failed(Arc::new(error));
+    }
+
     /// Whether the request supplied a usable group key for this group type name. Without one
     /// there is no group to load properties for, so group filters on that type have no
     /// context at all — distinct from having a key whose properties weren't fetched.
     fn has_usable_group_key(&self, group_type: &str) -> bool {
-        self.groups.get(group_type).is_some_and(|v| match v {
-            Value::String(s) => !s.is_empty(),
-            Value::Number(_) => true,
-            _ => false,
-        })
+        self.groups.get(group_type).is_some_and(is_usable_group_key)
     }
 
     /// `has_usable_group_key` by group type index. False both when the request omitted the
@@ -2323,6 +2370,37 @@ impl FeatureFlagMatcher {
             .mapping()
             .and_then(|m| m.group_indexes_to_types().get(&group_type_index))
             .is_some_and(|group_type| self.has_usable_group_key(group_type))
+    }
+
+    fn request_has_usable_group_key(&self) -> bool {
+        self.groups.values().any(is_usable_group_key)
+    }
+
+    /// A condition names its group type by index. Only the mapping tells which group key or
+    /// group property override in the request has that index. A request without them gets
+    /// the same answer under any mapping, so its conditions evaluate as usual.
+    fn group_lookup_error_for(
+        &self,
+        condition: &FlagPropertyGroup,
+        aggregation: Option<GroupTypeIndex>,
+        request_has_group_context: bool,
+    ) -> Option<Arc<FlagError>> {
+        let GroupTypeMappingState::Failed(error) = &self.group_type_mapping else {
+            return None;
+        };
+        // A group-aggregated condition hashes the group key, so a request without a usable
+        // key gets no match from it under any mapping, even when it sends property overrides.
+        let outcome_unknown = if aggregation.is_some() {
+            self.request_has_usable_group_key()
+        } else {
+            request_has_group_context
+                && condition
+                    .properties
+                    .iter()
+                    .flatten()
+                    .any(|filter| filter.group_filter_index(None).is_some())
+        };
+        outcome_unknown.then(|| Arc::clone(error))
     }
 
     /// Whether DB preparation would load anything this group filter can use. Selecting a
@@ -2377,6 +2455,12 @@ impl FeatureFlagMatcher {
         let Some(gti) = filter.group_filter_index(property_context.aggregation) else {
             return false;
         };
+
+        // This check comes before the name lookup, so a failed or stale mapping does not change
+        // the answer for a request without group context.
+        if !property_context.request_has_group_context {
+            return false;
+        }
 
         // Without a resolved name for the index, nothing is known about the group: the
         // lookup failed, or a loaded mapping predates the group type (a stale cache entry).
@@ -3143,7 +3227,7 @@ impl FeatureFlagMatcher {
         // request two waits on two failed queries.
         match self.group_type_mapping {
             GroupTypeMappingState::Loaded(_) => return false,
-            GroupTypeMappingState::Failed => return true,
+            GroupTypeMappingState::Failed(_) => return true,
             GroupTypeMappingState::Uninitialized => {}
         }
 
@@ -3181,9 +3265,9 @@ impl FeatureFlagMatcher {
                 }
                 self.group_type_mapping = GroupTypeMappingState::Loaded(mapping);
             }
-            Err(_) => {
+            Err(e) => {
                 errors_while_computing_flags = true;
-                self.group_type_mapping = GroupTypeMappingState::Failed;
+                self.group_type_mapping = GroupTypeMappingState::Failed(Arc::new(e));
             }
         }
 
