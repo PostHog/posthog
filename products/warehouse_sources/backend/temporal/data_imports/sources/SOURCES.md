@@ -1277,6 +1277,7 @@ doesn't conflict with concurrent PRs.
 - mirakl
 - miro
 - missive
+- modal
 - mode
 - moesif
 - monaco
