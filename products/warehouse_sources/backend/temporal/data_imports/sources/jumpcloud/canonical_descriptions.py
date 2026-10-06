@@ -80,6 +80,61 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "config": "Connector-specific configuration for the application.",
         },
     },
+    "user_group_members": {
+        "description": "Users that are members of each user group, one row per group and user.",
+        "docs_url": "https://docs.jumpcloud.com/api/2.0/index.html#tag/User-Group-Members-&-Membership/operation/graph_userGroupMembership",
+        "columns": {
+            "group_id": "Identifier of the user group (joins to user_groups.id).",
+            "id": "Identifier of the member user (joins to users._id).",
+            "type": "Graph object type of the member.",
+            "compiledAttributes": "Graph attributes compiled across every path to the member.",
+            "paths": "Each path through the JumpCloud graph that connects the member, as a list of edges.",
+        },
+    },
+    "system_group_members": {
+        "description": "Systems that are members of each system group, one row per group and system.",
+        "docs_url": "https://docs.jumpcloud.com/api/2.0/index.html#tag/System-Group-Members-&-Membership/operation/graph_systemGroupMembership",
+        "columns": {
+            "group_id": "Identifier of the system group (joins to system_groups.id).",
+            "id": "Identifier of the member system (joins to systems._id).",
+            "type": "Graph object type of the member.",
+            "compiledAttributes": "Graph attributes compiled across every path to the member.",
+            "paths": "Each path through the JumpCloud graph that connects the member, as a list of edges.",
+        },
+    },
+    "application_users": {
+        "description": "Users bound to each SSO application, directly or through a user group.",
+        "docs_url": "https://docs.jumpcloud.com/api/2.0/index.html#tag/Applications/operation/graph_applicationTraverseUser",
+        "columns": {
+            "application_id": "Identifier of the application (joins to applications._id).",
+            "id": "Identifier of the bound user (joins to users._id).",
+            "type": "Graph object type of the member.",
+            "compiledAttributes": "Graph attributes compiled across every path to the member.",
+            "paths": "Each path through the JumpCloud graph that connects the member, as a list of edges.",
+        },
+    },
+    "application_user_groups": {
+        "description": "User groups bound to each SSO application.",
+        "docs_url": "https://docs.jumpcloud.com/api/2.0/index.html#tag/Applications/operation/graph_applicationTraverseUserGroup",
+        "columns": {
+            "application_id": "Identifier of the application (joins to applications._id).",
+            "id": "Identifier of the bound user group (joins to user_groups.id).",
+            "type": "Graph object type of the member.",
+            "compiledAttributes": "Graph attributes compiled across every path to the member.",
+            "paths": "Each path through the JumpCloud graph that connects the member, as a list of edges.",
+        },
+    },
+    "system_users": {
+        "description": "Users bound to each system, directly or through a user or system group, so they can log in to it.",
+        "docs_url": "https://docs.jumpcloud.com/api/2.0/index.html#tag/Systems/operation/graph_systemTraverseUser",
+        "columns": {
+            "system_id": "Identifier of the system (joins to systems._id).",
+            "id": "Identifier of the bound user (joins to users._id).",
+            "type": "Graph object type of the member.",
+            "compiledAttributes": "Graph attributes compiled across every path to the member.",
+            "paths": "Each path through the JumpCloud graph that connects the member, as a list of edges.",
+        },
+    },
     "events": {
         "description": "Directory Insights activity events across JumpCloud services: admin console actions, directory changes, SSO, RADIUS, LDAP, MDM, and agent-reported system events.",
         "docs_url": "https://docs.jumpcloud.com/api/insights/directory/1.0/index.html",
