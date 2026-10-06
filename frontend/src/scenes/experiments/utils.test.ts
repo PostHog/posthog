@@ -16,6 +16,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -270,7 +271,7 @@ describe('getFunnelDropoffReason', () => {
 })
 
 describe('checkFeatureFlagEligibility', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test',
         name: 'Test',
