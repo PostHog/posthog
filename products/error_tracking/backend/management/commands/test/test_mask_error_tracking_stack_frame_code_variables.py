@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.models import Team
 
@@ -18,9 +19,11 @@ def frame_contents(raw_id: str, code_variables: dict[str, object] | None = None)
 
 
 class TestMaskErrorTrackingStackFrameCodeVariables(BaseTest):
-    def frame(self, team: Team, raw_id: str, code_variables: dict[str, object] | None) -> ErrorTrackingStackFrame:
+    def frame(
+        self, team: Team, raw_id: str, code_variables: dict[str, object] | None, part: int = 0
+    ) -> ErrorTrackingStackFrame:
         return ErrorTrackingStackFrame.objects.create(
-            team=team, raw_id=raw_id, contents=frame_contents(raw_id, code_variables), resolved=True
+            team=team, raw_id=raw_id, part=part, contents=frame_contents(raw_id, code_variables), resolved=True
         )
 
     def test_masks_only_the_listed_teams(self) -> None:
@@ -28,18 +31,20 @@ class TestMaskErrorTrackingStackFrameCodeVariables(BaseTest):
         unlisted_team = Team.objects.create(organization=self.organization, name="Unlisted team")
         frames = {
             "first": self.frame(self.team, "frame-a", UNMASKED),
+            "first_part_1": self.frame(self.team, "frame-a", UNMASKED, part=1),
             "second": self.frame(second_team, "frame-a", UNMASKED),
             "clean": self.frame(self.team, "frame-b", None),
             "unlisted": self.frame(unlisted_team, "frame-a", UNMASKED),
         }
 
         def run(*, live_run: bool) -> None:
-            Command().handle(
-                team_ids=f"{self.team.id},{second_team.id}",
-                live_run=live_run,
-                batch_size=1,
-                start_after_raw_id=None,
-            )
+            with patch(f"{Command.__module__}.FRAMES_PER_READ", 1):
+                Command().handle(
+                    team_ids=f"{self.team.id},{second_team.id}",
+                    live_run=live_run,
+                    batch_size=1,
+                    start_after_raw_id=None,
+                )
 
         run(live_run=False)
 
@@ -52,6 +57,7 @@ class TestMaskErrorTrackingStackFrameCodeVariables(BaseTest):
         for frame in frames.values():
             frame.refresh_from_db()
         assert frames["first"].contents == frame_contents("frame-a", MASKED)
+        assert frames["first_part_1"].contents == frame_contents("frame-a", MASKED)
         assert frames["second"].contents == frame_contents("frame-a", MASKED)
         assert frames["clean"].contents == frame_contents("frame-b")
         assert frames["unlisted"].contents == frame_contents("frame-a", UNMASKED)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from argparse import ArgumentParser
+from itertools import batched
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -34,6 +35,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DEFAULT_BATCH_SIZE = 1_000
+# `--batch-size` counts raw ids, not rows or bytes, so the payloads are read in chunks of this many frames.
+# `.iterator()` does not bound memory here: behind pgbouncer, server-side cursors are off and psycopg fetches every row.
+FRAMES_PER_READ = 100
 CODE_VARIABLES_KEY = "code_variables"
 
 
@@ -117,13 +121,17 @@ class Command(BaseCommand):
         while raw_ids := self._get_raw_ids(team_id=team_id, after_raw_id=cursor, batch_size=batch_size):
             cursor = raw_ids[-1]
             totals["scanned"] += len(raw_ids)
-            for frame_id, code_variables in self._code_variables(team_id=team_id, raw_ids=raw_ids):
-                masked = mask_code_variables(code_variables)
-                if masked == code_variables:
-                    continue
-                totals["matched"] += 1
-                if live_run:
-                    totals["updated"] += self._write_masked(frame_id=frame_id, original=code_variables, masked=masked)
+            frame_ids = self._frame_ids(team_id=team_id, raw_ids=raw_ids)
+            for chunk in batched(frame_ids, FRAMES_PER_READ, strict=False):
+                for frame_id, code_variables in self._code_variables(team_id=team_id, frame_ids=chunk):
+                    masked = mask_code_variables(code_variables)
+                    if masked == code_variables:
+                        continue
+                    totals["matched"] += 1
+                    if live_run:
+                        totals["updated"] += self._write_masked(
+                            frame_id=frame_id, original=code_variables, masked=masked
+                        )
 
             logger.info("stack_frame_code_variables_mask_progress", team_id=team_id, last_raw_id=cursor, **totals)
 
@@ -140,11 +148,18 @@ class Command(BaseCommand):
 
         return list(raw_ids.order_by("raw_id").values_list("raw_id", flat=True).distinct()[:batch_size])
 
-    def _code_variables(self, *, team_id: int, raw_ids: list[str]) -> list[tuple[UUID, JSONValue]]:
+    def _frame_ids(self, *, team_id: int, raw_ids: list[str]) -> list[UUID]:
         return list(
             ErrorTrackingStackFrame.objects.filter(
                 team_id=team_id, raw_id__in=raw_ids, contents__has_key=CODE_VARIABLES_KEY
-            ).values_list("id", f"contents__{CODE_VARIABLES_KEY}")
+            ).values_list("id", flat=True)
+        )
+
+    def _code_variables(self, *, team_id: int, frame_ids: tuple[UUID, ...]) -> list[tuple[UUID, JSONValue]]:
+        return list(
+            ErrorTrackingStackFrame.objects.filter(team_id=team_id, id__in=frame_ids).values_list(
+                "id", f"contents__{CODE_VARIABLES_KEY}"
+            )
         )
 
     def _write_masked(self, *, frame_id: UUID, original: JSONValue, masked: JSONValue) -> int:
