@@ -62,3 +62,10 @@ test('gives no verdict for an empty or oversized change set', () => {
     const huge = Array.from({ length: MAX_FILES + 1 }, (_, i) => `posthog/file_${i}.py`)
     assert.equal(crossLaneFiles(huge, CONTEXT), null)
 })
+
+test('logs the file that could not be classified rather than failing silently', (t) => {
+    const errors = t.mock.method(console, 'error', () => {})
+    const broken = { ...CONTEXT, products: null }
+    assert.equal(crossLaneFiles(['products/alpha/backend/models.py'], broken), null)
+    assert.match(errors.mock.calls[0].arguments[0], /products\/alpha\/backend\/models\.py/)
+})

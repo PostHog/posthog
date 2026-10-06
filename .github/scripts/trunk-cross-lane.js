@@ -27,7 +27,8 @@ function crossLaneFiles(changedFiles, context) {
         let targets
         try {
             targets = computeTargets([file], context)
-        } catch {
+        } catch (error) {
+            console.error(`Could not classify ${file} by lane side (${error.message}); cross_lane reports unknown`)
             return null
         }
         // ALL means unknown, not both sides.
