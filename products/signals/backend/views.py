@@ -229,6 +229,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
+from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
@@ -1979,6 +1980,11 @@ class SignalReportViewSet(
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
             implementation_pr_by_report = {}
             pull_requests_map = {}
+        try:
+            source_suggestion = current_source_suggestion(self.team, str(report.id))
+        except Exception:
+            logger.exception("signals.enriched_context.source_suggestion_failed", report_id=str(report.id))
+            source_suggestion = None
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -1988,6 +1994,7 @@ class SignalReportViewSet(
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            "source_suggestions_map": {str(report.id): source_suggestion} if source_suggestion else {},
         }
 
     def retrieve(self, request, *args, **kwargs):

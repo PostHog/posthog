@@ -436,6 +436,18 @@ The research pipeline does clear them when it rewrites a report it re-researches
 
 Cap is **3 prompts per report**, each **≤200 characters**, and duplicates are refused.
 
+### Suggesting a product to turn on
+
+When a report would have had better evidence from a product the project does not use, record a `source_suggestion` artefact on it.
+After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {"product": ..., "reason": ...}`.
+`product` is one of `logs`, `session_replay`, `error_tracking`, or `llm_analytics`.
+The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
+
+Suggest a product only for a gap you hit this run: a question it would have answered that you could not answer.
+Confirm first that the project does not use it, from a `not-in-use:` memory or a probe that came back empty.
+`reason` is one sentence of at most 300 characters about what the product would have shown for this report, not a generic pitch.
+A report shows one suggestion, and a newer one replaces the older one.
+
 ### Opening a draft PR (autostart)
 
 A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart path the pipeline uses.

@@ -29,7 +29,8 @@ tools:
             types are latest-wins — appending a new version supersedes the previous one as the report's canonical
             status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation,
             actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason),
-            `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the
+            `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project
+            does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the
             canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses
             them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is
             validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate

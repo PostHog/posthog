@@ -32,6 +32,16 @@ class ReportLinkKind(LabeledStrEnum):
     RECURRENCE_OF = "recurrence_of", "Recurrence of"
 
 
+class SuggestedSourceProduct(LabeledStrEnum):
+    # Products a report can suggest the team turn on because the report would have had better
+    # evidence with them. Each value names a product with a cheap "is it in use" check in
+    # `source_suggestions.py`, so add a member only together with its check.
+    LOGS = "logs", "Logs"
+    SESSION_REPLAY = "session_replay", "Session replay"
+    ERROR_TRACKING = "error_tracking", "Error tracking"
+    LLM_ANALYTICS = "llm_analytics", "AI observability"
+
+
 class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.

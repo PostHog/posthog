@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from products.signals.backend.artefact_schemas import MAX_SOURCE_SUGGESTION_REASON_LENGTH
+from products.signals.backend.enums import SuggestedSourceProduct
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
 from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
@@ -78,6 +80,8 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "MAX_SOURCE_SUGGESTION_REASON_LENGTH": MAX_SOURCE_SUGGESTION_REASON_LENGTH,
+    "SuggestedSourceProduct": [product.value for product in SuggestedSourceProduct],
     "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
     "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
@@ -721,6 +725,14 @@ Optional, and worth it only when you can name a prompt worth an agent run. Write
 ]
 ```"""
 
+_REPORT_SOURCE_SUGGESTION = f"""# Suggesting a product to turn on
+
+When a report would have had better evidence from a product this project does not use, record that on the report. After `emit_report` or `edit_report` returns the report id, call `inbox-report-artefacts-create` with `artefact_type: "source_suggestion"` and `content: {{"product": ..., "reason": ...}}`. `product` is one of {", ".join(f"`{product.value}`" for product in SuggestedSourceProduct)}. The inbox shows the suggestion under the report's evidence with a link to that product, and hides it once the project uses the product.
+
+- **Only for a gap you hit this run.** Suggest a product when it would have answered a question you could not answer, for example the backend logs around an error you saw in a replay. Confirm first that the project does not use it: a `not-in-use:` memory, or a probe that came back empty.
+- **`reason` is one sentence about this report, at most {MAX_SOURCE_SUGGESTION_REASON_LENGTH} characters.** Name what the product would have shown: "Logs from the checkout service could show whether the timeout starts at the payment provider." A generic pitch for the product does not help the reader.
+- **One per report.** A newer suggestion replaces the older one."""
+
 # Heading kept bare so the *Writing the summary* cross-references in the close-out step and the
 # edit-only guidance name it exactly; the surface it describes is the section's first sentence.
 _WRITING_SUMMARY = f"""# Writing the summary
@@ -1059,6 +1071,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -1071,6 +1084,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -1082,6 +1096,7 @@ def _report_tail_sections(
             _REPORT_METRICS,
             _REPORT_CHARTS,
             _REPORT_SUGGESTED_PROMPTS,
+            _REPORT_SOURCE_SUGGESTION,
         ]
     return [
         how_a_run_works,
