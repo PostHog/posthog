@@ -283,6 +283,11 @@ def _context_provenance(context: dict, pr: PRData) -> CommitProvenance | None:
     return pr_provenance(pr.base_sha, pr.head_sha, REPO_ROOT)
 
 
+def _author_team_slugs(context: dict) -> set[str]:
+    """Every team the server found the author on. A failed lookup arrives empty, which denies owner-only paths."""
+    return {str(slug) for slug in context.get("author_team_slugs") or []}
+
+
 def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
     """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
 
@@ -597,8 +602,9 @@ def pregate(context: dict) -> dict:
         pipeline._refuse_bot_author()
         return {**outcome, "final": True, "result": pipeline.to_dict()}
 
+    pipeline.author_team_slugs = _author_team_slugs(context)
     pipeline._classify()
-    _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+    _run_gates_offline(pipeline, pipeline.author_team_slugs)
     if _blocked_only_by_pending_migration_check(pipeline):
         if not _pending_migration_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
@@ -644,8 +650,9 @@ def run(context: dict) -> dict:
 
     try:
         with _timed_phase("gates"):
+            pipeline.author_team_slugs = _author_team_slugs(context)
             pipeline._classify()
-            _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+            _run_gates_offline(pipeline, pipeline.author_team_slugs)
         gate_verdict = pipeline._gate_verdict()
 
         # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment

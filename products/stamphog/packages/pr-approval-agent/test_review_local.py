@@ -575,11 +575,14 @@ def _pregate_context(
     user_type: str = "User",
     check_runs: list[dict] | None = None,
     folder_policies_known: bool = False,
+    author_team_slugs: list[str] | None = None,
 ) -> dict:
     context = _run_context(files, check_runs)
     context["pr"] = {**context["pr"], "draft": draft, "user": {"login": "alice", "type": user_type}}
     if folder_policies_known:
         context["folder_policies_known"] = True
+    if author_team_slugs is not None:
+        context["author_team_slugs"] = author_team_slugs
     return context
 
 
@@ -642,6 +645,30 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
             id="pending-migration-check-with-a-manifest",
         ),
         pytest.param(_pregate_context([_api_file("src/app.py")]), None, False, id="clean-t1"),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-replay"]),
+            "REFUSED",
+            True,
+            id="owner-only-path-from-another-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-without-team-lookup",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.ts")], author_team_slugs=["team-workflows"]),
+            None,
+            False,
+            id="owner-only-path-from-the-owning-team",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/consumers/delivery.test.ts")]),
+            None,
+            False,
+            id="owner-only-path-test-file",
+        ),
     ],
 )
 def test_pregate_is_final_only_where_the_full_review_agrees(

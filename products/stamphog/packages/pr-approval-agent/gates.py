@@ -498,6 +498,20 @@ def _is_exempt_path(category: str, path: str) -> bool:
     return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
+DENY_EXEMPT_AUTHOR_TEAMS: dict[str, tuple[str, ...]] = {
+    category: cat.exempt_author_teams for category, cat in POLICY.deny.items() if cat.exempt_author_teams
+}
+
+
+def author_exempt_categories(categories: list[str], author_on_team: Callable[[str], bool]) -> list[str]:
+    """The denied categories that the PR author's team membership lifts."""
+    return [
+        category
+        for category in categories
+        if any(author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+    ]
+
+
 def category_fully_exempt(category: str, files: list[str]) -> bool:
     """True when every changed file is exempt for this category.
 

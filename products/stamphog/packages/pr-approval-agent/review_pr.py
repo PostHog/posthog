@@ -36,10 +36,12 @@ from typing import TYPE_CHECKING
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
+    DENY_EXEMPT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     POLICY,
     assign_tier,
+    author_exempt_categories,
     build_ownership,
     category_fully_exempt,
     classify_files,
@@ -180,6 +182,14 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
+def _describe_deny_category(category: str) -> str:
+    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+    teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
+    if not teams:
+        return category
+    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
+
+
 # ── Pipeline ─────────────────────────────────────────────────────
 
 
@@ -218,6 +228,9 @@ class Pipeline:
         # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
         # can only miss a deny, never add one, and the sandbox review runs the scan again.
         self.checkout = checkout
+        # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
+        # token. None means a local run, which asks GitHub per team instead.
+        self.author_team_slugs: set[str] | None = None
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -419,6 +432,8 @@ class Pipeline:
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        author_exempt = author_exempt_categories(deny, self._author_on_team)
+        deny = [category for category in deny if category not in author_exempt]
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -466,6 +481,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "author_exempt_deny_categories": author_exempt,
             "title_scrutiny_flags": title_flags,
             "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
@@ -486,6 +502,11 @@ class Pipeline:
             "self_driving": self.self_driving,
             "review_trigger": self.review_trigger,
         }
+
+    def _author_on_team(self, team_slug: str) -> bool:
+        if self.author_team_slugs is not None:
+            return team_slug in self.author_team_slugs
+        return check_team_membership(self.pr.author, team_slug)
 
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
@@ -622,7 +643,7 @@ class Pipeline:
             risky_names = ", ".join(manifest_basenames(risky))
             return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
         if deny:
-            return False, f"matches: {', '.join(deny)}"
+            return False, f"matches: {', '.join(_describe_deny_category(c) for c in deny)}"
         return True, "no deny categories matched"
 
     def _summarize_ownership(self) -> str:
