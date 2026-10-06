@@ -1363,9 +1363,8 @@ async fn tombstone_persons_by_uuids(
 
     let (mark_op_id, claimed_ids) = claim_delete_marks(&mut tx, team_id, uuids).await?;
 
-    // Lock the claimed persons up front, in id order, the order the ingestion
-    // writer and the tombstone drain take their locks in. Lock by id, not uuid:
-    // a person re-created under a requested uuid after the claim holds no mark.
+    // Lock the claimed persons up front in id order, as the ingestion writer and the tombstone cleanup drain do.
+    // Lock by id, not uuid: a person re-created under a requested uuid after the claim holds no mark.
     let rows = sqlx::query!(
         r#"
         SELECT id::bigint as "id!", uuid as "uuid!",
