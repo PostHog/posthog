@@ -1163,7 +1163,9 @@ class TestFinalMarkerIsTheLastDataRow:
 
         await pipeline._finalize(row_count=0)
 
-        pipeline._pg_producer.send_final_batch_for_resumed_run.assert_called_once_with("workflow-run-a1")
+        cast(MagicMock, pipeline._pg_producer.send_final_batch_for_resumed_run).assert_called_once_with(
+            "workflow-run-a1"
+        )
         assert pipeline._consumer_finalizes_this_run() is True
 
     @pytest.mark.parametrize(
