@@ -126,6 +126,7 @@ the row lists both.
 | aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
+| axiom                            | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -984,7 +985,6 @@ doesn't conflict with concurrent PRs.
 - aws_support
 - aws_trusted_advisor
 - aws_xray
-- axiom
 - azure_activity_log
 - azure_advisor
 - azure_api_management
