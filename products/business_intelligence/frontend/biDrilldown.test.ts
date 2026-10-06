@@ -63,6 +63,23 @@ describe('BI drill-down', () => {
         ])
     })
 
+    it.each([false, true])('converts numeric date dimensions to SQL dates (comparison: %s)', (previous) => {
+        const worksheet: BIConfig = {
+            ...config,
+            rows: [field('created_at', 'date')],
+            compareFilter: { compare: previous },
+        }
+        const selection = getBIDrillSelection(worksheet, {
+            bi_row_created_at: 1780272000,
+            bi_comparison: previous ? 'Previous period' : 'Current period',
+        })
+        const queries = getBIDrillQueries(buildWorksheet(worksheet).node, selection)!
+        expect(queries.rows.source.query).toContain(
+            previous ? "{filters.compareDate(created_at)} = '2026-06-01'" : "created_at = '2026-06-01'"
+        )
+        expect(queries.rows.source.query).not.toContain("'1780272000'")
+    })
+
     it('uses comparison dates for previous-period points without treating their label as a category', () => {
         const node = buildWorksheet({ ...config, compareFilter: { compare: true } })!.node
         const record = getBIChartRecord(node, 'bi_row_timestamp', '2026-06-01', 'Previous period · purchase · web')

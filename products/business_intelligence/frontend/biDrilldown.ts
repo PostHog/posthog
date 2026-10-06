@@ -119,6 +119,13 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (typeof value === 'number' && !Number.isFinite(value)) {
                 continue
             }
+            if (typeof value === 'number' && field.type === 'date') {
+                const date = dayjs.unix(value).utc()
+                if (!date.isValid()) {
+                    continue
+                }
+                value = date.format('YYYY-MM-DD')
+            }
             if (shiftedDate || typeof value === 'boolean') {
                 const literal = typeof value === 'boolean' ? String(value) : escapeHogQLString(String(value))
                 filter = {

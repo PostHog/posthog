@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -65,7 +65,12 @@ export function BIDrilldownModal({ logicProps: props }: { logicProps: BIDrilldow
                         </>
                     ) : null}
                 </div>
-            ) : null}
+            ) : (
+                <LemonBanner type="warning">
+                    We couldn't build a query for this result. Close this window and check the worksheet's data source
+                    and fields before trying again.
+                </LemonBanner>
+            )}
         </LemonModal>
     )
 }
