@@ -54,18 +54,23 @@ def _cp_no_rows():
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "enabled_flags, expected",
+    "enabled_flags, failing_flags, expected",
     [
-        ({"data-warehouse-scene"}, True),
-        ({"data-warehouse-scene-trino"}, True),
-        (set(), False),
+        ({"data-warehouse-scene"}, set(), True),
+        ({"data-warehouse-scene-trino"}, set(), True),
+        (set(), set(), False),
+        ({"data-warehouse-scene"}, {"data-warehouse-scene-trino"}, True),
     ],
 )
-async def test_registration_gate_accepts_either_managed_warehouse_flag(monkeypatch, ateam, enabled_flags, expected):
+async def test_registration_gate_accepts_either_managed_warehouse_flag(
+    monkeypatch, ateam, enabled_flags, failing_flags, expected
+):
     calls: list[dict[str, object]] = []
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
         calls.append({"key": key, "distinct_id": distinct_id, **kwargs})
+        if key in failing_flags:
+            raise RuntimeError("flag evaluation failed")
         return key in enabled_flags
 
     monkeypatch.setattr(registration_module, "feature_enabled_or_false", fake_feature_enabled)
