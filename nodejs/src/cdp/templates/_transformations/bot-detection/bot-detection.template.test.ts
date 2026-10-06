@@ -250,6 +250,18 @@ describe('bot-detection.template', () => {
             true,
         ],
         [
+            'keeps Yandex Search App, which puts its own build in the patch slot',
+            'Mozilla/5.0 (Linux; arm_64; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.2214 YaApp_Android/25.10.1 YaSearchBrowser/25.10.1 BroPP/1.0 Mobile Safari/537.36',
+            true,
+            true,
+        ],
+        [
+            'keeps Chrome 4, which really shipped a 4-digit patch',
+            'Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.1.249.1025 Safari/532.5',
+            true,
+            true,
+        ],
+        [
             'keeps Opera Mobile with a 4-digit Chrome patch',
             'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.8812 Mobile Safari/537.36 OPR/62.1.3134.58322',
             true,
