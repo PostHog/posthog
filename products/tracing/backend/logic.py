@@ -34,10 +34,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -69,6 +70,8 @@ _ROW_LIMIT = 5000
 # ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
+
+ROOT_TOP_N_CHILD_SKEW_MINUTES = 1
 
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
@@ -633,18 +636,19 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
         )
 
+        root_top_n_sql = f"""
+            SELECT trace_id, timestamp
+            FROM posthog.trace_spans
+            WHERE {{where}}
+            ORDER BY timestamp {order_dir}, trace_id {order_dir}
+            LIMIT {{limit}}
+        """
         if root_top_n:
             trace_id_query = parse_select(
                 f"""
                 SELECT
                     trace_id
-                FROM (
-                    SELECT trace_id, timestamp
-                    FROM posthog.trace_spans
-                    WHERE {{where}}
-                    ORDER BY timestamp {order_dir}, trace_id {order_dir}
-                    LIMIT {{limit}}
-                )
+                FROM ({root_top_n_sql})
                 GROUP BY trace_id
                 LIMIT {{limit}}
             """,
@@ -734,6 +738,30 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             },
         )
         assert isinstance(query, ast.SelectQuery)
+
+        if root_top_n:
+            earliest_root_query = parse_select(
+                f"SELECT min(timestamp) FROM ({root_top_n_sql})",
+                placeholders={
+                    "where": clone_expr(subquery_where),
+                    "limit": ast.Constant(value=self.query.limit),
+                },
+            )
+            assert query.where is not None
+            query.where = ast.And(
+                exprs=[
+                    query.where,
+                    parse_expr(
+                        "timestamp >= ({earliest_root}) - INTERVAL {margin} MINUTE",
+                        placeholders={
+                            "earliest_root": earliest_root_query,
+                            "margin": ast.Constant(value=ROOT_TOP_N_CHILD_SKEW_MINUTES),
+                        },
+                    ),
+                ]
+            )
+            if order_dir == "DESC":
+                query.settings = HogQLQuerySettings(optimize_use_projection_filtering=False)
 
         # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
         # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).
