@@ -91,7 +91,7 @@ from products.autoresearch.backend.inference.sandbox import (
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
-from products.autoresearch.backend.training.artifacts import read_bundle
+from products.autoresearch.backend.training.artifacts import ArtifactBundle, read_bundle
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
     validate_model_class,
@@ -724,7 +724,12 @@ def _score_shadow_set(
     failed: list[str] = []
     skipped: list[str] = []
     started = clock()
-    for model in members:
+    bundles = [_read_shadow_bundle(model) for model in members]
+    digests = [
+        None if isinstance(bundle, Exception) else features_sql_digest(bundle.features_sql) for bundle in bundles
+    ]
+    last_use = {digest: index for index, digest in enumerate(digests) if digest is not None}
+    for index, model in enumerate(members):
         if clock() - started >= SHADOW_TIME_BUDGET_S:
             skipped.append(str(model.pk))
             continue
@@ -732,6 +737,7 @@ def _score_shadow_set(
             team=team,
             pipeline=pipeline,
             model=model,
+            bundle=bundles[index],
             persons=persons,
             materialized=materialized,
             window=window,
@@ -739,9 +745,24 @@ def _score_shadow_set(
             query_context=query_context,
         )
         (completed if ok else failed).append(str(model.pk))
+        digest = digests[index]
+        if digest is not None and last_use[digest] == index:
+            # Each result can hold tens of thousands of wide rows, so the phase keeps only the
+            # results a later model still needs, not one result per distinct SQL.
+            materialized.pop(digest, None)
     if skipped:
         logger.warning("autoresearch_shadow_scoring_over_budget", pipeline_id=str(pipeline.pk), skipped=len(skipped))
     return ShadowScoringOutcome(completed=completed, failed=failed, skipped=skipped)
+
+
+def _read_shadow_bundle(model: AutoresearchModel) -> ArtifactBundle | Exception:
+    """The model's runnable bundle, or the error that fails its run. The error never stops the other models."""
+    try:
+        bundle = read_bundle(model.artifact_prefix)
+        _validate_bundle_feature_sql(bundle)
+    except Exception as exc:
+        return exc
+    return bundle
 
 
 def _score_shadow_model(
@@ -749,6 +770,7 @@ def _score_shadow_model(
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
+    bundle: ArtifactBundle | Exception,
     persons: set[str],
     materialized: dict[str, InferenceRows | Exception],
     window: ScoringWindow,
@@ -761,11 +783,10 @@ def _score_shadow_model(
     """
     run = create_inference_run(pipeline=pipeline, model=model, window=window, shadow=True)
     try:
-        try:
-            bundle = read_bundle(model.artifact_prefix)
-            _validate_bundle_feature_sql(bundle)
-        except Exception as exc:
-            raise InferenceRunError(f"Could not read a runnable bundle at {model.artifact_prefix}: {exc}") from exc
+        if isinstance(bundle, Exception):
+            raise InferenceRunError(
+                f"Could not read a runnable bundle at {model.artifact_prefix}: {bundle}"
+            ) from bundle
         score_data = _shadow_score_data(
             team=team,
             pipeline=pipeline,

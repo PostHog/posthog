@@ -1079,15 +1079,16 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
         return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
 
     def test_each_shadow_model_scores_the_champions_people_person_less(self):
-        same_sql = self._model("same_sql", _ANCHORS_FEATURE_SQL)
         other_a = self._model("other_a", _OTHER_FEATURE_SQL)
+        same_sql = self._model("same_sql", _ANCHORS_FEATURE_SQL)
         other_b = self._model("other_b", _OTHER_FEATURE_SQL)
 
         cadence = self._run()
         run, capture, materialize = cadence.run, cadence.capture, cadence.materialize
 
         assert run.status == AutoresearchRun.Status.COMPLETED
-        # The champion's rows serve the model with its SQL; the two models with the other SQL share one query.
+        # The champion's rows serve the model with its SQL; the two models with the other SQL share one
+        # query, although the shadow set scores same_sql between them.
         assert materialize.call_count == 1
         assert materialize.call_args.kwargs["feature_sql"] == _OTHER_FEATURE_SQL
         assert sorted(run.metrics["shadow_models"]["completed"]) == sorted(
