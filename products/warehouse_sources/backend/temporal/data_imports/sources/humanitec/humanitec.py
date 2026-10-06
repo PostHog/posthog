@@ -40,7 +40,7 @@ class HumanitecResumeConfig:
 
 
 def client_config(config: HumanitecSourceConfig) -> ClientConfig:
-    if not re.fullmatch(r"[a-z0-9](?:-?[a-z0-9]+)+", config.organization_id) or len(config.organization_id) > 50:
+    if len(config.organization_id) > 50 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", config.organization_id):
         raise ValueError(INVALID_ORGANIZATION_ERROR)
     return {
         "base_url": API_BASE_URL,
@@ -104,7 +104,7 @@ def humanitec_source(
         "params": params,
     }
     target: EndpointResource = {"name": endpoint, "endpoint": target_endpoint}
-    resources: list[EndpointResource] = []
+    resources: list[str | EndpointResource] = []
     if settings.parent:
         parent: EndpointResource = {
             "name": settings.parent,

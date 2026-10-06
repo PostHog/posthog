@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from http import HTTPStatus
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitec import (
     HumanitecSourceConfig,
 )
@@ -27,6 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.humanitec.
 
 BASE = "https://api.humanitec.io/orgs/example-org"
 CONFIG = HumanitecSourceConfig(api_token="test-token", organization_id="example-org")
+
+
+def source_items(source: SourceResponse) -> Iterable[list[dict[str, object]]]:
+    return cast(Iterable[list[dict[str, object]]], source.items())
 
 
 def response(body: object, status: int = 200, next_url: str | None = None) -> Response:
@@ -75,7 +80,7 @@ def test_single_page_lists(
 ) -> None:
     http.responses = [response(rows)]
     source = humanitec_source(CONFIG, endpoint, 1, "job", manager)
-    assert [row for page in source.items() for row in page] == rows
+    assert [row for page in source_items(source) for row in page] == rows
     http.send.assert_called_once()
     request = http.send.call_args.args[0]
     assert request.url == f"{BASE}/{path}"
@@ -102,7 +107,7 @@ def test_environment_children_keep_parent_keys(
         response([{key: "same-id", "env_id": "staging"}]),
     ]
     source = humanitec_source(CONFIG, endpoint, 1, "job", manager)
-    rows = [row for page in source.items() for row in page]
+    rows = [row for page in source_items(source) for row in page]
     assert rows == [
         {key: "same-id", "app_id": "app-a", "env_id": "staging"},
         {key: "same-id", "app_id": "app-b", "env_id": "staging"},
@@ -123,7 +128,7 @@ def test_environments_keep_application_id(http: MagicMock, manager: MagicMock) -
         response([{"id": "staging"}]),
     ]
     source = humanitec_source(CONFIG, "environments", 1, "job", manager)
-    rows = [row for page in source.items() for row in page]
+    rows = [row for page in source_items(source) for row in page]
     assert rows == [{"id": "staging", "app_id": "app-a"}, {"id": "staging", "app_id": "app-b"}]
     assert len({tuple(row[field] for field in source.primary_keys or []) for row in rows}) == 2
 
@@ -135,7 +140,7 @@ def test_pipeline_pagination_and_checkpoints(
     next_url = f"{BASE}/apps/app-a/pipelines?page=cursor-2&per_page=100"
     http.responses = [response([{"id": "app-a"}]), response(first_page, next_url=next_url), response([{"id": "last"}])]
     source = humanitec_source(CONFIG, "pipelines", 1, "job", manager)
-    assert [row for page in source.items() for row in page] == [
+    assert [row for page in source_items(source) for row in page] == [
         *[{**row, "app_id": "app-a"} for row in first_page],
         {"id": "last", "app_id": "app-a"},
     ]
@@ -165,7 +170,7 @@ def test_resume_skips_completed_parents_and_uses_saved_page(http: MagicMock, man
     )
     http.responses = [response([{"id": "app-a"}, {"id": "app-b"}]), response([{"id": "last"}])]
     source = humanitec_source(CONFIG, "pipelines", 1, "job", manager)
-    assert list(source.items()) == [[{"id": "last", "app_id": "app-b"}]]
+    assert list(source_items(source)) == [[{"id": "last", "app_id": "app-b"}]]
     assert [call.args[0].url for call in http.send.call_args_list] == [f"{BASE}/apps", next_url]
 
 
@@ -194,7 +199,7 @@ def test_authentication_errors_are_terminal(http: MagicMock, manager: MagicMock,
     http.responses = [response({"error": f"HTTP-{status}", "message": HTTPStatus(status).phrase}, status)]
     source = humanitec_source(CONFIG, "applications", 1, "job", manager)
     with pytest.raises(HTTPError) as error:
-        list(source.items())
+        list(source_items(source))
     assert any(pattern in str(error.value) for pattern in HumanitecSource().get_non_retryable_errors())
     http.send.assert_called_once()
 
@@ -211,7 +216,8 @@ def test_transient_probe_errors_propagate(http: MagicMock, status: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "organization", ["", "../users", "example/org", "https://example.com", "UPPERCASE", "bad--id", "a" * 51]
+    "organization",
+    ["", "../users", "example/org", "https://example.com", "UPPERCASE", "bad--id", "a" * 49 + "!", "a" * 51],
 )
 def test_invalid_organization_never_sends_token(http: MagicMock, manager: MagicMock, organization: str) -> None:
     config = HumanitecSourceConfig(api_token="test-token", organization_id=organization)
@@ -230,7 +236,7 @@ def test_pipeline_links_cannot_retarget_credentials(http: MagicMock, manager: Ma
     http.responses = [response([{"id": "app-a"}]), response([{"id": "first"}], next_url=next_url)]
     source = humanitec_source(CONFIG, "pipelines", 1, "job", manager)
     with pytest.raises(ValueError, match="Refusing to send"):
-        list(source.items())
+        list(source_items(source))
     assert http.send.call_count == 2
 
 
@@ -258,7 +264,7 @@ def test_resume_after_final_parent_does_not_repeat_rows(
     )
     http.responses = [response([{"id": "app-a", "envs": [{"id": "staging"}]}])]
     source = humanitec_source(CONFIG, endpoint, 1, "job", manager)
-    assert list(source.items()) == []
+    assert list(source_items(source)) == []
     http.send.assert_called_once()
     assert http.send.call_args.args[0].url == f"{BASE}/apps"
 
