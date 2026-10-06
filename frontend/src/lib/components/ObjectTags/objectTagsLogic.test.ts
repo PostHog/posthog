@@ -25,10 +25,10 @@ describe('objectTagsLogic', () => {
                 editingTags: false,
             })
         })
-        it('cleans new tags', async () => {
+        it('cleans new tags and drops blank ones', async () => {
             await expectLogic(logic, async () => {
                 logic.actions.setEditingTags(true)
-                logic.actions.setTags(['a', 'b', 'c', 'Nightly'])
+                logic.actions.setTags(['a', '', 'b', '   ', 'c', ' Nightly '])
             }).toMatchValues({
                 editingTags: true,
             })
