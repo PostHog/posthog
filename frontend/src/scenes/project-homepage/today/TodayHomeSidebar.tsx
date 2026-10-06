@@ -89,6 +89,7 @@ export function TodayHomeSidebar(): JSX.Element {
                 variant="outline"
                 size="lg"
                 className="mb-1 w-full"
+                nativeButton={false}
                 render={<LinkPrimitive to={urls.taskNewSession()} />}
                 data-attr="today-new-chat"
             >

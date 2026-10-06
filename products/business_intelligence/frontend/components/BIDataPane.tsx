@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { ConnectionSelector } from 'scenes/data-warehouse/editor/ConnectionSelector'
-
 import { BIConnections } from 'products/business_intelligence/frontend/BIConnections'
 import { BIDataPaneSection } from 'products/business_intelligence/frontend/BIDataPaneSection'
 import { BIDataSourcePicker } from 'products/business_intelligence/frontend/BIDataSourcePicker'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
+
+import { BIConnectionSelector } from './BIConnectionSelector'
 
 /** Lists the selected table's fields as dimensions and measures, ready to drag onto shelves. */
 export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
@@ -31,7 +31,7 @@ export function BIDataPane({ tabId }: { tabId: string }): JSX.Element {
                 <span className="text-sm font-semibold">Data</span>
             </div>
             <div className="flex flex-col gap-1.5 p-2">
-                <ConnectionSelector tabId={tabId} />
+                <BIConnectionSelector tabId={tabId} />
                 <BIDataSourcePicker />
                 {config.source ? (
                     <LemonInput
