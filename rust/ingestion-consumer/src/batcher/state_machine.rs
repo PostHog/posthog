@@ -68,13 +68,9 @@ pub struct Effects {
     pub next_wakeup: Option<Instant>,
 }
 
-/// Every action consumes the state and returns the next state with the
-/// [`Effects`] to perform, so a caller cannot act on a state it has
-/// already left. An action does no I/O.
+/// Actions do no I/O: the caller performs the returned [`Effects`].
 pub enum BatcherStateMachine {
     Running(ActiveState),
-    /// Shutdown started: no new groups, and retries continue until nothing is
-    /// pending or in flight.
     Draining(ActiveState),
     Stopped,
     Failed,
