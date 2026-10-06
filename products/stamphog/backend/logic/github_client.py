@@ -1496,10 +1496,11 @@ class StamphogGitHubClient:
     def get_user_team_slugs(self, org: str, login: str) -> list[str]:
         """Return the sorted GitHub team slugs ``login`` belongs to within ``org`` (GraphQL).
 
-        Best-effort: this feeds digest audience routing, never a hard requirement, so every failure
-        mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the org's
-        "Members: read" permission — or a null organization) logs a warning and returns ``[]`` instead
-        of raising.
+        Every failure mode (HTTP error, GraphQL ``errors`` — typically the App installation missing the
+        org's "Members: read" permission — or a null organization) logs a warning and returns ``[]``
+        instead of raising. The engine reads ``[]`` as "on no team", which is the safe direction: the
+        reviewer treats the author as outside the owning team, and a deny category's
+        ``exempt_author_teams`` exempts nobody, so the owning team's PRs on those paths are refused.
         """
         query = (
             "query($org: String!, $login: String!) { "

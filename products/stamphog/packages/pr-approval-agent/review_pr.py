@@ -639,12 +639,13 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        matches = ", ".join(_describe_deny_category(c) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
+            return False, f"matches: {matches} (scripts/hooks changed in {risky_names})"
         if deny:
-            return False, f"matches: {', '.join(_describe_deny_category(c) for c in deny)}"
+            return False, f"matches: {matches}"
         return True, "no deny categories matched"
 
     def _summarize_ownership(self) -> str:
