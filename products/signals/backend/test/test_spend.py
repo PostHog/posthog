@@ -26,7 +26,7 @@ from products.signals.backend.pricing import cost_to_spend
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import signal_spend_scope, signal_spend_summaries, signal_spend_totals
 from products.signals.backend.spend_tasks import reconcile_signal_spend
-from products.tasks.backend.logic.services.gateway_usage import process_pending_gateway_usage, record_generation_request
+from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -91,30 +91,29 @@ class TestSignalSpend(BaseTest):
             state={"ai_stage": stage, "unprocessed_request_ids": [], "token_cost": {}},
         )
 
-    def _settle(self, run: TaskRun, request_id: str, cost: int) -> None:
-        with self.captureOnCommitCallbacks(execute=True):
-            record_generation_request(team_id=self.team.id, run_id=run.id, request_id=request_id)
-            with patch(
-                "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
-                new=AsyncMock(
-                    return_value=GatewayRequestCost(model="model-a", provider="provider-a", cost_microusd=cost)
-                ),
-            ):
-                process_pending_gateway_usage(team_id=self.team.id, run_id=run.id)
+    def _set_task_cost(self, run: TaskRun, cost: int | None) -> None:
+        run.refresh_from_db()
+        state = dict(run.state or {})
+        state["unprocessed_request_ids"] = ["pending-request"] if cost is None else []
+        if cost is not None:
+            state["token_cost"] = {"model-a": {"provider-a": {"cost_microusd": cost}}}
+        run.state = state
+        run.save(update_fields=["state"])
+        task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=self.team.id)
 
     def test_late_task_cost_updates_charge_driver_once_and_preserve_fractional_cents(self) -> None:
         driver, other = str(uuid4()), str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
         research = self._run(report=report)
         implementation = self._run(report=report, stage="implementation")
-        self._settle(research, "research-1", 10_001)
-        self._settle(implementation, "implementation-1", 25_002)
+        self._set_task_cost(research, 10_001)
+        self._set_task_cost(implementation, 25_002)
         reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5003}
 
         report.triggering_signal_id = other
         report.save(update_fields=["triggering_signal_id"])
-        self._settle(research, "research-late", 3)
+        self._set_task_cost(research, 10_004)
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 11.5003}
         reconcile_signal_spend()
         reconcile_signal_spend()
@@ -122,7 +121,7 @@ class TestSignalSpend(BaseTest):
         assert SignalSpend.objects.for_team(self.team.id).count() == 2
 
         rerun = self._run(task=implementation.task, stage="implementation")
-        self._settle(rerun, "rerun-1", 1)
+        self._set_task_cost(rerun, 1)
         reconcile_signal_spend()
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 15.5007}
 
@@ -188,17 +187,17 @@ class TestSignalSpend(BaseTest):
         )
         task_run.status = TaskRun.Status.FAILED
         task_run.save(update_fields=["status"])
-        self._settle(task_run, "scout-1", 123_456)
+        self._set_task_cost(task_run, 123_456)
         reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
-        record_generation_request(team_id=self.team.id, run_id=task_run.id, request_id="scout-late")
+        self._set_task_cost(task_run, None)
         reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == ["scout"]
-        self._settle(task_run, "scout-late", 1)
+        self._set_task_cost(task_run, 123_457)
         reconcile_signal_spend()
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3457")
