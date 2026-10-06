@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconGlobe, IconPeople } from '@posthog/icons'
-import { Text } from '@posthog/quill'
+import { Item, ItemContent, ItemDescription, ItemMedia } from '@posthog/quill'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -39,14 +39,17 @@ export function TodayChatVisibilityBanner({
             : `This chat is in ${spaceName ? `the older space ${spaceName}` : 'an older space'}. Only its members can see it.${mine ? ' Make it public or move it to personal to change who can see it.' : ''}`
 
     return (
-        <div
-            className="mx-auto mt-3 flex w-full max-w-200 items-start gap-2 rounded-md border border-border bg-info px-3 py-2"
+        <Item
+            variant="outline"
+            tone="info"
+            size="sm"
+            className="mx-4 mt-3 w-auto"
             data-attr="today-chat-visibility-banner"
         >
-            <span className="mt-0.5 shrink-0 text-info-foreground">
-                {visibility === 'public' ? <IconGlobe /> : <IconPeople />}
-            </span>
-            <Text size="sm">{message}</Text>
-        </div>
+            <ItemMedia variant="icon">{visibility === 'public' ? <IconGlobe /> : <IconPeople />}</ItemMedia>
+            <ItemContent>
+                <ItemDescription>{message}</ItemDescription>
+            </ItemContent>
+        </Item>
     )
 }
