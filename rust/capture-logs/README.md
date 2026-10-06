@@ -64,8 +64,12 @@ The value must be between 1 and `MAX_BACKFILL_DAYS`. A request outside that rang
 rather than being narrowed to the default, because an import whose timestamps are quietly replaced
 looks successful and writes most of its records onto the ingest time.
 
-`MAX_BACKFILL_DAYS` is per-deployment, so turning it on grants the capability to every project on
-that deployment.
+`MAX_BACKFILL_DAYS` is per-deployment. Which projects may use it is decided per project by the
+`logs-backfill-enabled` feature flag, matched on the `project` group. This service has no flag
+client, so it marks each message from a `backfill_days` request with a `backfill_days` header, and
+the logs consumer drops the whole message when the team does not have the flag. That drop also
+happens after a 200, and is counted per team in the `records_dropped_backfill_not_enabled` usage
+metric. Row age cannot replace the header, because a backfill request can carry recent records.
 
 The future bound stays at 24 hours whatever `backfill_days` says. A timestamp ahead of the
 ingest time is a client clock error in every case, and accepting one would let a single client
