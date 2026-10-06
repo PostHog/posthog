@@ -142,28 +142,52 @@ export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface HogFlowTemplateApi {
+    /** ID of the template. */
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at: string
     /** @nullable */
     readonly created_by: HogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */
@@ -195,28 +219,52 @@ export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface PatchedHogFlowTemplateApi {
+    /** ID of the template. */
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name?: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope?: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: PatchedHogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at?: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions?: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */
@@ -305,6 +353,15 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface HogFlowLastRunApi {
+    /** The task this run belongs to. */
+    readonly task_id: string
+    /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+    readonly status: string
+    /** When the run started, or when the task was created if it has no run yet. */
+    readonly ran_at: string
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -337,6 +394,18 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
+    /**
+     * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+     * @nullable
+     */
+    readonly pending_suggestions: number | null
+    /**
+     * Whether someone turned suggestions on for this workflow. Read on the list only.
+     * @nullable
+     */
+    readonly suggestions_enabled: boolean | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -658,6 +727,8 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -757,6 +828,8 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -856,6 +929,8 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at?: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run?: HogFlowLastRunApi | null
 }
 
 /**
@@ -967,6 +1042,7 @@ export const HogFlowBatchJobStateEnumApi = {
 } as const
 
 export interface HogFlowBatchJobApi {
+    /** ID of the batch run. */
     readonly id: string
     /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
      *
@@ -983,8 +1059,11 @@ export interface HogFlowBatchJobApi {
     readonly filters: unknown
     /** Variable value overrides applied to this run. */
     variables?: unknown
+    /** When the batch run was created. */
     readonly created_at: string
+    /** User who started the batch run. */
     readonly created_by: UserBasicApi
+    /** When the batch run was last updated. */
     readonly updated_at: string
 }
 
@@ -1170,6 +1249,11 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+export interface HogFlowOptimizationApi {
+    /** Whether PostHog may suggest changes to this workflow. */
+    enabled: boolean
+}
+
 /**
  * * `suggested` - Suggested
  * * `approved` - Approved
@@ -1192,7 +1276,7 @@ export const WorkflowProposalStatusEnumApi = {
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
 /**
- * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+ * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
  */
 export type WorkflowProposalApiEvidence = { [key: string]: unknown }
 
@@ -1204,7 +1288,7 @@ export interface WorkflowProposalApi {
     readonly rationale: string
     /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
-    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
     /**
      * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -1213,7 +1297,7 @@ export interface WorkflowProposalApi {
     readonly step_id: string | null
     /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
     readonly base_version: number
-    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
     readonly is_stale: boolean
     readonly status: WorkflowProposalStatusEnumApi
     /**
@@ -1263,8 +1347,11 @@ export interface WorkflowProposalCreateApi {
     content: WorkflowProposalCreateApiContent
     /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
     evidence?: WorkflowProposalCreateApiEvidence
-    /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-    base_version?: number
+    /**
+     * Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.
+     * @minimum 1
+     */
+    base_version: number
     /**
      * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
      * @maxLength 200
@@ -1289,6 +1376,28 @@ export interface WorkflowProposalApproveRequestApi {
     expected_draft_updated_at?: string | null
 }
 
+export interface WorkflowVersionChangeApi {
+    /**
+     * Step the field belongs to, or null for a workflow field.
+     * @nullable
+     */
+    step_name: string | null
+    /** What changed, as a person reads it, e.g. 'email > subject'. */
+    field: string
+    /**
+     * Value in the version before this one.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * Value this version published.
+     * @nullable
+     */
+    after: string | null
+    /** Whether the suggestion is what changed this field. */
+    from_suggestion: boolean
+}
+
 export interface WorkflowProposalMetricApi {
     /** What was measured, e.g. 'email open rate'. */
     metric: string
@@ -1306,8 +1415,29 @@ export interface WorkflowProposalMetricApi {
 export interface WorkflowProposalVersionOutcomeApi {
     /** Workflow version these numbers belong to. */
     version: number
+    /** Whether the suggestion went live as this version. */
+    applied?: boolean
+    /** Whether the suggestion was written against this version. */
+    proposed_against?: boolean
+    /** Whether this version still holds what the suggestion changed. */
+    carries_change?: boolean
+    /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+    other_changes?: boolean
+    /** What this version changed against the version before it. */
+    changes?: WorkflowVersionChangeApi[]
+    /**
+     * When this version went live.
+     * @nullable
+     */
+    published_at?: string | null
+    /** Who published this version. */
+    published_by?: UserBasicApi | null
+    /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+    versions?: number[]
     /** The metric the suggestion aimed at. */
     target: WorkflowProposalMetricApi
+    /** The rate read beside the target, so a lift in one is visible against the other. */
+    secondary?: WorkflowProposalMetricApi
     /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
     click_through: WorkflowProposalMetricApi
     /** Counter-metrics over the same window, so a harmful win is visible. */
@@ -1315,12 +1445,17 @@ export interface WorkflowProposalVersionOutcomeApi {
 }
 
 export interface WorkflowProposalOutcomeApi {
-    /** Relative window both sides were measured over. */
-    window: string
+    /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+    versions: WorkflowProposalVersionOutcomeApi[]
     /** The version the change was proposed against. */
     before: WorkflowProposalVersionOutcomeApi | null
-    /** The version it went live as. Null until the proposal is applied. */
+    /** The versions that carried the change. Null until the proposal is applied. */
     after: WorkflowProposalVersionOutcomeApi | null
+    /**
+     * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+     * @nullable
+     */
+    change_ended_at_version: number | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
 }
@@ -1510,6 +1645,7 @@ export interface WorkflowEmailPauseStatusApi {
 export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
 }
@@ -1526,6 +1662,7 @@ export interface PaginatedHogFlowRevisionBasicListApi {
 export interface HogFlowRevisionApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
@@ -1936,6 +2073,10 @@ export type HogFlowsListParams = {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string
     created_at?: string
     /**
      * Filter to workflows created by the user with this uuid.
@@ -1950,6 +2091,10 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
@@ -2270,6 +2415,72 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Week: 'week',
 } as const
 
+export type HogFlowsMetricsVersionRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsVersionRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsVersionRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version: number
+}
+
+export type HogFlowsMetricsVersionRetrieveBreakdownBy =
+    (typeof HogFlowsMetricsVersionRetrieveBreakdownBy)[keyof typeof HogFlowsMetricsVersionRetrieveBreakdownBy]
+
+export const HogFlowsMetricsVersionRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFlowsMetricsVersionRetrieveInterval =
+    (typeof HogFlowsMetricsVersionRetrieveInterval)[keyof typeof HogFlowsMetricsVersionRetrieveInterval]
+
+export const HogFlowsMetricsVersionRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
@@ -2293,13 +2504,6 @@ export const HogFlowsProposalsListStatus = {
     Rejected: 'rejected',
     Suggested: 'suggested',
 } as const
-
-export type HogFlowsProposalsOutcomeRetrieveParams = {
-    /**
-     * Relative window, e.g. -7d. Defaults to -7d.
-     */
-    window?: string
-}
 
 export type HogFlowsRevisionsListParams = {
     /**

@@ -35,15 +35,18 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("UTC", "2026-09-10T08:00:00Z"),
-            ("America/Los_Angeles", "2026-09-10T06:00:00Z"),
-            ("America/Los_Angeles", "2026-09-10T08:00:00Z"),
-            ("America/Santiago", "2026-09-10T04:00:00Z"),
-            ("Asia/Kathmandu", "2026-09-10T19:00:00Z"),
+            ("UTC", 8),
+            ("America/Los_Angeles", 6),
+            ("America/Los_Angeles", 8),
+            ("America/Santiago", 4),
+            ("Asia/Kathmandu", 19),
         ]
     )
-    def test_current_utc_window_refreshes_after_two_hours(self, timezone: str, now: str) -> None:
+    def test_current_utc_window_refreshes_after_two_hours(self, timezone: str, hour: int) -> None:
         self.team.timezone = timezone
+        now = time_machine.escape_hatch.datetime.datetime.now(UTC).replace(
+            hour=hour, minute=0, second=0, microsecond=0
+        ) + timedelta(days=2)
         with time_machine.travel(now, tick=False) as clock:
             created_at = datetime.now(UTC)
             start = created_at.replace(hour=0, minute=0, second=0, microsecond=0)

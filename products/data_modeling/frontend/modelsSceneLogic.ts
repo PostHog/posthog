@@ -43,6 +43,7 @@ export interface modelsSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     activeTab: ModelsSceneTab
+    lineageTabVisited: boolean
     dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
@@ -135,6 +136,12 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             'overview' as ModelsSceneTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        lineageTabVisited: [
+            false,
+            {
+                setActiveTab: (visited, { tab }) => visited || tab === 'lineage',
             },
         ],
         now: [

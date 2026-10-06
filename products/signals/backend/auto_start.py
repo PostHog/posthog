@@ -60,13 +60,14 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
-from products.signals.backend.scout_authorship import resolve_touching_scout_skills
+from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.stack_plan import dependency_head_branch
 from products.signals.backend.supersession import (
     TargetVerificationUnavailable,
     decision_is_current,
@@ -312,6 +313,17 @@ def _head_branch_instruction(head_branch: str) -> str:
     )
 
 
+def _stack_base_instruction(stack_base_branch: str | None) -> str:
+    if not stack_base_branch:
+        return ""
+    return (
+        f"\n\nThis report is one layer of a stack of dependent pull requests. The run starts on "
+        f"`{stack_base_branch}`, the head branch of the pull request this layer builds on. Open your PR "
+        f"with `{stack_base_branch}` as its base, and do not push to that branch. Change only what this "
+        "layer's summary asks for, because the layer below already carries the rest."
+    )
+
+
 def _superseded_pr_instruction(supersede: SupersedeDecision) -> str:
     """Tell the agent which pull request it is replacing, and to say so in its own description.
 
@@ -374,6 +386,11 @@ def _build_autostart_task_description(
         "For visual or UX symptoms (loading states, layout, flashes), reproduce the state or review a "
         "session recording of the affected flow to confirm your fix changes it — unit tests alone do not "
         "verify a visual symptom.\n\n"
+        "Before you edit, read the repository's own guidance: CONTRIBUTING.md and the AGENTS.md, CLAUDE.md or "
+        "Cursor rules the harness points you to. Conventions such as disabled build tools, required commands and "
+        "directories not to touch live there. If the report or the history of the lines you would change shows "
+        "that the team made the current behavior deliberate (a removal, a guard, a winning experiment variant), "
+        "stop and say so in your summary rather than reverting it.\n\n"
         "You are acting fully autonomously on the user's behalf — there is no human approval step unless you "
         "explicitly request one. So before opening a PR against a repository the user does not own (any external "
         "/ third-party repo, not under the user's own org), check for the project's contribution and "
@@ -386,7 +403,11 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        "As soon as the change works and the tests you touched pass, make the work durable before anything "
+        "Find out how the repository runs its tests, lint and typecheck: AGENTS.md or CONTRIBUTING.md first, "
+        "then package.json scripts, a Makefile, pyproject.toml or the CI workflow. Run the subset that covers "
+        "the files you change before you open the PR. If you cannot run a check in the sandbox, name the "
+        "checks you skipped and why in the PR description, rather than implying they passed.\n\n"
+        "As soon as the change works and the checks you could run pass, make the work durable before anything "
         "else: stage it, commit with the git_signed_commit tool, push the branch, and open the draft PR; when "
         "the repository policy check above rules a PR out, push the branch to the user's fork instead. "
         "Only after that point, run the `/simplify` skill over your branch and push what it finds as "
@@ -536,6 +557,22 @@ def _capture_autostart_skipped(
         logger.exception("Failed to capture signals_autostart_skipped", report_id=report_id)
 
 
+def _duplicate_claims(*, team_id: int, report_id: str, duplicate_ids: list[str]) -> list[str]:
+    """Every report this one duplicates, directly or through a chain, the oldest claim's chain first.
+
+    `duplicate_chain` follows only the oldest `duplicate_of` link, so the cluster keeps a stable name.
+    The gate asks whether the work is already in flight, and the work can sit behind any claim, so
+    each later claim's chain is walked too. The node budget bounds a report that holds many claims.
+    """
+    claims = duplicate_chain(team_id=team_id, report_id=report_id)
+    for target_id in duplicate_ids:
+        if len(claims) >= SignalReportArtefact.MAX_REPORT_LINK_GRAPH_NODES:
+            break
+        if target_id not in claims:
+            claims += [target_id, *duplicate_chain(team_id=team_id, report_id=target_id)]
+    return list(dict.fromkeys(claims))
+
+
 def _duplicate_already_worked_on(*, team_id: int, chain: list[str]) -> str | None:
     """The nearest report in the duplicate chain that already holds this work, or None.
 
@@ -573,9 +610,11 @@ def _evaluate_link_gates(team_id: int, report_id: str) -> AutostartSkip | None:
     """
     links = outgoing_links(team_id=team_id, report_id=report_id)
 
-    if any(edge.kind == ReportLinkKind.DUPLICATE_OF for edge in links):
+    duplicate_ids = [edge.target_id for edge in links if edge.kind == ReportLinkKind.DUPLICATE_OF]
+    if duplicate_ids:
         deciding_id = _duplicate_already_worked_on(
-            team_id=team_id, chain=duplicate_chain(team_id=team_id, report_id=report_id)
+            team_id=team_id,
+            chain=_duplicate_claims(team_id=team_id, report_id=report_id, duplicate_ids=duplicate_ids),
         )
         if deciding_id is not None:
             return AutostartSkip(
@@ -692,6 +731,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    stack_base_branch: str | None = None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
     free_trial_enabled: bool | None = None,
@@ -844,6 +884,7 @@ def _create_implementation_task_if_absent(
             # The pre-generated branch the description instructs the agent to push to; stamped
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
+            stack_base_branch=stack_base_branch,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1488,6 +1529,11 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
+    stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id, repository=repository
+    )
+    if stack_base_branch:
+        base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -1511,10 +1557,12 @@ async def maybe_autostart_implementation_task(
                 source_references=source_references,
                 steering=steering,
                 supersede=supersede,
-            ),
+            )
+            + _stack_base_instruction(stack_base_branch),
             user_id=task_user.id,
             repository=repository,
             base_branch=base_branch,
+            stack_base_branch=stack_base_branch,
             billing_exempt_reason=billing_exempt_reason,
             steering=steering,
             # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
@@ -1616,7 +1664,18 @@ async def maybe_autostart_from_report_artefacts(
 
     When the latest reviewers artefact was user-edited, the task runs as that editing user (not a
     named colleague) — see `_latest_reviewers_content` and `triggering_user_id`.
+
+    A report that a background-enrolled scout authored never auto-starts. Nobody on the project
+    asked for that scout, so its findings must not open pull requests on their own.
     """
+    if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="report from background scout",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports from background scouts do not auto-start")
     if dispatch is None:
         from products.signals.backend.implementation_dispatch import (
             ImplementationDispatcher,  # noqa: PLC0415 - breaks the dispatcher/autostart cycle

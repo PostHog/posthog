@@ -1,13 +1,15 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from './broadcastWizardLogic'
+import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
@@ -22,6 +24,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         created_at: '2026-01-01T00:00:00Z',
         created_by: { id: 1, uuid: 'user-1', email: 'user@example.com', hedgehog_config: null },
         updated_at: overrides.updatedAt,
+        last_run: null,
         trigger: { type: 'batch', filters: { properties: [] } },
         conversion: null,
         email_sending_rate_limit: null,
@@ -59,12 +62,16 @@ describe('broadcastWizardLogic', () => {
     let latest: HogFlowApi
     let releaseCreate: () => void
     let patchedSubjects: string[]
+    let patchedTracking: unknown[]
+    let patchedNames: string[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
     let failPatches: number
 
     beforeEach(() => {
         patchedSubjects = []
+        patchedTracking = []
+        patchedNames = []
         holdPatch = null
         onPatchStarted = null
         failPatches = 0
@@ -74,6 +81,10 @@ describe('broadcastWizardLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/:id/': () => [200, latest],
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified: true } }],
+                    count: 1,
+                },
             },
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
@@ -84,14 +95,22 @@ describe('broadcastWizardLogic', () => {
             },
             patch: {
                 '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
-                    const body = (await request.json()) as { actions: any[] }
-                    const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
-                        .value.subject
+                    const body = (await request.json()) as { actions?: any[]; name?: string }
+                    if (!body.actions) {
+                        patchedNames.push(body.name ?? '')
+                        return [
+                            200,
+                            savedBroadcast({ name: body.name ?? '', subject: '', updatedAt: '2026-09-24T10:00:05Z' }),
+                        ]
+                    }
+                    const emailConfig = body.actions.find((action) => action.type === 'function_email').config
+                    const subject = emailConfig.inputs.email.value.subject
                     if (failPatches > 0) {
                         failPatches -= 1
                         return [500, { detail: 'Simulated outage' }]
                     }
                     patchedSubjects.push(subject)
+                    patchedTracking.push(emailConfig.tracking_enabled)
                     onPatchStarted?.()
                     if (holdPatch) {
                         await holdPatch
@@ -145,6 +164,28 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it.each([
+        { case: 'a renamed draft', status: 'draft', name: 'Spring sale, final', saved: ['Spring sale, final'] },
+        { case: 'an unchanged name', status: 'draft', name: 'Spring sale', saved: [] },
+        { case: 'a blank name', status: 'draft', name: '  ', saved: [] },
+        { case: 'a live broadcast', status: 'active', name: 'Spring sale, final', saved: [] },
+    ])('saves the name on blur only for $case', async ({ status, name, saved }) => {
+        logic.actions.draftAutosaved({
+            ...savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' }),
+            status: status as HogFlowApi['status'],
+        })
+        logic.actions.setName(name)
+
+        await expectLogic(logic, () => {
+            logic.actions.saveName()
+        }).toFinishAllListeners()
+
+        expect(patchedNames).toEqual(saved)
+        if (saved.length) {
+            expect(logic.values.broadcast?.name).toEqual(name)
+        }
+    })
+
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
         await expectLogic(logic, () => {
@@ -156,16 +197,31 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
-    it('saves an email edit made while the draft is created before leaving /broadcasts/new', async () => {
+    it.each([
+        {
+            edit: 'an email edit',
+            apply: (): void =>
+                logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the create' }),
+            subject: 'Typed during the create',
+            tracking: true,
+        },
+        {
+            edit: 'turning tracking off',
+            apply: (): void => logic.actions.setEmailSettings({ trackingEnabled: false }),
+            subject: '',
+            tracking: false,
+        },
+    ])('saves $edit made while the draft is created before leaving /broadcasts/new', async (testCase) => {
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('content')
-        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the create' })
+        testCase.apply()
         releaseCreate()
 
         await expectLogic(logic).toDispatchActions(['draftAutosaved', 'draftAutosaved'])
         await expectLogic(logic).toDispatchActions(['showSavedDraftUrl']).toFinishAllListeners()
 
-        expect(patchedSubjects).toEqual(['Typed during the create'])
+        expect(patchedSubjects).toEqual([testCase.subject])
+        expect(patchedTracking).toEqual([testCase.tracking])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
@@ -252,12 +308,6 @@ describe('broadcastWizardLogic', () => {
                 updatedAt: editedElsewhere ? '2026-09-24T10:00:09Z' : '2026-09-24T10:00:00Z',
             })
             useMocks({
-                get: {
-                    '/api/projects/:team_id/integrations/': {
-                        results: [{ id: 1, kind: 'email', config: { verified: true } }],
-                        count: 1,
-                    },
-                },
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         200,
@@ -283,6 +333,32 @@ describe('broadcastWizardLogic', () => {
             expect(router.values.searchParams).toEqual({ step })
         }
     )
+
+    it.each([
+        { sender: 'a sender that still exists', integrationId: 1, integrationIds: undefined, expected: [] },
+        { sender: 'a deleted sender', integrationId: 7, integrationIds: undefined, expected: [DELETED_SENDER_ERROR] },
+        {
+            sender: 'a deleted sender in the rotation',
+            integrationId: 1,
+            integrationIds: [1, 7],
+            expected: [DELETED_SENDER_ERROR],
+        },
+    ])('flags $sender on the content step and once on review', async ({ integrationId, integrationIds, expected }) => {
+        integrationsLogic.mount()
+        await expectLogic(integrationsLogic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['loadIntegrationsSuccess'])
+
+        logic.actions.setEmail({
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId, integrationIds },
+            subject: 'Spring sale',
+            html: '<p>Hi</p>',
+        })
+
+        expect(logic.values.stepValidationErrors.content).toEqual(expected)
+        expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })

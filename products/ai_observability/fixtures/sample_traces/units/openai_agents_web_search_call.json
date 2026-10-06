@@ -1,0 +1,156 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Homework research agent verifies a date with web search",
+  "scenario": "A homework research agent built with the OpenAI Agents SDK gets asked when World War One started, runs a web search tool call to confirm the date, and returns a structured Zod-validated verdict.",
+  "summary": {
+    "events": {
+      "$ai_span": 1,
+      "$ai_trace": 1,
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 0,
+    "errors": 0,
+    "libs": [
+      "posthog-ai"
+    ],
+    "providers": [
+      "openai"
+    ],
+    "frameworks": [
+      "openai-agents"
+    ],
+    "models": [
+      "gpt-5.6-luna"
+    ],
+    "content_types": [
+      "message",
+      "output_text",
+      "search",
+      "web_search_call"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_span",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_span_name": "HomeworkResearchAgent",
+        "$ai_latency": 5.234999895095825,
+        "$lib_version": "5.51.2",
+        "environment": "prod",
+        "$ai_lib": "posthog-ai",
+        "$lib": "posthog-node",
+        "$ai_agent_handoffs": [],
+        "$ai_agent_tools": [
+          "web_search"
+        ],
+        "$ai_span_id": "span_rrqMPJeMHkPmCDfi9G9NXVyO",
+        "$geoip_disable": true,
+        "$ai_framework": "openai-agents",
+        "$ai_parent_id": null,
+        "$ai_trace_id": "trace_A8mjAcEesevP7o7L9sGJKgj8H5GnfH3L",
+        "$ai_span_type": "agent",
+        "$ai_provider": "openai",
+        "$ai_lib_version": "8.8.0",
+        "$ai_agent_output_type": "ZodOutput",
+        "$is_server": true
+      }
+    },
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_provider": "openai",
+        "environment": "prod",
+        "$lib": "posthog-node",
+        "$ai_latency": 5.234999895095825,
+        "$lib_version": "5.51.2",
+        "$is_server": true,
+        "$ai_trace_metadata": {
+          "feature": "hw_research",
+          "modelAlias": "gpt-5.6-luna",
+          "orgId": "89eebdc4-b67a-7846-a560-508287ff86f9",
+          "plan": "premium",
+          "featureId": "hw_research",
+          "userId": "user_M0pEiKPWQ67xmZoxpK7BZzYOWu"
+        },
+        "$ai_framework": "openai-agents",
+        "$geoip_disable": true,
+        "$ai_trace_name": "homework_research_run",
+        "$ai_lib": "posthog-ai",
+        "$ai_lib_version": "8.8.0",
+        "$ai_trace_id": "trace_A8mjAcEesevP7o7L9sGJKgj8H5GnfH3L"
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 156,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_provider": "openai",
+        "$ai_cache_creation_input_tokens": 11,
+        "$ai_total_tokens": 8835,
+        "$ai_cache_read_input_tokens": 4548,
+        "$ai_latency": 5.232000112533569,
+        "$ai_reasoning_tokens": 28,
+        "$ai_trace_id": "trace_A8mjAcEesevP7o7L9sGJKgj8H5GnfH3L",
+        "$ai_framework": "openai-agents",
+        "environment": "prod",
+        "$ai_input_tokens": 8790,
+        "$ai_model": "gpt-5.6-luna",
+        "$ai_http_status": 200,
+        "$ai_response_id": "resp_t3yK05eexCHfGPlSYaBUaKWqergdNDIWTytX5R7RDqmT12QgkK",
+        "$ai_parent_id": "span_rrqMPJeMHkPmCDfi9G9NXVyO",
+        "$lib_version": "5.51.2",
+        "$ai_span_id": "span_WjTD7goUSlEsKI9nLiEO7SQ1",
+        "$is_server": true,
+        "$geoip_disable": true,
+        "$lib": "posthog-node",
+        "$ai_lib_version": "8.8.0",
+        "$ai_output_tokens": 45,
+        "$ai_lib": "posthog-ai",
+        "$ai_input": [
+          {
+            "content": "When did World War One start?",
+            "role": "user",
+            "type": "message"
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "action": {
+              "queries": [
+                "World War One start date"
+              ],
+              "query": "World War One start date",
+              "type": "search"
+            },
+            "id": "ws_hZMzMCrH4aSXPfgRTxkXdnDVUwNbkUL3dimeTv0ZQg0JgHvwzf",
+            "status": "completed",
+            "type": "web_search_call"
+          },
+          {
+            "content": [
+              {
+                "annotations": [],
+                "logprobs": [],
+                "text": "{\"citations\": null, \"confidence\": \"yes\"}",
+                "type": "output_text"
+              }
+            ],
+            "id": "msg_FJOMIWBbeof4bL0Pe73szz0NEDI2d9JSNaZjzSM5eZFDN57x1r",
+            "phase": "final_answer",
+            "role": "assistant",
+            "status": "completed",
+            "type": "message"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

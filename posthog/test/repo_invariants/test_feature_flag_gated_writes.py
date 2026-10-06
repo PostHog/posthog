@@ -23,9 +23,8 @@ GATED_PATH = {
 
 # Shrink-only. Move a write to the facade, then regenerate the baseline and drop its entry here.
 ALLOWED_REASONS: dict[str, str] = {
-    "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
-    "posthog/api/file_system/registrations.py": "file-system trash and restore flip active",
-    "products/early_access_features/backend/api.py": "never-fail cleanup when stored filters fail validation",
+    "products/surveys/backend/api/survey.py": "start/stop mirror of active, which the serializer would gate and guard",
+    "products/feature_flags/backend/facade/api.py": "never-fail early access enrollment cleanup",
     "posthog/management/commands/generate_random_product_tours.py": "local data generator",
     "posthog/management/commands/reencrypt_flag_payloads.py": "payload re-encryption command",
     "posthog/management/commands/sync_feature_flags.py": "local dev flag sync",
