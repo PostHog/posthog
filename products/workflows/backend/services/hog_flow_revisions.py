@@ -13,7 +13,7 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.services.workflow_proposals import unstage_workflow_proposals
+from products.workflows.backend.services.workflow_proposals import unstage_proposals_for_flow
 
 
 def count_revisions(hog_flow_id: UUID) -> int:
@@ -68,7 +68,7 @@ def restore_revision(
             raise WorkflowDraftChanged()
         locked.draft = dict(revision.content)
         locked.draft_updated_at = timezone.now()
-        unstage_workflow_proposals(locked.pk)
+        unstage_proposals_for_flow(locked)
         # Revision snapshots carry no secrets (they're stripped before snapshotting), so the
         # restored draft re-attaches from the live encrypted_inputs on the follow-up publish.
         # Clear any stale draft secrets from a prior draft so they can't bleed into this one.

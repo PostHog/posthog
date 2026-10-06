@@ -327,6 +327,24 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class MessageAsset:
+    invocation_id: str
+    action_id: str
+    function_id: str
+    parent_run_id: str
+    kind: str
+    distinct_id: str
+    person_id: str
+    recipient: str
+    subject: str
+    status: str
+    sent_at: datetime
+    # Human-readable workflow name; enriched by the endpoint before serialization.
+    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
+    function_name: str = ""
+
+
+@frozen
 class WorkflowRevisionSummary:
     """One entry of a workflow's version history, without the content snapshot."""
 
@@ -355,18 +373,13 @@ class WorkflowDraftChanged(Exception):
     """The staged draft changed since the caller confirmed the overwrite."""
 
 
-class ProposalMetric(TypedDict):
-    metric: str
-    value: float | None
-    n: int
-    below_minimum_sample: bool
+@frozen
+class ProposalChanges:
+    """What approving a suggestion would stage. `conflicts` names the steps or fields someone else
+    changed since it was written; approval is refused while there are any."""
 
-
-class ProposalVersionOutcome(TypedDict):
-    version: int
-    target: ProposalMetric
-    click_through: ProposalMetric
-    guardrails: list[ProposalMetric]
+    changes: dict
+    conflicts: list[str]
 
 
 @frozen
@@ -381,21 +394,3 @@ class EmailDesignRenderingNotConfigured(Exception):
 
 class EmailDesignRenderFailed(Exception):
     pass
-
-
-@frozen
-class MessageAsset:
-    invocation_id: str
-    action_id: str
-    function_id: str
-    parent_run_id: str
-    kind: str
-    distinct_id: str
-    person_id: str
-    recipient: str
-    subject: str
-    status: str
-    sent_at: datetime
-    # Human-readable workflow name; enriched by the endpoint before serialization.
-    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
-    function_name: str = ""

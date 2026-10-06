@@ -1,5 +1,4 @@
 import re
-import copy
 import json
 import uuid as uuid_mod
 import hashlib
@@ -15,8 +14,9 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, F, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -47,7 +47,14 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
-from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
+from posthog.api.app_metrics2 import (
+    AppMetricResponseSerializer,
+    AppMetricsMixin,
+    AppMetricsRequestSerializer,
+    AppMetricsTotalsResponseSerializer,
+    fetch_app_metric_totals_by_source,
+    fetch_app_metrics_trends,
+)
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
@@ -77,8 +84,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
-from posthog.models.filters import Filter
 from posthog.models.integration import Integration
+from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -125,6 +132,7 @@ from products.workflows.backend.facade.blast_radius import (
     is_account_audience,
     parse_account_audience_filters,
 )
+from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
@@ -154,9 +162,16 @@ from products.workflows.backend.facade.email_health import (
 from products.workflows.backend.facade.enums import HogFlowBatchJobState, HogFlowScheduleStatus
 from products.workflows.backend.facade.message_assets import fetch_message_asset_html, fetch_message_assets
 from products.workflows.backend.facade.proposals import (
-    UNAVAILABLE_GUARDRAILS,
+    HOG_FLOW_VERSION_APP_SOURCE,
+    PROPOSAL_MERGE_BY_ID_FIELDS,
+    as_the_serializer_stores_it,
     is_optimization_enabled,
+    merge_proposal_content,
+    proposal_conflicts,
+    proposal_outcome,
     set_optimization_enabled,
+    staged_proposal_changes,
+    target_metric_in,
     unstage_workflow_proposals,
     version_outcome,
 )
@@ -206,7 +221,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
-from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
+from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
@@ -230,22 +245,6 @@ from products.workflows.backend.services.timing_reschedule import (
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 
 logger = structlog.get_logger(__name__)
-
-
-# The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
-# else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
-# blob is a full snapshot of these fields so publish is a plain copy, not a merge.
-DRAFT_CONTENT_FIELDS = (
-    "actions",
-    "edges",
-    "trigger",
-    "trigger_masking",
-    "conversion",
-    "exit_condition",
-    "email_sending_rate_limit",
-    "abort_action",
-    "variables",
-)
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -363,20 +362,6 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
-    snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
-    # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
-    # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
-    # never-edited column.
-    for field in ("actions", "edges"):
-        if not snapshot[field]:
-            snapshot[field] = []
-    # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
-    # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
-    # secrets. New rows are already stripped, so this is a no-op for them.
-    return strip_content_secrets(snapshot)
-
-
 def existing_secret_map(instance: "HogFlow", template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:
     # Every stored secret a masked re-save may need to recover, later sources winning: legacy
     # plaintext (live, then draft), then the encrypted live map, then the encrypted draft map.
@@ -407,6 +392,14 @@ def mask_trigger_config(
     return masked[0].get("config")
 
 
+def snapshot_flow_content(flow: HogFlow) -> dict:
+    return snapshot_content({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
+
+
+def item_id(item: Any) -> Any:
+    return item.get("id") if isinstance(item, dict) else None
+
+
 def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Optional[TemplateCache] = None) -> dict:
     """Strip secret inputs from a proposal's content, classifying each step against the live step it
     patches. A patch carries only the fields it changes, so it can set a secret input without the
@@ -416,13 +409,13 @@ def strip_proposal_secrets(content: dict, live_content: dict, template_cache: Op
     actions = stripped.get("actions")
     if not isinstance(actions, list):
         return stripped
-    live_by_id = {_item_id(item): item for item in live_content.get("actions") or []}
+    live_by_id = {item_id(item): item for item in live_content.get("actions") or []}
     for item in actions:
-        live_step = live_by_id.get(_item_id(item))
+        live_step = live_by_id.get(item_id(item))
         inputs = (item.get("config") or {}).get("inputs") if isinstance(item, dict) else None
         if live_step is None or not isinstance(inputs, dict):
             continue
-        for key in secret_keys_for_action(_deep_merge(deepcopy(live_step), item), template_cache):
+        for key in secret_keys_for_action(deep_merge(deepcopy(live_step), item), template_cache):
             inputs.pop(key, None)
     return stripped
 
@@ -438,7 +431,8 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
-    property_groups = Filter(data=filters or {}, team=team).property_groups
+    # Cohorts are expanded so a flag condition nested inside one is still caught.
+    property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
@@ -1171,6 +1165,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     on_error = serializers.ChoiceField(
         choices=["continue", "abort"],
         required=False,
+        default=None,
         allow_null=True,
         help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
@@ -1250,6 +1245,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     )
     output_variable = serializers.JSONField(
         required=False,
+        default=None,
         allow_null=True,
         help_text="Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.",
     )
@@ -2522,6 +2518,12 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "with the publish endpoint or throw it away with discard_draft."
         ),
     )
+    pending_suggestions = serializers.SerializerMethodField(
+        help_text="How many suggested changes are waiting for a person on this workflow. Counted on the list only."
+    )
+    suggestions_enabled = serializers.SerializerMethodField(
+        help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
+    )
 
     class Meta:
         model = HogFlow
@@ -2550,6 +2552,8 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "billable_action_types",
             "user_access_level",
             "last_run",
+            "pending_suggestions",
+            "suggestions_enabled",
         ]
         read_only_fields = fields
 
@@ -2565,6 +2569,16 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             last_runs = list_workflow_last_runs(instance.team_id, user_id, [instance.id])
         last_run = last_runs.get(instance.id)
         return HogFlowLastRunSerializer(last_run).data if last_run else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_pending_suggestions(self, hog_flow: HogFlow) -> int | None:
+        # Annotated on the list queryset only; the detail serializer leaves it out.
+        return getattr(hog_flow, "pending_suggestions", None)
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_suggestions_enabled(self, hog_flow: HogFlow) -> bool | None:
+        # A workflow with suggestions on but none waiting is still worth telling apart in the list.
+        return getattr(hog_flow, "suggestions_enabled", None)
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -3342,7 +3356,7 @@ def _apply_action_email_edit(
         value["html"] = rendered.html
 
     if email_patch:
-        _deep_merge(value, email_patch)
+        deep_merge(value, email_patch)
 
     return new_actions
 
@@ -3529,12 +3543,6 @@ SELF_OPTIMISING_FEATURE_FLAG = "self-optimising-workflows"
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
 
-# Fields a proposal replaces wholesale. `actions` merges per step instead, since steps carry stable
-# ids; edges have no id, and a variable list is short enough to carry whole.
-PROPOSAL_WHOLE_LIST_FIELDS = ("edges", "variables")
-
-PROPOSAL_MERGE_BY_ID_FIELDS = ("actions",)
-
 # Their items reach helpers that read each item as a mapping, so anything else has to fail here as a 400.
 PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
@@ -3567,6 +3575,8 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; "
         "`n`, the denominator that value was computed over; and `guardrails`, a list of "
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
+        "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
+        "them under `measured`; the page shows that reading and flags a disagreement with yours. "
         "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
         "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
         "that lifts one number by harming another, and a number under a key of your own reads to a "
@@ -3581,9 +3591,7 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
 
 
 class HogFlowOptimizationSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(
-        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
-    )
+    enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
 
 
 class WorkflowProposalSerializer(serializers.ModelSerializer):
@@ -3593,7 +3601,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
     is_stale = serializers.SerializerMethodField(
         help_text=(
             "Whether approving this would undo an edit made since it was proposed. False while the "
-            "workflow only changed elsewhere, because approving merges per step."
+            "workflow only changed elsewhere, because approving merges only what the proposal changes."
         )
     )
 
@@ -3625,7 +3633,9 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
         cache = self.context.setdefault("proposal_conflicts", {})
         key = (proposal.hog_flow_id, proposal.base_version, json.dumps(proposal.content, sort_keys=True))
         if key not in cache:
-            cache[key] = conflicting_parts(proposal.hog_flow, proposal)
+            cache[key] = proposal_conflicts(
+                team_id=proposal.team_id, hog_flow_id=proposal.hog_flow_id, proposal_id=proposal.id
+            )
         return bool(cache[key])
 
 
@@ -3645,12 +3655,11 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text="The metric numbers behind the proposal, so a human can judge it without re-deriving them.",
     )
     base_version = serializers.IntegerField(
-        required=False,
+        min_value=1,
         help_text=(
-            "Workflow version this was authored against. Required when the proposal changes actions, "
-            "edges or variables: it is the snapshot approve compares against to tell whether someone "
-            "edited the same steps since, and a defaulted version would read as current however long "
-            "the producer took. Defaults to the current live version otherwise."
+            "Workflow version this was authored against, as read from the workflow. It is the snapshot "
+            "approve compares against to tell whether someone edited the same steps or fields since, "
+            "and a defaulted version would read as current however long the producer took."
         ),
     )
     step_id = serializers.CharField(
@@ -3675,8 +3684,14 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     )
 
     def validate_evidence(self, value: Any) -> dict:
-        if not isinstance(value, dict) or not value:
-            return value or {}
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError(
+                "Send `evidence` as an object whose fields name the metric and its reading, not a bare value."
+            )
+        if not value:
+            return {}
         # The panel reads these back by name; a producer's own key would render as "no data".
         if not isinstance(value.get("metric"), str) or not value["metric"].strip():
             raise exceptions.ValidationError(
@@ -3730,21 +3745,6 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
             _validate_merge_keys(field, value.get(field))
         return value
 
-    def validate(self, attrs: dict) -> dict:
-        changes_the_graph = any(
-            field in attrs.get("content", {}) for field in (*PROPOSAL_WHOLE_LIST_FIELDS, *PROPOSAL_MERGE_BY_ID_FIELDS)
-        )
-        if changes_the_graph and attrs.get("base_version") is None:
-            raise exceptions.ValidationError(
-                {
-                    "base_version": (
-                        "Send the workflow version you read, so approving this can tell whether the "
-                        "workflow moved on while you were writing it."
-                    )
-                }
-            )
-        return attrs
-
 
 class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
     overwrite = serializers.BooleanField(
@@ -3786,9 +3786,43 @@ class WorkflowProposalMetricSerializer(serializers.Serializer):
     )
 
 
+class WorkflowVersionChangeSerializer(serializers.Serializer):
+    step_name = serializers.CharField(
+        allow_null=True, help_text="Step the field belongs to, or null for a workflow field."
+    )
+    field = serializers.CharField(help_text="What changed, as a person reads it, e.g. 'email > subject'.")
+    before = serializers.CharField(allow_null=True, help_text="Value in the version before this one.")
+    after = serializers.CharField(allow_null=True, help_text="Value this version published.")
+    from_suggestion = serializers.BooleanField(help_text="Whether the suggestion is what changed this field.")
+
+
 class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Workflow version these numbers belong to.")
+    applied = serializers.BooleanField(required=False, help_text="Whether the suggestion went live as this version.")
+    proposed_against = serializers.BooleanField(
+        required=False, help_text="Whether the suggestion was written against this version."
+    )
+    carries_change = serializers.BooleanField(
+        required=False, help_text="Whether this version still holds what the suggestion changed."
+    )
+    other_changes = serializers.BooleanField(
+        required=False,
+        help_text="Whether this version also changed something the suggestion did not, which the numbers cannot separate.",
+    )
+    changes = WorkflowVersionChangeSerializer(
+        many=True, required=False, help_text="What this version changed against the version before it."
+    )
+    published_at = serializers.DateTimeField(allow_null=True, required=False, help_text="When this version went live.")
+    published_by = UserBasicSerializer(allow_null=True, required=False, help_text="Who published this version.")
+    versions = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Every version summed into these numbers. The after side runs on while later versions keep the change.",
+    )
     target = WorkflowProposalMetricSerializer(help_text="The metric the suggestion aimed at.")
+    secondary = WorkflowProposalMetricSerializer(
+        required=False, help_text="The rate read beside the target, so a lift in one is visible against the other."
+    )
     click_through = WorkflowProposalMetricSerializer(
         help_text="Click-through rate over the same window and denominator, since opens alone can move without clicks."
     )
@@ -3798,12 +3832,22 @@ class WorkflowProposalVersionOutcomeSerializer(serializers.Serializer):
 
 
 class WorkflowProposalOutcomeSerializer(serializers.Serializer):
-    window = serializers.CharField(help_text="Relative window both sides were measured over.")
+    versions = WorkflowProposalVersionOutcomeSerializer(
+        many=True,
+        help_text=(
+            "Every published version around the change, each read over its own time live, so a later edit shows up "
+            "as its own point rather than ending the comparison."
+        ),
+    )
     before = WorkflowProposalVersionOutcomeSerializer(
         allow_null=True, help_text="The version the change was proposed against."
     )
     after = WorkflowProposalVersionOutcomeSerializer(
-        allow_null=True, help_text="The version it went live as. Null until the proposal is applied."
+        allow_null=True, help_text="The versions that carried the change. Null until the proposal is applied."
+    )
+    change_ended_at_version = serializers.IntegerField(
+        allow_null=True,
+        help_text="The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.",
     )
     unavailable_guardrails = serializers.ListField(
         child=serializers.CharField(),
@@ -3832,6 +3876,12 @@ class ProposalNotRunnableError(exceptions.APIException):
         super().__init__(detail)
 
 
+class WorkflowNotLiveError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Suggestions need a live workflow. Enable it first."
+    default_code = "workflow_not_live"
+
+
 class WorkflowNotOptimisedError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
@@ -3845,7 +3895,7 @@ class ProposalOutOfDateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
         "Someone changed this workflow where the suggestion changes it, so approving it would undo "
-        "their edit. Ask for a fresh suggestion."
+        "their edit. Reject it, and the scout can suggest again from the current version on its next run."
     )
     default_code = "proposal_out_of_date"
 
@@ -3856,35 +3906,6 @@ class ProposalOutOfDateError(exceptions.APIException):
         super().__init__(detail)
 
 
-def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
-    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step
-    and, within a step, per field, so a proposal that rewrites one subject line leaves the rest of
-    that email and the rest of the graph exactly as they are now."""
-    merged = {**live_content, **proposal_content}
-    for field in PROPOSAL_MERGE_BY_ID_FIELDS:
-        if field in proposal_content:
-            merged[field] = _merge_by_id(live_content.get(field) or [], proposal_content[field] or [])
-    return merged
-
-
-def _merge_by_id(live_items: list, changed_items: list) -> list:
-    """Merge each changed step into the live step with the same id, field by field, the way the
-    graph API's `update_action` does: a producer sends the fields it changes and nothing else, so a
-    step can never lose its template inputs to a payload that only carried a subject line."""
-    changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = []
-    for item in live_items:
-        patch = changed_by_id.pop(_item_id(item), None)
-        merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
-    # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
-    merged.extend(changed_by_id.values())
-    return merged
-
-
-def _item_id(item: Any) -> Any:
-    return item.get("id") if isinstance(item, dict) else None
-
-
 def _validate_merge_keys(field: str, items: Any) -> None:
     """Merging is keyed on `id`, so a missing or repeated one has no defined meaning. Reject it here
     rather than picking a winner and staging a draft the author did not write."""
@@ -3892,144 +3913,14 @@ def _validate_merge_keys(field: str, items: Any) -> None:
         return
     seen: set[str] = set()
     for index, item in enumerate(items):
-        item_id = _item_id(item)
-        if not isinstance(item_id, str) or not item_id:
+        key = item_id(item)
+        if not isinstance(key, str) or not key:
             raise exceptions.ValidationError(
                 f"`{field}[{index}]` needs the `id` of the step it changes. Send only the steps you change."
             )
-        if item_id in seen:
-            raise exceptions.ValidationError(f"`{field}` names `{item_id}` twice.")
-        seen.add(item_id)
-
-
-def describe_steps(hog_flow: HogFlow, step_ids: list[str]) -> list[str]:
-    """Step names for a person to read. A step deleted since has no name left, so it keeps its id."""
-    names = {_item_id(item): item.get("name") for item in snapshot_flow_content(hog_flow).get("actions") or []}
-    return [names.get(step_id) or step_id for step_id in step_ids]
-
-
-def conflicting_parts(hog_flow: HogFlow, proposal: WorkflowProposal, content: Optional[dict] = None) -> list[str]:
-    """Parts of the workflow the proposal changes that someone else already changed since it was
-    written: step ids for `actions`, field names for everything else.
-
-    The check follows merge semantics. A step merges per field, so only the fields the proposal sets
-    on the steps it names are compared, as they were at `base_version` against as they are now. A
-    whole-list field replaces the list, so any publish since counts. Every other field replaces one
-    value, so that value is compared. An edit elsewhere merges cleanly, and an edit that already made
-    the proposed change is nothing to undo, so neither is a reason to refuse."""
-    if hog_flow.version == proposal.base_version:
-        return []
-    base_content = base_content_of(hog_flow, proposal)
-    content = proposal_changes(proposal, base_content) if content is None else content
-    touched_steps = {_item_id(item) for item in content.get("actions") or []} - {None}
-    touched_lists = [field for field in PROPOSAL_WHOLE_LIST_FIELDS if field in content]
-    touched_fields = [
-        field
-        for field in content
-        if field not in PROPOSAL_MERGE_BY_ID_FIELDS and field not in PROPOSAL_WHOLE_LIST_FIELDS
-    ]
-    if touched_lists:
-        # A whole-list field replaces the list, so any publish since counts.
-        return sorted({*touched_steps, *touched_lists, *touched_fields})
-    if base_content is None:
-        # Without the snapshot the proposal read, "changed since" is unanswerable.
-        return sorted({*touched_steps, *touched_fields})
-    live_content = snapshot_flow_content(hog_flow)
-    base_actions = {_item_id(item): item for item in base_content.get("actions") or []}
-    live_actions = {_item_id(item): item for item in live_content.get("actions") or []}
-    proposed_actions = {_item_id(item): item for item in content.get("actions") or []}
-    moved_steps = [
-        step_id
-        for step_id in touched_steps
-        # A step the proposal adds is only a conflict if that id now exists.
-        if not (step_id not in base_actions and step_id not in live_actions)
-        and _moved_since(base_actions.get(step_id), live_actions.get(step_id), proposed_actions[step_id])
-    ]
-    moved_fields = [
-        field
-        for field in touched_fields
-        # These replace the whole value, so a key the proposal does not name still goes with it.
-        if base_content.get(field) != live_content.get(field) and live_content.get(field) != content[field]
-    ]
-    return sorted({*moved_steps, *moved_fields})
-
-
-def base_content_of(hog_flow: HogFlow, proposal: WorkflowProposal) -> dict | None:
-    """The workflow as the proposal read it. That is the live workflow while its version has not
-    moved; after a publish it is the revision snapshot, which a workflow that has never been
-    published under revision tracking may not have."""
-    if hog_flow.version == proposal.base_version:
-        return snapshot_flow_content(hog_flow)
-    revision = HogFlowRevision.objects.filter(hog_flow=hog_flow, version=proposal.base_version).first()
-    return dict(revision.content) if revision is not None else None
-
-
-def proposal_changes(proposal: WorkflowProposal, base_content: dict | None) -> dict:
-    """The proposal's content reduced to what it changes against the workflow as it read it: a
-    step keeps only the fields that read differently there, and a step that reads the same drops
-    out. A producer that sends a whole step therefore still merges as the one-field change it made,
-    and never writes the rest of that step back over a later edit. Without the snapshot the content
-    stands as sent."""
-    content = dict(proposal.content)
-    if base_content is None or "actions" not in content:
-        return content
-    base_steps = {_item_id(item): item for item in base_content.get("actions") or []}
-    changed_steps = []
-    for item in content.get("actions") or []:
-        base_step = base_steps.get(_item_id(item))
-        if not isinstance(item, dict) or base_step is None:
-            changed_steps.append(item)
-            continue
-        changed = _changed_leaves(base_step, {key: value for key, value in item.items() if key != "id"})
-        if changed is not _ABSENT:
-            changed_steps.append({"id": item["id"], **changed})
-    content["actions"] = changed_steps
-    return content
-
-
-_ABSENT = object()
-
-
-def _changed_leaves(base: Any, patch: Any) -> Any:
-    """`patch` without every leaf that already reads the same in `base`, read the way `_deep_merge`
-    writes it; `_ABSENT` when nothing is left."""
-    if isinstance(patch, dict) and isinstance(base, dict):
-        kept = {}
-        for key, value in patch.items():
-            changed = _changed_leaves(base.get(key), value)
-            if changed is not _ABSENT:
-                kept[key] = changed
-        return kept if kept else _ABSENT
-    if patch is None:
-        return _ABSENT if base is None else None
-    return _ABSENT if patch == base else patch
-
-
-def _moved_since(base: Any, live: Any, proposed: Any) -> bool:
-    """Whether someone changed, since `base`, something the proposal sets, and to a value other than
-    the proposed one. Reads the patch the way `_deep_merge` writes it: a dict compares leaf by leaf,
-    anything else as one value."""
-    if not isinstance(proposed, dict) or base is None or live is None:
-        return base != live and live != proposed
-    return any(
-        _leaf(live, path) != _leaf(base, path) and _leaf(live, path) != _leaf(proposed, path)
-        for path in _patch_paths(proposed)
-    )
-
-
-def _patch_paths(patch: Any, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    if not isinstance(patch, dict) or not patch:
-        return [prefix]
-    return [path for key, value in patch.items() for path in _patch_paths(value, (*prefix, key))]
-
-
-def _leaf(item: Any, path: tuple[str, ...]) -> Any:
-    for key in path:
-        if not isinstance(item, dict) or key not in item:
-            return _ABSENT
-        item = item[key]
-    # A null leaf in a patch deletes the key, so it reads as the key being absent.
-    return _ABSENT if item is None else item
+        if key in seen:
+            raise exceptions.ValidationError(f"`{field}` names `{key}` twice.")
+        seen.add(key)
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -4127,7 +4018,7 @@ class HogFlowFilterSet(FilterSet):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
         if not value:
             return queryset.exclude(optimization__enabled=True)
-        return queryset.filter(optimization__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
+        return queryset.filter(optimization__enabled=True, status=HogFlow.State.ACTIVE)
 
 
 class _RevisionPages:
@@ -4249,8 +4140,25 @@ def mint_audience_confirm_token(
 WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogFlowSerializer.Meta.read_only_fields)
 
 
+class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
+    """The versioned metrics request: the shared parameters plus the version to read."""
+
+    version = serializers.IntegerField(
+        required=True,
+        help_text=(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. "
+            "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
+            "sum of the versions; compare versions with each other, not with it."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
+    metrics=extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics_totals=extend_schema(
+        parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
+    ),
     list=extend_schema(
         parameters=[
             OpenApiParameter(
@@ -4294,7 +4202,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 ),
             ),
         ]
-    )
+    ),
 )
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -4305,6 +4213,7 @@ class HogFlowViewSet(
         "retrieve",
         "logs",
         "metrics",
+        "metrics_version",
         "metrics_totals",
         "metrics_global",
         "team_reputation",
@@ -4347,6 +4256,37 @@ class HogFlowViewSet(
     function_kind = "hog_flow"
     _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
 
+    @extend_schema(parameters=[HogFlowVersionMetricsRequestSerializer], responses=AppMetricResponseSerializer)
+    @action(detail=True, methods=["GET"], url_path="metrics/version")
+    def metrics_version(self, request: Request, *args, **kwargs):
+        """One published version's series. Every hog flow metric is mirrored under
+        `hog_flow_version` with the version appended to the id, which is what makes "before and
+        after this change" answerable at all. The unversioned read keys batch and broadcast runs on
+        the run instead, so it is not the sum of the versions."""
+        hog_flow = self.get_object()
+        param_serializer = HogFlowVersionMetricsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), self.team.timezone_info)
+        before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), self.team.timezone_info)
+
+        data = fetch_app_metrics_trends(
+            team_id=self.team_id,
+            app_source=HOG_FLOW_VERSION_APP_SOURCE,
+            app_source_id=f"{hog_flow.id}/{params['version']}",
+            instance_id=params.get("instance_id"),
+            interval=params.get("interval", "day"),
+            after=after_date,
+            before=before_date,
+            breakdown_by=params.get("breakdown_by"),
+            name=params["name"].split(",") if params.get("name") else None,
+            kind=params["kind"].split(",") if params.get("kind") else None,
+        )
+        return Response(AppMetricResponseSerializer(instance=data).data)
+
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
@@ -4357,10 +4297,11 @@ class HogFlowViewSet(
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
         if self.action == "proposals":
-            # Reading is workflow-read; authoring stages content into the draft, so it is a workflow write.
+            # Listing is workflow-read. Authoring takes its own narrow scope, so a producer can suggest without
+            # being able to publish.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
-            return ["hog_flow:write"]
+            return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
             # outbound messages, so it's person-data access on top of the workflow write - same
@@ -4439,7 +4380,27 @@ class HogFlowViewSet(
         if self.action == "list":
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id")
+
+            pending = (
+                WorkflowProposal.objects.filter(hog_flow=OuterRef("pk"), status=WorkflowProposal.Status.SUGGESTED)
+                .order_by()
+                .values("hog_flow")
+                .annotate(count=Count("id"))
+                .values("count")
+            )
+            queryset = queryset.annotate(
+                pending_suggestions=Coalesce(Subquery(pending), 0),
+                suggestions_enabled=Coalesce(F("optimization__enabled"), Value(False)),
+            )
+            # A suggestion waits on a person, so the page that shows them sorts it above recency. Every
+            # other reader of this list — the MCP tool, any other surface — keeps recency, or a stale
+            # workflow with one suggestion would push a fresh one off their first page.
+            # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
+            # otherwise repeat on one page and never appear on another.
+            if self.request.GET.get("suggestions_first") in ("true", "1"):
+                queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
+            else:
+                queryset = queryset.order_by("-updated_at", "-id")
 
             created_by = self.request.GET.get("created_by")
             if created_by:
@@ -4694,7 +4655,9 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        serializer.save()
+        with transaction.atomic():
+            serializer.save()
+            self._append_revision(serializer.instance, created_by=self._revision_author())
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -4827,7 +4790,7 @@ class HogFlowViewSet(
                     bump = self._stage_revision_bump(serializer.instance, before_update, serializer.validated_data)
                 if clears_staged_draft:
                     serializer.save(draft=None, draft_updated_at=None, draft_encrypted_inputs=None)
-                    unstage_workflow_proposals(serializer.instance.pk)
+                    unstage_workflow_proposals(team_id=serializer.instance.team_id, hog_flow_id=serializer.instance.pk)
                 else:
                     serializer.save()
                 if bump:
@@ -4902,24 +4865,26 @@ class HogFlowViewSet(
         return True
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
-        # Must run inside the same transaction as the content write it snapshots. On the first
-        # tracked write, also snapshot the outgoing live content so the state before any tracked
-        # change is always available to roll back to (there's no backfill).
+        # Must run inside the same transaction as the content write it snapshots. A workflow created
+        # before the create path wrote revisions has no rows, and there is no backfill. On its first
+        # tracked write, also snapshot the outgoing live content, so the state before any tracked
+        # change stays available to roll back to.
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
-            HogFlowRevision.objects.create(
-                team_id=self.team_id,
-                hog_flow=instance,
-                version=before.version,
-                content=snapshot_flow_content(before),
-                created_by=None,
-            )
+            self._append_revision(before, created_by=None)
+        self._append_revision(instance, created_by=self._revision_author())
+
+    def _append_revision(self, flow: HogFlow, *, created_by: User | None) -> None:
         HogFlowRevision.objects.create(
             team_id=self.team_id,
-            hog_flow=instance,
-            version=instance.version,
-            content=snapshot_flow_content(instance),
-            created_by=self.request.user if self.request.user.is_authenticated else None,
+            hog_flow=flow,
+            version=flow.version,
+            content=snapshot_flow_content(flow),
+            created_by=created_by,
         )
+
+    def _revision_author(self) -> User | None:
+        user = self.request.user
+        return user if isinstance(user, User) else None
 
     def _write_draft(self, instance: HogFlow, locked: HogFlow, validated_data: dict) -> None:
         # The draft is always a full content snapshot (live config as the base, staged draft on top,
@@ -4942,7 +4907,7 @@ class HogFlowViewSet(
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
         # An edit over an approved draft may undo the suggestion, and publish reads approved as shipped.
-        unstage_workflow_proposals(instance.pk)
+        unstage_workflow_proposals(team_id=instance.team_id, hog_flow_id=instance.pk)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -5365,13 +5330,13 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            unstage_workflow_proposals(locked.pk)
             # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
             # resource_edited broadcast carries the old updated_at — older than the draft stamp
             # concurrent editors loaded, so they'd ignore the discard, and their next draft save
             # would pass the staleness guard (which falls back to the live stamp once the draft is
             # gone) and silently resurrect the discarded draft.
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs", "updated_at"])
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
 
         log_activity_from_viewset(self, locked, activity="draft_discarded", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -5512,7 +5477,15 @@ class HogFlowViewSet(
         if retry_of:
             return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
 
+        # A version the workflow has not reached names nothing, and the outcome read spans versions.
+        if params["base_version"] > instance.version:
+            raise exceptions.ValidationError(
+                {"base_version": f"This workflow is on version {instance.version}, so there is nothing later to read."}
+            )
+
         # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
+        if instance.status != HogFlow.State.ACTIVE:
+            raise WorkflowNotLiveError()
         if not is_optimization_enabled(instance.pk):
             raise WorkflowNotOptimisedError()
 
@@ -5536,15 +5509,47 @@ class HogFlowViewSet(
                         ]
                     }
                 )
+            # Publish revalidates the draft with the workflow serializer; run it here, where the producer can fix what it refuses.
+            # Validation recovers stored secrets into the inputs it is given, and the merge shares
+            # the dicts of steps the proposal adds, so a shallow copy would leak a draft secret.
+            draft_serializer = self.get_serializer(instance, data=deepcopy(merged), partial=True)
+            if not draft_serializer.is_valid():
+                raise exceptions.ValidationError(
+                    {
+                        "content": [
+                            "Publishing this change would be refused, so it cannot be suggested as it is.",
+                            *_flatten_graph_errors(serializers.ValidationError(dict(draft_serializer.errors))),
+                        ]
+                    }
+                )
+            content = as_the_serializer_stores_it(content, draft_serializer.validated_data)
+
+        step_id = params.get("step_id") or None
+        if step_id:
+            # The reading and the outcome are keyed on this step, so it has to exist.
+            known_steps = {item_id(item) for item in snapshot_flow_content(instance).get("actions") or []}
+            added_steps = {item_id(item) for item in content.get("actions") or []}
+            if step_id not in known_steps and step_id not in added_steps:
+                raise exceptions.ValidationError(
+                    {"step_id": "Name a step this workflow has, or one the suggestion adds."}
+                )
+
+        # The producer's numbers are its own claim; PostHog's reading of the same step and version sits beside them.
+        # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
+        evidence = dict(params.get("evidence") or {})
+        evidence.pop("measured", None)
+        measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
+        if measured is not None:
+            evidence["measured"] = measured
 
         proposal = WorkflowProposal(
             hog_flow=instance,
             title=params["title"],
             rationale=params["rationale"],
             content=content,
-            evidence=params.get("evidence") or {},
-            step_id=params.get("step_id") or None,
-            base_version=params.get("base_version") or instance.version or 1,
+            evidence=evidence,
+            step_id=step_id,
+            base_version=params["base_version"],
             source_id=source_id,
         )
         try:
@@ -5621,10 +5626,11 @@ class HogFlowViewSet(
                 raise ProposalAlreadyResolvedError()
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
-            changes = proposal_changes(locked_proposal, base_content_of(locked, locked_proposal))
-            conflicts = conflicting_parts(locked, locked_proposal, changes)
-            if conflicts:
-                raise ProposalOutOfDateError(describe_steps(locked, conflicts))
+            staged = staged_proposal_changes(
+                team_id=locked.team_id, hog_flow_id=locked.pk, proposal_id=locked_proposal.pk
+            )
+            if staged.conflicts:
+                raise ProposalOutOfDateError(staged.conflicts)
             expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
             if (
                 locked.draft
@@ -5637,7 +5643,7 @@ class HogFlowViewSet(
             # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
             # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
             # would undo a later edit the conflict check let through.
-            merged = merge_proposal_content(snapshot_flow_content(locked), changes)
+            merged = merge_proposal_content(snapshot_flow_content(locked), staged.changes)
             try:
                 # Create validated the merge against the graph as it was then; it can have moved since.
                 validate_graph(merged.get("actions") or [], merged.get("edges") or [], merged.get("abort_action"))
@@ -5650,7 +5656,7 @@ class HogFlowViewSet(
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
             # The new draft replaces what was staged; an earlier approval stays only if the draft still carries it.
-            unstage_workflow_proposals(locked.pk)
+            unstage_workflow_proposals(team_id=locked.team_id, hog_flow_id=locked.pk)
 
             locked_proposal.status = WorkflowProposal.Status.APPROVED
             locked_proposal.resolved_at = timezone.now()
@@ -5667,7 +5673,6 @@ class HogFlowViewSet(
             OpenApiParameter(
                 "proposal_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Proposal to read outcomes for."
             ),
-            OpenApiParameter("window", OpenApiTypes.STR, description="Relative window, e.g. -7d. Defaults to -7d."),
         ],
         responses={200: WorkflowProposalOutcomeSerializer},
     )
@@ -5689,33 +5694,42 @@ class HogFlowViewSet(
         self._require_self_optimising_enabled()
         instance = self.get_object()
         proposal = self._get_proposal_or_404(instance, proposal_id)
-        window = request.query_params.get("window") or "-7d"
-        after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
-        # Both reads below go to ClickHouse, which refuses an untagged query.
+        # The read below goes to ClickHouse, which refuses an untagged query.
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
-
         return Response(
             WorkflowProposalOutcomeSerializer(
-                {
-                    "window": window,
-                    "before": version_outcome(
-                        team_id=self.team_id,
-                        hog_flow_id=instance.pk,
-                        version=proposal.base_version,
-                        after=after_date,
-                        step_id=proposal.step_id,
-                    ),
-                    "after": version_outcome(
-                        team_id=self.team_id,
-                        hog_flow_id=instance.pk,
-                        version=proposal.applied_version,
-                        after=after_date,
-                        step_id=proposal.step_id,
-                    ),
-                    "unavailable_guardrails": list(UNAVAILABLE_GUARDRAILS),
-                }
+                proposal_outcome(team_id=self.team_id, hog_flow_id=instance.pk, proposal_id=proposal.pk)
             ).data
         )
+
+    def _measure_evidence(
+        self, hog_flow: HogFlow, base_version: int, step_id: Optional[str], evidence: dict
+    ) -> Optional[dict]:
+        """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
+
+        Same read as the outcome's "before" side, over the producer's window when it names a
+        relative one. A read that fails leaves the suggestion filed with the producer's numbers
+        only, which the page labels as unverified."""
+        window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
+        if not window or not re.fullmatch(r"-\d+[dh]", window):
+            window = "-7d"
+        try:
+            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+            reading = version_outcome(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow.pk,
+                versions=[base_version],
+                after=after_date,
+                step_id=step_id,
+                target=target_metric_in(evidence),
+            )
+        except Exception:
+            logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})
+            return None
+        if reading is None:
+            return None
+        return {**reading, "window": window}
 
     @extend_schema(
         parameters=[
@@ -5753,10 +5767,10 @@ class HogFlowViewSet(
     @extend_schema(request=HogFlowOptimizationSerializer, responses={200: HogFlowOptimizationSerializer})
     @action(detail=True, methods=["GET", "POST"], url_path="optimization", filter_backends=[])
     def optimization(self, request: Request, *args, **kwargs):
-        """Whether PostHog may look at this workflow and suggest changes to it.
+        """Whether PostHog may suggest changes to this workflow.
 
-        Turning it off stops a producer reading the workflow. Suggestions already made are left
-        alone: someone still has them to resolve.
+        Turning it off stops new suggestions. Suggestions already made are left alone: someone
+        still has them to resolve.
         """
         self._require_self_optimising_enabled()
         instance = self.get_object()
@@ -5765,6 +5779,8 @@ class HogFlowViewSet(
             param_serializer = HogFlowOptimizationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
             enabled = param_serializer.validated_data["enabled"]
+            if enabled and instance.status != HogFlow.State.ACTIVE:
+                raise WorkflowNotLiveError()
             changed = set_optimization_enabled(hog_flow_id=instance.pk, enabled=enabled)
             if changed:
                 log_activity_from_viewset(
@@ -6144,7 +6160,8 @@ class HogFlowViewSet(
                 .filter(id__in=[flow.id for flow in deletable])
                 .values_list("id", flat=True)
             )
-            deleted_count, _ = self.get_queryset().filter(id__in=deleted_ids).delete()
+            _, deleted_by_model = self.get_queryset().filter(id__in=deleted_ids).delete()
+            deleted_count = deleted_by_model.get(HogFlow._meta.label, 0)
             deleted_flows = [flow for flow in deletable if flow.id in deleted_ids]
             for flow in deleted_flows:
                 log_activity_from_viewset(self, flow, activity="deleted", name=flow.name)
