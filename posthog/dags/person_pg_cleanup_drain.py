@@ -64,6 +64,8 @@ from posthog.personhog_client.proto import (
     VersionBoundedPerson,
 )
 
+from products.customer_analytics.backend.facade.membership_deletion import capture_person_membership_before_purge
+
 logger = dagster.get_dagster_logger(__name__)
 
 PERSONHOG_CALLER_TAG = "clickhouse_cleanup/person-pg-drain"
@@ -653,6 +655,7 @@ class _Drain:
         """
         assert self.client is not None
         client = self.client
+        capture_person_membership_before_purge(chunk.team_id, uuids)
         request = DeleteTombstonedPersonsRequest(
             team_id=chunk.team_id,
             bounded_persons=[

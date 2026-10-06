@@ -646,14 +646,21 @@ def get_cluster(
 
     creds = get_clickhouse_creds(ClickHouseUser.DEFAULT)
     overrides = dict(connection_overrides or {})
+    bootstrap_options = (
+        {"send_receive_timeout": overrides["send_receive_timeout"]} if "send_receive_timeout" in overrides else {}
+    )
     bootstrap_credential_provider: Callable[[], str] | None = None
     if is_file_backed_user(creds, creds.user):
         bootstrap_credential_provider = creds.read_password
-        bootstrap_client = default_client(host=host, password=creds.read_password())
+        bootstrap_client = default_client(host=host, password=creds.read_password(), **bootstrap_options)
         if not overrides.keys() & {"user", "password", "credential_provider"}:
             overrides["credential_provider"] = creds.read_password
     else:
-        bootstrap_client = default_client(host=host)
+        bootstrap_client = default_client(host=host, **bootstrap_options)
+    if "connect_timeout" in overrides:
+        bootstrap_client.connection.connect_timeout = overrides["connect_timeout"]
+    if "sync_request_timeout" in overrides:
+        bootstrap_client.connection.sync_request_timeout = overrides["sync_request_timeout"]
 
     return ClickhouseCluster(
         bootstrap_client,

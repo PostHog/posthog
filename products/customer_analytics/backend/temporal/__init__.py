@@ -16,6 +16,14 @@ from products.customer_analytics.backend.temporal.calendar_sync import (
     calendar_sync_integration_activity,
     google_account_email_backfill_activity,
 )
+from products.customer_analytics.backend.temporal.membership_deletion import (
+    MembershipDeletionCoordinatorWorkflow,
+    MembershipDeletionWorkflow,
+    membership_deletion_cleanup_activity,
+    membership_deletion_discover_teams_activity,
+    membership_deletion_dispatch_activity,
+    membership_deletion_recover_activity,
+)
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
@@ -29,6 +37,8 @@ WORKFLOWS = [
     CalendarSyncCoordinatorWorkflow,
     CalendarSyncWorkflow,
     GoogleAccountBackfillWorkflow,
+    MembershipDeletionCoordinatorWorkflow,
+    MembershipDeletionWorkflow,
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
 ]
@@ -42,6 +52,10 @@ ACTIVITIES = [
     calendar_sync_collect_integrations_activity,
     calendar_sync_integration_activity,
     google_account_email_backfill_activity,
+    membership_deletion_cleanup_activity,
+    membership_deletion_discover_teams_activity,
+    membership_deletion_dispatch_activity,
+    membership_deletion_recover_activity,
     ownership_claims_collect_teams_activity,
     ownership_claims_sweep_activity,
 ]

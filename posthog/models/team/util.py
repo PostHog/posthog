@@ -12,6 +12,7 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 
 from products.ai_training.backend.facade.api import queue_training_deletion
+from products.customer_analytics.backend.facade.membership_deletion import record_team_membership_deletion
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 logger = structlog.get_logger(__name__)
@@ -343,6 +344,7 @@ def delete_team_records(team_ids: list[int]) -> None:
         for team in teams:
             queue_training_deletion(team.pk, "team")
         Team.objects.filter(id__in=team_ids).delete()
+        record_team_membership_deletion(team_ids)
 
 
 def delete_project_record(project_id: int) -> None:

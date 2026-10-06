@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import itertools
 import dataclasses
+from uuid import uuid4
 
 import temporalio.common
 import temporalio.activity
@@ -13,6 +14,13 @@ from structlog import get_logger
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.customer_analytics.backend.facade.membership_deletion import (
+    captures_membership_deletion,
+    confirm_team_persons_membership_purge,
+    create_team_persons_membership_deletion_intent,
+    tombstone_persons_with_membership_receipts,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -26,7 +34,7 @@ def _chunked(items: list, size: int) -> typing.Iterator[list]:
         yield chunk
 
 
-def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) -> int:
+def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int], operation_id: str | None = None) -> int:
     """Tombstone specific persons by id via personhog and publish their ClickHouse tombstones.
 
     A hard delete would leave live ClickHouse rows above the version 0 a re-created person starts at.
@@ -41,6 +49,8 @@ def _delete_specific_persons_via_personhog(team_id: int, person_ids: list[int]) 
         raise RuntimeError("personhog client not configured")
 
     with personhog_caller_tag("delete-persons/by-ids"):
+        if captures_membership_deletion(team_id):
+            return tombstone_persons_with_membership_receipts(team_id, person_ids, operation_id or str(uuid4()))
         uuids: list[str] = []
         for id_chunk in _chunked(person_ids, GET_PERSONS_MAX_IDS):
             persons_resp = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=id_chunk))
@@ -72,7 +82,7 @@ def _require_team_deleted(team_id: int) -> None:
     )
 
 
-def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> int:
+def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int, operation_id: str | None = None) -> int:
     """Delete up to `batch_size` of a team's persons via personhog, returning the count."""
     from posthog.personhog_client.caller_tag import personhog_caller_tag
     from posthog.personhog_client.client import get_personhog_client
@@ -85,9 +95,11 @@ def _delete_team_persons_batch_via_personhog(team_id: int, batch_size: int) -> i
         raise RuntimeError("personhog client not configured")
 
     with personhog_caller_tag("delete-persons/by-team"):
+        receipt_id = create_team_persons_membership_deletion_intent(team_id, operation_id or str(uuid4()))
         resp = client.delete_persons_batch_for_team(
             DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=batch_size)
         )
+        confirm_team_persons_membership_purge(team_id, receipt_id, exhausted=resp.deleted_count < batch_size)
         return resp.deleted_count
 
 
@@ -148,6 +160,8 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
     async with Heartbeater():
         logger = LOGGER.bind()
         logger.info("Deleting batch %d of %d", inputs.batch_number, inputs.batches)
+        activity_info = temporalio.activity.info()
+        operation_id = activity_info.workflow_id or activity_info.activity_id
 
         if inputs.person_ids:
             # Specific persons: process this batch's slice of the id list.
@@ -155,12 +169,17 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
             id_slice = inputs.person_ids[start : start + inputs.batch_size]
             if not id_slice:
                 return 0, False
-            deleted = await asyncio.to_thread(_delete_specific_persons_via_personhog, inputs.team_id, id_slice)
+            deleted = await asyncio.to_thread(
+                _delete_specific_persons_via_personhog,
+                inputs.team_id,
+                id_slice,
+                f"{operation_id}:{inputs.batch_number}",
+            )
             should_continue = start + inputs.batch_size < len(inputs.person_ids)
         else:
             # Whole team: delete up to batch_size and keep going until a batch is short.
             deleted = await asyncio.to_thread(
-                _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size
+                _delete_team_persons_batch_via_personhog, inputs.team_id, inputs.batch_size, operation_id
             )
             should_continue = deleted >= inputs.batch_size
 

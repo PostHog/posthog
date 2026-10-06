@@ -33,6 +33,10 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 
 from products.ai_training.backend.facade.api import queue_person_training_deletion
+from products.customer_analytics.backend.facade.membership_deletion import (
+    create_person_membership_deletion_intents,
+    record_person_membership_deletion_tombstones,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +48,7 @@ class PersonDeletionStep(StrEnum):
     FETCH_DISTINCT_IDS = "fetch_distinct_ids"
     QUEUE_TRAINING_DELETION = "queue_training_deletion"
     QUEUE_RECORDING_DELETION = "queue_recording_deletion"
+    QUEUE_MEMBERSHIP_DELETION = "queue_membership_deletion"
     TOMBSTONE_POSTGRES = "tombstone_postgres"
     PUBLISH_CLICKHOUSE_TOMBSTONE = "publish_clickhouse_tombstone"
     LOG_ACTIVITY = "log_activity"
@@ -518,7 +523,20 @@ def _tombstone_and_delete_persons(
     raising would hide a completed deletion behind an error.
     """
     failures: builtins.list[PersonDeletionFailure] = []
-    deleted = _tombstone_persons_at_exact_versions(team_id, persons, failures)
+    try:
+        membership_source_key = create_person_membership_deletion_intents(team_id, [person.uuid for person in persons])
+    except Exception as error:
+        _record_step_failure(
+            failures,
+            step=PersonDeletionStep.QUEUE_MEMBERSHIP_DELETION,
+            team_id=team_id,
+            exc=error,
+            person_uuids=[person.uuid for person in persons],
+        )
+        return PersonProfileDeletionResult(deleted_count=0, failures=failures)
+    deleted = _tombstone_persons_at_exact_versions(
+        team_id, persons, failures, membership_source_key=membership_source_key
+    )
 
     if organization_id is not None and deleted:
         try:
@@ -565,6 +583,8 @@ def _tombstone_persons_at_exact_versions(
     team_id: int,
     persons: builtins.list[Person],
     failures: builtins.list[PersonDeletionFailure],
+    *,
+    membership_source_key: str | None = None,
 ) -> builtins.list[Person]:
     """Tombstone Postgres first, then publish ClickHouse tombstones at the versions it wrote.
 
@@ -588,6 +608,10 @@ def _tombstone_persons_at_exact_versions(
             if tombstone.uuid in person_by_uuid
         ]
         deleted.extend(person_by_uuid[tombstone.uuid] for tombstone, _ in to_publish)
+        if membership_source_key is not None:
+            record_person_membership_deletion_tombstones(
+                team_id, [tombstone for tombstone, _ in to_publish], source_key=membership_source_key
+            )
         publication.publish(to_publish)
 
     publication.await_and_ack()

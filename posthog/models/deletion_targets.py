@@ -37,8 +37,12 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
+from posthog.models.person_group_membership.sql import SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
+
+# Aggregate rows have no event UUID or event-time person ID, so Customer analytics owns their erasure separately.
+CUSTOM_RECONCILIATION_TABLES: frozenset[str] = frozenset({SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE})
 
 # ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
 _CLUSTER_DOESNT_EXIST = 701

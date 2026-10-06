@@ -2039,8 +2039,8 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the Postgres tombstone: when it fails, those persons are still live in
-    Postgres, so the op raises and the request finalizes as FAILED for a retry. A failed
+    Receipt preparation and the Postgres tombstone keep profiles live when they fail,
+    so the op raises and the request finalizes as FAILED for a retry. A failed
     ClickHouse publish after a Postgres tombstone does not raise, because the person is deleted
     and the weekly deletion sweep republishes it.
     """
@@ -2065,12 +2065,21 @@ def delete_person_profiles_op(
     if result.errors:
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [f for f in result.failures if f.step == PersonDeletionStep.TOMBSTONE_POSTGRES]
-    if postgres_failures:
+    blocking_failures = [
+        failure
+        for failure in result.failures
+        if failure.step in (PersonDeletionStep.TOMBSTONE_POSTGRES, PersonDeletionStep.QUEUE_MEMBERSHIP_DELETION)
+    ]
+    if blocking_failures:
+        step = (
+            "receipt preparation"
+            if blocking_failures[0].step == PersonDeletionStep.QUEUE_MEMBERSHIP_DELETION
+            else "Postgres tombstone"
+        )
         raise dagster.Failure(
             description=(
-                f"Deletion request {person_removal.request_id}: the Postgres tombstone failed for "
-                f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
+                f"Deletion request {person_removal.request_id}: {step} failed for "
+                f"{len(blocking_failures)} persons ({blocking_failures[0].error}). Retry the request."
             ),
             metadata=metadata,
         )
