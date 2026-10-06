@@ -32,11 +32,11 @@ export function PlatformAlertScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    if (configurationError || !configuration) {
+    if (configurationLoading || configurationError || !configuration) {
         return (
             <SceneContent>
                 <SceneTitleSection name={configurationLoading ? '' : 'Alert'} resourceType={{ type: 'inbox' }} />
-                {!configurationError ? (
+                {configurationLoading || !configurationError ? (
                     <Spinner />
                 ) : (
                     <LemonBanner
