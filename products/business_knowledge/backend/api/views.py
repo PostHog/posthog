@@ -34,6 +34,7 @@ from ..constants import (
     BK_SEARCH_MAX_LIMIT,
 )
 from ..file_parse import FileParseError
+from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
@@ -589,9 +590,10 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = max(1, min(limit, BK_SEARCH_MAX_LIMIT))
         rerank = self._parse_bool_param(request, "rerank", default=False)
         search_limit = limit * 2 if rerank else limit
-        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
+        trace = RetrievalTrace(surface="api")
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit, trace=trace)
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
+            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]

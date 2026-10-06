@@ -101,9 +101,9 @@ class DeletionTarget:
     # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
     # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
-    # True where the property-removal job sweeps the table and its rewrite cleans every copy of a
-    # property that the table keeps. A property removal refuses while a target without it holds rows
-    # the request names.
+    # True where the property-removal job sweeps the table. Its verification fails while any copy of
+    # a named property that the table keeps survives the rewrite. A property removal refuses while a
+    # target without it holds rows the request names.
     accepts_property_rewrite: bool = False
     # Whether property removal may build a person_properties predicate or replacement here. False
     # where the column has been dropped out of band on PostHog Cloud, which makes the predicate an
@@ -129,6 +129,9 @@ class DeletionTarget:
     # Days the TTL keeps a row past toDate(timestamp). Property removal's restore checks leave out
     # the rows that the TTL can drop.
     ttl_days: int | None = None
+    # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
+    # MutationRunner.patch_parts.
+    uses_patch_parts: bool = False
 
     def __post_init__(self) -> None:
         # A table that takes a HogQL predicate has the events schema, including person_properties.
@@ -191,11 +194,11 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
-    # Not swept for property removal: the rewrite would leave the temporary properties and quarantine
-    # diagnostics this table also keeps.
-    # Left out of the squash on purpose; PERSON_ID_REWRITE_EXEMPT carries the reason and the cost.
+    accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
+    uses_patch_parts=True,
 )
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
@@ -219,12 +222,9 @@ FLAG_EVALUATIONS = DeletionTarget(
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
-# sharded_events_json stays registered because deletion support will return when the events cluster
-# is reliably reachable. Keeping the default sweep targets separate makes every verifier follow the
-# same temporary exclusion as deletes_job.
-DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = tuple(
-    target for target in PERSONAL_DATA_TARGETS if target is not EVENTS_JSON
-)
+# The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
+# keeps it registered while its rows stay in place; see COVERAGE_DOC.
+DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = PERSONAL_DATA_TARGETS
 
 # Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
 # listed by hand, so registering a target and forgetting the squash is not expressible.
@@ -235,12 +235,7 @@ SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
 # Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
 # it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
 # squash deletes the overrides that recorded the mapping right after applying them.
-#
-# sharded_events_json is exempt while the squash is not ready to dispatch to the events cluster. A
-# run that resolves the table inconsistently is worse than one that never tries: it stages the
-# snapshot dictionary onto a cluster it may not mutate, and the overrides are dropped either way.
-# Setting accepts_person_id_rewrite on the target is what restores it; see COVERAGE_DOC.
-PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({EVENTS_JSON_DATA_TABLE})
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.

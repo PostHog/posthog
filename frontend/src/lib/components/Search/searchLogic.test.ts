@@ -173,12 +173,51 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['data quality', 'dataManagementItems', 'Models'],
+        ['materialized views', 'dataManagementItems', 'Models'],
         ['batch exports', 'dataManagementItems', 'Destinations'],
         ['insights', 'productsItems', 'Product analytics'],
+        ['semantic layer', 'productsItems', 'Data catalog'],
+        ['Semantic Layer', 'productsItems', 'Data catalog'],
+        ['semanticlayer', 'productsItems', 'Data catalog'],
+        ['semantic-layer', 'productsItems', 'Data catalog'],
+        ['featureflags', 'productsItems', 'Feature flags'],
+        ['Feature Flags', 'productsItems', 'Feature flags'],
     ] as const)('finds an item by a manifest search keyword: %s', (search, selector, itemName) => {
         const matches = filterSearchItems(logic.values[selector], search)
         expect(matches.map((item) => item.name)).toContain(itemName)
+    })
+
+    it.each([
+        ['data quality', true, true],
+        ['dataquality', true, true],
+        ['Data-Quality', true, true],
+        ['models data quality', true, true],
+        ['data quality', false, false],
+        ['', true, false],
+    ])('lists the Models data quality tab for search %j with the flag on=%s: %s', (search, flagEnabled, listed) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
+        logic.actions.setSearch(search)
+
+        const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
+        const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
+        expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
+            listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
+        )
+    })
+
+    it.each([
+        ['newflag', 'New Feature flag'],
+        ['new flag', 'New Feature flag'],
+        ['New Feature Flag', 'New Feature flag'],
+        ['newfeatureflag', 'New Feature flag'],
+        ['create flag', 'New Feature flag'],
+        ['new site app', 'New Web script'],
+        ['new site_app', 'New Web script'],
+    ])('puts the right item first in the create category for %j', (search, expectedFirst) => {
+        logic.actions.setSearch(search)
+
+        const create = logic.values.allCategories.find((category) => category.key === 'create')
+        expect(create?.items[0]?.name).toBe(expectedFirst)
     })
 
     it('maps matching support tickets into their own category', async () => {

@@ -2,6 +2,7 @@ import type { ReplayObservationApi, WatchFeedReasonApi } from '../../generated/a
 import {
     jevCardContext,
     jevCardSentence,
+    jevTileText,
     observationKeyMomentMs,
     watchCardHeadline,
     watchReasonCopy,
@@ -219,6 +220,54 @@ describe('WatchFeedCard helpers', () => {
                 { kind: 'unviewed_recent' } as WatchFeedReasonApi
             )
             expect(context).toBeNull()
+        })
+    })
+
+    describe('jevTileText', () => {
+        it.each<{
+            name: string
+            scannerType: string
+            output: Record<string, unknown>
+            reason: WatchFeedReasonApi
+            expected: ReturnType<typeof jevTileText>
+        }>([
+            {
+                name: "leads with a summarizer's authored title and moves the scan's sentence to the detail",
+                scannerType: 'summarizer',
+                output: { title: 'Checkout card rejected', summary: 'Tried the card three times. Left.' },
+                reason: {
+                    kind: 'jev_watchable',
+                    jev_probability: 0.9,
+                    notability_reason: 'The card form rejected a valid card three times.',
+                } as WatchFeedReasonApi,
+                expected: {
+                    title: 'Checkout card rejected',
+                    detail: 'The card form rejected a valid card three times.',
+                },
+            },
+            {
+                name: 'falls back to the summary for the detail when the scan wrote no sentence',
+                scannerType: 'summarizer',
+                output: { title: 'Checkout card rejected', summary: 'Tried the card three times. Left.' },
+                reason: { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi,
+                expected: { title: 'Checkout card rejected', detail: 'Tried the card three times. Left.' },
+            },
+            {
+                name: 'gives a filler summarizer tile no detail',
+                scannerType: 'summarizer',
+                output: { title: 'Checkout card rejected', summary: 'Tried the card three times. Left.' },
+                reason: { kind: 'unviewed_recent' } as WatchFeedReasonApi,
+                expected: { title: 'Checkout card rejected', detail: null },
+            },
+            {
+                name: 'leads other scan types with the card sentence and reveals the unused narration',
+                scannerType: 'monitor',
+                output: { reasoning: 'Retried the form twice. The submit then failed.' },
+                reason: { kind: 'jev_watchable', jev_probability: 0.9 } as WatchFeedReasonApi,
+                expected: { title: 'Retried the form twice.', detail: 'The submit then failed.' },
+            },
+        ])('$name', ({ scannerType, output, reason, expected }) => {
+            expect(jevTileText(observation(scannerType, output), reason)).toEqual(expected)
         })
     })
 

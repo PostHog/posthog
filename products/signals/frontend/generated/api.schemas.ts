@@ -3097,9 +3097,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -7639,6 +7639,10 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 }
 
 export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
+     */
+    include_unowned?: boolean
     /**
      * How many of the top reports to return, 1 to 20. Defaults to 5.
      * @minimum 1

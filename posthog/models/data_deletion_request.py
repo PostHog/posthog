@@ -962,6 +962,8 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
     is checked for the event ``properties`` only, and skipped when the request names only person
     properties, as the job does. A target that cannot take the compiled HogQL fragment is counted
     without it, which matches a superset. That can only hold a request open, never complete it early.
+    The presence predicate is built for the legacy schema, so the native-JSON table is left to the
+    job's own verification.
     """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
@@ -983,7 +985,11 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_property",
     ):
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
-            if not target.accepts_property_rewrite or not target.may_hold_any_of(events):
+            if (
+                not target.accepts_property_rewrite
+                or target.uses_new_events_schema
+                or not target.may_hold_any_of(events)
+            ):
                 continue
             person_properties = (request.person_properties or []) if target.stores_person_properties else []
             if not request.properties and not person_properties:

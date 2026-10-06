@@ -229,25 +229,47 @@ class TestInstantly:
         # A campaign without an id is skipped rather than sent as an unscoped request.
         assert client.calls == [("/api/v2/campaigns", {"limit": 100}), (child_path, expected_params)]
 
-    @pytest.mark.parametrize(
-        "should_use_incremental_field,last_value,expected_start_date",
-        [
-            # The API defaults to the last 30 days without start_date, so full refresh asks for all history.
-            (False, None, ANALYTICS_HISTORY_START_DATE),
-            (True, None, ANALYTICS_HISTORY_START_DATE),
-            (True, date(2026, 3, 4), "2026-03-04"),
-        ],
-    )
-    def test_account_daily_analytics_windows_by_start_date_and_sorts_rows(
-        self, should_use_incremental_field, last_value, expected_start_date
-    ):
+    def test_account_daily_analytics_windows_by_start_date_and_sorts_rows(self):
         rows = [
             {"date": "2026-03-05", "email_account": "a@example.com"},
             {"date": "2026-03-04", "email_account": "b@example.com"},
         ]
         client = _FakeClient({"/api/v2/accounts/analytics/daily": [rows]})
 
-        with mock.patch(f"{MODULE}._make_client", return_value=client):
+        with (
+            mock.patch(f"{MODULE}._make_client", return_value=client),
+            mock.patch(f"{MODULE}._today", return_value=date(2026, 3, 10)),
+        ):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_daily_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 4),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            pages = list(items)
+
+        # The incremental watermark is within one window of "today", so this collapses to a
+        # single bounded request instead of a chunked walk.
+        assert client.calls == [
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2026-03-04", "end_date": "2026-03-10"})
+        ]
+        # Ascending date order keeps the asc incremental watermark from skipping unwritten days.
+        assert [row["date"] for row in pages[0]] == ["2026-03-04", "2026-03-05"]
+        assert response.primary_keys == ["date", "email_account"]
+
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True])
+    def test_account_daily_analytics_full_refresh_splits_into_bounded_windows(self, should_use_incremental_field):
+        client = _FakeClient({"/api/v2/accounts/analytics/daily": [[]]})
+
+        with (
+            mock.patch(f"{MODULE}._make_client", return_value=client),
+            mock.patch(f"{MODULE}._today", return_value=date(2020, 4, 15)),
+        ):
             response = instantly_source(
                 api_key="key",
                 endpoint="account_daily_analytics",
@@ -255,16 +277,21 @@ class TestInstantly:
                 job_id="job",
                 resumable_source_manager=mock.MagicMock(),
                 should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=last_value,
+                db_incremental_field_last_value=None,
             )
             items = response.items()
             assert isinstance(items, Iterable)
-            pages = list(items)
+            list(items)
 
-        assert client.calls == [("/api/v2/accounts/analytics/daily", {"start_date": expected_start_date})]
-        # Ascending date order keeps the asc incremental watermark from skipping unwritten days.
-        assert [row["date"] for row in pages[0]] == ["2026-03-04", "2026-03-05"]
-        assert response.primary_keys == ["date", "email_account"]
+        assert client.calls == [
+            (
+                "/api/v2/accounts/analytics/daily",
+                {"start_date": ANALYTICS_HISTORY_START_DATE, "end_date": "2020-01-31"},
+            ),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-02-01", "end_date": "2020-03-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-03-03", "end_date": "2020-04-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-04-03", "end_date": "2020-04-15"}),
+        ]
 
     def test_probe_sends_required_campaign_id_for_subsequences(self):
         session = mock.MagicMock()

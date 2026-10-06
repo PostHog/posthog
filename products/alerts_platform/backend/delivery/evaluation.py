@@ -14,10 +14,13 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
+from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
+from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.webhook import WebhookTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -37,9 +40,14 @@ LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 
 # A destination type with no entry here has no native transport, and delivery skips it. Make a
 # team live only when its alerts use no such type. Nothing checks this in code, and one alert
-# delivering natively to Slack and through a HogFunction to Discord would send two differently
-# worded messages for one event.
-_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {DestinationType.SLACK: SlackTransport}
+# delivering natively to one destination and through a HogFunction to another would send two
+# differently worded messages for one event.
+_TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
+    DestinationType.SLACK: SlackTransport,
+    DestinationType.WEBHOOK: WebhookTransport,
+    DestinationType.TEAMS: TeamsTransport,
+    DestinationType.DISCORD: DiscordTransport,
+}
 
 
 @frozen
@@ -94,6 +102,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     sent = 0
     skipped = 0
     busy: list[str] = []
+    failures: list[str] = []
+    first_refusal: DeliveryError | None = None
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -115,10 +125,25 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
+            # A destination that refuses every send, such as a deleted channel, must not cost the
+            # destinations after it their message on every attempt. Temporal records the message
+            # and the cause chain, and a transport words its own refusals safely. Any other
+            # exception's text can carry a credential URL, so it is named by class and not chained.
+            except DeliveryError as error:
+                failures.append(str(error))
+                first_refusal = first_refusal or error
+            except Exception as error:
+                failures.append(type(error).__name__)
             else:
                 sent += 1
+    # A held thread wins over a failure. The workflow waits a held thread out and then runs the
+    # whole delivery again, which retries the failed destinations too. A failure raised instead
+    # spends the activity's retries inside the claim's TTL, and the held message is lost.
     if busy:
-        raise ThreadBusy("; ".join(busy))
+        # The failures ride along, so a wait that ends still says which destinations refused.
+        raise ThreadBusy("; ".join([*busy, *failures]))
+    if failures:
+        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 

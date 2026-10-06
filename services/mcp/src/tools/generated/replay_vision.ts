@@ -1078,6 +1078,9 @@ const visionScannersEstimate = (): ToolBase<
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
         }
+        if (params.experiment !== undefined) {
+            body['experiment'] = params.experiment
+        }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
@@ -1118,6 +1121,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         }
         if (params.experiment_targeting !== undefined) {
             body['experiment_targeting'] = params.experiment_targeting
+        }
+        if (params.experiment !== undefined) {
+            body['experiment'] = params.experiment
         }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
@@ -1742,13 +1748,13 @@ const VisionScannersVariantsListSchema = () => {
 
 const visionScannersVariantsList = (): ToolBase<
     ReturnType<typeof VisionScannersVariantsListSchema>,
-    WithAgentNote<Schemas.ExperimentVariantsReadout[]>
+    WithAgentNote<Schemas.ExperimentVariantsReadout>
 > => ({
     name: 'vision-scanners-variants-list',
     schema: VisionScannersVariantsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersVariantsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentVariantsReadout[]>({
+        const result = await context.api.request<Schemas.ExperimentVariantsReadout>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/variants/`,
         })

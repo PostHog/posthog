@@ -949,6 +949,109 @@ class TestRepartitionActivity:
         assert schema.repartition_rewrite is None
         assert schema.last_repartition_at is not None
 
+    @pytest.mark.parametrize(
+        "target,expected",
+        [
+            pytest.param(
+                {"partitioning_keys": ["id"], "partition_count": 8, "partition_size": None, "partition_mode": "md5"},
+                {"partition_count": 8, "partition_size": None, "partition_mode": "md5", "partitioning_keys": ["id"]},
+                id="fewer_hash_buckets",
+            ),
+            pytest.param(
+                {
+                    "partitioning_keys": ["created_at"],
+                    "partition_count": None,
+                    "partition_size": None,
+                    "partition_mode": "datetime",
+                    "partition_format": "month",
+                },
+                {"partition_mode": "datetime", "partitioning_keys": ["created_at"], "partition_format": "month"},
+                id="coarser_datetime_format",
+            ),
+            pytest.param(
+                {
+                    "partitioning_keys": ["id"],
+                    "partition_count": None,
+                    "partition_size": 4096,
+                    "partition_mode": "numerical",
+                },
+                {"partition_size": 4096, "partition_mode": "numerical", "partitioning_keys": ["id"]},
+                id="wider_numerical_ranges",
+            ),
+        ],
+    )
+    def test_a_scheme_staged_for_a_full_refresh_survives_that_syncs_reset(self, team, target, expected):
+        # A full-refresh sync starts by wiping the plain partition settings, so a scheme saved as
+        # plain settings would be discarded and the sync would write the old layout again.
+        schema = _make_schema(
+            team,
+            {"partition_mode": "md5", "partition_count": 64, "partitioning_keys": ["id"], "partition_format": "hour"},
+        )
+        schema.set_repartition_pending({"partition_mode": "md5", "partition_keys": ["id"], "trigger_reason": "t"})
+        schema.set_repartition_rewrite({"temp_uri": "s3://t", "rows_written": 5})
+
+        external_data_schema.stage_partition_scheme_for_full_refresh(schema, **{"partition_format": None, **target})
+        schema.refresh_from_db()
+        schema.update_sync_type_config_for_reset_pipeline(clear_initial_sync_complete=False)
+        schema.refresh_from_db()
+
+        resolved = {
+            "partition_count": schema.partition_count_override,
+            "partition_size": schema.partition_size_override,
+            "partition_mode": schema.partition_mode_override,
+            "partitioning_keys": schema.partitioning_keys_override,
+            "partition_format": schema.partition_format,
+        }
+        for key, value in expected.items():
+            assert resolved[key] == value
+        assert schema.repartition_pending is None
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
+    def test_full_refresh_staging_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="superseded-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_pending is not None
+        assert schema.repartition_claim is not None
+        assert schema.repartition_claim["token"] == "newer-claim"
+
+    def test_full_refresh_staging_preserves_a_swap_that_appeared_after_claiming(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "ours", "job_id": "j1", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_swap({"state": "ready", "temp_uri": "s3://t", "live_uri": "s3://l"})
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="ours",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_swap is not None
+
     def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
         # A zombie writing here would describe a layout the new claimant is in the middle of replacing.
         schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})

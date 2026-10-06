@@ -116,8 +116,8 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.conversations.backend.api.tickets.TicketSerializer.snoozed_until": "Client-set instant: the ticket action assigns validated_data['snoozed_until'] to ticket.snoozed_until, with no relative-duration parsing on this path",
     "products.conversations.backend.api.tickets.TicketUpdateRequestSerializer.sla_due_at": "Client or a workflow sets the SLA deadline, and null clears it",
     "products.conversations.backend.api.tickets.TicketUpdateRequestSerializer.snoozed_until": "Client-set instant: the ticket action assigns validated_data['snoozed_until'] to ticket.snoozed_until, with no relative-duration parsing on this path",
-    "products.dashboards.backend.api.dashboard.DashboardSerializer.last_accessed_at": "TODO: server-owned, written when a dashboard is opened",
-    "products.dashboards.backend.api.dashboard.DashboardSerializer.last_refresh": "TODO: server-owned, written by the dashboard refresh path",
+    "products.dashboards.backend.api.dashboard.DashboardSerializer.last_refresh": "The frontend PATCHes successful forced-refresh completion so reopening the dashboard retains its shared cooldown",
+    "products.dashboards.backend.api.dashboard.DashboardWriteOpenApiSerializer.last_refresh": "The frontend persists successful forced-refresh completion so reopening the dashboard retains its shared cooldown",
     "products.experiments.backend.presentation.serializers.ExperimentSerializer.end_date": "Client stops the experiment by setting this",
     "products.experiments.backend.presentation.serializers.ExperimentSerializer.start_date": "Client launches the experiment by setting this",
     "products.experiments.backend.presentation.serializers.ExperimentWriteSerializer.end_date": "Client stops the experiment by setting this",
@@ -146,7 +146,6 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.end_date": "Client stops the survey by setting this",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.response_sampling_start_date": "Client sets when response sampling starts",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.start_date": "Client launches the survey by setting this",
-    "products.workflows.backend.presentation.views.hog_flow.HogFlowScheduleSerializer.starts_at": "Client sets when the schedule starts",
 }
 
 # Views and serializers the guard cannot read, each with a reason. An entry hides part

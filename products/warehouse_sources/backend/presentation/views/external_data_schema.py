@@ -1739,6 +1739,10 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     )
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
 
+    sync_frequency = serializers.SerializerMethodField(
+        read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
+    )
+
     class Meta:
         model = ExternalDataSchema
         fields = [
@@ -1749,6 +1753,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "status",
             "sync_type",
             "last_synced_at",
+            "sync_frequency",
             "latest_error",
             "table",
         ]
@@ -1774,6 +1779,13 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_sync_frequency(self, schema: ExternalDataSchema) -> str | None:
+        try:
+            return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+        except ValueError:
+            return None
 
     def to_representation(self, instance: ExternalDataSchema) -> dict[str, Any]:
         ret = super().to_representation(instance)

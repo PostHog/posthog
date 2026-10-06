@@ -21,6 +21,7 @@ import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/re
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
+    ExperimentVariantsReadoutApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
@@ -697,6 +698,184 @@ const paginated = (names: string[]): Record<string, any> => ({
     results: names.map((name) => ({ id: name, name, property_type: 'String' })),
 })
 
+// The Variants tab of an experiment scanner. The data is invented: a checkout experiment with
+// balanced sampling, so the smaller variant shows a higher sampling rate.
+const experimentScanner: ReplayScannerApi = scanner({
+    id: '00000000-0000-0000-0000-0000000000e1',
+    name: 'Post-exposure friction: New checkout flow',
+    scanner_type: 'experiment',
+    scanner_config: {
+        prompt: 'Summarize what this participant did after they reached the checkout.',
+        length: 'medium',
+        experiment_id: 11,
+        variants: null,
+        balance_variants: true,
+    },
+    observations_this_month: 71,
+})
+
+const experimentObservation = (
+    id: string,
+    variant: string,
+    title: string,
+    email: string,
+    createdAt: string
+): ReplayObservationApi =>
+    observation({
+        id,
+        scanner_id: experimentScanner.id,
+        recording_subject_email: email,
+        created_at: createdAt,
+        scanner_snapshot: {
+            ...observation().scanner_snapshot!,
+            name: experimentScanner.name,
+            scanner_type: 'experiment',
+        },
+        scanner_result: {
+            model_output: {
+                scanner_type: 'experiment',
+                confidence: 0.9,
+                title,
+                summary: `${title} The session ends on the order confirmation page.`,
+            },
+            signals_count: 0,
+            experiment_variant: variant,
+        } as ReplayObservationApi['scanner_result'],
+    })
+
+const readyAnalysis = {
+    scout_config_id: '00000000-0000-0000-0000-0000000000s1',
+    scout_enabled: true,
+    recorded_at: '2026-05-11T09:00:00Z',
+    scanner_version: 1,
+    current: true,
+}
+
+const variantsReadout = (overrides: Partial<ExperimentVariantsReadoutApi> = {}): ExperimentVariantsReadoutApi => ({
+    experiment: {
+        id: 11,
+        name: 'New checkout flow',
+        status: 'running',
+        start_date: '2026-05-03T00:00:00Z',
+        end_date: null,
+        planned_duration_days: 21,
+        current_day: 9,
+    },
+    window: {
+        total_observations: 71,
+        first_observation_at: '2026-05-03T10:00:00Z',
+        last_observation_at: '2026-05-11T20:48:00Z',
+    },
+    variants: [
+        {
+            key: 'control',
+            observations: 34,
+            distinct_people: 31,
+            median_session_duration_s: 250,
+            sampling_rate: 0.12,
+            analysis_observations: 34,
+            digest: [
+                {
+                    theme: 'first-try-payment',
+                    statement: 'Most people complete payment on the first try.',
+                    count: 21,
+                    example_observation_ids: ['00000000-0000-0000-0000-0000000000c1'],
+                },
+                {
+                    theme: 'summary-rereads',
+                    statement: 'Some people scroll the order summary twice before they pay.',
+                    count: 8,
+                    example_observation_ids: [],
+                },
+            ],
+            latest_observations: [
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000c1',
+                    'control',
+                    'Adds two items, opens the cart, and completes payment in one pass.',
+                    'mia@example.com',
+                    '2026-05-11T20:34:00Z'
+                ),
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000c2',
+                    'control',
+                    'Reviews the order summary twice, edits the quantity, then pays.',
+                    'noah@example.com',
+                    '2026-05-11T19:50:00Z'
+                ),
+            ],
+        },
+        {
+            key: 'test',
+            observations: 31,
+            distinct_people: 29,
+            median_session_duration_s: 340,
+            sampling_rate: 0.4,
+            analysis_observations: 31,
+            digest: [
+                {
+                    theme: 'payment-method-pause',
+                    statement: 'Many people pause at the payment method step before they select an option.',
+                    count: 11,
+                    example_observation_ids: ['00000000-0000-0000-0000-0000000000t1'],
+                },
+                {
+                    theme: 'promo-field',
+                    statement: 'Several people open and close the promo code field without entering a code.',
+                    count: 7,
+                    example_observation_ids: [],
+                },
+            ],
+            latest_observations: [
+                experimentObservation(
+                    '00000000-0000-0000-0000-0000000000t1',
+                    'test',
+                    'Reaches the payment method step and moves between two options for about 40 seconds before selecting a card.',
+                    'ava@example.com',
+                    '2026-05-11T20:48:00Z'
+                ),
+            ],
+        },
+    ],
+    differences: [
+        {
+            theme: 'payment-method-pause',
+            statement: 'Pauses at the payment method step appear far more often in test.',
+            counts: { test: 11, control: 2 },
+        },
+        {
+            theme: 'promo-field',
+            statement: 'Promo code interactions appear only in test.',
+            counts: { test: 7, control: 0 },
+        },
+    ],
+    unattributed_count: 6,
+    analysis: readyAnalysis,
+    ...overrides,
+})
+
+const withoutAnalysis = (readout: ExperimentVariantsReadoutApi): ExperimentVariantsReadoutApi => ({
+    ...readout,
+    variants: readout.variants.map((variant) => ({ ...variant, digest: null, analysis_observations: null })),
+    differences: null,
+})
+
+const variantsDecorator = (readout: ExperimentVariantsReadoutApi): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/:id/': experimentScanner,
+            '/api/projects/:team_id/vision/scanners/:id/variants/': readout,
+            '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
+            '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
+            '/api/projects/:team_id/experiments/:id/': {
+                id: 11,
+                name: 'New checkout flow',
+                feature_flag_key: 'new-checkout-flow',
+                start_date: '2026-05-03T00:00:00Z',
+            },
+        },
+    })
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Replay Vision',
@@ -1333,6 +1512,8 @@ export const ObservationDetailFailed: StoryObj = {
     ...observationDetailStory(failedObservationDetail),
     play: async ({ canvasElement }) => {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).toBeVisible())
+        // The floating player controls hide on a timer after mount, so wait for that to happen before the snapshot.
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="recording-play"]')).not.toBeVisible())
     },
 }
 
@@ -1931,4 +2112,68 @@ export const ObservationDetailTimeline: StoryObj = {
         await userEvent.click(await within(canvasElement).findByText('Timeline'))
         await within(canvasElement).findByText('Session start')
     },
+}
+
+export const ExperimentVariants: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
+}
+
+// No variant analysis scout yet: the counts show, and the comparison offers to set one up.
+export const ExperimentVariantsNoScout: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(withoutAnalysis(variantsReadout({ analysis: null })))],
+}
+
+export const ExperimentVariantsFirstRunPending: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+    ],
+}
+
+export const ExperimentVariantsThreeVariants: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            variantsReadout({
+                window: { ...variantsReadout().window, total_observations: 99 },
+                variants: [
+                    ...variantsReadout().variants,
+                    {
+                        ...variantsReadout().variants[1],
+                        key: 'test-compact',
+                        observations: 28,
+                        distinct_people: 27,
+                        sampling_rate: 0.45,
+                        digest: null,
+                        latest_observations: [],
+                    },
+                ],
+            })
+        ),
+    ],
+}
+
+// About 520px of scene, the width a laptop leaves with the side panel open. The nav collapses at
+// this viewport, so the scene takes the whole window less its padding.
+export const ExperimentVariantsNarrow: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+        testOptions: { viewport: { width: 560, height: 1800 } },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
 }
