@@ -14,6 +14,7 @@ import {
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -170,6 +171,8 @@ function CanvasMain(): JSX.Element {
 export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { viewMissing } = useValues(canvasSceneLogic({ id }))
+    // Recently opened lists read the view log, so a canvas records its view like a dashboard does.
+    useFileSystemLogView({ type: 'canvas', ref: id, enabled: enabled && !viewMissing })
 
     if (!enabled || viewMissing) {
         return <NotFound object="canvas" />

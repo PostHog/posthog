@@ -1860,6 +1860,15 @@ export const fileSystemTypes = {
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
     },
+    canvas: {
+        name: 'Canvas',
+        iconType: 'canvas',
+        flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+        href: (ref: string) => urls.canvasDetail(ref),
+        listHref: () => urls.canvases(),
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+        filterKey: 'canvas',
+    },
     cohort: {
         name: 'Cohort',
         iconType: 'cohort' as FileSystemIconType,

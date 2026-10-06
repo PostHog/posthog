@@ -1414,6 +1414,7 @@ class Tag(StrEnum):
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
+    CANVAS = "canvas"
     LLM_ANALYTICS = "llm_analytics"
     AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
