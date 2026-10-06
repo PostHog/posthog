@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Literal
 
 import structlog
+from clickhouse_driver.errors import ErrorCodes
 from prometheus_client import Counter, Histogram
 from redis import Redis
 from redis.exceptions import RedisError
@@ -32,6 +33,7 @@ from posthog.clickhouse.query_router.config import (
     waiting_seen_key,
 )
 from posthog.dataclasses import frozen
+from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.redis import get_client
 
@@ -372,15 +374,17 @@ class QueryRouter:
         enforcing: bool,
         limit: int,
         started_at: float,
-        check_cancelled: Callable[[], None] | None,
+        cancellation_key: str | None,
     ) -> _Decision:
         deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
-            if queued and check_cancelled is not None:
-                check_cancelled()
+            if queued and cancellation_key is not None:
+                cancelled = self._redis.get(cancellation_key)
+                if cancelled:
+                    raise CHQueryErrorQueryWasCancelled("Query was cancelled", code=ErrorCodes.QUERY_WAS_CANCELLED)
             reply = self._try_enter(slot, rank=rank, limit=limit, enforcing=enforcing, first_attempt=not queued)
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
@@ -405,7 +409,7 @@ class QueryRouter:
                 self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
-    def _enter(self, slot: _Slot, *, mode: RouterMode, check_cancelled: Callable[[], None] | None) -> Admission:
+    def _enter(self, slot: _Slot, *, mode: RouterMode, cancellation_key: str | None) -> Admission:
         started_at = self.get_time()
         if mode == RouterMode.ERROR:
             return self._fail_open(slot, started_at)
@@ -421,7 +425,7 @@ class QueryRouter:
                 enforcing=mode == RouterMode.ENFORCE,
                 limit=limit,
                 started_at=started_at,
-                check_cancelled=check_cancelled,
+                cancellation_key=cancellation_key,
             )
         except RedisError:
             admission = self._fail_open(slot, started_at)
@@ -458,13 +462,11 @@ class QueryRouter:
         )
 
     @contextmanager
-    def admit(
-        self, *, pool: Pool, query_class: QueryClass, check_cancelled: Callable[[], None] | None = None
-    ) -> Iterator[Admission]:
+    def admit(self, *, pool: Pool, query_class: QueryClass, cancellation_key: str | None = None) -> Iterator[Admission]:
         """Hold a slot in the pool while the block runs.
 
-        Raises ClickHouseAtCapacity when the query is dropped. Any other failure of the router lets
-        the query run without a slot.
+        Raises ClickHouseAtCapacity when the query is dropped and propagates cancellation.
+        Redis and settings failures let the query run without a slot.
         """
         mode = config.get_mode(pool, query_class)
         if mode == RouterMode.OFF:
@@ -472,7 +474,7 @@ class QueryRouter:
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(slot, mode=mode, check_cancelled=check_cancelled)
+        admission = self._enter(slot, mode=mode, cancellation_key=cancellation_key)
         admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
         if holds_slot:

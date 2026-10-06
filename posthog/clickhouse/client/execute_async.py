@@ -332,13 +332,13 @@ def execute_process_query(
             query_status.query_scan = _query_scan_from_error(err)
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
-            query_status.error_message = str(err)
             if isinstance(err, APIException):
                 set_query_status_error(query_status, err)
+            else:
+                query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
-            # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,
-            # so don't report them to error tracking — only genuine server-side failures belong there.
+            # User-safe errors are returned to the caller; only unexpected failures belong in error tracking.
             capture_exception(err)
         # Do not raise here, the task itself did its job and we cannot recover
     finally:

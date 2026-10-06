@@ -1,5 +1,6 @@
 import json
 import uuid
+from contextlib import nullcontext
 from types import TracebackType
 from typing import Any
 
@@ -151,8 +152,12 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         assert self.ch_client.running_during_execute == 0
         assert "query_router_class" not in self.ch_client.log_comment()
 
-    @parameterized.expand([("slot_freed", True), ("pool_still_full", False)])
-    def test_cancelled_waiter_never_starts_and_leaves_the_queue(self, _name: str, free_slot: bool) -> None:
+    @parameterized.expand(
+        [("slot_freed", True, True), ("pool_still_full", False, True), ("previous_run_cancelled", True, False)]
+    )
+    def test_waiter_honors_cancellation_only_for_its_own_run(
+        self, _name: str, free_slot: bool, cancel_current_run: bool
+    ) -> None:
         held_key = self._enforce_with_a_full_pool()
         self.redis.lpush(durations_key(Pool.OFFLINE), 500)
         query_id = uuid.uuid4().hex
@@ -175,13 +180,13 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
                 id="posthog.tasks.tasks.process_query_task",
                 access_method=AccessMethod.PERSONAL_API_KEY,
                 client_query_id=query_id,
-                celery_task_id=task_id,
+                celery_task_id=task_id if cancel_current_run else uuid.uuid4(),
             ),
-            self.assertRaises(CHQueryErrorQueryWasCancelled),
+            self.assertRaises(CHQueryErrorQueryWasCancelled) if cancel_current_run else nullcontext(),
         ):
             sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
 
-        self.client_from_pool.assert_not_called()
+        assert self.client_from_pool.call_count == (0 if cancel_current_run else 1)
         assert _running_slots(self.redis, Pool.OFFLINE) == (0 if free_slot else 1)
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
