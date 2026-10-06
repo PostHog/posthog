@@ -73,6 +73,7 @@ from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
+    TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_RESEARCH,
     append_task_run_artefact,
@@ -1399,6 +1400,48 @@ class TestSignalReportListAPI(APIBaseTest):
         assert row["implementation_pr_state"] == SignalReportAssignment.PrState.UNKNOWN
         assert row["implementation_pr_merged"] is False
         assert row["work_state"] == "in_review"
+
+    def test_has_implementation_task_costs_no_query_per_report(self):
+        def seed(count: int) -> None:
+            for i in range(count):
+                self._create_implementation_task_with_run(self._create_report(title=f"Implemented {i}"))
+
+        seed(1)
+        # The first request warms the session, flag and access-control reads this is not measuring.
+        self.client.get(self._list_url())
+        with CaptureQueriesContext(connection) as for_one:
+            self.client.get(self._list_url())
+        baseline = len(for_one.captured_queries)
+
+        seed(5)
+        with CaptureQueriesContext(connection) as for_many:
+            response = self.client.get(self._list_url())
+
+        rows = response.json()["results"]
+        assert len(rows) == 6
+        assert all(row["has_implementation_task"] for row in rows)
+        assert len(for_many.captured_queries) == baseline
+
+    def test_has_implementation_task_counts_only_implementation_runs(self):
+        implemented = self._create_report()
+        discussed = self._create_report()
+        untouched = self._create_report()
+        self._create_implementation_task_with_run(implemented)
+        self._create_implementation_task_with_run(discussed, relationship=TASK_RUN_TYPE_DISCUSSION)
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        listed = {row["id"]: row["has_implementation_task"] for row in response.json()["results"]}
+        assert listed[str(implemented.id)] is True
+        # A report somebody only asked AI about has not been implemented.
+        assert listed[str(discussed.id)] is False
+        assert listed[str(untouched.id)] is False
+
+        # The detail action builds no map, so it answers from the serializer's own lookup.
+        for report in (implemented, discussed, untouched):
+            detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+            assert detail.status_code == status.HTTP_200_OK
+            assert detail.json()["has_implementation_task"] == listed[str(report.id)]
 
     def test_retrieve_implementation_pr_fields_come_from_assignment(self):
         report = self._create_report()

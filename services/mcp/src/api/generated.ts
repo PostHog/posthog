@@ -70916,6 +70916,8 @@ export namespace Schemas {
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
       /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
       readonly implementation_pr_merged: boolean;
+      /** Whether an implementation task has ever run for this report. A report holds one implementation at a time, so a surface that offers to implement it opens the existing task instead of starting a second one the server would refuse. */
+      readonly has_implementation_task: boolean;
       /**
          * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
          * @nullable
@@ -90859,6 +90861,8 @@ export namespace Schemas {
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
       /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
       readonly implementation_pr_merged: boolean;
+      /** Whether an implementation task has ever run for this report. A report holds one implementation at a time, so a surface that offers to implement it opens the existing task instead of starting a second one the server would refuse. */
+      readonly has_implementation_task: boolean;
       /**
          * Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.
          * @nullable

@@ -1074,6 +1074,35 @@ export const ReportHoverCard: Story = {
     ),
 }
 
+export const ReportHoverCardWithoutPullRequest: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: briefingItemReportCard(PERSONAL_BRIEFING.items[1]),
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+// A report whose implementation already exists, so the button opens it rather than starting one.
+export const ReportHoverCardWithImplementation: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayReportHoverCard
+                preview={{
+                    kind: 'report',
+                    card: { ...briefingItemReportCard(PERSONAL_BRIEFING.items[1]), hasImplementation: true },
+                    surface: 'sidebar',
+                }}
+            />
+        </HoverCardFrame>
+    ),
+}
+
 export const ReportHoverCardResolved: Story = {
     render: () => (
         <HoverCardFrame>

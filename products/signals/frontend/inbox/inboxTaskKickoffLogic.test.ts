@@ -465,6 +465,17 @@ describe('inboxTaskKickoffLogic', () => {
             })
         })
 
+        it('sends a scene run to the AI page instead of the side panel', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.createPrFromReport(report, undefined, 'scene')
+            ).toFinishAllListeners()
+
+            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toBeNull()
+            expect(router.values.searchParams).toEqual({ task: 'report-task', runId: 'report-run' })
+            expect(createdTasks).toHaveLength(1)
+        })
+
         it('keeps the optimistic stream when View task opens the run already shown in the panel', () => {
             const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
             panel.actions.setActiveCreation({

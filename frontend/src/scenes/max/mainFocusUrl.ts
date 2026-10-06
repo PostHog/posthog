@@ -1,5 +1,3 @@
-import { combineUrl } from 'kea-router'
-
 import { urls } from 'scenes/urls'
 
 import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
@@ -31,5 +29,5 @@ export function mainFocusUrl({ isNewView, activeCreation, conversationId }: Main
         return null
     }
     // The panel keeps streaming the run it opened, while the task page otherwise defaults to the newest.
-    return combineUrl(urls.aiTask(activeCreation.taskId), { runId: activeCreation.runId }).url
+    return urls.aiTask(activeCreation.taskId, activeCreation.runId)
 }

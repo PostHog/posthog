@@ -122,6 +122,8 @@ export interface SignalReport {
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
      * resolved report may have been resolved directly, without a merged PR. */
     implementation_pr_merged?: boolean
+    /** Whether an implementation task has ever run for this report, so a surface opens it rather than starting a second. */
+    has_implementation_task?: boolean
     /** Latest known state of that PR: unknown, draft, open, closed, or merged. */
     implementation_pr_state?: SignalReportAssignmentPrStateEnumApi | null
     /** Link to the tracker issue self-driving opened for this report's PR. Null when the project tracks no issues. */

@@ -176,7 +176,8 @@ export const urls = {
     viewsNew: (): string => '/views/new',
     tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
-    aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
+    // Without `runId` the page opens the task's newest run, which is not always the one the caller means.
+    aiTask: (taskId: string, runId?: string): string => combineUrl('/ai', { task: taskId, runId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,

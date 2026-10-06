@@ -53,6 +53,7 @@ describe('todayLogic', () => {
     let briefingCalls: number
     let stateResponse: [number, any]
     let reportResponse: [number, any] | null
+    let artefactsResponse: [number, any]
 
     beforeEach(() => {
         listResponse = [200, { results: [], count: 0 }]
@@ -61,6 +62,7 @@ describe('todayLogic', () => {
         briefingCalls = 0
         stateResponse = [200, {}]
         reportResponse = null
+        artefactsResponse = [200, { results: [], count: 0 }]
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
@@ -68,6 +70,11 @@ describe('todayLogic', () => {
                     return listResponse
                 },
                 '/api/projects/:team_id/signals/reports/:id/': () => reportResponse ?? [404, {}],
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': () => artefactsResponse,
+                '/api/projects/:team_id/tasks/:id/': () => [
+                    200,
+                    { id: 'task-1', latest_run: { id: 'run-1', status: 'in_progress' } },
+                ],
                 '/api/projects/:team_id/today/briefing/': () => {
                     briefingCalls += 1
                     return briefingResponses.length > 1 ? briefingResponses.shift()! : briefingResponses[0]
@@ -242,6 +249,74 @@ describe('todayLogic', () => {
         expect(logic.values.briefingItems[0].state).toEqual(finalState)
     })
 
+    it.each([
+        {
+            case: 'starts a run on a report that can take a pull request',
+            report: makeReport({ id: 'a', actionability: 'immediately_actionable' }),
+            starts: true,
+        },
+        {
+            case: 'refuses a report that already has a pull request',
+            report: makeReport({
+                id: 'a',
+                actionability: 'immediately_actionable',
+                implementation_pr_url: 'https://github.com/example-org/web/pull/1',
+            }),
+            starts: false,
+        },
+        {
+            case: 'refuses a report that is no longer actionable',
+            report: makeReport({ id: 'a', actionability: 'not_actionable' }),
+            starts: false,
+        },
+        {
+            case: 'refuses a report it cannot read',
+            response: [500, {}] as [number, any],
+            starts: false,
+        },
+        {
+            // The server refuses a second run, so the click opens the one already working.
+            case: 'opens the implementation already running on the report',
+            report: makeReport({
+                id: 'a',
+                actionability: 'immediately_actionable',
+                has_implementation_task: true,
+            }),
+            artefacts: [
+                {
+                    id: 'artefact-1',
+                    type: 'task_run',
+                    content: { product: 'signals', type: 'implementation', task_id: 'task-1' },
+                    created_at: '2026-09-30T08:00:00Z',
+                },
+            ],
+            running: true,
+            starts: false,
+        },
+    ])('$case', async ({ report, response, artefacts, running, starts }) => {
+        briefingResponses = [[200, makeBriefing()]]
+        reportResponse = response ?? [200, report]
+        artefactsResponse = [200, { results: artefacts ?? [], count: artefacts?.length ?? 0 }]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.implementReport('a', 'sidebar')
+        expect(logic.values.implementingReportId).toEqual('a')
+
+        const run = expectLogic(logic).toFinishAllListeners()
+        if (starts) {
+            await run.toDispatchActions([
+                (action) => action.type === logic.actionTypes.createPrFromReport && action.payload.surface === 'scene',
+            ])
+        } else {
+            await run.toDispatchActions(['implementReportSettled']).toMatchValues({ implementingReportId: null })
+        }
+        if (running) {
+            expect(router.values.searchParams).toEqual({ task: 'task-1', runId: 'run-1' })
+        }
+    })
+
     it('keeps the last briefing on screen, polls while the next is written, and stops when it is ready', async () => {
         jest.useFakeTimers()
         const previous = makeBriefing({ id: 'b-previous', status: 'writing' })
@@ -341,7 +416,7 @@ describe('todayLogic', () => {
             metrics: [],
             charts: [],
         }
-        listResponse = [200, { results: [makeReport({ id: 'team-a' })], count: 1 }]
+        listResponse = [200, { results: [makeReport({ id: 'team-a', has_implementation_task: true })], count: 1 }]
         briefingResponses = [
             [
                 200,
@@ -363,6 +438,11 @@ describe('todayLogic', () => {
         expect(Object.keys(logic.values.reportPreviews.sidebar)).toEqual(['report:a'])
         expect(Object.keys(logic.values.teamReportPreviews.briefing)).toEqual(['team-a'])
         expect(Object.keys(logic.values.teamReportPreviews.sidebar)).toEqual(['team-a'])
+        // A team card reads the report's own eligibility, the way the Inbox does. A briefing item
+        // carries no status or actionability, so its card offers and the click decides.
+        expect(logic.values.teamReportPreviews.sidebar['team-a'].card.canImplement).toBe(false)
+        expect(logic.values.reportPreviews.sidebar['report:a'].card.canImplement).toBe(true)
+        expect(logic.values.teamReportPreviews.sidebar['team-a'].card.hasImplementation).toBe(true)
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {

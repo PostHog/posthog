@@ -70,6 +70,9 @@ export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
         reason: itemReasonLabel(item),
         stateLabel: itemStateLabel(item),
         resolved: item.state === 'done',
+        // A briefing item carries no status, actionability or task of its own, so the click decides.
+        canImplement: !item.report?.pull_request_url,
+        hasImplementation: false,
         priority: item.report?.priority ?? null,
         summary: item.report?.summary || null,
         pullRequestState: item.report?.pull_request_state ?? null,

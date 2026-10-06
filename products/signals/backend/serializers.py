@@ -50,7 +50,13 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    RankingScore,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
@@ -1253,6 +1259,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "resolved directly, without a merged PR."
         ),
     )
+    has_implementation_task = serializers.SerializerMethodField(
+        help_text=(
+            "Whether an implementation task has ever run for this report. A report holds one "
+            "implementation at a time, so a surface that offers to implement it opens the existing "
+            "task instead of starting a second one the server would refuse."
+        ),
+    )
     tracker_issue_url = serializers.SerializerMethodField(
         help_text=(
             "Link to the issue self-driving opened in the team's tracker for this report's pull "
@@ -1333,6 +1346,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "pull_requests",
             "implementation_pr_state",
             "implementation_pr_merged",
+            "has_implementation_task",
             "tracker_issue_url",
             "tracker_issue_reference",
             "tracker_issue_error",
@@ -1551,6 +1565,21 @@ class SignalReportSerializer(serializers.ModelSerializer):
     def get_pull_requests(self, obj: SignalReport) -> list[dict[str, object]]:
         return cast(
             list[dict[str, object]], SignalReportPullRequestSerializer(self._get_pull_requests(obj), many=True).data
+        )
+
+    def get_has_implementation_task(self, obj: SignalReport) -> bool:
+        # Both report actions resolve the page up front and pass the answers down. The lookup is the
+        # fallback for a caller that serializes a report without building that map.
+        by_report: dict[str, bool] | None = self.context.get("has_implementation_task_map")
+        if by_report is not None:
+            return by_report.get(str(obj.id), False)
+        return bool(
+            SignalReport.associated_task_runs(
+                report_id=str(obj.id),
+                team_id=obj.team_id,
+                product=SIGNALS_PRODUCT,
+                type=TASK_RUN_TYPE_IMPLEMENTATION,
+            )
         )
 
     @staticmethod

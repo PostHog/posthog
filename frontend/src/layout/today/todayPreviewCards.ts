@@ -71,6 +71,10 @@ export interface TodayReportCard {
     /** Resolved or dismissed since the briefing, or null while open. */
     stateLabel: string | null
     resolved: boolean
+    /** Whether the card offers the implementation. The Inbox hides the same action on the same rule. */
+    canImplement: boolean
+    /** Whether that implementation already exists, so the button opens it rather than starting one. */
+    hasImplementation: boolean
     priority: string | null
     summary: string | null
     pullRequestState: PrStateEnumApi | null

@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.artefact_schemas import TaskRunArtefact
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import (
     SignalActorKind,
@@ -141,11 +142,32 @@ class ImplementationPr:
     agent_name: str | None = None
 
 
+def has_implementation_task_by_report(
+    report_ids: list[str], task_runs: dict[str, list[TaskRunArtefact]]
+) -> dict[str, bool]:
+    """Which of these reports an implementation task has run for, read off their resolved task runs.
+
+    Every report on the page gets an answer, so a serializer reading the map never falls back to a
+    per-report lookup for one that simply has no runs.
+    """
+    return {
+        str(report_id): any(run.type == TASK_RUN_TYPE_IMPLEMENTATION for run in task_runs.get(str(report_id), []))
+        for report_id in report_ids
+    }
+
+
 def fetch_implementation_prs_for_reports(
-    report_ids: list[str], *, team_id: int, using: str | None = None
+    report_ids: list[str],
+    *,
+    team_id: int,
+    using: str | None = None,
+    task_runs: dict[str, list[TaskRunArtefact]] | None = None,
 ) -> dict[str, list[ImplementationPr]]:
     """Pull requests per report. Pass `using="default"` when the answer decides whether work starts
-    or a report closes, so a replica's lag cannot read a just-attached pull request as absent."""
+    or a report closes, so a replica's lag cannot read a just-attached pull request as absent.
+
+    `task_runs` lets a caller that already resolved the page's task runs hand them over, because the
+    association query is the expensive half and the type narrowing happens in memory."""
     if not report_ids:
         return {}
     reports = SignalReport.objects.using(using) if using else SignalReport.objects
@@ -192,8 +214,12 @@ def fetch_implementation_prs_for_reports(
     assignments = list(
         SignalReportAssignment.objects.for_team(team_id).filter(report_id__in=report_ids).select_related("actor_user")
     )
-    runs = SignalReport.associated_task_runs_for_reports(
-        report_ids=report_ids, team_id=team_id, product=SIGNALS_PRODUCT
+    runs = (
+        task_runs
+        if task_runs is not None
+        else SignalReport.associated_task_runs_for_reports(
+            report_ids=report_ids, team_id=team_id, product=SIGNALS_PRODUCT
+        )
     )
     tasks_by_report = {
         report_id: {

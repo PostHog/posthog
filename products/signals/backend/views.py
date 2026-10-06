@@ -82,6 +82,7 @@ from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
     FIXED_DISMISSAL_REASONS,
     NON_WRITABLE_ARTEFACT_TYPES,
+    SIGNALS_PRODUCT,
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
@@ -115,6 +116,7 @@ from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
+    has_implementation_task_by_report,
     implementation_pr_report_filter,
     primary_pull_request,
     pull_request_matches_id,
@@ -1959,12 +1961,18 @@ class SignalReportViewSet(
             logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
             signal_meta_map = {}
         try:
-            pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
+            task_runs = SignalReport.associated_task_runs_for_reports(
+                report_ids=report_ids, team_id=self.team_id, product=SIGNALS_PRODUCT
+            )
+            pull_requests_map = fetch_implementation_prs_for_reports(
+                report_ids, team_id=self.team_id, task_runs=task_runs
+            )
             implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
             implementation_pr_by_report = {}
             pull_requests_map = {}
+            task_runs = {}
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -1974,6 +1982,7 @@ class SignalReportViewSet(
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            "has_implementation_task_map": has_implementation_task_by_report(report_ids, task_runs),
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -2409,12 +2418,20 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
-                pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
+                # The association query is the expensive half, and the pull requests and the
+                # implementation flag both read it, so the page resolves it once.
+                task_runs = SignalReport.associated_task_runs_for_reports(
+                    report_ids=report_ids, team_id=self.team_id, product=SIGNALS_PRODUCT
+                )
+                pull_requests_map = fetch_implementation_prs_for_reports(
+                    report_ids, team_id=self.team_id, task_runs=task_runs
+                )
                 implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
                 implementation_pr_by_report = {}
                 pull_requests_map = {}
+                task_runs = {}
 
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
@@ -2442,6 +2459,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "has_implementation_task_map": has_implementation_task_by_report(report_ids, task_runs),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

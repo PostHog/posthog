@@ -34,7 +34,7 @@ const REVIEW_NOTES: Record<string, string> = {
     changes_requested: 'A reviewer asked for changes.',
 }
 
-function reviewLabel(url: string, draft: boolean): string {
+export function reviewLabel(url: string, draft: boolean): string {
     const number = parsePrUrlParts(url)?.number
     const name = draft ? 'draft PR' : 'PR'
     return number ? `Review ${name} #${number}` : `Review ${name}`

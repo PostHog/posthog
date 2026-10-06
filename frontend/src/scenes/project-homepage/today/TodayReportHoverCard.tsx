@@ -34,6 +34,7 @@ import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullReq
 
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { reviewLabel } from './todayNextStep'
 import { isSampleReportId } from './todaySampleReports'
 
 // The charts load on the first hover: the card sits in the app shell, and the query and chart code
@@ -56,8 +57,8 @@ const LISTED_METRIC_COUNT = 2
  */
 export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { card } = preview
-    const { reportStateOverrides } = useValues(todayLogic)
-    const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
+    const { reportStateOverrides, implementingReportId } = useValues(todayLogic)
+    const { reportPreviewed, requestReportVerdict, implementReport } = useActions(todayLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
@@ -82,6 +83,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         }
     }
     const isSample = !!reportId && isSampleReportId(reportId)
+    const implementing = !!reportId && implementingReportId === reportId
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -233,7 +235,8 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
             {reportId && !stateLabel && (
                 <>
                     <ItemSeparator className="my-0" />
-                    <div className="flex flex-wrap justify-between gap-1.5 px-3 py-2">
+                    {/* The two verdicts hold the edges, so the third takes whatever width is left between them. */}
+                    <div className="flex items-center justify-between gap-1.5 px-3 py-2">
                         <Button
                             variant="outline"
                             size="xs"
@@ -244,6 +247,37 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             <IconCheckCircle />
                             Resolve
                         </Button>
+                        {card.pullRequestUrl ? (
+                            // The implementation is written, so the next step is reading it.
+                            <Button
+                                variant="primary"
+                                size="xs"
+                                className="min-w-0 flex-1"
+                                nativeButton={false}
+                                render={<LinkPrimitive to={card.pullRequestUrl} target="_blank" />}
+                                data-attr="today-report-hover-card-review-pr"
+                            >
+                                <IconPullRequest />
+                                <span className="truncate">
+                                    {reviewLabel(card.pullRequestUrl, card.pullRequestState === 'draft')}
+                                </span>
+                            </Button>
+                        ) : (
+                            card.canImplement && (
+                                <Button
+                                    variant="primary"
+                                    size="xs"
+                                    className="min-w-0 flex-1"
+                                    loading={implementing}
+                                    disabled={isSample || !!implementingReportId}
+                                    onClick={() => implementReport(reportId, preview.surface)}
+                                    data-attr="today-report-hover-card-implement"
+                                >
+                                    <IconPullRequest />
+                                    {card.hasImplementation ? 'Implementation' : 'Implement'}
+                                </Button>
+                            )
+                        )}
                         <Button
                             variant="outline"
                             size="xs"

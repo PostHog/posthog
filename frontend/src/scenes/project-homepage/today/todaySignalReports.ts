@@ -4,6 +4,7 @@ import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { canCreateImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
 export type TodayReportIcon =
     | 'pr'
@@ -101,6 +102,8 @@ export function teamReportCard(report: SignalReport): TodayReportCard {
         reason: null,
         stateLabel: null,
         resolved: false,
+        canImplement: canCreateImplementationPr(report),
+        hasImplementation: !!report.has_implementation_task,
         priority: report.priority ?? null,
         summary: report.summary_lead || null,
         pullRequestState: report.implementation_pr_merged ? 'merged' : (report.implementation_pr_state ?? null),

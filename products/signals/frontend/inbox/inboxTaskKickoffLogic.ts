@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -55,6 +56,9 @@ import {
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
 import { hasApprovedOpenReportPullRequest, reportPullRequests } from './utils/reportPullRequests'
+
+/** Where the person watches a run this logic starts. A caller with no side panel of its own takes the page. */
+export type ReportRunSurface = 'panel' | 'scene'
 
 export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
@@ -438,10 +442,12 @@ export interface inboxTaskKickoffLogicActions {
     }
     createPrFromReport: (
         report: SignalReport,
-        feedback?: string
+        feedback?: string,
+        surface?: ReportRunSurface
     ) => {
         feedback: string | undefined
         report: SignalReport
+        surface: ReportRunSurface
     }
     createPrSuccess: () => {
         value: true
@@ -570,7 +576,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             agentQuestion,
             intent,
         }),
-        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        createPrFromReport: (report: SignalReport, feedback?: string, surface: ReportRunSurface = 'panel') => ({
+            report,
+            feedback,
+            surface,
+        }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
@@ -848,7 +858,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.discussReportFailure()
             }
         },
-        createPrFromReport: async ({ report, feedback }) => {
+        createPrFromReport: async ({ report, feedback, surface }) => {
             if (values.createPrDisabledReason) {
                 lemonToast.error(values.createPrDisabledReason)
                 captureInboxReportActionCompleted({
@@ -860,16 +870,21 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.createPrFailure()
                 return
             }
-            actions.openReportDiscussion(
-                report,
-                `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
-            )
+            // The optimistic stream only fills the panel while the task is created, and the page reads the
+            // run from the server once it exists, so a run headed for the page starts no stream.
+            const watchInPanel = surface === 'panel'
             const streamKey = `report-implementation-${uuid()}`
-            const stream = runStreamLogic({ streamKey })
             const disposables = cache.disposables
-            disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, { pauseOnPageHidden: false })
-            stream.actions.startOptimisticRun()
-            actions.setActiveCreation({ streamKey })
+            if (watchInPanel) {
+                actions.openReportDiscussion(
+                    report,
+                    `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
+                )
+                const stream = runStreamLogic({ streamKey })
+                disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, { pauseOnPageHidden: false })
+                stream.actions.startOptimisticRun()
+                actions.setActiveCreation({ streamKey })
+            }
             try {
                 if (values.currentProjectId == null) {
                     throw new Error('Project is required')
@@ -886,7 +901,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 if (disposables.isDisposed) {
                     return
                 }
-                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                if (!watchInPanel) {
+                    router.actions.push(urls.aiTask(taskId, runId))
+                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
                     actions.openReportTask(report, taskId, runId, streamKey)
                 }
                 captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
