@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from requests import Response
@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import PaginatorConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     UNKNOWN_RESOURCE_PREFIX,
@@ -125,7 +126,9 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
                 "allowed_hosts": [],
                 "allow_redirects": False,
                 "request_timeout": (10, 60),
-                "paginator": "single_page" if probe else {"type": "page_number", "initial_page": 1, "total_path": None},
+                "paginator": "single_page"
+                if probe
+                else cast(PaginatorConfig, {"type": "page_number", "base_page": 1, "total_path": None}),
             },
             "resources": [
                 {
