@@ -384,6 +384,13 @@ async def create_worker(
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+    if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:
+        # Both metrics hold small counts. The default buckets are for latencies in milliseconds,
+        # which puts every count into the first bucket.
+        histogram_bucket_overrides |= {
+            "warehouse_pipeline_run_attempt": [1.0, 2.0, 3.0, 5.0, 9.0, 20.0, 50.0, 100.0, 200.0],
+            "warehouse_import_handoffs_per_run": [0.0, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0],
+        }
     if task_queue == settings.TASKS_TASK_QUEUE:
         histogram_bucket_overrides |= dict(
             zip(

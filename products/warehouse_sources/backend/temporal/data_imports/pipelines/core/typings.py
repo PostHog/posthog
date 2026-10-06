@@ -25,6 +25,11 @@ class PipelineResult(TypedDict):
     `fast_returned` marks a run completed on a negative source probe, before any extraction.
     It always rides with `skip_post_import_activities=True` (which does the actual skipping);
     the workflow reads it only to count these runs separately from other skipped ones.
+
+    `handed_off` marks an attempt that left a worker which is shutting down. The import is not
+    done: the workflow runs the activity again. Only an activity whose input says that hand-offs
+    are free returns it. `handoff_attempts_used` is the Temporal attempt number that handed off,
+    which the workflow adds up so the next execution continues the attempt numbers.
     """
 
     should_trigger_cdp_producer: bool
@@ -32,3 +37,5 @@ class PipelineResult(TypedDict):
     skip_post_import_activities: NotRequired[bool]
     prepared_queryable_folder: NotRequired[str]
     fast_returned: NotRequired[bool]
+    handed_off: NotRequired[bool]
+    handoff_attempts_used: NotRequired[int]

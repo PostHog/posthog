@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
     process_incremental_value,
+    staged_handoff_resume_value,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -248,6 +249,31 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
+
+    def test_a_handoff_resume_value_never_moves_the_stored_watermark(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_field_last_value": 10,
+            },
+        )
+        schema.stage_incremental_field_value("wfrun-1-a1", 50)
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        # The next attempt displaces the first one, which must keep its value in the parked list.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40)
+        schema.stage_incremental_field_value("wfrun-1-a2", 90)
+
+        schema.refresh_from_db()
+        # The run never completed, so nothing was promoted: the next workflow run starts from 10
+        # and extracts again the rows that this run queued but did not finish loading.
+        assert schema.sync_type_config["incremental_field_last_value"] == 10
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-1") == 40
+        assert staged_handoff_resume_value(schema.sync_type_config, "wfrun-2") is None
+
+        assert schema.promote_staged_incremental_values("wfrun-1-a2")
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 90
 
     def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
         schema = self._create(

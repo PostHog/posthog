@@ -183,6 +183,11 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
 # import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
 STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
+# The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
+# run can resume after. It differs from the staged `last_value`, which the loader promotes only
+# when the whole run completes.
+STAGED_RESUME_VALUE_KEY = "resume_value"
+
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
@@ -1030,6 +1035,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         }
         self._stage_cursor_values(run_uuid, values)
 
+    def stage_handoff_resume_value(self, run_uuid: str, resume_value: Any) -> None:
+        """Record the incremental value a later attempt of this workflow run can resume after.
+
+        Stage only a value whose rows already have their queue rows, because the next attempt reads
+        the source strictly above it. None records that this attempt has no such value, which stops
+        the next attempt from using the value of an older attempt.
+        """
+        self._stage_cursor_values(run_uuid, {STAGED_RESUME_VALUE_KEY: self._serialize_incremental_value(resume_value)})
+
     def stage_source_cursor(self, run_uuid: str, payload: dict[str, Any]) -> None:
         """Hold a run's source cursor in `incremental_staged`, which the load side promotes with the watermark."""
         self._stage_cursor_values(run_uuid, {SOURCE_CURSOR_KEY: payload})
@@ -1353,7 +1367,8 @@ def _align_epoch_cursor(value: Any, partner: Any) -> Any:
 def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
     """A run is live or parked, never both: only another run's staging parks it, and its own
     staging moves it back. Both happen under the row lock."""
-    if not staged.get("run_uuid") or not ({"last_value", "earliest_value", SOURCE_CURSOR_KEY} & staged.keys()):
+    cursor_keys = {"last_value", "earliest_value", SOURCE_CURSOR_KEY, STAGED_RESUME_VALUE_KEY}
+    if not staged.get("run_uuid") or not (cursor_keys & staged.keys()):
         return
     pending = [*config.get("incremental_staged_pending", []), staged]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
@@ -1371,6 +1386,28 @@ def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[st
     else:
         config.pop("incremental_staged_pending", None)
     return dropped
+
+
+def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | None) -> Any:
+    """The value the newest attempt of `workflow_run_id` recorded with `stage_handoff_resume_value`.
+
+    Only the newest attempt counts. An attempt that restarted from the stored watermark can replace
+    the queue rows of the attempts before it, so their values no longer describe what the loader
+    will load.
+    """
+    if not workflow_run_id:
+        return None
+    prefix = f"{workflow_run_id}-a"
+    newest: dict[str, Any] | None = None
+    newest_attempt = 0
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
+            continue
+        attempt = run_uuid.removeprefix(prefix)
+        if attempt.isdigit() and int(attempt) > newest_attempt:
+            newest, newest_attempt = staged, int(attempt)
+    return None if newest is None else newest.get(STAGED_RESUME_VALUE_KEY)
 
 
 def _advance_promoted_cursor(

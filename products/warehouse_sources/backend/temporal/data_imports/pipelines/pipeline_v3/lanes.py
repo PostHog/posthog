@@ -89,6 +89,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         *,
         models: ImportJobModels,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
+        incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_value: Any = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -103,6 +105,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumable_source_manager,
             models=models,
             source_cursor_manager=source_cursor_manager,
+            incremental_checkpoints_allowed=incremental_checkpoints_allowed,
+            resumed_incremental_value=resumed_incremental_value,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

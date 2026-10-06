@@ -4,6 +4,7 @@ import datetime as dt
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
@@ -319,6 +320,11 @@ class CreateExternalDataJobModelActivityOutputs:
     # source's first completed sync does. Defaults True so a payload that predates the field still
     # schedules the activity its history recorded.
     source_templates_needed: bool = True
+    # True when the workflow runs the import again itself after a worker hand-off, so the hand-off
+    # uses no retry attempt. Read from settings here because a workflow must not: the value is
+    # recorded with this activity's result, so a replay takes the same branch. Defaults False so a
+    # payload that predates the field keeps the single import execution its history recorded.
+    import_handoffs_are_free: bool = False
 
 
 @activity.defn
@@ -462,6 +468,7 @@ def create_external_data_job_model_activity(
             billing_limit_checked=True,
             hit_billing_limit=hit_billing_limit,
             source_templates_needed=source_templates_needed,
+            import_handoffs_are_free=settings.DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's
