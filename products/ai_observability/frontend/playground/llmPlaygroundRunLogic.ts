@@ -329,6 +329,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
                     prompt.systemPrompt,
                     ...messagesToSend.map((m) => m.content),
+                    ...messagesToSend.flatMap((m) => m.toolCalls?.map((toolCall) => toolCall.arguments) ?? []),
                 ])
             )
             const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
@@ -364,6 +365,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         (m: Message): Message => ({
                             ...m,
                             content: substituteVariables(m.content, values.variableValues),
+                            ...(m.toolCalls?.length
+                                ? {
+                                      toolCalls: m.toolCalls.map((toolCall) => ({
+                                          ...toolCall,
+                                          arguments: substituteVariables(toolCall.arguments, values.variableValues),
+                                      })),
+                                  }
+                                : {}),
                         })
                     )
                     const liveItemId = uuid()
