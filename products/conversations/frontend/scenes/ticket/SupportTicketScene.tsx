@@ -609,14 +609,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {/* AI Triage Panel */}
                     {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
 
-                    {(ticket?.channel_source === 'widget' ||
-                        (ticket?.channel_source === 'email' &&
-                            ticket.session_context?.source_product === 'desktop')) && (
+                    {ticket?.channel_source === 'widget' && (
                         <>
                             {/* Session Recording Panel */}
                             <SessionRecordingPanel
                                 sessionContext={ticket?.session_context}
-                                sessionId={ticket?.session_id}
                                 distinctId={ticket?.distinct_id}
                             />
 
@@ -628,13 +625,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             />
 
                             {/* Exceptions Panel */}
-                            {(ticket.channel_source === 'widget' || ticket.session_id) && (
-                                <ExceptionsPanel
-                                    exceptionsQuery={exceptionsQuery}
-                                    sessionId={ticket?.session_id}
-                                    distinctId={ticket?.distinct_id}
-                                />
-                            )}
+                            <ExceptionsPanel
+                                exceptionsQuery={exceptionsQuery}
+                                sessionId={ticket?.session_id}
+                                distinctId={ticket?.distinct_id}
+                            />
 
                             {/* Previous Tickets Panel */}
                             <PreviousTicketsPanel

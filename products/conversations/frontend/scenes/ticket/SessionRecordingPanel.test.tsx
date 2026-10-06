@@ -33,16 +33,13 @@ describe('SessionRecordingPanel', () => {
         cleanup()
     })
 
-    it.each([{ sessionContext: { replay_url: 'https://us.posthog.com/replay/01890abc' } }, { sessionId: '01890abc' }])(
-        'plays the recording from the available session context: %j',
-        async (props) => {
-            render(<SessionRecordingPanel {...props} />)
+    it('passes the id parsed from sessionContext.replay_url to the player', async () => {
+        render(<SessionRecordingPanel sessionContext={{ replay_url: 'https://us.posthog.com/replay/01890abc' }} />)
 
-            await userEvent.click(screen.getByText('Session recording'))
+        await userEvent.click(screen.getByText('Session recording'))
 
-            expect(screen.getByText('01890abc')).toBeInTheDocument()
-        }
-    )
+        expect(screen.getByText('01890abc')).toBeInTheDocument()
+    })
 
     it('shows the empty state when sessionContext has no replay_url', async () => {
         render(<SessionRecordingPanel sessionContext={{}} />)

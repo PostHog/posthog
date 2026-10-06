@@ -785,6 +785,14 @@ def _process_support_email(
 
             assert ticket is not None
 
+            if (
+                ticket.channel_source == Channel.EMAIL
+                and (ticket.session_context or {}).get("source_product") == "desktop"
+                and sender_email.lower() == (ticket.email_from or "").lower()
+            ):
+                posthog_user = None
+                is_team_member = False
+
             item_context = {
                 "author_type": "support" if is_team_member else "customer",
                 "is_private": False,

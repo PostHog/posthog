@@ -148,7 +148,10 @@ If the setting is absent, tickets remain unassigned.
 An invalid or deleted role rejects the submission without saving a ticket or its attachments.
 The ticket, assignment, and messages commit together.
 Assignment events run after the transaction commits.
-Desktop feedback tickets show the Exceptions panel only when they have a session ID.
+Desktop feedback tickets keep their session ID as context, but do not embed recordings, events, or exceptions from the ticket project.
+Desktop analytics can belong to a different project or region.
+An email reply from the Desktop ticket's requester is a customer message, even when the requester belongs to the feedback project's organization.
+It increases the team's unread count.
 Tickets and customer comments use the same analytics identity as Desktop: the user's distinct ID, with their email as the fallback.
 Feedback text renders as separate paragraphs for each non-empty line, followed by any attached images.
 Each paragraph preserves the line's leading and trailing whitespace.

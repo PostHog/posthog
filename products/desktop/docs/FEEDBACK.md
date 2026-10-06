@@ -15,7 +15,7 @@ The app captures the current window before the form opens. The screenshot can be
 
 Selected screenshots and images are stored in PostHog's internal media project, not the project selected in Desktop. Tickets and legacy survey responses contain authenticated image links instead of image data. Only people with access to the internal feedback project can open them, and the public media route returns `404`. Links stop working after 30 days, and a daily cleanup removes the stored media. If the submission fails, the endpoint removes the new media. Ticket logs are private notes, not customer-facing replies. The feedback modal is excluded from Session Replay, so previews and logs do not enter the recording.
 
-Desktop tickets show session recordings, recent events, and exceptions in Support. The recording panel can use the session identifier without a replay URL. Legacy survey events keep their normal session link, so authorized reviewers can inspect the app state before the modal opened.
+Desktop tickets store the session identifier as context. Support does not embed recordings, events, or exceptions for these tickets because Desktop analytics can belong to a different project or region. Legacy survey events keep their normal session link, so authorized reviewers can inspect the app state before the modal opened.
 
 Keep past survey responses. New ticket feedback goes through the Support review flow, not the surveys scout. Existing clients can keep using the same endpoint and response shape. The `response_id` is the ticket ID when ticket routing is enabled.
 
