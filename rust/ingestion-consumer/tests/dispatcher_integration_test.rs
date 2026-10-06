@@ -1,7 +1,9 @@
+mod common;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common_kafka_consumer::Partition;
 
@@ -12,15 +14,10 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use ingestion_consumer::batcher::packer::{PackTargets, Packer};
-use ingestion_consumer::batcher::retry_policy::RetryPolicy;
-use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
-use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
-use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
+use common::key_table_batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig, WorkerState};
 
@@ -481,10 +478,9 @@ async fn test_draining_worker_defers_then_flushes_to_survivor() {
 #[tokio::test(flavor = "current_thread")]
 async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
@@ -515,10 +511,9 @@ async fn purging_a_just_submitted_key_table_batch_is_not_fatal() {
 #[tokio::test]
 async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
     let registry = Arc::new(WorkerRegistry::new(&[], fast_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
@@ -545,31 +540,4 @@ async fn dropping_an_idle_key_table_batcher_closes_its_outputs() {
         outputs.errors.recv().await.is_none(),
         "all output senders close with the dropped batcher"
     );
-}
-
-/// A key-table batcher: the batcher state machine over the dispatcher's
-/// worker pool, retrying after `retry_delay` and failing after `stall_timeout`
-/// without progress. A one-event pack target sends each key as its own
-/// request, so tests can hold one key's request while another key's fails.
-fn key_table_batcher(
-    dispatcher: &Dispatcher,
-    transport: Arc<GrpcTransport>,
-    stall_timeout: Duration,
-    retry_delay: Duration,
-) -> (Batcher, BatcherOutputs) {
-    let packer = Packer::new(PackTargets {
-        events: 1,
-        ..PackTargets::default()
-    });
-    let pool_source = dispatcher.worker_pool_source();
-    let assigner = WorkerAssigner::new(
-        ingestion_consumer::routing::Router::new(pool_source.strategy()),
-        transport.max_unacked(),
-    )
-    .expect("valid request cap");
-    let retry = RetryPolicy::uniform(retry_delay).expect("valid retry delay");
-    let state_machine =
-        BatcherStateMachine::new(packer, assigner, retry, stall_timeout, Instant::now())
-            .expect("valid stall timeout");
-    Batcher::with_state_machine(state_machine, pool_source, transport)
 }

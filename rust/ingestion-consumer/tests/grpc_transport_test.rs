@@ -5,22 +5,19 @@
 //! failure fences everything outstanding (in order, with the messages handed
 //! back) so the dispatcher's deferral path can replay it.
 
+mod common;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use common::key_table_batcher;
 use common_kafka_consumer::Partition;
-use ingestion_consumer::batcher::packer::{PackTargets, Packer};
-use ingestion_consumer::batcher::retry_policy::RetryPolicy;
-use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
-use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
-use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::routing::{Router, RoutingStrategy};
-use ingestion_consumer::scheduler::SchedulerKind;
+use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::TransportError;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
@@ -864,10 +861,9 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
@@ -952,10 +948,9 @@ async fn key_table_retries_a_busy_send_until_it_completes() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
@@ -1002,10 +997,9 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
@@ -1044,29 +1038,4 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
         outputs.errors.try_recv().is_err(),
         "late acceptance resets the watchdog and idle work stays healthy"
     );
-}
-
-/// A key-table batcher: the batcher state machine over the dispatcher's
-/// worker pool, retrying after `retry_delay` and failing after `stall_timeout`
-/// without progress. A one-event pack target sends each key as its own
-/// request, so tests can hold one key's request while another key's fails.
-fn key_table_batcher(
-    dispatcher: &Dispatcher,
-    transport: Arc<GrpcTransport>,
-    stall_timeout: Duration,
-    retry_delay: Duration,
-) -> (Batcher, BatcherOutputs) {
-    let packer = Packer::new(PackTargets {
-        events: 1,
-        ..PackTargets::default()
-    });
-    let pool_source = dispatcher.worker_pool_source();
-    let assigner =
-        WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
-            .expect("valid request cap");
-    let retry = RetryPolicy::uniform(retry_delay).expect("valid retry delay");
-    let state_machine =
-        BatcherStateMachine::new(packer, assigner, retry, stall_timeout, Instant::now())
-            .expect("valid stall timeout");
-    Batcher::with_state_machine(state_machine, pool_source, transport)
 }

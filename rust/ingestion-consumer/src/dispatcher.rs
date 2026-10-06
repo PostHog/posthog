@@ -13,8 +13,8 @@ use crate::debug_recorder::{
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::scheduler::{
-    Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, SchedulerKind,
-    Settlement, SettlementOutcome, WorkerHealth, WorkerSnapshot,
+    Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, Settlement,
+    SettlementOutcome, WorkerHealth, WorkerSnapshot,
 };
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
@@ -179,8 +179,6 @@ pub struct Dispatcher {
     /// The configured routing strategy; the scheduler owns the router itself.
     /// Kept here for view construction (aperture narrowing) and debug.
     strategy: RoutingStrategy,
-    /// The selected scheduler kind, for the batcher's driver choice.
-    scheduler_kind: SchedulerKind,
     /// Per-key send/ACK order checker. Called under the inner lock (lock
     /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
@@ -200,16 +198,7 @@ impl Dispatcher {
 
     /// Construct a dispatcher with an explicit routing strategy.
     pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
-        Self::with_scheduler(registry, strategy, SchedulerKind::default())
-    }
-
-    /// Construct a dispatcher with an explicit routing strategy and scheduler.
-    pub fn with_scheduler(
-        registry: Arc<WorkerRegistry>,
-        strategy: RoutingStrategy,
-        kind: SchedulerKind,
-    ) -> Self {
-        Self::from_router(registry, strategy, kind, Router::new(strategy))
+        Self::from_router(registry, strategy, Router::new(strategy))
     }
 
     /// Test-only constructor with a seeded RNG so P2C selection is deterministic.
@@ -219,18 +208,12 @@ impl Dispatcher {
         strategy: RoutingStrategy,
         seed: u64,
     ) -> Self {
-        Self::from_router(
-            registry,
-            strategy,
-            SchedulerKind::default(),
-            Router::with_seed(strategy, seed),
-        )
+        Self::from_router(registry, strategy, Router::with_seed(strategy, seed))
     }
 
     fn from_router(
         registry: Arc<WorkerRegistry>,
         strategy: RoutingStrategy,
-        kind: SchedulerKind,
         router: Router,
     ) -> Self {
         Self {
@@ -244,7 +227,6 @@ impl Dispatcher {
             pool_source: WorkerPoolSource::new(Arc::clone(&registry), strategy),
             registry,
             strategy,
-            scheduler_kind: kind,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             debug_recorder: None,
         }
@@ -567,11 +549,6 @@ impl Dispatcher {
             .into_iter()
             .map(send)
             .collect()
-    }
-
-    /// The scheduler selected at construction.
-    pub fn scheduler_kind(&self) -> SchedulerKind {
-        self.scheduler_kind
     }
 
     fn flush_groups(&self, inner: &mut DispatcherInner, batch_id: &str) -> Vec<SubBatch> {

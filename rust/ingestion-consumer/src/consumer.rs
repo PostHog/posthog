@@ -14,10 +14,6 @@ use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::batcher::packer::{PackTargets, Packer};
-use crate::batcher::retry_policy::RetryPolicy;
-use crate::batcher::state_machine::BatcherStateMachine;
-use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
@@ -25,12 +21,9 @@ use crate::commit_sentinel::{CommitSentinel, CommitViolation};
 use crate::config::Config;
 use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionOffset};
 use crate::discovery::DiscoveryMode;
-use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
-use crate::routing::Router;
-use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -305,19 +298,6 @@ pub struct IngestionConsumerOptions {
     pub batch_timeout: Duration,
     pub max_in_flight_batches: usize,
     pub group_id: String,
-    /// No-progress bound on flushing a batch's deferred groups, enforced by
-    /// the batcher's flush driver: the deadline resets whenever any of the
-    /// batch's messages land, and the batch fails only after a full window
-    /// with zero progress. Production takes it from
-    /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
-    pub deferred_flush_timeout: Duration,
-    /// The key-table scheduler's parked-retry cadence, and the state machine's
-    /// retry delay and worker poll interval. Production takes it from
-    /// `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
-    pub parked_retry_interval: Duration,
-    /// The state machine's pack targets. Production takes them from the
-    /// `INGESTION_PACK_*` settings.
-    pub pack_targets: PackTargets,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     pub debug_recorder: Option<Arc<DebugRecorder>>,
 }
@@ -356,12 +336,11 @@ pub struct IngestionConsumer {
 
 impl IngestionConsumer {
     /// Constructs a consumer from pre-built parts. Useful in integration tests
-    /// where the Kafka consumer is created and subscribed externally. Builds
-    /// the batcher from the dispatcher and transport; `new` instead takes one
-    /// built in `main`.
+    /// where the Kafka consumer is created and subscribed externally.
     pub fn from_parts(
         consumer: StreamConsumer<SentinelContext>,
-        dispatcher: Arc<Dispatcher>,
+        batcher: Batcher,
+        outputs: BatcherOutputs,
         transport: Arc<GrpcTransport>,
         worker_urls: Vec<String>,
         options: IngestionConsumerOptions,
@@ -371,30 +350,6 @@ impl IngestionConsumer {
         // forget partitions on the same ones the commit path uses.
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let commit_sentinel = consumer.context().commit_sentinel();
-        let (batcher, outputs) = if dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
-            let pool_source = dispatcher.worker_pool_source();
-            let assigner =
-                WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
-                    .expect("valid request cap");
-            let retry =
-                RetryPolicy::uniform(options.parked_retry_interval).expect("valid retry delay");
-            let state_machine = BatcherStateMachine::new(
-                Packer::new(options.pack_targets),
-                assigner,
-                retry,
-                options.deferred_flush_timeout,
-                Instant::now(),
-            )
-            .expect("valid stall timeout");
-            Batcher::with_state_machine(state_machine, pool_source, Arc::clone(&transport))
-        } else {
-            Batcher::new(
-                dispatcher,
-                Arc::clone(&transport),
-                handle.clone(),
-                options.deferred_flush_timeout,
-            )
-        };
         let revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>> =
             Arc::new(Mutex::new(Vec::new()));
         consumer.context().set_revoke_hook(revoke_hook(
