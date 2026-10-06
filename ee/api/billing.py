@@ -798,7 +798,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PayerDetachOutcomeUnknown() from error
 
         with transaction.atomic():
-            organization = Organization.objects.select_for_update().get(pk=organization.pk)
+            organization = Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
             organization.partner_payer_detached_at = organization.partner_payer_detached_at or detached_at
             organization.billing_has_payer = False
             organization.save(update_fields=["partner_payer_detached_at", "billing_has_payer"])

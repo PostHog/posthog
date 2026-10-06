@@ -1309,6 +1309,7 @@ from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
 from .windsor_ai.source import WindsorAiSource
 from .wisprflow.source import WisprFlowSource
+from .wistia.source import WistiaSource
 from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
