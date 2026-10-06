@@ -250,7 +250,12 @@ export interface customerAnalyticsAccountSceneLogicMeta {
             accountLoadError: unknown,
             arg: boolean
         ) => boolean
-        breadcrumbs: (account: AccountApi | null, user: any, currentTeamId: any, arg: any) => Breadcrumb[]
+        breadcrumbs: (
+            account: AccountApi | null,
+            user: UserType | null,
+            currentTeamId: number | null,
+            arg: any
+        ) => Breadcrumb[]
     }
 }
 
