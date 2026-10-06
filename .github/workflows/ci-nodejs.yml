@@ -156,6 +156,8 @@ jobs:
                       # Anything here invalidates jest's view of the module graph, or changes
                       # the native addons every suite links, so no narrowed run can be trusted.
                       node_full:
+                        - 'docker-compose.base.yml'
+                        - 'docker-compose.dev.yml'
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'posthog/cdp/filter_globals.json'
                         - 'common/hogvm/typescript/src/**'
@@ -551,7 +553,7 @@ jobs:
               run: |
                   services=(kafka redis7 valkey-cluster clickhouse maildev dynamodb objectstorage seaweedfs)
                   # The workflow also runs on unrebased branches whose compose file has no SES service.
-                  if docker compose -f docker-compose.dev.yml config --services | grep -qx ses; then
+                  if docker compose -f docker-compose.dev.yml --profile ses config --services | grep -qx ses; then
                     services+=(ses)
                   fi
                   docker compose -f docker-compose.dev.yml up "${services[@]}" -d --wait

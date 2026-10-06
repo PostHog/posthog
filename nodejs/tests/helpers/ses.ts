@@ -59,16 +59,36 @@ export class LocalSes {
         this.error = error
     }
 
+    private async fetchFake(path: string, options: RequestInit = {}): Promise<Response> {
+        try {
+            return await fetchLocalSes(`${this.fakeEndpoint}${path}`, {
+                ...options,
+                signal: AbortSignal.timeout(10_000),
+            })
+        } catch (error) {
+            const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error)
+            throw new Error(`Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}`)
+        }
+    }
+
     async getEmails(): Promise<LocalSesEmail[]> {
-        const response = await fetchLocalSes(`${this.fakeEndpoint}/store`, { signal: AbortSignal.timeout(10_000) })
+        const response = await this.fetchFake('/store')
         if (!response.ok) {
             throw new Error(`Local SES inbox returned HTTP ${response.status}`)
         }
-        const store = z.object({ emails: z.array(storedEmailSchema) }).safeParse(await response.json())
+        const store = z
+            .object({ emails: z.array(z.object({ messageId: z.string().min(1) }).passthrough()) })
+            .safeParse(await response.json())
         if (!store.success) {
             throw new Error(`Local SES /store contract changed: ${store.error.message}`)
         }
-        return store.data.emails.filter((email) => this.messageIds.has(email.messageId))
+        const emails = z
+            .array(storedEmailSchema)
+            .safeParse(store.data.emails.filter((email) => this.messageIds.has(email.messageId)))
+        if (!emails.success) {
+            throw new Error(`Local SES /store contract changed: ${emails.error.message}`)
+        }
+        return emails.data
     }
 
     private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -99,11 +119,10 @@ export class LocalSes {
                 headers[name] = value
             }
         }
-        const upstream = await fetchLocalSes(`${this.fakeEndpoint}/v2/email/outbound-emails`, {
+        const upstream = await this.fetchFake('/v2/email/outbound-emails', {
             method: 'POST',
             headers,
             body,
-            signal: AbortSignal.timeout(10_000),
         })
         const responseBody = await upstream.text()
         if (upstream.ok) {

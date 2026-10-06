@@ -641,6 +641,7 @@ services:
             - '10000:10000'
 
     ses:
+        profiles: [ses]
         extends:
             file: docker-compose.base.yml
             service: ses
