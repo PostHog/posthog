@@ -788,7 +788,7 @@ describe('HogFunctionHandler', () => {
             .build()
 
         const emailAction = findActionByType(flow, 'function_email')!
-        const hogFunction = await mockHogFlowFunctionsService.buildHogFunction(flow, emailAction.config, true)
+        const hogFunction = await mockHogFlowFunctionsService.buildHogFunction(flow, emailAction.config, undefined, true)
 
         expect(hogFunction.metadata).toMatchObject({
             workflow_email_action: true,

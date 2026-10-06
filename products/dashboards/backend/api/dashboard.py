@@ -29,7 +29,7 @@ from django.db.models import (
     UUIDField,
     Value,
 )
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.functional import SimpleLazyObject
@@ -1240,11 +1240,13 @@ class DashboardBasicSerializer(
             "restriction_level": {"help_text": "Controls who can edit the dashboard."},
         }
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -2582,6 +2584,16 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Exclude dashboards that PostHog generated.",
             ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["-last_viewed_at"],
+                description=(
+                    "Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard "
+                    "you never viewed sorts by its creation time. This order replaces the search relevance order."
+                ),
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
@@ -2646,7 +2658,10 @@ class DashboardsViewSet(
         if folder is not None:
             queryset = self._apply_folder_filter(queryset, folder)
 
-        return drop_similar_when_exact_exists(queryset)
+        queryset = drop_similar_when_exact_exists(queryset)
+        if self.action == "list" and self.request.query_params.get("ordering") == "-last_viewed_at":
+            queryset = queryset.order_by(Coalesce("last_viewed_at", "created_at").desc(), "-id")
+        return queryset
 
     @staticmethod
     def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:

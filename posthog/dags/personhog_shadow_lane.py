@@ -20,7 +20,7 @@ these jobs apply. Both are charts-side prerequisites.
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import closing
 from urllib.parse import parse_qs, urlparse
 
@@ -31,14 +31,18 @@ from kubernetes import (
     client as k8s_client,
     config as k8s_config,
 )
+from prometheus_client import CollectorRegistry, Gauge
 from pydantic import Field
 
 from posthog.dags.common import JobOwners
+from posthog.metrics import pushed_metrics_registry
 
 SHADOW_NAMESPACE = "ingestion-analytics-team2-shadow"
 SHADOW_CONSUMER_DEPLOYMENT = "ingestion-analytics-team2-shadow-consumer"
 SHADOW_PROCESSOR_DEPLOYMENT = "ingestion-analytics-team2-shadow-processor"
 SHADOW_DB_URL_ENV_VAR = "PERSONS_SHADOW_DB_URL"
+
+START_METRICS_JOB = "personhog_shadow_lane_start"
 
 # Every table the lane writes, per path. The reset truncates both lists in one
 # statement so a validation run starts from state where "row missing on one
@@ -55,14 +59,21 @@ LEGACY_STATE_TABLES = [
     "posthog_group",
     "posthog_grouptypemapping",
 ]
-PERSONHOG_STATE_TABLES = [
-    "personhog_person_tmp",
-    "personhog_persondistinctid_tmp",
-    "personhog_featureflaghashkeyoverride_tmp",
+# Saga bookkeeping the identity sweeper rewrites on every pass: it garbage-collects
+# completed ops past retention and re-claims failing ones. Excluded from the drain
+# counter because that activity never stops, and any saga step that changes person
+# state also lands in the person, distinct id or override tables.
+LIFECYCLE_OP_TABLES = [
     "lifecycle_op",
     "lifecycle_op_person",
     "lifecycle_op_tmp",
     "lifecycle_op_person_tmp",
+]
+PERSONHOG_STATE_TABLES = [
+    "personhog_person_tmp",
+    "personhog_persondistinctid_tmp",
+    "personhog_featureflaghashkeyoverride_tmp",
+    *LIFECYCLE_OP_TABLES,
     "person_pg_cleanup_queue",
     "person_tombstone_publish_queue",
 ]
@@ -170,6 +181,30 @@ def deployment_ready_replicas(apps: k8s_client.AppsV1Api, namespace: str, name: 
     return deployment.status.ready_replicas or 0
 
 
+def wait_for_deployments(
+    deployments: Iterable[str],
+    is_settled: Callable[[str], bool],
+    *,
+    timeout_seconds: float,
+    poll_seconds: float = 10,
+    sleep: Callable[[float], None] = time.sleep,
+) -> set[str]:
+    """Poll each deployment until is_settled accepts it or the deadline passes.
+
+    Returns the deployments still pending at the deadline, so the caller
+    decides how to report them.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    pending = set(deployments)
+    while pending and time.monotonic() < deadline:
+        for deployment in sorted(pending):
+            if is_settled(deployment):
+                pending.discard(deployment)
+        if pending:
+            sleep(poll_seconds)
+    return pending
+
+
 def wait_for_quiescence(
     read_write_counter: Callable[[], int],
     *,
@@ -205,24 +240,20 @@ def wait_for_quiescence(
 
 
 def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
-    """Sum the whole database's tuple-write counters.
+    """Sum the database's tuple-write counters, minus the sweeper's bookkeeping tables.
 
     The shadow database serves only the lane, so a stable sum means every
     writer has drained; a table allowlist would silently go stale when the
-    lane gains a table. The connection must be in autocommit so each poll is
-    its own transaction and reads a fresh pg_stat snapshot instead of the
-    first transaction's cached one.
+    lane gains a table. LIFECYCLE_OP_TABLES are the one exception, because
+    the identity sweeper keeps them moving while the lane is stopped. The
+    connection must be in autocommit so each poll is its own transaction and
+    reads a fresh pg_stat snapshot instead of the first transaction's cached one.
     """
     with connection.cursor() as cursor:
-        # The identity service's lifecycle GC deletes completed lifecycle_op
-        # rows past retention on a timer, and it keeps running while the lane
-        # is scaled to zero. After a run longer than the retention window those
-        # deletes land every sweep, so counting them would never let the wait
-        # settle. They remove nothing the reset would otherwise keep.
         cursor.execute(
-            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
-            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
-            " FROM pg_stat_user_tables"
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes "
+            "FROM pg_stat_user_tables WHERE relname != ALL(%(excluded)s)",
+            {"excluded": LIFECYCLE_OP_TABLES},
         )
         return int(cursor.fetchone()["writes"])
 
@@ -297,6 +328,29 @@ def _reset_shadow_state(
     context.log.info("Shadow persons database reset complete")
 
 
+def record_start_gauges(registry: CollectorRegistry, config: ShadowLaneStartConfig, completed_at: float) -> None:
+    Gauge(
+        "posthog_personhog_shadow_lane_start_last_success_timestamp_seconds",
+        "Unix time when the shadow lane last started with every replica ready",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(completed_at)
+    Gauge(
+        "posthog_personhog_shadow_lane_start_reset_state",
+        "1 when the last start truncated the shadow persons database first, 0 when it resumed from existing state",
+        ["namespace"],
+        registry=registry,
+    ).labels(namespace=config.namespace).set(1 if config.reset_state else 0)
+    replicas = Gauge(
+        "posthog_personhog_shadow_lane_start_replicas",
+        "Replicas the last start requested, by deployment",
+        ["namespace", "deployment"],
+        registry=registry,
+    )
+    replicas.labels(namespace=config.namespace, deployment=config.consumer_deployment).set(config.consumer_replicas)
+    replicas.labels(namespace=config.namespace, deployment=config.processor_deployment).set(config.processor_replicas)
+
+
 @dagster.op
 def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneStartConfig) -> None:
     apps = apps_api()
@@ -313,24 +367,26 @@ def start_shadow_lane(context: dagster.OpExecutionContext, config: ShadowLaneSta
         context.log.info(f"Scaling {config.namespace}/{deployment} to {replicas} replicas")
         scale_deployment(apps, config.namespace, deployment, replicas)
 
-    deadline = time.monotonic() + config.ready_timeout_seconds
-    pending = dict(targets)
-    while pending and time.monotonic() < deadline:
-        for deployment, replicas in list(pending.items()):
-            ready = deployment_ready_replicas(apps, config.namespace, deployment)
-            if ready >= replicas:
-                context.log.info(f"{deployment} is ready with {ready} replica(s)")
-                del pending[deployment]
-        if pending:
-            time.sleep(10)
+    wanted = dict(targets)
 
+    def is_ready(deployment: str) -> bool:
+        ready = deployment_ready_replicas(apps, config.namespace, deployment)
+        if ready < wanted[deployment]:
+            return False
+        context.log.info(f"{deployment} is ready with {ready} replica(s)")
+        return True
+
+    pending = wait_for_deployments(wanted, is_ready, timeout_seconds=config.ready_timeout_seconds)
     if pending:
         raise dagster.Failure(
             description=(
-                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(pending)}. "
+                f"Deployments not ready after {config.ready_timeout_seconds}s: {', '.join(sorted(pending))}. "
                 "The scale was applied; check the pods in the lane namespace."
             )
         )
+
+    with pushed_metrics_registry(f"{START_METRICS_JOB}_{config.namespace}") as registry:
+        record_start_gauges(registry, config, time.time())
 
     context.add_output_metadata(
         {

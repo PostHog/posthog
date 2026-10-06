@@ -24,6 +24,7 @@ export class HogFlowFunctionsService {
     async buildHogFunction(
         hogFlow: HogFlow,
         configuration: Action['config'],
+        actionName?: string,
         isWorkflowEmailAction = false
     ): Promise<HogFunctionType> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(configuration.template_id)
@@ -58,6 +59,8 @@ export class HogFlowFunctionsService {
                     'match_email_to_accounts' in configuration &&
                     configuration.match_email_to_accounts === true,
                 workflow_email_action: isWorkflowEmailAction,
+                hog_flow_name: hogFlow.name,
+                hog_flow_action_name: actionName ?? null,
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,

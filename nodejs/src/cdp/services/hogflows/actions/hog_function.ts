@@ -354,6 +354,7 @@ export class HogFunctionHandler implements ActionHandler {
                 this.hogFlowFunctionsService.buildHogFunction(
                     invocation.hogFlow,
                     action.config,
+                    action.name,
                     action.type === 'function_email'
                 )
         )

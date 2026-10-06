@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -11,7 +11,7 @@ import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, SideBarTab, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { SideBar } from './SideBar'
 
-const query: DataVisualizationNode = {
+const query: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: { kind: NodeKind.HogQLQuery, query: 'SELECT day, revenue FROM events' },
     display: ChartDisplayType.Metric,

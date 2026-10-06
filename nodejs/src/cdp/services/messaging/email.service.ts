@@ -32,6 +32,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 import { WorkflowConversationCaptureService } from './workflow-conversation-capture.service'
@@ -348,7 +349,7 @@ export class EmailService {
         private integrationManager: IntegrationManagerService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string,
+        private siteUrl: string,
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
@@ -590,12 +591,39 @@ export class EmailService {
                 return result
             }
 
+            // Tagged before click tracking wraps the links, so the tags land on the destination URL.
+            const metadata = invocation.hogFunction.metadata
+            const sendParams =
+                metadata?.utm_tags_enabled === true && params.html
+                    ? {
+                          ...params,
+                          html: addUtmTagsToEmail(
+                              params.html,
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
+                              this.siteUrl
+                          ),
+                      }
+                    : params
+
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    providerMessageId = await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    providerMessageId = await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
                     break
 
                 case 'unsupported':
@@ -607,7 +635,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)

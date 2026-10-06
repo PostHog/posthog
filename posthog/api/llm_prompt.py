@@ -58,13 +58,7 @@ from posthog.api.services.llm_prompt import (
     resolve_versions_page,
     set_prompt_label,
 )
-from posthog.auth import (
-    DelegatedOAuthAccessTokenAuthentication,
-    JwtAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import DelegatedOAuthAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -86,7 +80,6 @@ from products.ai_observability.backend.prompt_references import (
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
-    prompt_partials_enabled,
 )
 
 logger = structlog.get_logger(__name__)
@@ -143,17 +136,6 @@ class LLMPromptViewSet(
         # every prompts page view as a fetch. A JWT is a background job impersonating
         # a user, which reads prompts like any other API caller.
         return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
-
-    def _ensure_web_authenticated(self, request: Request) -> Response | None:
-        if not isinstance(
-            request.successful_authenticator,
-            SessionAuthentication | JwtAuthentication | PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication,
-        ):
-            return Response(
-                {"detail": "This endpoint is only available to web-authenticated users."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
 
     def _prompt_not_found_response(self, prompt_name: str) -> Response:
         return Response(
@@ -281,14 +263,12 @@ class LLMPromptViewSet(
             return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
 
         # A tag-free row is trivially resolved: its raw and assembled content are
-        # identical, so it gets [] without consulting the flag. Null stays the
-        # marker for tags that were left in place.
+        # identical, so it gets []. Null stays the marker for tags that were
+        # left in place.
         for item in items:
             if not has_tags(item):
                 item["resolved_references"] = []
         if not any(has_tags(item) for item in items):
-            return items
-        if not prompt_partials_enabled(self.team):
             return items
         resolved_items: list[dict[str, Any]] = []
         shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
@@ -443,7 +423,7 @@ class LLMPromptViewSet(
                 )
             return self._prompt_not_found_response(prompt_name)
 
-        if resolve and content_mode == "full" and prompt_partials_enabled(self.team):
+        if resolve and content_mode == "full":
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:
@@ -457,10 +437,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_publish_by_name")
     @monitor(feature=None, endpoint="llma_prompts_publish_by_name", method="PATCH")
     def update_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         # PATCH shares the GET's route, so the segment has to mean the same thing on both verbs.
         resolved_name = self._resolve_prompt_name(prompt_name)
         if resolved_name is None:
@@ -536,10 +512,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_resolve_by_name")
     @monitor(feature=None, endpoint="llma_prompts_resolve_by_name", method="GET")
     def resolve_by_name(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         query_params = self._get_resolve_query_params(request)
         version = cast(int | None, query_params.get("version"))
         version_id = query_params.get("version_id")
@@ -591,10 +563,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_archive")
     @monitor(feature=None, endpoint="llma_prompts_archive", method="POST")
     def archive(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         try:
             prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
@@ -633,10 +601,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_duplicate")
     @monitor(feature=None, endpoint="llma_prompts_duplicate", method="POST")
     def duplicate(self, request: Request, prompt_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         payload = LLMPromptDuplicateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         new_name = payload.validated_data["new_name"]
@@ -687,10 +651,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_set_label")
     @monitor(feature=None, endpoint="llma_prompts_set_label", method="PUT")
     def set_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         label_name = validate_prompt_label_name_value(label_name)
         payload = LLMPromptSetLabelSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -766,10 +726,6 @@ class LLMPromptViewSet(
     @llma_track_latency("llma_prompts_delete_label")
     @monitor(feature=None, endpoint="llma_prompts_delete_label", method="DELETE")
     def delete_label(self, request: Request, prompt_name: str = "", label_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
         try:
             remove_prompt_label(self.team, prompt_name=prompt_name, label_name=label_name)
         except LLMPromptLabelNotFoundError:

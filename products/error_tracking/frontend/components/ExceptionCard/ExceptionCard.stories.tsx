@@ -638,6 +638,9 @@ function HeaderWidthMatrix({
     )
 }
 
+// The footer shows how long ago the event happened. Pin the clock so the label stays "a year ago".
+const HEADER_WIDTHS_MOCK_DATE = '2026-04-04T23:42:36Z'
+
 export function ExceptionCardHeaderWidths(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
@@ -649,6 +652,7 @@ export function ExceptionCardHeaderWidths(): JSX.Element {
         </HeaderWidthMatrix>
     )
 }
+ExceptionCardHeaderWidths.parameters = { mockDate: HEADER_WIDTHS_MOCK_DATE }
 
 /*
  * Worst case: the right-hand cell is occupied too, so the tab bar has the least room it ever gets in
@@ -674,7 +678,7 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
         </div>
     )
 }
-ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
+ExceptionCardHeaderWidthsWithAction.parameters = { ...headerActionParameters(), mockDate: HEADER_WIDTHS_MOCK_DATE }
 
 // The action is a ViewLogsButton: feature-flagged, and only rendered on the timeline/recording tabs.
 // Both have to be satisfied or the right-hand cell renders empty and the story stops testing the

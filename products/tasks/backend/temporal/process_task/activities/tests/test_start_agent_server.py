@@ -16,7 +16,9 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     CollectAgentShadowResultInput,
@@ -305,6 +307,27 @@ def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> 
     assert raised.value is error
     emit_agentsh.assert_not_called()
     emit_agent_server.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "is_modal, use_modal_vm_sandbox, expected_runtime",
+    [(True, True, "vm"), (True, False, "gvisor"), (False, True, None)],
+    ids=["modal_vm", "modal_gvisor", "non_modal"],
+)
+def test_invoke_start_agent_server_forwards_sandbox_runtime(
+    mocker, is_modal: bool, use_modal_vm_sandbox: bool, expected_runtime: str | None
+) -> None:
+    sandbox = mocker.Mock(spec=ModalSandbox, id="sandbox-id") if is_modal else mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.return_value = None
+
+    _invoke_start_agent_server(
+        sandbox,
+        _context(use_modal_vm_sandbox=use_modal_vm_sandbox),
+        mocker.Mock(agentsh_domains=None),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
 @pytest.mark.parametrize(
@@ -716,6 +739,34 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     mocker.patch(f"{prefix}.get_imported_mcp_server_configs", return_value=[])
     mocker.patch(f"{prefix}.get_relayed_mcp_server_names", return_value=[])
     mocker.patch(f"{prefix}.emit_agent_log")
+
+
+def test_prepare_judge_has_no_live_or_inherited_mcp_connections(mocker) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    task = Task(
+        team_id=1,
+        internal=True,
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        origin_key="scout-trial-judge:00000000-0000-0000-0000-000000000001:00000000-0000-0000-0000-000000000002",
+    )
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = task
+    resolvers = [
+        mocker.patch(f"{prefix}.{name}", side_effect=AssertionError("Judge must not resolve MCP connections"))
+        for name in (
+            "get_sandbox_ph_mcp_configs",
+            "get_user_mcp_server_configs",
+            "get_imported_mcp_server_configs",
+            "get_relayed_mcp_server_names",
+        )
+    ]
+
+    params = _prepare_launch(_context(), "signals_scout_judge", "sandbox-id")
+
+    assert params.mcp_configs == []
+    assert params.relayed_mcp_servers == []
+    for resolver in resolvers:
+        resolver.assert_not_called()
 
 
 @pytest.mark.parametrize(

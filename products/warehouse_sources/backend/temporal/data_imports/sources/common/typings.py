@@ -9,12 +9,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, Ty
 
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 if TYPE_CHECKING:
     import pyarrow as pa
     from dlt.common.data_types.typing import TDataType
 
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
         ValidatedRowFilter,
     )
@@ -30,6 +31,13 @@ else:
     class ValidatedRowFilter:
         def __repr__(self) -> str:
             return "<ValidatedRowFilter: type-checking-only stub>"
+
+    class SourceCursorManager:
+        def __class_getitem__(cls, item: Any) -> type:
+            return cls
+
+        def __repr__(self) -> str:
+            return "<SourceCursorManager: type-checking-only stub>"
 
 
 SortMode = Literal["asc", "desc"]
@@ -100,17 +108,16 @@ class SourceResponse:
     """Override the batcher's per-chunk byte cap (defaults to DEFAULT_CHUNK_SIZE_BYTES). Lower it for
     sources whose rows are large (e.g. whole documents) so the source->Arrow conversion doesn't
     materialise an oversized table and OOM the worker."""
-    xmin_ceiling_xid: Optional[int] = None
-    """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
-    xmin_ceiling_xid8: Optional[int] = None
-    """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
-    xmin_num_wraparound: Optional[int] = None
-    """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
     supports_resume: bool = True
     """Whether *this run* can cheaply resume after a bail (source checkpoints, or an ascending
     incremental watermark). Gated by the pipeline together with a non-None resumable-source manager,
     so a resumable-source class whose current table isn't actually resumable (e.g. a SQL full load
     with no orderable primary key) sets this False and is treated as non-resumable for shutdown."""
+    on_complete: Optional[Callable[[], None]] = None
+    """Called after every yielded row has been durably written or staged. Sources use this to remove
+    a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
+    destination_reset_required: bool = False
+    """Whether source metadata discovered during setup requires rebuilding the destination table."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
@@ -160,12 +167,10 @@ class SourceInputs:
     # True when this schema is a fan-out child whose parents are all readable from the
     # warehouse. Evaluated once by the run-time gate in `import_data_activity_sync`.
     fanout_warehouse_reuse: bool = False
-    # True when extraction batches should be bounded by accumulated bytes rather than by the
-    # sampled row count alone. Evaluated once per run alongside `fanout_warehouse_reuse`.
-    byte_bounded_extraction: bool = False
-    # True when a full load may page with keyset seeks by default, rather than only as the
-    # read-replica retry fallback. Evaluated once per run alongside `byte_bounded_extraction`.
-    keyset_full_load: bool = False
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1
+    # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
+    # successful run, or no cursor when this run rebuilds the table.
+    source_cursor: Optional[SourceCursorManager[Any]] = None
+    sync_type: ExternalDataSchemaSyncType | None = None
