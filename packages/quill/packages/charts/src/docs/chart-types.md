@@ -94,7 +94,7 @@ There is no `series` or `labels`.
   `onNodeClick` and `onLinkClick` receive the laid-out datum with its `meta`.
   `tooltip.placement` takes the cartesian charts' values and defaults to `cursor`.
   On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
-- `onHoverChange` reports the node or ribbon under the cursor, and `null` when it leaves.
+- `onHoverChange` reports the node or ribbon under the cursor or a touch tap, and `null` when the cursor leaves, a tap lands on empty space, or the layout changes.
   `highlight` takes over emphasis: the chart dims everything outside `{ nodeIds, linkIndices }` and stops its own hover dimming, so a host can light up a whole downstream path or a selection.
   Link indices are positions in the `links` prop; the layout keeps that order.
 - Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.

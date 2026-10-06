@@ -61,8 +61,9 @@ export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
     onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
-    /** Fires when the cursor moves onto a different node or ribbon, and with `null` when it leaves
-     *  the graph. Lets a host drive its own emphasis, for example through `highlight`. */
+    /** Fires when the cursor moves onto a different node or ribbon or a touch tap lands on one, and
+     *  with `null` when the cursor leaves the graph, a tap lands on empty space, or the layout
+     *  changes. Lets a host drive its own emphasis, for example through `highlight`. */
     onHoverChange?: (hit: SankeyTooltipHit<NodeMeta, LinkMeta> | null) => void
     /** Controlled emphasis. While set, the chart dims everything outside this set and the built-in
      *  hover dimming is off, so the host decides what a hover means (the whole downstream path, a
