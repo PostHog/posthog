@@ -162,7 +162,9 @@ class PostHogSCIMUser(SCIMUser):
                 defaults={"level": OrganizationMembership.Level.MEMBER},
             )
             if created and organization.default_role_id:
-                role = organization.roles.get(id=organization.default_role_id)
+                role = organization.roles.filter(id=organization.default_role_id).first()
+                if role is None:
+                    raise ValueError("The default role must belong to this organization")
                 RoleMembership.objects.filter(role__organization=organization).update_or_create(
                     role=role, user=user, defaults={"organization_member": membership}
                 )

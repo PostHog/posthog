@@ -239,32 +239,48 @@ class TestSCIMUsersAPI(APILicensedTest):
         self.client.force_login(user)
         assert self.client.get(f"/api/projects/{self.team.id}/").status_code == status.HTTP_404_NOT_FOUND
 
-    def test_reactivation_with_invalid_default_role_leaves_user_inactive(self) -> None:
+    @parameterized.expand(["post", "put", "patch"])
+    def test_invalid_default_role_leaves_user_inactive(self, method: str) -> None:
         other_org = Organization.objects.create(name="Other organization")
         self.organization.default_role = other_org.roles.create(name="Other role")
         self.organization.save()
         user = User.objects.create_user(email="inactive@example.com", password=None, first_name="Inactive")
-        provision = SCIMProvisionedUser.objects.create(
-            user=user,
-            identity_provider_config=self.config,
-            username=user.email,
-            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
-            active=False,
-        )
+        url = f"/scim/v2/{self.config.scim_slug}/Users"
+        if method != "post":
+            SCIMProvisionedUser.objects.create(
+                user=user,
+                identity_provider_config=self.config,
+                username=user.email,
+                identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+                active=False,
+            )
+            url += f"/{user.id}"
 
-        response = self.client.patch(
-            f"/scim/v2/{self.config.scim_slug}/Users/{user.id}",
-            data={
+        data = (
+            {
                 "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
                 "Operations": [{"op": "replace", "path": "active", "value": True}],
-            },
-            content_type="application/scim+json",
+            }
+            if method == "patch"
+            else {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+                "userName": user.email,
+                "emails": [{"value": user.email, "primary": True}],
+                "name": {"givenName": "Updated"},
+                "active": True,
+            }
         )
+        response = getattr(self.client, method)(url, data=data, content_type="application/scim+json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
-        provision.refresh_from_db()
-        assert provision.active is False
+        user.refresh_from_db()
+        assert user.first_name == "Inactive"
+        if method == "post":
+            assert not SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).exists()
+        else:
+            provision = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
+            assert provision.active is False
 
     def test_create_user(self):
         user_data = {
