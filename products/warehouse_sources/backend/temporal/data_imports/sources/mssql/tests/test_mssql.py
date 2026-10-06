@@ -1,8 +1,14 @@
+import threading
+
 import pytest
 from unittest.mock import MagicMock
 
 import pymssql
 
+from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
+    DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -12,8 +18,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    MSSQL_LOGIN_TIMEOUT_SECONDS,
+    MSSQL_METADATA_LOCK_TIMEOUT_MS,
+    MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLColumn,
     MSSQLImplementation,
+    MSSQLMetadataTimeoutError,
     _build_query,
     _is_deadlock_victim_error,
     _is_transient_connection_error,
@@ -26,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.sour
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+_MSSQL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql"
 
 
 def _make_config(**overrides) -> MSSQLSourceConfig:
@@ -603,9 +615,69 @@ class TestBuildPipeline:
     def test_streams_through_separate_connection(self, build_pipeline_mocks):
         mock_connect, streaming_cursor = build_pipeline_mocks
         _drain_source()
-        # Two connect calls: one for metadata, one for streaming.
-        assert mock_connect.call_count == 2
+        # Three connect calls: one for metadata, one for the row count, one for streaming.
+        assert mock_connect.call_count == 3
         assert streaming_cursor.execute.called
+
+    def test_setup_that_hangs_at_connect_raises_a_non_retryable_timeout(self, build_pipeline_mocks, mocker):
+        mock_connect, _ = build_pipeline_mocks
+        release = threading.Event()
+        mock_connect.side_effect = lambda **kwargs: release.wait()
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_TABLE_SETUP_DEADLINE_SECONDS", 0.05)
+
+        try:
+            with pytest.raises(MSSQLMetadataTimeoutError) as error:
+                MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        finally:
+            release.set()
+
+        assert error_message_matches(str(error.value), MSSQLSource().get_non_retryable_errors())
+
+    @pytest.mark.parametrize("fails", [False, True], ids=["count_hangs", "count_connection_fails"])
+    def test_row_count_fault_costs_the_estimate_and_not_the_import(self, build_pipeline_mocks, mocker, fails):
+        release = threading.Event()
+
+        def _count(*args):
+            if fails:
+                raise pymssql.OperationalError(20009, b"Adaptive Server is unavailable or does not exist")
+            release.wait()
+
+        mocker.patch.object(MSSQLImplementation, "get_rows_to_sync", side_effect=_count)
+        mocker.patch(f"{_MSSQL_MODULE}.MSSQL_ROW_COUNT_DEADLINE_SECONDS", 0.05)
+
+        try:
+            source = MSSQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        finally:
+            release.set()
+
+        assert source.rows_to_sync == 0
+
+
+class TestConnectTimeouts:
+    @pytest.mark.parametrize(
+        "connect_kwargs, expected_statements",
+        [
+            ({}, [f"SET LOCK_TIMEOUT {MSSQL_METADATA_LOCK_TIMEOUT_MS}"]),
+            ({"lock_timeout_ms": None}, []),
+        ],
+        ids=["metadata_connection", "row_reading_connection"],
+    )
+    def test_connect_limits_the_login_and_the_lock_wait_but_not_the_query(
+        self, mocker, connect_kwargs, expected_statements
+    ):
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        cursor = connection.cursor.return_value.__enter__.return_value
+        mock_connect = mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect", return_value=connection)
+
+        with MSSQLImplementation().connect(_make_config(), **connect_kwargs):
+            pass
+
+        assert mock_connect.call_args.kwargs["login_timeout"] == MSSQL_LOGIN_TIMEOUT_SECONDS
+        # pymssql applies `timeout` to every connection in the process, the row reads included.
+        assert "timeout" not in mock_connect.call_args.kwargs
+        assert [call.args[0] for call in cursor.execute.call_args_list] == expected_statements
 
 
 class _RaisingTunnel:
@@ -812,6 +884,7 @@ class TestMSSQLSourceRetryableErrors:
     @pytest.mark.parametrize(
         "error",
         [
+            pymssql.OperationalError(1222, b"Lock request time out period exceeded."),
             # Real pymssql shape: DB-Lib error 20017 carried as (code, bytes) args.
             pymssql.OperationalError(
                 20017, b"DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server\n"
@@ -949,6 +1022,27 @@ class TestRetryOnTransientConnectionError:
         with pytest.raises(pymssql.OperationalError):
             retry_on_transient_connection_error(operation, max_attempts=3)
         assert operation.call_count == 3
+
+
+class TestGetSchemasDeadline:
+    def test_discovery_that_hangs_raises_before_the_activity_timeout(self, mocker):
+        release = threading.Event()
+        mocker.patch(f"{_MSSQL_MODULE}.open_ssh_tunnel").return_value.__enter__.return_value = ("localhost", 1433)
+        mocker.patch(f"{_MSSQL_MODULE}.pymssql.connect", side_effect=lambda **kwargs: release.wait())
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source"
+            ".MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS",
+            0.05,
+        )
+
+        try:
+            with pytest.raises(MSSQLMetadataTimeoutError, match="SQL Server did not answer in time"):
+                MSSQLSource().get_schemas(_make_config(), team_id=1)
+        finally:
+            release.set()
+
+    def test_discovery_deadline_is_inside_the_activity_timeout(self):
+        assert MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS < DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT.total_seconds()
 
 
 class TestGetSchemasRetriesTransientDrop:

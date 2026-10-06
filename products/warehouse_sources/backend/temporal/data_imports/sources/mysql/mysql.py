@@ -118,6 +118,12 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
+# Client-side PyMySQL read_timeout for a connection that reads metadata: schema discovery and the
+# setup work before the first row. Without it a server that stops answering holds the caller for
+# as long as the socket stays open. Schema discovery must also end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_READ_TIMEOUT_SECONDS = 300
+
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
 # the filesort preparation exceeds a middlebox / server-side query timeout
@@ -1171,7 +1177,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1181,6 +1187,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
         resolves to a `*.psdb.cloud` address. Callers vary two things —
+        metadata work keeps the default `METADATA_READ_TIMEOUT_SECONDS`,
         the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready, and the keyset path sets `autocommit` so each

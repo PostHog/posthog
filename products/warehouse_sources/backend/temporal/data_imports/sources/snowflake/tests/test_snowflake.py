@@ -801,6 +801,7 @@ class TestResumableStreaming:
                 next(iterator)
         # The final batch's checkpoint is never saved, so a post-extraction retry re-reads only it.
         assert manager.save_state.call_count == 2
+        assert response.supports_resume is True
 
     def test_resume_bounds_the_scan_and_skips_the_count(self, impl):
         metadata_cursor = self._metadata_cursor()
@@ -856,6 +857,7 @@ class TestResumableStreaming:
         assert "ORDER BY" not in query
         assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
         manager.save_state.assert_not_called()
+        assert response.supports_resume is False
 
 
 def test_snowflake_source_is_resumable():

@@ -97,6 +97,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+    deadline_cursor_factory,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -123,6 +127,14 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
 METADATA_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
+
+# Client-side limit on each statement of the setup phase, which runs before the first row is read.
+# It sits one minute above the server limit, so it acts only when the server limit did not. See
+# `client_deadline` for the cases where that happens.
+SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS = METADATA_STATEMENT_TIMEOUT_MS / 1000 + 60
+# `EXPLAIN` only plans the query, so one that is still running after this long waits on a lock or on
+# a server that stopped answering. The plan goes to a debug log line and nothing else needs it.
+EXPLAIN_CLIENT_DEADLINE_SECONDS = 60
 
 # Rows the row-size probe aims to measure. Enough for a stable p95 and a meaningful widest row,
 # few enough that `octet_length(t::text)` — which de-toasts every value — stays cheap on a table
@@ -2566,7 +2578,8 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         # Debug-only, best-effort: EXPLAIN may use syntax the source rejects (e.g. TABLESAMPLE
         # on CockroachDB), so swallow failures.
         query_with_explain = sql.SQL("EXPLAIN {}").format(query)
-        cursor.execute(query_with_explain)
+        with client_side_deadline(cursor.connection, EXPLAIN_CLIENT_DEADLINE_SECONDS):
+            cursor.execute(query_with_explain)
         rows = cursor.fetchall()
         explain_result: str = ""
         # Build up a single string of the EXPLAIN output
@@ -3618,6 +3631,7 @@ def postgres_source(
             # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
             # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
             conn.autocommit = True
+            conn.cursor_factory = deadline_cursor_factory(SETUP_STATEMENT_CLIENT_DEADLINE_SECONDS)
             return conn
 
         # A hot-standby recovery conflict ("conflict with recovery") cancels or terminates the probe
