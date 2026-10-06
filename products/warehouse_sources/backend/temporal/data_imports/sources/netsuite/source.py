@@ -23,6 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.netsuite import (
     NetSuiteSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.netsuite import (
     AUTH_FAILED_MESSAGE,
     INVALID_ACCOUNT_ID_MESSAGE,
@@ -75,10 +78,6 @@ class NetSuiteSource(ResumableSource[NetSuiteSourceConfig, NetSuiteResumeConfig]
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.canonical_descriptions import (
-            CANONICAL_DESCRIPTIONS,
-        )
-
         return CANONICAL_DESCRIPTIONS
 
     @property

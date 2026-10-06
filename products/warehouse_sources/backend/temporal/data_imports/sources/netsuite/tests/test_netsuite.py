@@ -72,6 +72,18 @@ class _Manager:
         self.saved.append(data)
 
 
+class TestCredentials:
+    def test_repr_hides_secrets(self) -> None:
+        oauth = NetSuiteOAuth2Credentials(client_id="client", certificate_id="certificate", private_key="private")
+        tba = NetSuiteTBACredentials(
+            consumer_key="consumer", consumer_secret="consumer-secret", token_id="token", token_secret="token-secret"
+        )
+
+        assert "private" not in repr(oauth)
+        assert "consumer-secret" not in repr(tba)
+        assert "token-secret" not in repr(tba)
+
+
 class TestNetSuiteAccount:
     @parameterized.expand(
         [
@@ -201,6 +213,22 @@ class TestIterRows:
 
         with pytest.raises(NetSuiteError, match="did not advance"):
             list(iter_rows(client, ENDPOINT_CONFIGS["account"], None, None, manager))  # type: ignore[arg-type]
+
+    def test_does_not_save_state_when_normalizing_a_page_fails(self) -> None:
+        client = mock.MagicMock()
+        client.query.return_value = self._page(list(range(1, 1001)), True)
+        manager = _Manager()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.netsuite.netsuite.normalize_row",
+                side_effect=ValueError("bad row"),
+            ),
+            pytest.raises(ValueError, match="bad row"),
+        ):
+            next(iter_rows(client, ENDPOINT_CONFIGS["account"], None, None, manager))  # type: ignore[arg-type]
+
+        assert manager.saved == []
 
 
 class TestNetSuiteClient:

@@ -71,15 +71,15 @@ class NetSuiteTokenError(NetSuiteError):
 class NetSuiteOAuth2Credentials:
     client_id: str
     certificate_id: str
-    private_key: str
+    private_key: str = dataclasses.field(repr=False)
 
 
 @dataclasses.dataclass(frozen=True)
 class NetSuiteTBACredentials:
     consumer_key: str
-    consumer_secret: str
+    consumer_secret: str = dataclasses.field(repr=False)
     token_id: str
-    token_secret: str
+    token_secret: str = dataclasses.field(repr=False)
 
 
 NetSuiteCredentials = NetSuiteOAuth2Credentials | NetSuiteTBACredentials
@@ -414,12 +414,13 @@ def iter_rows(
         if next_cursor == cursor:
             raise NetSuiteError(f"NetSuite pagination did not advance past {cursor} for {config.table}")
 
+        normalized_items = [normalize_row(item, config) for item in items]
         has_more = bool(data.get("hasMore")) and len(items) >= PAGE_SIZE
         if has_more:
             resumable_source_manager.save_state(
                 NetSuiteResumeConfig(cursor=next_cursor, incremental_field=incremental_field)
             )
-        yield [normalize_row(item, config) for item in items]
+        yield normalized_items
 
         if not has_more:
             return
