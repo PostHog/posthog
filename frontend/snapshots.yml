@@ -1757,9 +1757,9 @@ snapshots:
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.2ce59a009bfce14f01a88f688627cf4b1def20c28ce5124288a54f9c62ffd3a6.wIhKopBY00iVCPnC9GB4QncFt-dCm8Gq9Uz6FYXBZ68
     components-message-tool-calls-editor--editable-tool-calls--dark:
-        hash: v1.k794b7964.7adaad1e91b71d0b933afe541a20fd43112e39d56d6638abadfae6a830bb0c15.TxnbKwXIG1XbB5e4KpRJa4-PA-wl-kKOWbtX1ERVqLU
+        hash: v1.k794b7964.bf5d7e9a07a313eb905517ad07b3b9be0b7efe64532efc72fa97a824aa75a320.E85JvFQYNnizHUgjnQ9GPVwmu_6NIXmyHetF0eKWR70
     components-message-tool-calls-editor--editable-tool-calls--light:
-        hash: v1.k794b7964.4a10839159f5b3f989112539bb2a720f04460890fae5914a3516457e7cba92f3.Snir6e_iAMVVl1tdItfy70BRcAHw5Zem9Kk0ujjMQIo
+        hash: v1.k794b7964.e23addac27e56509f0caed349da836f0963b87500639d1097f948a5eff9942ec.DaRlPJVS3Kckngsx8aJC0uoIJYOHBm2xQh__x5rXYoY
     components-navpanelproductpush--all-products--dark:
         hash: v1.k794b7964.d6cc4da0e30950f4e3bf7338d86856529e48c45785bae5a85ccf4fd3ed7c3ad0.8n61Z9x6l3I3qfdAzk46yr7fAFHoYNdo3tjEKyJlcIo
     components-navpanelproductpush--all-products--light:

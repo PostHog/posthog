@@ -3523,6 +3523,7 @@ export interface CredentialApi {
  * * `GoogleBusinessProfile` - GoogleBusinessProfile
  * * `Ledyer` - Ledyer
  * * `Supermetrics` - Supermetrics
+ * * `SQLite` - SQLite
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4890,6 +4891,7 @@ export const ExternalDataSourceTypeEnumApi = {
     GoogleBusinessProfile: 'GoogleBusinessProfile',
     Ledyer: 'Ledyer',
     Supermetrics: 'Supermetrics',
+    SQLite: 'SQLite',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
