@@ -3503,7 +3503,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -4038,6 +4038,20 @@
         "summary": "Search documentation",
         "title": "Search documentation",
         "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "domains-list": {
+        "description": "List authentication domains in the active organization with their IDs and verification status. Use a domain ID from this result in `organization_domain_ids` to link it to an identity provider configuration. Only verified domains are used for authentication routing.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List organization authentication domains",
+        "title": "List organization authentication domains",
+        "required_scopes": ["organization:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6690,6 +6704,146 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "identity-provider-configs-create-execute": {
+        "description": "Step 2 of 2 for create identity provider configuration. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create an organization identity provider configuration for SAML, OIDC, SCIM, or XAA (ID-JAG). Set `config_scope` to `saml`, `oidc`, `scim`, or `xaa`. Use `domain_scope: selected` with `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all verified organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses `oidc_issuer_url`, `oidc_client_id`, and `oidc_client_secret`; SCIM can be enabled with `scim_enabled`; XAA uses `id_jag_issuer_url` with optional JWKS and allowed-client settings. The create call requires explicit user confirmation before execution.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create an identity provider configuration (execute)",
+        "title": "Create an identity provider configuration (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "identity-provider-configs-create-prepare": {
+        "description": "Step 1 of 2 for create identity provider configuration. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create an organization identity provider configuration for SAML, OIDC, SCIM, or XAA (ID-JAG). Set `config_scope` to `saml`, `oidc`, `scim`, or `xaa`. Use `domain_scope: selected` with `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all verified organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses `oidc_issuer_url`, `oidc_client_id`, and `oidc_client_secret`; SCIM can be enabled with `scim_enabled`; XAA uses `id_jag_issuer_url` with optional JWKS and allowed-client settings. The create call requires explicit user confirmation before execution.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create an identity provider configuration (prepare)",
+        "title": "Create an identity provider configuration (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "identity-provider-configs-destroy-execute": {
+        "description": "Step 2 of 2 for delete identity provider configuration. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Permanently delete an identity provider configuration by its ID. This removes its SAML, OIDC, SCIM, or XAA settings and its linked organization domains. The delete call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Delete an identity provider configuration (execute)",
+        "title": "Delete an identity provider configuration (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "identity-provider-configs-destroy-prepare": {
+        "description": "Step 1 of 2 for delete identity provider configuration. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Permanently delete an identity provider configuration by its ID. This removes its SAML, OIDC, SCIM, or XAA settings and its linked organization domains. The delete call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Delete an identity provider configuration (prepare)",
+        "title": "Delete an identity provider configuration (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "identity-provider-configs-list": {
+        "description": "List identity provider configurations in the active organization. Configurations can use SAML, OIDC, SCIM, or XAA (ID-JAG). Results include the protocol settings, SCIM URL, configuration status, and linked domain IDs. A saved OIDC client secret and an existing SCIM bearer token are never returned.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List identity provider configurations",
+        "title": "List identity provider configurations",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "identity-provider-configs-partial-update-execute": {
+        "description": "Step 2 of 2 for update identity provider configuration. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Update selected fields on an identity provider configuration by ID. Use this to change SAML, OIDC, SCIM, or XAA (ID-JAG) settings, link selected domains with `organization_domain_ids`, or set `domain_scope: all` to cover all verified organization domains. For selected domains, `organization_domain_ids` replaces the current links. Omit `oidc_client_secret` to keep the saved secret. The update call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update an identity provider configuration (execute)",
+        "title": "Update an identity provider configuration (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "identity-provider-configs-partial-update-prepare": {
+        "description": "Step 1 of 2 for update identity provider configuration. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Update selected fields on an identity provider configuration by ID. Use this to change SAML, OIDC, SCIM, or XAA (ID-JAG) settings, link selected domains with `organization_domain_ids`, or set `domain_scope: all` to cover all verified organization domains. For selected domains, `organization_domain_ids` replaces the current links. Omit `oidc_client_secret` to keep the saved secret. The update call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Update an identity provider configuration (prepare)",
+        "title": "Update an identity provider configuration (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "identity-provider-configs-retrieve": {
+        "description": "Get an identity provider configuration by ID. Returns its protocol settings, SCIM URL, configuration status, and linked domain IDs. A saved OIDC client secret and an existing SCIM bearer token are never returned.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Get an identity provider configuration",
+        "title": "Get an identity provider configuration",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "identity-provider-configs-scim-token-create-execute": {
+        "description": "Step 2 of 2 for regenerate SCIM bearer token. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Regenerate the SCIM bearer token for an identity provider configuration. The new token is returned once; existing SCIM clients stop working until configured with the new token. This call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Regenerate an identity provider SCIM token (execute)",
+        "title": "Regenerate an identity provider SCIM token (execute)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "identity-provider-configs-scim-token-create-prepare": {
+        "description": "Step 1 of 2 for regenerate SCIM bearer token. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Regenerate the SCIM bearer token for an identity provider configuration. The new token is returned once; existing SCIM clients stop working until configured with the new token. This call requires explicit user confirmation.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Regenerate an identity provider SCIM token (prepare)",
+        "title": "Regenerate an identity provider SCIM token (prepare)",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "inbox-report-artefacts-create": {
