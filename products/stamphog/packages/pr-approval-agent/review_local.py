@@ -75,6 +75,7 @@ from github import (
     _normalize_reviews_for_prompt,
     _prompt_worthy_author,
     _reaction_emoji,
+    git_touched_paths,
     is_bot_author,
     pr_provenance,
     provenance_from_messages,
@@ -182,8 +183,12 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     base_ref = base.get("ref") or default_branch
 
     files = _git_diff_files(base_sha, head_sha, REPO_ROOT, merge_base_sha) if checkout else []
-    if not files:
-        files = [_convert_api_file(f) for f in context.get("files") or []]
+    if files:
+        touched_paths = git_touched_paths(base_sha, head_sha, REPO_ROOT, merge_base_sha)
+    else:
+        api_files = context.get("files") or []
+        files = [_convert_api_file(f) for f in api_files]
+        touched_paths = [path for f in api_files for path in (f.get("filename"), f.get("previous_filename")) if path]
 
     # Drop only EMPTY COMMENTED reviews from the offline reviews. A bare COMMENTED top-level review
     # carries no readable body — yet _summarize_assurance would surface its author as a current-head
@@ -259,6 +264,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         head_sha=head_sha,
         merge_base_sha=merge_base_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=review_comments,
         check_runs=context.get("check_runs") or [],

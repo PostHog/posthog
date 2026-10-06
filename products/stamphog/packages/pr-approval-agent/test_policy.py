@@ -144,7 +144,7 @@ OLD_DENY_PATTERN_DEFS = {
             "^products/cdp/backend/(api|models)/",
             "^products/workflows/backend/(facade|presentation|models)/",
             "^products/messaging/backend/(api|models)/",
-            "^nodejs/src/cdp/.*(?<!\\.test\\.ts)$",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
 }

@@ -670,6 +670,25 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
             False,
             id="owner-only-path-test-file",
         ),
+        pytest.param(
+            _pregate_context(
+                [
+                    {
+                        **_api_file("products/workflows/backend/hog_flow.py", status="renamed"),
+                        "previous_filename": "products/workflows/backend/models/hog_flow.py",
+                    }
+                ]
+            ),
+            "REFUSED",
+            True,
+            id="owner-only-path-renamed-out",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("nodejs/src/cdp/worker\n.ts")]),
+            "REFUSED",
+            True,
+            id="owner-only-path-with-a-newline",
+        ),
     ],
 )
 def test_pregate_is_final_only_where_the_full_review_agrees(
