@@ -336,7 +336,11 @@ Product teams own their definitions and control which operations are exposed as 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
-   Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+   Unknown keys in `tools.yaml` fail the build (the config schema uses Zod `.strict()`), to catch typos early.
+   Unknown keys in a tool call's input do not fail the call.
+   Validation strips them, the tool runs with the keys it recognizes, and the response carries an `Ignored input keys: ...` notice.
+   Only a hand-written input schema that uses `.strict()` rejects them.
+   Treat that notice as a likely parameter mistake: the call succeeded, but without the values in those keys.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument

@@ -189,7 +189,11 @@ PATCH, POST and PUT vary too much (a PATCH can be a soft delete or non-idempoten
 When a tool needs custom logic around the request, set `hooks: <path under src/tools/>` and default-export an object with `beforeRequest`, `afterResponse` or `onError` from that module, written `export default { onError } satisfies ToolHooks<Params>` so a typo fails typecheck (see `ToolHooks` in `src/tools/tool-hooks.ts`).
 Use it to read state before a write or to turn a known error into a result, rather than shadowing the generated tool with a hand-written one.
 
-Unknown keys are rejected at build time (Zod `.strict()`).
+Unknown keys in `tools.yaml` fail the build (the config schema uses Zod `.strict()`).
+Unknown keys in a tool call's input do not fail the call.
+Validation strips them, the tool runs with the keys it recognizes, and the response carries an `Ignored input keys: ...` notice.
+Only a hand-written input schema that uses `.strict()` rejects them.
+Treat that notice as a likely parameter mistake: the call succeeded, but without the values in those keys.
 
 ### Gating tools with feature flags
 
