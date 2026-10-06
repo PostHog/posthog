@@ -68,6 +68,10 @@ export const Empty: Story = {
 }
 
 // One row per badge tier, plus two rows with no errors, so the column's alignment shows.
+export const SpansView: Story = {
+    args: { showRootTag: true },
+}
+
 export const WithErrorBadges: Story = {
     args: {
         spanErrors: {
@@ -96,7 +100,7 @@ export const CustomColumns: Story = {
     },
 }
 
-export const WithMissingRoot: Story = {
+export const WithOrphanTrace: Story = {
     args: {
         dataSource: [
             span(1, {

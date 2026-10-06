@@ -18,7 +18,7 @@ export interface Span {
     resource_attributes: Record<string, string>
     trace_start?: string
     trace_duration?: number
-    // Set on a span shown in place of a root span that never arrived.
+    // Set on a span shown in place of a root span that was not found.
     root_missing?: boolean
 }
 

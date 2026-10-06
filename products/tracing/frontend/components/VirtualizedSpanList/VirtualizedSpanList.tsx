@@ -39,10 +39,6 @@ const LOAD_MORE_THRESHOLD = 10
 // pinned: identifies stored column widths — renaming resets everyone's widths
 const TABLE_KEY = 'spans'
 
-function isRootSpan(span: Span): boolean {
-    return !span.parent_span_id
-}
-
 interface SortProps {
     orderBy: TracingOrderBy
     orderDirection: TracingOrderDirection
@@ -67,6 +63,8 @@ interface VirtualizedSpanListProps extends SortProps {
     emptyState?: ReactNode
     spanErrors?: SpanErrors
     spanColumns: SpanColumnConfig[]
+    // Tag root spans. Only useful when the list mixes roots and children.
+    showRootTag?: boolean
 }
 
 interface SpanRowProps {
@@ -75,6 +73,7 @@ interface SpanRowProps {
     widths: Record<string, number>
     onRowClick: (span: Span) => void
     spanErrors: SpanErrors | undefined
+    showRootTag: boolean
 }
 
 /** Header cell wired to the shared resize handle. `sort` marks the column as server-sortable. */
@@ -163,7 +162,7 @@ function SpanRowHeader({
     )
 }
 
-function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | null {
+function spanCellContent(column: SpanColumnConfig, span: Span, showRootTag: boolean): JSX.Element | null {
     switch (column.type) {
         case 'timestamp':
             return (
@@ -181,15 +180,15 @@ function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | nu
             return (
                 <span className="flex items-center gap-2 truncate">
                     <span className="truncate">{span.name}</span>
-                    {isRootSpan(span) && (
+                    {showRootTag && span.is_root_span && (
                         <LemonTag type="highlight" size="small">
                             trace
                         </LemonTag>
                     )}
                     {span.root_missing && (
-                        <Tooltip title="No root">
+                        <Tooltip title="Parent span not found">
                             <LemonTag type="muted" size="small">
-                                no root
+                                Orphan
                             </LemonTag>
                         </Tooltip>
                     )}
@@ -227,12 +226,14 @@ function SpanRow({
     spanColumns,
     widths,
     spanErrors,
+    showRootTag,
     onClick,
 }: {
     span: Span
     spanColumns: SpanColumnConfig[]
     widths: Record<string, number>
     spanErrors: SpanErrors | undefined
+    showRootTag: boolean
     onClick: () => void
 }): JSX.Element {
     const errorBadge = spanErrors?.badges.get(span.uuid)
@@ -258,7 +259,7 @@ function SpanRow({
                 const key = spanColumnKey(column)
                 return (
                     <TableCell key={key} width={widths[key]}>
-                        {spanCellContent(column, span)}
+                        {spanCellContent(column, span, showRootTag)}
                     </TableCell>
                 )
             })}
@@ -289,6 +290,7 @@ function SpanListRow({
     spanColumns,
     widths,
     spanErrors,
+    showRootTag,
     onRowClick,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -305,6 +307,7 @@ function SpanListRow({
                 spanColumns={spanColumns}
                 widths={widths}
                 spanErrors={spanErrors}
+                showRootTag={showRootTag}
                 onClick={() => onRowClick(span)}
             />
         </div>
@@ -321,6 +324,7 @@ export function VirtualizedSpanList({
     emptyState = 'No spans found',
     spanErrors,
     spanColumns,
+    showRootTag = false,
     orderBy,
     orderDirection,
     onSort,
@@ -400,7 +404,7 @@ export function VirtualizedSpanList({
                                     rowCount={dataSource.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={SpanListRow}
-                                    rowProps={{ dataSource, spanColumns, widths, spanErrors, onRowClick }}
+                                    rowProps={{ dataSource, spanColumns, widths, spanErrors, showRootTag, onRowClick }}
                                     onRowsRendered={handleRowsRendered}
                                     listRef={listRef}
                                 />
