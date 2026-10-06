@@ -15,10 +15,10 @@ _CORRECTIONS: dict[str, str] = {
 }
 
 
-def describe_clickhouse_rejection(code_name: str | None) -> str | None:
+def describe_clickhouse_rejection(code_name: str | None, message: str | None = None) -> str | None:
     """Name a ClickHouse rejection of the query and its fix, or None if the query did not cause it."""
     if not code_name or code_name not in USER_ERROR_CODE_NAMES:
         return None
-    message = internal_ch_error_user_message(code_name)
+    message = message or internal_ch_error_user_message(code_name)
     correction = _CORRECTIONS.get(code_name)
     return f"{message} {correction}" if correction else message

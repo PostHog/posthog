@@ -480,7 +480,9 @@ class AssistantQueryExecutor:
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if rejection := describe_clickhouse_rejection(query_status.get("error_code")):
+                    if rejection := describe_clickhouse_rejection(
+                        query_status.get("error_code"), query_status.get("error_message")
+                    ):
                         raise MaxToolRetryableError(rejection, error_type="validation")
                     if error_message := query_status.get("error_message"):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
