@@ -148,6 +148,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
            to separate results for different experiment variants.
         """
         prepared_count_query = TrendsQuery(**self.query.count_query.model_dump())
+        # Project default filters would change which users the experiment measures.
+        prepared_count_query.applyDefaultFilters = False
 
         prepared_count_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
         prepared_count_query.dateRange = self._get_date_range()
@@ -195,6 +197,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # 1. If an exposure query is provided, we use it as is, adapting it to the experiment's duration and breakdown
         if self.query.exposure_query and not self._is_data_warehouse_query(prepared_count_query):
             prepared_exposure_query = TrendsQuery(**self.query.exposure_query.model_dump())
+            prepared_exposure_query.applyDefaultFilters = False
             prepared_exposure_query.dateRange = self._get_date_range()
             prepared_exposure_query.trendsFilter = TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE)
             prepared_exposure_query.breakdownFilter = self._get_event_breakdown_filter()

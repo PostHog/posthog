@@ -112,6 +112,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         """
         # Clone the funnels query
         prepared_funnels_query = FunnelsQuery(**self.query.funnels_query.model_dump())
+        # Project default filters would change which users the experiment measures.
+        prepared_funnels_query.applyDefaultFilters = False
 
         # Set the date range to match the experiment's duration, using the project's timezone
         if self.team.timezone:

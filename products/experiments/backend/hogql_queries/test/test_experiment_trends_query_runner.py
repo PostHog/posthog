@@ -142,6 +142,33 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(feature_flag_filter.value, [original_key])
 
+    def test_project_default_filters_are_not_applied_to_subqueries(self):
+        self.team.default_filters_config.filters = [
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"}
+        ]
+        self.team.default_filters_config.save()
+        experiment = self.create_experiment(feature_flag=self.create_feature_flag())
+
+        query_runner = ExperimentTrendsQueryRunner(
+            query=ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=TrendsQuery(series=[EventsNode(event="$pageview")], applyDefaultFilters=True),
+                exposure_query=TrendsQuery(
+                    series=[EventsNode(event="custom_exposure_event")], applyDefaultFilters=True
+                ),
+            ),
+            team=self.team,
+        )
+
+        for subquery_runner in (query_runner.count_query_runner, query_runner.exposure_query_runner):
+            properties = subquery_runner.query.properties
+            assert isinstance(properties, list)
+            assert [prop.key for prop in properties if isinstance(prop, EventPropertyFilter)] == [
+                "$feature/test-experiment"
+            ]
+            assert len(properties) == 1
+
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()

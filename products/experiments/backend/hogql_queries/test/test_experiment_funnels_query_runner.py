@@ -118,6 +118,27 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             f"$feature/{original_key}",
         )
 
+    def test_project_default_filters_are_not_applied_to_the_funnels_query(self):
+        self.team.default_filters_config.filters = [
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"}
+        ]
+        self.team.default_filters_config.save()
+        experiment = self.create_experiment(feature_flag=self.create_feature_flag())
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentFunnelsQuery",
+                funnels_query=FunnelsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+                    applyDefaultFilters=True,
+                ),
+            ),
+            team=self.team,
+        )
+
+        assert query_runner.funnels_query_runner.query.properties in (None, [])
+
     @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()
