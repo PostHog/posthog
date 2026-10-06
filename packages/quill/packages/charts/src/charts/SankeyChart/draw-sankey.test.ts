@@ -1,4 +1,4 @@
-import { drawSankeyHover, sankeyActiveFlow } from './draw-sankey'
+import { drawSankeyHover, emphasisForHit } from './draw-sankey'
 import { computeSankeyLayout } from './sankey-data'
 
 const BACKGROUND = 'hsl(235deg 8% 15%)'
@@ -66,7 +66,7 @@ describe('drawSankeyHover', () => {
         (_name, serialize, secondLinkValue, expectedStrokes) => {
             const layout = layoutOf(secondLinkValue)
             const { ctx, strokes } = recordingCtx(serialize)
-            drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
+            drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
                 linkOpacity: 0.4,
                 backgroundColor: BACKGROUND,
                 progress: 1,
