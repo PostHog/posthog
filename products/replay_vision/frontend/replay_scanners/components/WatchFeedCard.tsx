@@ -510,98 +510,81 @@ function JevCardScannerChip({
     )
 }
 
-/** The jev arm's card body: one sentence plus one meta line. The scanner's question, verdict, and
- * remaining prose sit behind the chip's tooltip and the observation page, so the feed stays scannable. */
-function JevCardBody({ item, data }: { item: WatchFeedItemApi; data: WatchFeedCardData }): JSX.Element {
-    const { observation, reason } = item
-    // A filler row carries no finding, so it must not read like one.
+/**
+ * The title under a jev tile and the detail its poster reveals on hover. A summarizer's authored title
+ * is already short, so it leads and the scan's sentence moves into the detail. Other scans lead with
+ * jevCardSentence and reveal the narration it did not use. A filler tile reveals nothing, so it never
+ * reads like a finding.
+ */
+export function jevTileText(
+    observation: ReplayObservationApi,
+    reason: WatchFeedReasonApi
+): { title: string; detail: string | null } {
     const filler = FILLER_REASON_KINDS.has(reason.kind)
-    const context = jevCardContext(observation, reason)
+    const result = readResult(observation)
+    const scannerType =
+        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
+        (result?.scanner_type as ScannerType | undefined)
+    const authoredTitle =
+        scannerType === 'summarizer' && typeof result?.title === 'string' && result.title ? result.title : null
+    if (authoredTitle) {
+        const summary = typeof result?.summary === 'string' ? result.summary : null
+        return { title: authoredTitle, detail: filler ? null : reason.notability_reason || summary || null }
+    }
+    return { title: jevCardSentence(observation, reason), detail: jevCardContext(observation, reason) }
+}
+
+/**
+ * The jev arm's tile: a large key-moment poster, a short title, and one meta line. The whole tile
+ * opens the observation page, which starts the player at the key moment.
+ */
+export function JevWatchFeedTile({ item, position }: WatchFeedCardProps): JSX.Element {
+    const { observation, reason } = item
+    const data = useWatchFeedCardData(item, position, 'grid')
+    const { title, detail } = jevTileText(observation, reason)
+    const filler = FILLER_REASON_KINDS.has(reason.kind)
     return (
-        <>
+        <article className="group relative flex flex-col gap-2 min-w-0" data-attr="vision-watch-feed-tile">
+            <div className="relative overflow-hidden rounded-lg border group-hover:border-accent group-focus-within:border-accent">
+                {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
+                <ObservationThumbnail observation={observation} className="rounded-none border-0">
+                    <span className="absolute bottom-2 left-2 flex size-7 items-center justify-center rounded-full bg-black/70 text-white">
+                        <IconPlayFilled className="text-sm" aria-hidden />
+                    </span>
+                </ObservationThumbnail>
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
+                )}
+                {data.keyMomentMs !== null && (
+                    <span className="absolute bottom-2 right-2 z-10 rounded bg-black/70 px-1.5 text-xs tabular-nums text-white">
+                        {colonDelimitedDuration(Math.floor(data.keyMomentMs / 1000), null)}
+                    </span>
+                )}
+                {detail && (
+                    <p className="pointer-events-none absolute inset-x-0 bottom-0 z-10 m-0 bg-gradient-to-t from-black/85 to-transparent px-3 pt-8 pb-10 text-xs text-white line-clamp-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        {detail}
+                    </p>
+                )}
+            </div>
             <Link
                 to={data.observationUrl}
                 onClick={data.captureObservationOpened}
                 className="text-default after:absolute after:inset-0 after:content-['']"
-                data-attr="vision-watch-feed-card-body"
+                data-attr="vision-watch-feed-tile-open"
             >
-                <h3 className={`text-sm m-0 line-clamp-2 ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}>
+                <h3
+                    className={`m-0 text-sm line-clamp-2 ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
+                    title={title}
+                >
                     {!observation.viewed && <span className="sr-only">New: </span>}
-                    {jevCardSentence(observation, reason)}
+                    {title}
                 </h3>
             </Link>
-            {context && <p className="text-muted text-xs m-0 line-clamp-1">{context}</p>}
             <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
                 <JevCardScannerChip observation={observation} scannerName={data.scannerName} />
                 <WatchCardPerson observation={observation} person={data.person} />
             </div>
-        </>
-    )
-}
-
-/** The jev arm's list card. Same shell and affordances as WatchFeedCard, with the body cut to
- * JevCardBody's three lines and the poster sized down so the card hugs its content. */
-export function JevWatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Element {
-    const { observation } = item
-    const data = useWatchFeedCardData(item, position, 'list')
-    return (
-        <div
-            className="@container relative border rounded bg-bg-light p-3 flex gap-3 hover:border-accent"
-            data-attr="vision-watch-feed-card"
-        >
-            {!observation.viewed && <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-accent" aria-hidden />}
-            <div className="relative hidden @md:block w-44 shrink-0 self-start">
-                <WatchClipPoster
-                    observation={observation}
-                    keyMomentMs={data.keyMomentMs}
-                    onWatch={data.watchClipInModal}
-                />
-                {!observation.viewed && (
-                    <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
-                )}
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
-                <JevCardBody item={item} data={data} />
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    icon={<IconPlay />}
-                    onClick={data.watchClipInModal}
-                    className="@md:hidden self-start relative z-10"
-                    data-attr="vision-watch-clip"
-                >
-                    Watch clip
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
-/** The jev arm's grid card: the same shell as WatchFeedGridCard with the body cut to two lines. */
-export function JevWatchFeedGridCard({ item, position }: WatchFeedCardProps): JSX.Element {
-    const { observation } = item
-    const data = useWatchFeedCardData(item, position, 'grid')
-    return (
-        <LemonCard
-            className="relative flex flex-col rounded-lg p-0 overflow-hidden hover:border-accent"
-            data-attr="vision-watch-feed-grid-card"
-        >
-            {!observation.viewed && <span className="absolute inset-x-0 top-0 h-1 z-20 bg-accent" aria-hidden />}
-            <div className="relative">
-                <WatchClipPoster
-                    observation={observation}
-                    keyMomentMs={data.keyMomentMs}
-                    onWatch={data.watchClipInModal}
-                    className="rounded-none border-0"
-                />
-                {!observation.viewed && (
-                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
-                )}
-            </div>
-            <div className="flex flex-col gap-2 p-3 min-w-0 flex-1">
-                <JevCardBody item={item} data={data} />
-            </div>
-        </LemonCard>
+        </article>
     )
 }
 

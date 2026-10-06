@@ -35,7 +35,7 @@ const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => nam
  * group's event feed, ingestion triggers) and the experiment pickers pass it.
  *
  * For an organization on mode 1, the team API reports Events while the
- * `FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS` instance setting is on, so its pickers show these events again.
+ * `FLAG_EVALUATIONS_READS_FORCE_EVENTS` instance setting is on, so its pickers show these events again.
  */
 export function hiddenEventNames(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
