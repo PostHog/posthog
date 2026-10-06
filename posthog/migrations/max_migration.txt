@@ -1,1 +1,1 @@
-1396_organization_provisioning_terms_accepted_at
+1397_merge_provisioning_terms_and_revoked_tokens
