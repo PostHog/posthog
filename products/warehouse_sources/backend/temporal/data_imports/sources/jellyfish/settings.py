@@ -30,7 +30,7 @@ class JellyfishFanOut:
     param: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class JellyfishEndpointConfig:
     name: str
     path: str  # relative to https://app.jellyfish.co/endpoints/export/v0/
