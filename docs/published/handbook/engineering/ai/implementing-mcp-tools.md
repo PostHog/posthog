@@ -262,6 +262,8 @@ Product teams own their definitions and control which operations are exposed as 
 
 2. **Configure** the YAML – enable tools and add descriptions.
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
+   A `scopes` list that misses a scope the API requires fails codegen.
+   When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -295,7 +297,7 @@ Product teams own their definitions and control which operations are exposed as 
        operation: your_product_endpoint_list # must match an OpenAPI operationId
        enabled: true # false excludes from generation
        # --- optional: ---
-       scopes: # defaults to the scopes the API requires; a list that misses one warns
+       scopes: # defaults to the scopes the API requires; a list that misses one fails codegen
          - your_product:read
        annotations: # defaults for GET and DELETE; required for PATCH, POST and PUT
          readOnly: true

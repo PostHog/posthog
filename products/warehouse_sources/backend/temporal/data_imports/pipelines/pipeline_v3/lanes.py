@@ -159,8 +159,10 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 "workflow_run_id": None,
                 # The history table has no destination mapping: delivery names the destination
                 # table from the schema, and SCD2 rows merged by key there would clobber the
-                # consolidated table's rows.
+                # consolidated table's rows. Both lists are cleared so batches remain eligible
+                # for coalescing when they have no destinations to deliver to.
                 "destination_ids": [],
+                "external_destination_ids": [],
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)

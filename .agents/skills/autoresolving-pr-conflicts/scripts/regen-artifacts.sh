@@ -35,7 +35,18 @@ case "$cmd" in
             find . -type f \
                 \( -name pnpm-lock.yaml -o -name uv.lock \
                 -o -path './frontend/src/generated/*' \
-                -o -path './products/*/frontend/generated/*' \) -print0
+                -o -path './products/*/frontend/generated/*' \
+                -o -path ./frontend/src/lib/agentScopes.generated.ts \
+                -o -path ./services/mcp/src/api/generated.ts \
+                -o -path './services/mcp/src/generated/*' \
+                -o -path './services/mcp/src/tools/generated/*' \
+                -o -path ./services/mcp/schema/generated-tool-definitions.json \
+                -o -path ./services/mcp/schema/tool-definitions-all.json \
+                -o -path ./services/mcp/schema/exec-command-reference.md \
+                -o -path ./services/mcp/schema/tool-inputs.json \
+                -o -path ./services/mcp/src/resources/ui-apps.generated.ts \
+                -o -path './services/mcp/src/ui-apps/generated/*' \
+                -o -path './services/mcp/src/ui-apps/apps/generated/*' \) -print0
         ) | while IFS= read -r -d '' f; do
             rel=${f#./}
             path=$dest
