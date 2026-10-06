@@ -403,6 +403,13 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if len(breakdowns) > 3:
             raise ValidationError("Maximum of 3 breakdowns are supported for experiment metrics")
 
+        if any(breakdown.type == "element" for breakdown in breakdowns):
+            # BreakdownInjector has no element-specific expression, so an element breakdown would
+            # silently fall back to reading the same-named event property instead.
+            raise ValidationError(
+                "Element breakdowns are not supported for experiment metrics. Use an event or person property instead."
+            )
+
         return breakdowns
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:

@@ -698,6 +698,8 @@ export type CachedHogQLQueryResponse = CachedQueryResponse<HogQLQueryResponse>
 export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilter
     filterTestAccounts?: boolean
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
     interval?: IntervalType
@@ -6733,6 +6735,7 @@ export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
+    | 'element'
     | 'group'
     | 'session'
     | 'hogql'

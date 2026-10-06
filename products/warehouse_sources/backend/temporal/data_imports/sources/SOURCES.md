@@ -1433,6 +1433,7 @@ doesn't conflict with concurrent PRs.
 - sprinklr
 - sprinto
 - sprout_social
+- sqlite
 - starburst
 - statsig
 - stockx
@@ -1504,6 +1505,7 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - windsor_ai
 - wisprflow
+- wistia
 - wiz
 - wompi
 - workato
