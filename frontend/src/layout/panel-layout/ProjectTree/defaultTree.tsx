@@ -46,6 +46,7 @@ import {
     IconMegaphone,
     IconMessage,
     IconNotebook,
+    IconPalette,
     IconNotification,
     IconPageChart,
     IconPencil,
@@ -111,6 +112,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     dashboard: {
         icon: <IconDashboard />,
         iconColor: ['var(--color-product-dashboards-light)'],
+    },
+    canvas: {
+        icon: <IconPalette />,
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
     },
     llm_analytics: {
         icon: <IconLlmAnalytics />,

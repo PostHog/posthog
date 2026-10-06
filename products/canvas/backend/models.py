@@ -1,7 +1,12 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
@@ -17,8 +22,11 @@ from products.canvas.backend.facade.enums import (
     CANVAS_STATE_SCOPES,
 )
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
-class Canvas(TeamScopedRootMixin, UUIDModel):
+
+class Canvas(FileSystemSyncMixin, TeamScopedRootMixin, UUIDModel):
     """A canvas document: an agent-built, sandboxed browser app filed in a channel.
 
     The document's source lives in append-only ``CanvasSourceVersion`` rows
@@ -100,6 +108,35 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
                 name="canvas_kind_store",
             ),
         ]
+
+    @property
+    def is_filed_analysis(self) -> bool:
+        """Only standalone freeform canvases are things a person opens from the project tree.
+        Components and grids are widgets, and notebook widgets belong to their notebook."""
+        return (
+            not self.deleted
+            and self.kind == self.KIND_FREEFORM
+            and self.source_policy != self.SOURCE_POLICY_NOTEBOOK_WIDGET
+        )
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Canvas"]:
+        # The unfiled sweep runs outside a request, so the fail-closed manager needs the team spelled out.
+        base_qs = cls.objects.for_team(team.id).filter(
+            deleted=False, kind=cls.KIND_FREEFORM, source_policy=cls.SOURCE_POLICY_STANDARD
+        )
+        return cls._filter_unfiled_queryset(base_qs, team, type="canvas", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Canvases"),
+            type="canvas",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/canvases/{self.id}",
+            meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
+            should_delete=not self.is_filed_analysis,
+        )
 
 
 class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
