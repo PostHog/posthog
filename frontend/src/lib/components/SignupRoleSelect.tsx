@@ -31,8 +31,9 @@ const roleOptions = [...shuffle(ROLE_OPTIONS), OTHER_ROLE_OPTION]
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (
         <LemonField name="role_at_organization" label="What is your role?" className={className}>
-            {({ value, onChange }) => (
+            {({ value, onChange, error, id }) => (
                 <LemonSelect
+                    id={id}
                     fullWidth
                     data-attr="signup-role-at-organization"
                     options={roleOptions}
@@ -41,6 +42,7 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                     value={value || undefined}
                     onChange={onChange}
                     placeholder="Select your role"
+                    status={error ? 'danger' : 'default'}
                 />
             )}
         </LemonField>
