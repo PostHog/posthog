@@ -3,6 +3,7 @@ import { Suspense, useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -51,7 +52,8 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
-    const isExperimentScanner = scanner?.scanner_type === 'experiment'
+    const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
+    const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
     const loadedScannerId = scanner?.id ?? null
 
     // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
