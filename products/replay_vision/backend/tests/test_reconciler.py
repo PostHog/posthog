@@ -35,6 +35,7 @@ from products.replay_vision.backend.temporal.activities import (
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
+    start_launched_scanners_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
@@ -61,6 +62,7 @@ from products.replay_vision.backend.temporal.schedule import (
     compute_schedule_fingerprint,
     load_enabled_scanner_fingerprints,
 )
+from products.replay_vision.backend.tests.helpers import create_experiment
 
 
 def _live_activity_env() -> ActivityEnvironment:
@@ -236,7 +238,11 @@ class _ReconcileMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any = None, **_: Any) -> Any:
         self.calls.append(activity_fn)
-        if activity_fn in (reap_childless_inline_scanners_activity, reap_backfill_schedules_activity):
+        if activity_fn in (
+            reap_childless_inline_scanners_activity,
+            reap_backfill_schedules_activity,
+            start_launched_scanners_activity,
+        ):
             return 0
         if activity_fn is reap_orphaned_observations_activity:
             self.reap_calls += 1
@@ -627,3 +633,39 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
     assert rows["childless_old"].id not in surviving
     for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
         assert rows[key].id in surviving, key
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_start_launched_scanners_activity(org_team) -> None:
+    # The launch signal's receiver never fails a launch, so a failure there leaves the scanner off
+    # after the launch has committed. The reconciler starts it on its next tick. A scanner on a
+    # draft keeps waiting.
+    _, team = org_team
+
+    def _setup() -> tuple[ReplayScanner, ReplayScanner]:
+        launched = create_experiment(team, "launched-flag", launched=True, variants=["control", "test"])
+        draft = create_experiment(team, "draft-flag", variants=["control", "test"])
+
+        def waiting(name: str, experiment_id: int) -> ReplayScanner:
+            return _make_scanner(
+                team,
+                name=name,
+                scanner_type=ScannerType.EXPERIMENT,
+                enabled=False,
+                scanner_config={"prompt": "p", "experiment_id": experiment_id, "start_on_launch": True},
+            )
+
+        return waiting("missed-launch", launched.id), waiting("still-draft", draft.id)
+
+    missed, still_waiting = await sync_to_async(_setup)()
+
+    started = await _live_activity_env().run(start_launched_scanners_activity)
+
+    assert started == 1
+    await sync_to_async(missed.refresh_from_db)()
+    await sync_to_async(still_waiting.refresh_from_db)()
+    assert missed.enabled is True
+    assert "start_on_launch" not in missed.scanner_config
+    assert still_waiting.enabled is False
+    assert await _live_activity_env().run(start_launched_scanners_activity) == 0
