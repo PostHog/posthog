@@ -23,9 +23,9 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import signal_spend_scope, signal_spend_summaries, signal_spend_totals
 from products.signals.backend.spend_tasks import reconcile_signal_spend
-from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
 from products.tasks.backend.logic.services.gateway_usage import process_pending_gateway_usage, record_generation_request
 from products.tasks.backend.models import Task, TaskRun
 
@@ -169,7 +169,7 @@ class TestSignalSpend(BaseTest):
             )
         now = timezone.now()
         with patch(
-            "products.signals.backend.temporal.signal_queries.execute_hogql_query",
+            "products.signals.backend.signal_metadata.execute_hogql_query",
             return_value=Mock(results=[(driver, "Example finding", json.dumps({"total_spend": 0}), now, now)]),
         ):
             signal = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]

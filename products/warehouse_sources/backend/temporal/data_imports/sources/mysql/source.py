@@ -270,6 +270,13 @@ class MySQLSource(
                 "prefix (see TiDB Cloud's connection docs). Otherwise check the user and password "
                 "for this source and try again."
             ),
+            # MySQL/MariaDB error 4151 (ER_ACCOUNT_HAS_BEEN_LOCKED): a DB admin locked the connecting
+            # account (`ALTER USER ... ACCOUNT LOCK`, or an automatic lock after too many failed
+            # logins under `failed_login_attempts`/`password_lock_time`). Only a DB admin can unlock
+            # it, and every retry authenticates as the same locked account, so it fails identically
+            # forever. Match the locale-independent error code (the message text is translated on
+            # non-English servers).
+            "(4151,": "Your MySQL/MariaDB user account is locked (error 4151). Ask your database admin to unlock it (for example with 'ALTER USER ... ACCOUNT UNLOCK'), then retry the sync.",
             # MySQL/MariaDB error 1049 (ER_BAD_DB_ERROR): the configured database doesn't exist on
             # the server — it was renamed or dropped after the source was set up, or the connection
             # was reconfigured to point at a different server. `validate_credentials` already
@@ -494,6 +501,12 @@ class MySQLSource(
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # A TiDB-fronting gateway's own 1105 wording for the same "no backend reachable"
+            # condition as the TiProxy case above — it found zero TiDB instances to route to
+            # rather than failing to reach one it knew about. `_connect_with_transient_retry`
+            # already retries it in-process (see `_is_transient_no_available_tidb_instances` in
+            # mysql.py); this is the backstop for the rare case where it exhausts that budget.
+            "No available TiDB instances, please make sure TiDB is available",
             # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
             # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
             # swap during a failover, reparent, or health-check-triggered pool recycle) when the

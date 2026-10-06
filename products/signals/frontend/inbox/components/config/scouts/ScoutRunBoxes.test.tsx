@@ -40,7 +40,9 @@ describe('ScoutRunBoxes', () => {
             />
         )
 
-        const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
+        const labels = Array.from(container.querySelectorAll('[aria-label]')).map(
+            (node) => node.getAttribute('aria-label') ?? ''
+        )
         expect(labels.filter((label) => label.includes('$4.03'))).toHaveLength(1)
         expect(labels.filter((label) => label.includes('$'))).toHaveLength(1)
     })
@@ -67,7 +69,9 @@ describe('ScoutRunBoxes', () => {
         )
 
         expect(container.querySelectorAll('.bg-brand-yellow')).toHaveLength(2)
-        const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
+        const labels = Array.from(container.querySelectorAll('[aria-label]')).map(
+            (node) => node.getAttribute('aria-label') ?? ''
+        )
         expect(labels.filter((label) => label.includes('top 10% of runs by cost'))).toHaveLength(2)
     })
 
@@ -89,6 +93,16 @@ describe('ScoutRunBoxes', () => {
         expect(link?.querySelector('.bg-brand-yellow')).not.toBeNull()
     })
 
+    it('renders two elements per plain run, so a large fleet stays a small DOM', () => {
+        // The roster renders one strip per scout. An extra node per box multiplies by every run on
+        // every card, and a filter change discards the whole set at once.
+        const runs = Array.from({ length: 24 }, (_, i) => makeRun({ run_id: `run-${i}` }))
+        const { container } = render(<ScoutRunBoxes runs={runs} />)
+
+        const strip = container.firstElementChild as HTMLElement
+        expect(strip.querySelectorAll('*')).toHaveLength(runs.length * 2)
+    })
+
     it('marks nothing while the fleet has too few priced runs to rank', () => {
         const { container } = render(
             <ScoutRunBoxes runs={[makeRun()]} costs={new Map([['run-1', 3.19]])} costThreshold={null} />
@@ -100,6 +114,6 @@ describe('ScoutRunBoxes', () => {
     it('leaves every run unpriced when no costs are given', () => {
         const { container } = render(<ScoutRunBoxes runs={[makeRun()]} />)
 
-        expect(container.querySelector('.sr-only')?.textContent).not.toContain('$')
+        expect(container.querySelector('[aria-label]')?.getAttribute('aria-label')).not.toContain('$')
     })
 })

@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DELTA_TABLE_PROPERTIES,
     ensure_table_properties,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     decimal_array,
@@ -700,7 +701,9 @@ class TestSchemaEvolutionNullability:
         status_field = next(f for f in result.schema().fields if f.name == "status")
         assert status_field.nullable is True
 
-        assert await DeltaMaintenance(helper).compact_if_fragmented(partition_count=None, threshold=0) is True
+        table = await helper.get_delta_table()
+        assert table is not None
+        assert await DeltaMaintenance(helper)._compact(table) is True
 
         final = result.to_pyarrow_table()
         by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
@@ -1186,7 +1189,11 @@ class TestDeltaliteWritePath:
         pod = MagicMock()
         pod.limit_mb.return_value = 30_000.0
         pod.current_mb.return_value = 1_000.0
-        governor = MemoryGovernor(GovernorConfig(mode="enforce", safety=1.0, reserve_mb=0.0, max_concurrent=15), pod)
+        governor = MemoryGovernor(
+            GovernorConfig(mode="enforce", safety=1.0, reserve_mb=0.0, max_concurrent=15),
+            pod,
+            rss_sampler=RssPeakSampler(3600.0, read_rss_mb=iter([500.0, 650.0]).__next__),
+        )
         reset_governor_for_tests(governor)
         try:
             with (
@@ -1207,11 +1214,18 @@ class TestDeltaliteWritePath:
             reset_governor_for_tests(None)
         assert wrote is True
         log_kwargs = logger.ainfo.call_args.kwargs
-        assert log_kwargs["governor_rewrite_files"] == 1
+        assert (log_kwargs["governor_rewrite_files"], log_kwargs["governor_columns"]) == (1, 3)
         assert log_kwargs["governor_rewrite_total_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
-        assert log_kwargs["governor_rewrite_mb"] is not None
+        assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
+        assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
         assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
-        assert fake_table.upsert.call_args.kwargs["max_parallel_partitions"] == 1
+        # The measured peak sits next to the prediction, with the concurrency to filter solo runs.
+        assert (log_kwargs["governor_peak_rss_mb"], log_kwargs["governor_rss_delta_mb"]) == (650.0, 150.0)
+        assert log_kwargs["governor_concurrent_upserts"] == log_kwargs["governor_max_concurrent_upserts"] == 1
+        assert "governor_observed_delta_mb" not in log_kwargs
+        upsert_kwargs = fake_table.upsert.call_args.kwargs
+        assert (upsert_kwargs["max_parallel_partitions"], upsert_kwargs["max_parallel_files"]) == (1, 8)
+        assert upsert_kwargs["max_fetch_bytes"] == 128 * 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_falls_back_when_deltalite_raises(self):

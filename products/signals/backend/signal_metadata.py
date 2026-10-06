@@ -8,6 +8,7 @@ keeps that import graph acyclic.
 """
 
 import re
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,6 +22,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
+
+from products.signals.backend.spend import signal_spend_summaries
 
 # Cap on the signal rows one merge re-points from a source onto its survivor. The move neither
 # pages nor retries, so `report_merge` refuses a source above the cap rather than leaving the
@@ -439,3 +442,78 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
         )
         for source_product, scout_name, first_seen, entity_ids in result.results or []
     ]
+
+
+def _signals_for_report_query(
+    *, include_deleted: bool = False, limit: int | None = None, newest_first: bool = False
+) -> str:
+    """Build a HogQL query that fetches signal rows for a single report.
+
+    Args:
+        include_deleted: When True the ``NOT deleted`` filter is omitted.
+            Used by soft-delete which intentionally re-processes already-deleted rows.
+        limit: Optional row cap appended as a LIMIT clause.
+        newest_first: Order by newest timestamp first, so a limit keeps the newest rows.
+    """
+    deleted_filter = "" if include_deleted else "\n          AND NOT JSONExtractBool(metadata, 'deleted')"
+    limit_clause = "" if limit is None else f"\n        LIMIT {limit}"
+
+    return f"""
+        SELECT
+            document_id,
+            content,
+            metadata,
+            timestamp,
+            latest_inserted_at
+        FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+        WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
+        ORDER BY timestamp {"DESC" if newest_first else "ASC"}{limit_clause}
+    """
+
+
+def _report_placeholders(report_id: str) -> dict:
+    return {
+        "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+        "report_id": ast.Constant(value=report_id),
+    }
+
+
+def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None = None) -> list[dict]:
+    """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
+
+    With `newest`, fetch only that many of the newest signals.
+    """
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsDebugFetchForReport",
+        query=_signals_for_report_query(limit=newest, newest_first=newest is not None),
+        team=team,
+        placeholders=_report_placeholders(report_id),
+        context=_signals_query_context(team),
+    )
+
+    summaries = signal_spend_summaries(team_id=team.id, signal_ids=[row[0] for row in result.results or []])
+    signals_list = []
+    for row in result.results or []:
+        document_id, content, metadata_str, timestamp, _inserted_at = row
+        metadata = json.loads(metadata_str)
+        if summary := summaries.get(document_id):
+            metadata["total_spend"] = summary.total_spend
+            metadata["spend_accounting_failed_stages"] = summary.failed_stages
+        signals_list.append(
+            {
+                "signal_id": document_id,
+                "content": content,
+                "source_product": metadata.get("source_product", ""),
+                "source_type": metadata.get("source_type", ""),
+                "source_id": metadata.get("source_id", ""),
+                "weight": metadata.get("weight", 0.0),
+                "timestamp": timestamp,
+                "extra": metadata.get("extra", {}),
+                "match_metadata": metadata.get("match_metadata"),
+                "total_spend": metadata.get("total_spend"),
+                "spend_accounting_failed_stages": metadata.get("spend_accounting_failed_stages", []),
+            }
+        )
+
+    return signals_list
