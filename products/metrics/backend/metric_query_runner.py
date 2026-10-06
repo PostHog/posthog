@@ -156,10 +156,12 @@ _MAX_BUCKET_COUNT = 10000
 
 # List intervals from finest to coarsest.
 _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
-    ("second", dt.timedelta(seconds=1), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=1)])),
+    ("second_15", dt.timedelta(seconds=15), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=15)])),
+    ("second_30", dt.timedelta(seconds=30), ast.Call(name="toIntervalSecond", args=[ast.Constant(value=30)])),
     ("minute", dt.timedelta(minutes=1), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=1)])),
     ("minute_5", dt.timedelta(minutes=5), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=5)])),
     ("minute_15", dt.timedelta(minutes=15), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=15)])),
+    ("minute_30", dt.timedelta(minutes=30), ast.Call(name="toIntervalMinute", args=[ast.Constant(value=30)])),
     ("hour", dt.timedelta(hours=1), ast.Call(name="toIntervalHour", args=[ast.Constant(value=1)])),
     ("hour_6", dt.timedelta(hours=6), ast.Call(name="toIntervalHour", args=[ast.Constant(value=6)])),
     ("day", dt.timedelta(days=1), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])),
@@ -176,18 +178,13 @@ def _pick_interval(date_from: dt.datetime, date_to: dt.datetime) -> str:
     return _INTERVAL_LADDER[-1][0]
 
 
-def _resolve_interval(
-    date_from: dt.datetime, date_to: dt.datetime, interval: str | None, min_interval: str | None
-) -> str:
-    """Return the requested interval (or the auto pick), raised to `min_interval` and then
-    to the finest step that keeps the bucket count within `_MAX_BUCKET_COUNT`."""
+def _resolve_interval(date_from: dt.datetime, date_to: dt.datetime, interval: str | None) -> str:
+    """Return the requested interval (or the auto pick), raised to the finest step that keeps
+    the bucket count within `_MAX_BUCKET_COUNT`."""
     names = [name for name, _, _ in _INTERVAL_LADDER]
-    for name in (interval, min_interval):
-        if name is not None and name not in names:
-            raise ValueError(f"Unknown interval: {name!r}")
+    if interval is not None and interval not in names:
+        raise ValueError(f"Unknown interval: {interval!r}")
     index = names.index(interval or _pick_interval(date_from, date_to))
-    if min_interval is not None:
-        index = max(index, names.index(min_interval))
     span = date_to - date_from
     while index < len(names) - 1 and span / _INTERVAL_LADDER[index][1] > _MAX_BUCKET_COUNT:
         index += 1
@@ -464,7 +461,6 @@ class MetricQueryRunner:
         interval: str | None = None,
         quantile: float | None = None,
         metric_type: str | None = None,
-        min_interval: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -481,7 +477,7 @@ class MetricQueryRunner:
         self.team = team
         self.metric_name = metric_name
         self.aggregation = aggregation
-        self.interval = _resolve_interval(date_from, date_to, interval, min_interval)
+        self.interval = _resolve_interval(date_from, date_to, interval)
         # Start at the bucket boundary so the first bucket is complete.
         self.date_from = _align_to_interval(date_from, self.interval, tzinfo=team.timezone_info)
         self.date_to = date_to
