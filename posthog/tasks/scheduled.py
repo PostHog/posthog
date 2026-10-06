@@ -152,7 +152,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -498,9 +499,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
