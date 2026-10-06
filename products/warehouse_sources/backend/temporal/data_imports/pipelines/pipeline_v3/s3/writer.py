@@ -16,6 +16,11 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     unify_schemas_with_text_fallback,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
@@ -163,6 +168,12 @@ class S3BatchWriter:
         except Exception as e:
             if activity.in_activity():
                 get_s3_write_errors_metric(type(e).__name__).add(1)
+            # The data warehouse bucket is PostHog's own, so a refusal here is never the
+            # customer's source or credentials. Raise the typed error so the run's error text
+            # doesn't read like a problem with their data, and error tracking groups every
+            # occurrence on one title instead of the raw per-key s3fs message.
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
             raise
 
         write_duration = time.perf_counter() - write_start
@@ -207,8 +218,13 @@ class S3BatchWriter:
 
         self._logger.debug(f"Writing schema to {schema_path}")
 
-        with self._s3.open(s3_path_without_protocol, "w") as f:
-            json.dump(schema_dict, f, indent=2)
+        try:
+            with self._s3.open(s3_path_without_protocol, "w") as f:
+                json.dump(schema_dict, f, indent=2)
+        except Exception as e:
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            raise
 
         self._logger.debug(f"Schema written successfully", s3_path=schema_path)
 
