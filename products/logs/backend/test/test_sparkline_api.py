@@ -4,11 +4,13 @@ from datetime import datetime
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -52,3 +54,21 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
         # local time when comparing against the (UTC) live_logs_checkpoint.
         for bucket in buckets:
             self.assertIsNotNone(datetime.fromisoformat(bucket["time"]).tzinfo)
+
+    @parameterized.expand([("sparkline", "SparklineQueryRunner"), ("count", "CountQueryRunner")])
+    def test_returns_429_without_internal_key_when_concurrency_limit_is_full(self, endpoint, runner_name):
+        raw = "Exceeded maximum concurrency limit: 30 for key: app_limit:org-id-9 and task: abc"
+        with (
+            patch(
+                f"products.logs.backend.presentation.views.api.{runner_name}.run",
+                side_effect=ConcurrencyLimitExceeded(raw),
+            ),
+            patch("posthog.exceptions.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/{endpoint}", data={"query": {"dateRange": _FIXTURE_WINDOW}}
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"] == CONCURRENCY_LIMIT_USER_MESSAGE
+        mock_capture.assert_not_called()

@@ -6,13 +6,14 @@ import datetime as dt
 from django.db import models
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from pydantic import ValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -25,6 +26,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -82,6 +84,8 @@ __all__ = [
     "LogsSamplingRuleViewSet",
     "LogsViewViewSet",
 ]
+
+logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
@@ -1320,6 +1324,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if self.action == "patterns_diff":
             return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, ConcurrencyLimitExceeded):
+            # Log the raw detail (Redis key + task id), but do not expose it to the user.
+            logger.warning("logs_query_concurrency_limit_exceeded", action=self.action, detail=str(exc))
+            exc = Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+        return super().handle_exception(exc)
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
