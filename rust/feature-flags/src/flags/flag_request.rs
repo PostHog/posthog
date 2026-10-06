@@ -311,56 +311,73 @@ mod tests {
     #[case::top_level_wins(
         Some("anon123"),
         Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon123"),
         Some("anon123")
     )]
     #[case::falls_back_to_person_properties(
         None,
         Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon456"),
         Some("anon456")
     )]
-    #[case::not_present(None, None, None)]
+    #[case::not_present(None, None, None, None)]
     #[case::person_properties_without_the_key(
         None,
         Some(json!({"other_property": "value"})),
+        None,
         None
     )]
-    #[case::non_string_person_property(None, Some(json!({"$anon_distinct_id": 123})), None)]
-    #[case::cookieless_sentinel_top_level(Some("$posthog_cookieless"), None, None)]
+    #[case::non_string_person_property(
+        None,
+        Some(json!({"$anon_distinct_id": 123})),
+        None,
+        None
+    )]
+    #[case::cookieless_sentinel_top_level(
+        Some("$posthog_cookieless"),
+        None,
+        Some("$posthog_cookieless"),
+        None
+    )]
     #[case::cookieless_sentinel_person_property(
         None,
         Some(json!({"$anon_distinct_id": "$posthog_cookieless"})),
+        Some("$posthog_cookieless"),
         None
     )]
     #[case::cookieless_sentinel_top_level_falls_back_to_person_property(
         Some("$posthog_cookieless"),
         Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("$posthog_cookieless"),
         Some("anon456")
     )]
     #[case::cookieless_sentinel_on_both_sides(
         Some("$posthog_cookieless"),
         Some(json!({"$anon_distinct_id": "$posthog_cookieless"})),
+        Some("$posthog_cookieless"),
         None
     )]
     fn test_hash_key_override(
         #[case] top_level: Option<&str>,
         #[case] person_properties: Option<Value>,
-        #[case] expected: Option<&str>,
+        #[case] expected_raw: Option<&str>,
+        #[case] expected_hash_key: Option<&str>,
     ) {
         let request = FlagRequest {
             anon_distinct_id: top_level.map(str::to_string),
             person_properties: person_properties.map(|v| {
-                v.as_object()
-                    .expect("person_properties case must be a JSON object")
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect()
+                serde_json::from_value(v).expect("person_properties case must be a JSON object")
             }),
             ..Default::default()
         };
 
         assert_eq!(
+            request.extract_anon_distinct_id(),
+            expected_raw.map(str::to_string)
+        );
+        assert_eq!(
             request.extract_hash_key_override(),
-            expected.map(str::to_string)
+            expected_hash_key.map(str::to_string)
         );
     }
 

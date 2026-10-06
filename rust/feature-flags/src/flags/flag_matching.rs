@@ -46,7 +46,6 @@ use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
-use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
@@ -2241,9 +2240,6 @@ impl FeatureFlagMatcher {
                 if let Some(hash_key_override) = hash_key_overrides
                     .as_ref()
                     .and_then(|h| h.get(&feature_flag.key))
-                    // Every cookieless visitor shares the sentinel, so a stored sentinel
-                    // would give all of them the same variant.
-                    .filter(|key| key.as_str() != COOKIELESS_SENTINEL_VALUE)
                 {
                     Ok(hash_key_override.clone())
                 } else if let Some(request_override) = request_hash_key_override {
@@ -2935,9 +2931,6 @@ mod tests {
     /// back while it was on is never deleted — so the matcher must fall back to the raw
     /// distinct_id and ignore the stale override, otherwise every distinct_id of the
     /// person keeps bucketing on the old key and resolves to the same stale value.
-    /// A stored cookieless sentinel is ignored even with continuity on, because every
-    /// cookieless visitor shares it. Bucketing then falls back to the request's anon id,
-    /// and to the distinct_id when the request carries none.
     #[rstest::rstest]
     #[case::continuity_off_ignores_stale_override(
         Some(false),
@@ -2952,17 +2945,11 @@ mod tests {
         "logged-in-username"
     )]
     #[case::continuity_on_applies_override(Some(true), "stale-anon-id", None, "stale-anon-id")]
-    #[case::continuity_on_ignores_stored_cookieless_sentinel(
+    #[case::continuity_on_stored_override_beats_request_override(
         Some(true),
-        "$posthog_cookieless",
-        None,
-        "logged-in-username"
-    )]
-    #[case::stored_sentinel_falls_back_to_request_override(
-        Some(true),
-        "$posthog_cookieless",
+        "stale-anon-id",
         Some("request-anon-id"),
-        "request-anon-id"
+        "stale-anon-id"
     )]
     #[tokio::test]
     async fn test_hashed_identifier_respects_current_continuity_for_stored_override(

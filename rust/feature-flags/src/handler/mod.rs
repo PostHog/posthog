@@ -175,8 +175,6 @@ async fn process_request_inner(
             .unwrap_or_else(|| "disabled".to_string());
 
         // Populate canonical log with distinct_id, device_id, and anon_distinct_id
-        // The raw value the request carried, top-level > person_properties. The hash key the
-        // evaluation used can differ, because it rejects the cookieless sentinel.
         let anon_distinct_id_for_logging = request.extract_anon_distinct_id();
         let device_id = request.extract_device_id();
         with_canonical_log(|log| {

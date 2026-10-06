@@ -671,9 +671,9 @@ async fn request_variant(server: &ServerHandle, payload: &Value, flag_key: &str)
         .to_string())
 }
 
-/// Finds two distinct ids that bucket into different variants of `flag_key`. The sentinel
-/// fault collapses every cookieless visitor onto one variant, so a pair that differs on its
-/// own is what makes the assertions below able to fail.
+/// Finds two distinct ids that bucket into different variants of `flag_key`. If the server used
+/// the sentinel as the hash key, every visitor would land on one variant, so a pair that already
+/// lands on different variants is what lets the assertions below fail.
 async fn two_distinct_ids_in_different_variants(
     server: &ServerHandle,
     api_token: &str,
@@ -842,8 +842,9 @@ async fn test_stored_cookieless_sentinel_override_is_replaced() -> Result<()> {
     .execute(&mut *conn)
     .await?;
 
-    // The anon id buckets to "test", the distinct id to "control", so continuity is what the
-    // assertion reads.
+    // The anon id buckets to "test" and the distinct id to "control". This request reads "test"
+    // whether or not the write replaced the sentinel, because the read skips a stored sentinel
+    // and falls back to the request's anon id.
     let payload = json!({
         "token": team.api_token,
         "distinct_id": control_user,
@@ -853,7 +854,17 @@ async fn test_stored_cookieless_sentinel_override_is_replaced() -> Result<()> {
     assert_eq!(
         request_variant(&server, &payload, flag_key).await?,
         "test",
-        "the real anon id should drive bucketing once the stored sentinel is replaced"
+        "the request's anon id should drive bucketing"
+    );
+
+    // Without an anon id, only the stored row can steer bucketing. A replaced row reads "test",
+    // and a leftover sentinel falls back to the distinct id and reads "control".
+    let follow_up = json!({ "token": team.api_token, "distinct_id": control_user });
+
+    assert_eq!(
+        request_variant(&server, &follow_up, flag_key).await?,
+        "test",
+        "the replaced override should drive bucketing without an anon id"
     );
 
     let stored_hash_key: String = sqlx::query_scalar(

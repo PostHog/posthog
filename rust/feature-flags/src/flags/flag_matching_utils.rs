@@ -1105,7 +1105,9 @@ async fn fetch_override_rows(
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<Vec<PgRow>, FlagError> {
-    // Get person data and their hash key overrides in one query
+    // Get person data and their hash key overrides in one query.
+    // Every cookieless visitor shares the sentinel, so a stored sentinel would give all of them
+    // the same variant. The join skips those rows and still keeps the person row.
     let hash_override_query = r#"
             SELECT
                 ppd.person_id,
@@ -1116,6 +1118,7 @@ async fn fetch_override_rows(
             LEFT JOIN posthog_featureflaghashkeyoverride fhko
                 ON fhko.person_id = ppd.person_id
                 AND fhko.team_id = ppd.team_id
+                AND fhko.hash_key <> $3
             WHERE ppd.team_id = $1
                 AND ppd.distinct_id = ANY($2)
                 AND ppd.is_deleted = false
@@ -1124,6 +1127,7 @@ async fn fetch_override_rows(
     sqlx::query(hash_override_query)
         .bind(team_id)
         .bind(distinct_id_and_hash_key_override)
+        .bind(COOKIELESS_SENTINEL_VALUE)
         .fetch_all(&mut *conn)
         .await
         .map_err(FlagError::from)
@@ -1217,8 +1221,8 @@ async fn try_set_feature_flag_hash_key_overrides(
         .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
-    // A stored cookieless sentinel does not count as an override, because the matcher ignores
-    // it. Treating it as absent lets the insert below replace it with a real key.
+    // A stored cookieless sentinel does not count as an override, because `fetch_override_rows`
+    // skips it. Treating it as absent lets the insert below replace it with a real key.
     let person_data_query = r#"
             SELECT DISTINCT
                 p.person_id,
@@ -2406,13 +2410,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false, false, false)]
-    #[case(true, false, false)]
-    #[case(true, true, true)]
+    #[case(false, None, false)]
+    #[case(true, None, false)]
+    #[case(true, Some("replica_check_hash_key"), true)]
+    #[case(true, Some(COOKIELESS_SENTINEL_VALUE), false)]
     #[tokio::test]
     async fn test_primary_has_override_reports_only_a_real_override(
         #[case] person_exists: bool,
-        #[case] override_set: bool,
+        #[case] stored_hash_key: Option<&str>,
         #[case] expected: bool,
     ) {
         let context = TestContext::new(None).await;
@@ -2426,7 +2431,7 @@ mod tests {
                 .unwrap();
         }
 
-        if override_set {
+        if let Some(stored_hash_key) = stored_hash_key {
             let flag = mock!(FeatureFlag,
                 team_id: team.id,
                 filters: FlagFilters {
@@ -2443,7 +2448,7 @@ mod tests {
                 &router,
                 team.id,
                 vec![distinct_id.clone()],
-                "replica_check_hash_key".to_string(),
+                stored_hash_key.to_string(),
             )
             .await
             .unwrap();
