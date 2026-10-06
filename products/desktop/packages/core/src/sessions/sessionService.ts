@@ -195,6 +195,12 @@ const MAX_HOST_ENDED_RESUBSCRIBES = 3;
  */
 const LOCAL_SILENCE_WARN_AFTER_MS = 60_000;
 const LOCAL_SILENCE_CHECK_INTERVAL_MS = 30_000;
+/**
+ * Timers stop while the computer sleeps, so a silence check that fires this
+ * much later than scheduled means the computer was asleep. The margin is
+ * above Chromium's one-minute timer throttling for hidden windows.
+ */
+const LOCAL_SUSPEND_DETECT_MARGIN_MS = 90_000;
 
 /** Short label for a log line: `session/update:agent_message_chunk`, `response`. */
 function describeAcpMethod(acpMsg: AcpMessage): string {
@@ -1840,6 +1846,7 @@ export class SessionService {
   /** Runs already logged for their current stretch of silence. */
   private silenceLogged = new Set<string>();
   private silenceCheckHandle: ReturnType<typeof setInterval> | null = null;
+  private lastSilenceCheckAt: number | null = null;
   /** Active cloud task watchers, keyed by taskId */
   private cloudTaskWatchers = new Map<string, CloudTaskWatcher>();
   private olderTranscriptLoads = new Set<string>();
@@ -3019,6 +3026,7 @@ export class SessionService {
 
   private ensureSilenceCheck(): void {
     if (this.silenceCheckHandle !== null) return;
+    this.lastSilenceCheckAt = Date.now();
     this.silenceCheckHandle = setInterval(
       () => this.checkLocalSessionSilence(),
       LOCAL_SILENCE_CHECK_INTERVAL_MS,
@@ -3027,9 +3035,24 @@ export class SessionService {
 
   private checkLocalSessionSilence(): void {
     const now = Date.now();
+    const lateByMs =
+      this.lastSilenceCheckAt === null
+        ? 0
+        : now - this.lastSilenceCheckAt - LOCAL_SILENCE_CHECK_INTERVAL_MS;
+    this.lastSilenceCheckAt = now;
+    const asleepMs = lateByMs > LOCAL_SUSPEND_DETECT_MARGIN_MS ? lateByMs : 0;
     let anyPending = false;
     for (const session of Object.values(this.d.store.getSessions())) {
       if (session.isCloud || !session.isPromptPending) continue;
+      // A local agent stops with the computer, so asleep time is not generation
+      // time. A pending permission already counts its wait as paused time.
+      if (asleepMs > 0 && session.pendingPermissions.size === 0) {
+        this.d.store.updateSession(session.taskRunId, {
+          pausedDurationMs:
+            (session.pausedDurationMs ?? 0) +
+            Math.min(asleepMs, now - (session.promptStartedAt ?? now)),
+        });
+      }
       if (session.status !== "connected") continue;
       anyPending = true;
       const { taskRunId } = session;
@@ -3059,6 +3082,7 @@ export class SessionService {
     if (!anyPending && this.silenceCheckHandle !== null) {
       clearInterval(this.silenceCheckHandle);
       this.silenceCheckHandle = null;
+      this.lastSilenceCheckAt = null;
     }
   }
 
