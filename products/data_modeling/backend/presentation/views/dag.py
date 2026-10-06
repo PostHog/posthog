@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_dag_schedules
 from products.data_modeling.backend.facade.models import DAG, RESERVED_DAG_NAMES
+from products.data_modeling.backend.presentation.views.node_visibility_mixin import NodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -110,14 +111,19 @@ class DAGSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DAGViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = DAG.objects.all()
     serializer_class = DAGSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).annotate(node_count=Count("node")).order_by("name")
+        visible_nodes = self.node_visibility.visible_node_q()
+        return (
+            queryset.filter(team_id=self.team_id)
+            .annotate(node_count=Count("node", filter=visible_nodes))
+            .order_by("name")
+        )
 
     def perform_destroy(self, instance: DAG) -> None:
         if instance.is_default:

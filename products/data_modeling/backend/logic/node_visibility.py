@@ -58,6 +58,17 @@ class NodeVisibility:
         """The type dimension alone, for a caller that has to know which denied nodes it reaches."""
         return NodeVisibility(hidden_types=self.hidden_types, hidden_ids=frozenset())
 
+    def visible_node_q(self) -> Q | None:
+        """Matches the nodes this caller may see, for an aggregate over a DAG's node set."""
+        if not self.hidden_types and not self.hidden_ids:
+            return None
+        condition = Q()
+        if self.hidden_types:
+            condition &= ~Q(node__type__in=self.hidden_types)
+        if self.hidden_ids:
+            condition &= ~Q(node__id__in=self.hidden_ids)
+        return condition
+
 
 def node_visibility_for(team_id: int, user_access_control: "UserAccessControl") -> NodeVisibility:
     """Resolve both dimensions for one caller, once per request."""

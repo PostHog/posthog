@@ -1,19 +1,19 @@
 """Sync cadence for a saved query: the choices, the lineage bounds, and the writable field."""
 
+from collections.abc import Iterable
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any
+from uuid import UUID
 
 from django.db import models
-from django.db.models import Model
 
 from rest_framework import serializers
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.api import allowed_saved_query_ids
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import (
-    DataWarehouseTable,
-    sync_frequency_interval_to_sync_frequency,
-)
+from products.warehouse_sources.backend.facade.api import allowed_table_ids
+from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
@@ -153,6 +153,17 @@ def _blocker_node_ids(resolved: Any) -> set[str]:
     return node_ids
 
 
+def _parsed_ids(stored_ids: Iterable[str]) -> list[UUID]:
+    """Drops an id that is not a UUID, so a node stamped with junk keeps its name withheld."""
+    parsed = []
+    for stored_id in stored_ids:
+        try:
+            parsed.append(UUID(stored_id))
+        except ValueError:
+            continue
+    return parsed
+
+
 def visible_blocker_names(
     resolved: Any, user_access_control: UserAccessControl | None, *, team_id: int
 ) -> dict[str, str]:
@@ -187,28 +198,14 @@ def visible_blocker_names(
         visible.update({node_id: resolved.names[node_id] for node_id in resource_node_ids})
 
     if node_ids_by_saved_query:
-        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_ids_by_saved_query, team_id=team_id).values_list(
-            "id", "created_by_id"
-        )
-        levels = user_access_control.bulk_object_access_levels(
-            "warehouse_view", [(str(pk), created_by) for pk, created_by in creators]
-        )
-        for saved_query_id, level in levels.items():
-            if level is not None and level != "none":
-                reveal(node_ids_by_saved_query[saved_query_id])
+        for saved_query_id in allowed_saved_query_ids(
+            team_id, user_access_control, ids=_parsed_ids(node_ids_by_saved_query)
+        ):
+            reveal(node_ids_by_saved_query[str(saved_query_id)])
 
     if node_ids_by_table:
-        # One at a time rather than in bulk: `warehouse_table` falls back to `external_data_source`,
-        # and the bulk call refuses any resource with a fallback parent. Per object is also what
-        # honours a deny on one table, or on the source it came from. A table that no longer
-        # resolves keeps its name withheld.
-        tables = list(
-            DataWarehouseTable.objects.filter(id__in=node_ids_by_table, team_id=team_id).exclude(deleted=True)
-        )
-        user_access_control.preload_object_access_controls(cast(list[Model], tables))
-        for table in tables:
-            if user_access_control.check_access_level_for_object(table, "viewer"):
-                reveal(node_ids_by_table[str(table.id)])
+        for table_id in allowed_table_ids(team_id, user_access_control, ids=_parsed_ids(node_ids_by_table)):
+            reveal(node_ids_by_table[str(table_id)])
     return visible
 
 
