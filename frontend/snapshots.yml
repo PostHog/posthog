@@ -7458,10 +7458,18 @@ snapshots:
         hash: v1.k794b7964.5590e8e6497de2fefefa74cf07edd5f814a798deb8f7e5f0102a383f5e8ac6c8.ZvuooUS3qT6kDX8yW2_oQ1iDgO1DwVFMAWM517bhCHw
     products-tracing-virtualizedspanlist--empty--light:
         hash: v1.k794b7964.72ff685c9162da170263d416510a2cc5229c999691288c0b8038143000a40f15.ebvPm2A_7cN8QvjEaroudYEO1lp9qFUooW98MMcDBwY
+    products-tracing-virtualizedspanlist--spans-view--dark:
+        hash: v1.k794b7964.d6cf5ccbc379f67404b237b878878ce7e60512d45869c05c24dfab7784335406.OfSo7jy1Oxb3_DY3IE02sphHajUZ8P1sJdfc_vZWjH0
+    products-tracing-virtualizedspanlist--spans-view--light:
+        hash: v1.k794b7964.7ec7e24fc514e8eac101ce26ef491c0becbbe2cc6aeb8759c1c451b5977e6aa7.tDvQvxyjpxBsOjo-NOt-XQSkhdki5QRjgPJhS_BmBhI
     products-tracing-virtualizedspanlist--with-error-badges--dark:
         hash: v1.k794b7964.c399531ee10ef73a5ca2b732484e1eae553f40b5b95c98fc0ab0b6a5d9711188.juWZKdvphiQP-rSsWPBDvU-9cRByiTb3dLrcfV1Qh3Y
     products-tracing-virtualizedspanlist--with-error-badges--light:
         hash: v1.k794b7964.7064ad6b5165631307d602ba3adcfd3fd5eb02107c8d3835c88c00df43bcad7f.3hK9J7DUCY3pFw2181ZBZbZsWlFkjm4Ydl5VNnzR5fA
+    products-tracing-virtualizedspanlist--with-orphan-trace--dark:
+        hash: v1.k794b7964.ffd642ad06f07044cfc19ae0428701c71f50b8bfa26a52e16d6186046817ca68.SuqNsoGMpBV72ep80L-fo-FUblkoaEajv2a8Bc12v6M
+    products-tracing-virtualizedspanlist--with-orphan-trace--light:
+        hash: v1.k794b7964.0c34340a4b3d88ec4569071212de94d3de749797457cfeca2408cd6f7547ae2e.ZJM2__v3UjG9ApKTQ9XpcDqbJqwhW8dD5CoOowxvxxw
     products-web-analytics-content-autopilot-brief--brief--dark:
         hash: v1.k794b7964.e9ebb3e96a4339f3e8116d76ca50f449e2650feb0ae5d65b8d56f2a6aefa03c5.ATu5igj4eqzRTqipkJ4O6N2ocrXDVmeoY_5y8B25UEA
     products-web-analytics-content-autopilot-brief--brief--light:
