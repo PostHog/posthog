@@ -1,8 +1,8 @@
 import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
-import { IconChevronDown, IconChevronRight, IconMinusSmall, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconMinusSmall, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -90,6 +90,11 @@ export function Facet({
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <span className="truncate">{title}</span>
                 </button>
+                {error && !loading && (
+                    <Tooltip title="Couldn't load values. Change the filters or expand the facet to retry.">
+                        <IconWarning className="text-danger shrink-0" />
+                    </Tooltip>
+                )}
                 {onRemove && (
                     <LemonButton
                         size="small"
