@@ -16,9 +16,10 @@ import type { MockResolverInfo } from '~/mocks/utils'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
+import { BIConfig, BIField, buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
+
 import { expect, userEvent } from 'storybook/test'
 
-import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -395,7 +396,7 @@ export const BIModeWorksheet: Story = {
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
-        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',
             mode: 'bi',
             bi: JSON.stringify(BI_WORKSHEET_CONFIG),
@@ -419,6 +420,15 @@ export const BIModeWorksheet: Story = {
                 },
             },
         },
+    },
+}
+
+export const BIEmptyWorksheet: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: urls.businessIntelligence(),
+        testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
     },
 }
 
@@ -468,7 +478,7 @@ export const BIQuickFilters: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
-        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
         msw: {
             mocks: {
                 ...BIModeWorksheet.parameters?.msw.mocks,
@@ -506,7 +516,7 @@ export const BIQuickFiltersNarrow: Story = {
     ...BIQuickFilters,
     parameters: {
         ...BIQuickFilters.parameters,
-        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             mode: 'bi',
             bi: JSON.stringify({
                 ...BI_QUICK_FILTERS_CONFIG,
@@ -737,8 +747,6 @@ export const BIDataSourcePicker: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
             timeout: 15000,
         })
-        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
-        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
         await waitFor(() => expect(canvas.queryByText('Locate')).not.toBeInTheDocument())
         await userEvent.click(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')!)
         const page = within(canvasElement.ownerDocument.body)
@@ -883,7 +891,7 @@ export const BIConnections: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
-        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
             q: buildBIQuery(BI_CONNECTIONS_CONFIG)?.query ?? '',
             mode: 'bi',
             bi: JSON.stringify(BI_CONNECTIONS_CONFIG),
@@ -961,8 +969,6 @@ export const BIConnections: Story = {
         await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
             timeout: 15000,
         })
-        await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
-        await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
         const autoUpdate = canvasElement.querySelector('[data-attr="bi-editor-auto-update"]')!
         if (autoUpdate.getAttribute('aria-checked') === 'true') {
             await userEvent.click(autoUpdate)
