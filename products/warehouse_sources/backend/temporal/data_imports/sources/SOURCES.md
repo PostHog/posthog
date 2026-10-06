@@ -573,6 +573,7 @@ the row lists both.
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
 | octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |
+| onehundredms                     | HTTP                        | requests                                                        | ✅                          |
 | onepagecrm                       | HTTP                        | requests                                                        | ✅                          |
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | onfleet                          | HTTP (cursor pagination)    | requests                                                        | ✅                          |
@@ -1294,7 +1295,6 @@ doesn't conflict with concurrent PRs.
 - odoo
 - oecd
 - onedrive
-- onehundredms
 - oneleet
 - onelogin
 - onesignal
