@@ -1,6 +1,6 @@
 from celery import shared_task
 
-from products.review_hog.backend.automatic_reviews import AuthoredPRReview
+from products.review_hog.backend.automatic_reviews import AuthoredPRReview, skip_event_without_state
 
 
 @shared_task(
@@ -19,13 +19,15 @@ def process_authored_pr_event(
     author_login: str,
     pr_number: int,
     head_sha: str,
-    # Defaulted so a task queued before these fields existed still runs, as the PR it was queued for.
-    repository: str = "PostHog/posthog",
-    action: str = "opened",
-    base_ref: str = "",
-    draft: bool = False,
+    repository: str | None = None,
+    action: str | None = None,
+    base_ref: str | None = None,
+    draft: bool | None = None,
     labels: list[str] | None = None,
 ) -> None:
+    if repository is None or action is None or base_ref is None or draft is None or labels is None:
+        skip_event_without_state(pr_number)
+        return
     AuthoredPRReview(
         installation_id=installation_id,
         repository=repository,
@@ -35,5 +37,5 @@ def process_authored_pr_event(
         action=action,
         base_ref=base_ref,
         draft=draft,
-        labels=tuple(labels or ()),
+        labels=tuple(labels),
     ).start()

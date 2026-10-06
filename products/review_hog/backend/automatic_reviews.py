@@ -24,7 +24,14 @@ _otel = OtelInstrumentFactory("review_hog")
 
 AuthoredPRReviewOutcome = (
     Literal[
-        "no_team", "installation_mismatch", "no_config", "config_invalid", "author_unmapped", "not_opted_in", "started"
+        "event_state_missing",
+        "no_team",
+        "installation_mismatch",
+        "no_config",
+        "config_invalid",
+        "author_unmapped",
+        "not_opted_in",
+        "started",
     ]
     | SkipReason
 )
@@ -146,9 +153,9 @@ class AuthoredPRReview:
         return f"https://github.com/{self.repository}/pull/{self.pr_number}"
 
     def _load_config(self, integration: Integration) -> RepositoryReviewConfig | None:
-        """The repository's config at this PR's head, or None after recording why no review starts."""
+        """The repository's config on its default branch, or None after recording why no review starts."""
         try:
-            config = load_repository_config(integration, self.repository, self.head_sha)
+            config = load_repository_config(integration, self.repository)
         except RepositoryConfigError as e:
             logger.warning("Skipping automatic review of %s: %s", self.pr_url, e)
             _observe_dispatch("config_invalid")
@@ -240,6 +247,16 @@ class AuthoredPRReview:
         )
         # After the start, so a retried task cannot count a dispatch it never made.
         _observe_dispatch("started")
+
+
+def skip_event_without_state(pr_number: int) -> None:
+    """Drop a task queued before the event's draft, base branch, and labels travelled with it.
+
+    The config gates need those values, and inventing them could let a draft or a push through a
+    gate that skips it. The PR's next eligible event carries them and starts the review.
+    """
+    logger.info("Skipping automatic review of PR #%s: the queued event predates its draft and label state", pr_number)
+    _observe_dispatch("event_state_missing")
 
 
 def enqueue_authored_pr_review(payload: Mapping[str, object]) -> None:

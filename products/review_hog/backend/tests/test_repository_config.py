@@ -48,6 +48,9 @@ class TestParseRepositoryConfig(SimpleTestCase):
         [
             ("not_yaml", "enabled: [unclosed"),
             ("not_a_mapping", "- enabled"),
+            ("explicit_null", "null"),
+            ("explicit_tilde", "~"),
+            ("duplicate_key", "enabled: false\nenabled: true"),
             ("unknown_key", "enable: true"),
             ("unknown_authors_policy", "authors: everyone"),
             ("unknown_effort", "flash:\n  effort: low"),
@@ -60,11 +63,23 @@ class TestParseRepositoryConfig(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("not_yaml", "instructions: ghp_exampletoken\n  bad: [unclosed"),
+            ("bad_value", "authors: ghp_exampletoken"),
+        ]
+    )
+    def test_invalid_file_errors_omit_the_files_text(self, _name: str, text: str) -> None:
+        with pytest.raises(RepositoryConfigError) as error:
+            parse_repository_config(text)
+
+        assert "ghp_exampletoken" not in str(error.value)
+
+    @parameterized.expand(
+        [
             ("disabled", "enabled: false", {}, "config_disabled"),
             ("draft", "drafts: false", {"draft": True}, "draft_skipped"),
             ("draft_allowed_by_default", "", {"draft": True}, None),
             ("push", "pushes: false", {"action": "synchronize"}, "push_skipped"),
-            ("ready_after_draft_reviews", "", {"action": "ready_for_review"}, "ready_for_review_skipped"),
+            ("ready_when_drafts_are_reviewed", "", {"action": "ready_for_review"}, None),
             ("ready_starts_the_first_review", "drafts: false", {"action": "ready_for_review"}, None),
             ("base_branch", "base_branches: ['main', 'release/*']", {"base_ref": "master"}, "base_branch_skipped"),
             ("base_branch_glob", "base_branches: ['main', 'release/*']", {"base_ref": "release/1"}, None),
@@ -99,17 +114,23 @@ class TestLoadRepositoryConfig(SimpleTestCase):
         ]
     )
     @patch.object(GitHubIntegration, "get_file_entry")
-    def test_reads_the_file_at_the_requested_ref(
+    def test_reads_the_file_on_the_default_branch(
         self, _name: str, entry: dict | None, expected_enabled: bool | None, get_file_entry: MagicMock
     ) -> None:
         get_file_entry.return_value = entry
 
-        config = load_repository_config(self._integration(), "PostHog/posthog-js", "abc123")
+        config = load_repository_config(self._integration(), "PostHog/posthog-js")
 
-        get_file_entry.assert_called_once_with("PostHog/posthog-js", REPOSITORY_CONFIG_PATH, ref="abc123")
+        get_file_entry.assert_called_once_with("PostHog/posthog-js", REPOSITORY_CONFIG_PATH)
         assert (config.enabled if config is not None else None) == expected_enabled
 
-    @patch.object(GitHubIntegration, "get_file_entry", return_value={"sha": "s", "size": 2_000_000, "content": None})
-    def test_oversized_file_is_invalid(self, _get_file_entry: MagicMock) -> None:
-        with pytest.raises(RepositoryConfigError, match="too large"):
-            load_repository_config(self._integration(), "PostHog/posthog", "abc123")
+    @parameterized.expand(
+        [
+            ("oversized", {"return_value": {"sha": "s", "size": 2_000_000, "content": None}}, "too large"),
+            ("not_utf8", {"side_effect": UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")}, "UTF-8"),
+        ]
+    )
+    def test_unreadable_file_is_invalid(self, _name: str, read: dict, message: str) -> None:
+        with patch.object(GitHubIntegration, "get_file_entry", **read):
+            with pytest.raises(RepositoryConfigError, match=message):
+                load_repository_config(self._integration(), "PostHog/posthog")

@@ -1,10 +1,11 @@
 """The per-repository file that turns automatic Flash reviews on and tunes them.
 
 A repository opts into automatic reviews by committing `.github/review-hog.yml`. The automatic
-trigger reads it from the pull request's head commit, so a change to the file can be tried on its
-own pull request before it lands. The file is small on purpose: it decides whether a pull request is
-reviewed and with what budget; the review perspectives, validator, and severity threshold stay with
-the acting user's PostHog Review settings.
+trigger reads it from the repository's default branch, never from the pull request's head: the file
+decides who is reviewed and adds guidance to the reviewer's prompt, so the author of the pull request
+under review must not be able to change it for that review. The file is small on purpose: it decides
+whether a pull request is reviewed and with what budget; the review perspectives, validator, and
+severity threshold stay with the acting user's PostHog Review settings.
 """
 
 import re
@@ -28,7 +29,6 @@ SkipReason = Literal[
     "config_disabled",
     "draft_skipped",
     "push_skipped",
-    "ready_for_review_skipped",
     "base_branch_skipped",
     "label_skipped",
     "author_ignored",
@@ -106,10 +106,9 @@ class RepositoryReviewConfig(BaseModel):
             return "draft_skipped"
         if action == "synchronize" and not self.pushes:
             return "push_skipped"
-        # Drafts are reviewed as they open and change, so the head is already covered when the
-        # pull request is marked ready. Only a repository that skips drafts starts a review here.
-        if action == "ready_for_review" and self.drafts:
-            return "ready_for_review_skipped"
+        # `ready_for_review` passes even when drafts are reviewed: the draft's own events may have
+        # been skipped by a label or a missing opt-in that has since cleared. The automatic turn
+        # stops on a head it already completed, so a draft that was reviewed is not reviewed twice.
         if not any(fnmatch.fnmatchcase(base_ref, pattern) for pattern in self.base_branches):
             return "base_branch_skipped"
         skip_labels = {label.lower() for label in self.skip_labels}
@@ -120,23 +119,60 @@ class RepositoryReviewConfig(BaseModel):
         return None
 
 
+class _UniqueKeySafeLoader(yaml.SafeLoader):
+    # PyYAML keeps the last of two equal keys, so `enabled: false` followed by `enabled: true`
+    # would load as a valid file that silently applies only one of the two values.
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        seen: set[object] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in seen
+            except TypeError:
+                continue
+            if duplicate:
+                raise yaml.constructor.ConstructorError(None, None, "duplicate key", key_node.start_mark)
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
+def _yaml_error_summary(error: yaml.YAMLError) -> str:
+    # The str() of a marked YAML error quotes the offending source line, and a malformed file can
+    # hold a token. The summary keeps only the problem and its position, so the log stays safe.
+    if isinstance(error, yaml.MarkedYAMLError) and error.problem_mark is not None:
+        mark = error.problem_mark
+        return f"{error.problem} at line {mark.line + 1}, column {mark.column + 1}"
+    return type(error).__name__
+
+
+def _validation_error_summary(error: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(part) for part in detail['loc']) or 'file'}: {detail['msg']}"
+        for detail in error.errors(include_input=False, include_url=False)
+    )
+
+
 def parse_repository_config(text: str) -> RepositoryReviewConfig:
+    loader = _UniqueKeySafeLoader(text)
     try:
-        raw = yaml.safe_load(text)
+        # A file with no document (empty, or comments only) has no node and means every default.
+        # An explicit `null` document has a node, so it reaches the mapping check and is rejected.
+        node = loader.get_single_node()
+        raw = {} if node is None else loader.construct_document(node)
     except yaml.YAMLError as e:
-        raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} is not valid YAML: {e}") from e
-    if raw is None:
-        raw = {}
+        raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} is not valid YAML: {_yaml_error_summary(e)}") from e
+    finally:
+        loader.dispose()
     if not isinstance(raw, dict):
         raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} must be a mapping at the top level")
     try:
         return RepositoryReviewConfig.model_validate(raw)
     except ValidationError as e:
-        raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} is invalid: {e}") from e
+        raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} is invalid: {_validation_error_summary(e)}") from e
 
 
-def load_repository_config(integration: Integration, repository: str, ref: str) -> RepositoryReviewConfig | None:
-    """The repository's config at `ref`, None when the file does not exist.
+def load_repository_config(integration: Integration, repository: str) -> RepositoryReviewConfig | None:
+    """The repository's config on its default branch, None when the file does not exist.
 
     Raises `RepositoryConfigError` for a file that exists but cannot be used, and lets GitHub
     transport errors propagate so the caller's retry policy decides.
@@ -144,7 +180,11 @@ def load_repository_config(integration: Integration, repository: str, ref: str) 
     # NORMAL, not the integration's CRITICAL default: nobody blocks on an automatic review, so the
     # read must not spend the reserve kept for interactive traffic on the shared installation budget.
     github = GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
-    entry = github.get_file_entry(repository, REPOSITORY_CONFIG_PATH, ref=ref)
+    try:
+        # No ref, so GitHub reads the default branch, which the pull request's author cannot change.
+        entry = github.get_file_entry(repository, REPOSITORY_CONFIG_PATH)
+    except UnicodeDecodeError as e:
+        raise RepositoryConfigError(f"{REPOSITORY_CONFIG_PATH} is not UTF-8 text") from e
     if entry is None:
         return None
     content = entry["content"]

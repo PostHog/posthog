@@ -4,7 +4,9 @@ A repository turns on automatic PostHog Review (ReviewHog) Flash reviews by comm
 Without the file, pull requests in that repository get no automatic review.
 The repository must be covered by the reviewing team's GitHub App installation, which for PostHog is the org-wide installation.
 
-The automatic trigger reads the file from the pull request's **head commit**, so a change to it can be tried on its own pull request before it lands.
+The automatic trigger reads the file from the repository's **default branch**, never from the pull request's head.
+The file decides who is reviewed and adds guidance to the reviewer's prompt, so a pull request cannot change those rules for its own review.
+A change to the file takes effect for every pull request once it merges, including pull requests opened before it.
 A pull request whose head lives in a fork is never reviewed automatically.
 
 The file decides _whether_ a pull request is reviewed and with what budget.
@@ -51,7 +53,7 @@ A key with no value means that key's default.
 
 ## What happens when the file is wrong
 
-An invalid file (not YAML, not a mapping, an unknown key, a bad value) skips the review and records a `config_invalid` outcome on the `posthog_review_hog_authored_pr_review_total` counter, with the reason in the worker log.
+An invalid file (not UTF-8, not YAML, not a mapping, a repeated key, an unknown key, a bad value) skips the review and records a `config_invalid` outcome on the `posthog_review_hog_authored_pr_review_total` counter, with the reason in the worker log.
 The file is validated by `products/review_hog/backend/repository_config.py`; run its tests to check a change locally.
 
 ## A minimal file

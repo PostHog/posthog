@@ -220,7 +220,7 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         process_authored_pr_event.run(**self._queued_event(repository=repository))
 
-        self.load_config.assert_called_once_with(self.integration, repository, _HEAD_SHA)
+        self.load_config.assert_called_once_with(self.integration, repository)
         start.assert_called_once_with(
             pr_url=f"https://github.com/{repository}/pull/42",
             team_id=self.team.id,
@@ -272,13 +272,15 @@ class TestAuthoredPRReviewTask(BaseTest):
         start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
 
-    def test_queued_task_without_the_new_fields_still_runs(self) -> None:
-        with patch(_START) as start:
-            process_authored_pr_event.run(
-                installation_id="1234", author_login="octocat", pr_number=42, head_sha=_HEAD_SHA
-            )
+    @patch(_START)
+    def test_queued_task_without_event_state_is_dropped(self, start: MagicMock) -> None:
+        outcome_before = _dispatch_count("event_state_missing")
 
-        assert start.call_args.kwargs["pr_url"] == "https://github.com/PostHog/posthog/pull/42"
+        process_authored_pr_event.run(installation_id="1234", author_login="octocat", pr_number=42, head_sha=_HEAD_SHA)
+
+        start.assert_not_called()
+        self.load_config.assert_not_called()
+        assert _dispatch_count("event_state_missing") - outcome_before == 1.0
 
     @parameterized.expand(
         [
