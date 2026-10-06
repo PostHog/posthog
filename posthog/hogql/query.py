@@ -627,6 +627,10 @@ class HogQLQueryExecutor:
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
 
+        stats = query_stats.get_active()
+        if stats is not None:
+            stats.add_direct_source(str(source.id))
+
         query_tags = get_query_tags()
         cancellation_token = (
             build_direct_query_cancellation_token(query_tags.client_query_id, str(query_tags.celery_task_id))
