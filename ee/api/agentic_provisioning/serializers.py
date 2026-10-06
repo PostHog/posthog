@@ -34,6 +34,13 @@ def first_error_message(errors: Any) -> str:
     return str(errors)
 
 
+class BlankAsNullDateTimeField(serializers.DateTimeField):
+    def validate_empty_values(self, data: Any) -> tuple[bool, Any]:
+        if isinstance(data, str) and not data.strip():
+            return (True, None)
+        return super().validate_empty_values(data)
+
+
 class AccountRequestSerializer(serializers.Serializer):
     """POST /provisioning/account_requests body."""
 
@@ -91,7 +98,7 @@ class AccountRequestSerializer(serializers.Serializer):
         default="S256",
         help_text="PKCE challenge method; only S256 is supported.",
     )
-    terms_accepted_at = serializers.DateTimeField(
+    terms_accepted_at = BlankAsNullDateTimeField(
         required=False,
         allow_null=True,
         default=None,
@@ -129,12 +136,17 @@ class AccountRequestSerializer(serializers.Serializer):
                 raise ProvisioningError("expired", "Account request has expired")
 
         terms_accepted_at = attrs.get("terms_accepted_at")
-        if terms_accepted_at is not None and terms_accepted_at > timezone.now() + TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW:
-            capture_provisioning_event("account_request", "error", error_code="terms_accepted_at_in_future")
-            raise ProvisioningError(
-                "invalid_request",
-                "terms_accepted_at is in the future. Send the time the end user accepted PostHog's terms of service.",
-            )
+        if terms_accepted_at is not None:
+            now = timezone.now()
+            if terms_accepted_at > now + TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW:
+                capture_provisioning_event("account_request", "error", error_code="terms_accepted_at_in_future")
+                raise ProvisioningError(
+                    "invalid_request",
+                    "terms_accepted_at is in the future. Send the time the end user accepted PostHog's terms of service.",
+                )
+            # A time inside the skew allowance comes from a partner clock running ahead of ours. Stored as
+            # sent, the acceptance would postdate the organization it belongs to.
+            attrs["terms_accepted_at"] = min(terms_accepted_at, now)
 
         if not isinstance(attrs.get("configuration"), dict):
             attrs["configuration"] = {}
