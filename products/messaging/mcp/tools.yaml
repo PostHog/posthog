@@ -63,6 +63,12 @@ tools:
     messaging-preferences-webhook-url-retrieve:
         operation: messaging_preferences_webhook_url_retrieve
         enabled: false
+    messaging-recipients-coverage-retrieve:
+        operation: messaging_recipients_coverage_retrieve
+        enabled: false
+    messaging-recipients-retrieve:
+        operation: messaging_recipients_retrieve
+        enabled: false
     messaging-suppressions-add-suppression-create:
         operation: messaging_suppressions_add_suppression_create
         enabled: false

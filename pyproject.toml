@@ -798,6 +798,7 @@ ignore_imports = [
     "products.marketing_analytics.backend.routes -> products.marketing_analytics.backend.api",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_categories",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_preferences",
+    "products.messaging.backend.routes -> products.messaging.backend.api.message_recipients",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",

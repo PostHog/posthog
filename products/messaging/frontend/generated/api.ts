@@ -21,6 +21,7 @@ import type {
     MessagingCategoriesListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
+    MessagingRecipientsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
@@ -31,6 +32,8 @@ import type {
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
     PreferencesLinkApi,
+    RecipientCoverageApi,
+    RecipientPageApi,
     RemoveOptOutRequestApi,
     WebhookUrlApi,
 } from './api.schemas'
@@ -507,6 +510,62 @@ export const messagingPreferencesWebhookUrlRetrieve = async (
     options?: RequestInit
 ): Promise<WebhookUrlApi> => {
     return apiMutator<WebhookUrlApi>(getMessagingPreferencesWebhookUrlRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingRecipientsRetrieveUrl = (projectId: string, params?: MessagingRecipientsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        const explodeParameters = ['filter']
+
+        if (Array.isArray(value) && explodeParameters.includes(key)) {
+            value.forEach((v) => {
+                normalizedParams.append(key, v === null ? 'null' : String(v))
+            })
+            return
+        }
+
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_recipients/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_recipients/`
+}
+
+/**
+ * @summary List every email address the team knows about
+ */
+export const messagingRecipientsRetrieve = async (
+    projectId: string,
+    params?: MessagingRecipientsRetrieveParams,
+    options?: RequestInit
+): Promise<RecipientPageApi> => {
+    return apiMutator<RecipientPageApi>(getMessagingRecipientsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingRecipientsCoverageRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_recipients/coverage/`
+}
+
+/**
+ * @summary Count persons who can't be reached by email
+ */
+export const messagingRecipientsCoverageRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RecipientCoverageApi> => {
+    return apiMutator<RecipientCoverageApi>(getMessagingRecipientsCoverageRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

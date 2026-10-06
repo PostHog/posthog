@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -45,11 +46,9 @@ class TestMessageCategoryAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_categories/{other_category.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_update_message_category(self):
-        """
-        Tests PUT and PATCH /messaging_categories/:id work as expected.
-        """
-        category = MessageCategory.objects.create(team=self.team, name="Initial Name", key="initial_key")
+    @parameterized.expand([("initial_key",), ("all-marketing",)])
+    def test_update_message_category(self, key):
+        category = MessageCategory.objects.create(team=self.team, name="Initial Name", key=key)
 
         # PATCH
         patch_response = self.client.patch(
@@ -62,7 +61,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         # PUT
         put_response = self.client.put(
             f"/api/environments/{self.team.id}/messaging_categories/{category.id}/",
-            {"name": "Put Name", "key": "initial_key", "category_type": "marketing"},
+            {"name": "Put Name", "key": key, "category_type": "marketing"},
         )
         self.assertEqual(put_response.status_code, status.HTTP_200_OK)
         category.refresh_from_db()
@@ -75,7 +74,7 @@ class TestMessageCategoryAPI(APIBaseTest):
         self.assertEqual(patch_no_key_response.status_code, status.HTTP_200_OK)
         category.refresh_from_db()
         self.assertEqual(category.name, "Patched Without Key")
-        self.assertEqual(category.key, "initial_key")  # Key should remain unchanged
+        self.assertEqual(category.key, key)  # Key should remain unchanged
 
     def test_cannot_update_key_field(self):
         """
@@ -145,6 +144,16 @@ class TestMessageCategoryAPI(APIBaseTest):
             {"name": "Category 3", "key": "duplicate-key", "category_type": "marketing"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_cant_create_category_with_the_all_marketing_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_categories/",
+            {"name": "All marketing", "key": "all-marketing", "category_type": "marketing"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual("key", response.json()["attr"])
+        self.assertIn("reserved", response.json()["detail"])
 
     def test_delete_is_forbidden(self):
         """

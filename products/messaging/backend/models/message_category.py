@@ -2,6 +2,8 @@ from django.db import models
 
 from posthog.models.utils import UUIDTModel
 
+ALL_MARKETING_TOPIC_KEY = "all-marketing"
+
 
 class MessageCategoryType(models.TextChoices):
     MARKETING = "marketing"
