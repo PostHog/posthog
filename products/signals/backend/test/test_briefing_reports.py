@@ -5,8 +5,11 @@ from types import SimpleNamespace
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -15,7 +18,9 @@ from rest_framework.request import Request
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
-    _briefing_order,
+    _briefing_pick,
+    _BriefingCandidate,
+    _ServedScores,
     open_report_counts,
     report_details,
     reports_for_briefing,
@@ -24,6 +29,8 @@ from products.signals.backend.briefing_reports import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
+
+SOURCE_PRODUCTS = "products.signals.backend.briefing_reports.fetch_source_products_for_reports"
 
 
 class TestReportsForBriefing(BaseTest):
@@ -42,6 +49,24 @@ class TestReportsForBriefing(BaseTest):
             report=report,
             type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             content=json.dumps({"priority": "P0"}),
+        )
+        return report
+
+    def _named_report(self, title: str) -> SignalReport:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title=title,
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+            latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "reviewer", "user_uuid": str(self.user.uuid)}]),
         )
         return report
 
@@ -126,7 +151,27 @@ class TestReportsForBriefing(BaseTest):
             team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]
         )
 
-        assert counts.in_project == 1
+        # By default an unowned P0 is for the person the same way the briefing ranks it, so both counts agree.
+        assert (counts.in_project, counts.for_person) == (1, 1)
+
+    @parameterized.expand([("included", True, {"Mine", "Nobody's P0"}), ("excluded", False, {"Mine"})])
+    def test_include_unowned_decides_whether_a_p0_nobody_owns_is_a_candidate(
+        self, _name: str, include_unowned: bool, expected: set[str]
+    ) -> None:
+        self._named_report("Mine")
+        self._urgent_report("Nobody's P0")
+
+        reports = reports_for_briefing(team_id=self.team.id, user_id=self.user.id, include_unowned=include_unowned)
+
+        assert {report.title for report in reports} == expected
+
+    def test_excluding_unowned_reports_leaves_them_in_the_project_count_only(self) -> None:
+        self._named_report("Mine")
+        self._urgent_report("Nobody's P0")
+
+        counts = open_report_counts(team_id=self.team.id, user=self.user, include_unowned=False)
+
+        assert (counts.in_project, counts.for_person) == (2, 1)
 
     def test_merge_chance_comes_from_the_latest_readable_served_score(self) -> None:
         rescored = self._urgent_report("Rescored")
@@ -135,6 +180,14 @@ class TestReportsForBriefing(BaseTest):
         unreadable = self._urgent_report("Unreadable head")
         self._score(unreadable, 0.9, readable=False, age=timedelta(hours=1))
         unscored = self._urgent_report("Unscored")
+        truncated = self._urgent_report("Truncated score")
+        self._score(truncated, 0.8, readable=True, age=timedelta(days=1))
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=truncated,
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+            content='{"scored_at": "2026-09-20T12:00:00Z", "results": {',
+        )
 
         reports = reports_for_briefing(team_id=self.team.id, user_id=self.user.id)
 
@@ -143,53 +196,140 @@ class TestReportsForBriefing(BaseTest):
             rescored.title: 0.7,
             unreadable.title: None,
             unscored.title: None,
+            truncated.title: None,
         }
 
+    def test_query_count_does_not_grow_with_the_candidates(self) -> None:
+        def queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                reports_for_briefing(team_id=self.team.id, user_id=self.user.id, limit=5)
+            return len(captured.captured_queries)
 
-class TestBriefingOrder(SimpleTestCase):
+        self._score(self._urgent_report("First"), 0.5, readable=True, age=timedelta(hours=1))
+        with patch(SOURCE_PRODUCTS, return_value={}):
+            one_candidate = queries()
+            for index in range(6):
+                self._score(self._urgent_report(f"More {index}"), 0.5, readable=True, age=timedelta(hours=1))
+            seven_candidates = queries()
+
+        assert seven_candidates == one_candidate
+
+    def test_an_older_report_with_a_high_merge_chance_beats_newer_ones(self) -> None:
+        reports = []
+        for index in range(6):
+            report = SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.READY,
+                title=f"Report {index}",
+                summary="Summary",
+                signal_count=1,
+                total_weight=1.0,
+            )
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"github_login": "reviewer", "user_uuid": str(self.user.uuid)}]),
+            )
+            self._score(report, 0.9 if index == 5 else 0.1, readable=True, age=timedelta(hours=1))
+            reports.append(report)
+        for index, report in enumerate(reports):
+            SignalReport.objects.filter(pk=report.pk).update(updated_at=timezone.now() - timedelta(days=index))
+
+        [top] = reports_for_briefing(team_id=self.team.id, user_id=self.user.id, limit=1)
+
+        assert (top.title, top.relation) == ("Report 5", BriefingReportRelation.SUGGESTED_REVIEWER)
+
+
+_Spec = tuple[str, BriefingReportRelation, str | None, float | None, float | None, float | None]
+WAITING = BriefingReportRelation.WAITING_FOR_YOU
+REVIEW = BriefingReportRelation.SUGGESTED_REVIEWER
+
+
+def _candidates(specs: list[_Spec]) -> list[_BriefingCandidate]:
+    return [
+        _BriefingCandidate(
+            report_id=report_id,
+            relation=relation,
+            priority=priority,
+            updated_at=datetime(2026, 9, 29, tzinfo=UTC),
+            scores=_ServedScores(pr_merged=pr_merged, action=action, dismiss_wrong_lift=dismiss_wrong_lift),
+        )
+        for report_id, relation, priority, pr_merged, action, dismiss_wrong_lift in specs
+    ]
+
+
+class TestBriefingPick(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "a report waiting for the person beats one they claimed",
+                "merge chance decides across relations",
                 [
-                    ("a", "P3", 0.9, BriefingReportRelation.CLAIMED),
-                    ("b", "P1", 0.1, BriefingReportRelation.WAITING_FOR_YOU),
+                    ("w1", WAITING, "P1", 0.02, None, None),
+                    ("s1", REVIEW, "P3", 0.4, None, None),
+                    ("c1", BriefingReportRelation.CLAIMED, "P3", 0.1, None, None),
                 ],
-                ["b", "a"],
+                ["s1", "c1", "w1"],
             ),
             (
-                "merge chance beats priority inside a relation",
+                "a high action chance ranks a report with a low merge chance",
                 [
-                    ("a", "P2", 0.8, BriefingReportRelation.SUGGESTED_REVIEWER),
-                    ("b", "P1", 0.2, BriefingReportRelation.SUGGESTED_REVIEWER),
+                    ("merge", REVIEW, "P3", 0.3, 0.1, None),
+                    ("middle", REVIEW, "P3", 0.2, 0.2, None),
+                    ("act", WAITING, "P2", 0.01, 0.9, None),
                 ],
-                ["a", "b"],
+                ["act", "merge", "middle"],
             ),
             (
-                "P0 stays first",
+                "the two heads compare by rank, not by value",
                 [
-                    ("b", "P1", 0.9, BriefingReportRelation.SUGGESTED_REVIEWER),
-                    ("a", "P0", 0.05, BriefingReportRelation.SUGGESTED_REVIEWER),
+                    ("merge", REVIEW, "P3", 0.05, 0.001, None),
+                    ("act", REVIEW, "P2", 0.01, 0.5, None),
+                    ("low", REVIEW, "P3", 0.02, 0.2, None),
                 ],
-                ["a", "b"],
+                ["act", "merge", "low"],
+            ),
+            (
+                "P0 comes first",
+                [
+                    ("s1", REVIEW, "P1", 0.9, 0.9, None),
+                    ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.01, None, None),
+                ],
+                ["u1", "s1"],
             ),
             (
                 "unscored reports follow scored ones",
-                [
-                    ("a", "P1", None, BriefingReportRelation.SUGGESTED_REVIEWER),
-                    ("b", "P3", 0.1, BriefingReportRelation.SUGGESTED_REVIEWER),
-                ],
+                [("a", REVIEW, "P1", None, None, None), ("b", REVIEW, "P3", None, 0.1, None)],
                 ["b", "a"],
+            ),
+            (
+                "a report likely dismissed as wrong is hidden unless it is P0",
+                [
+                    ("s1", REVIEW, "P2", 0.9, None, 5.0),
+                    ("s2", REVIEW, "P2", 0.1, None, 1.0),
+                    ("u1", BriefingReportRelation.URGENT_UNOWNED, "P0", 0.1, None, 5.0),
+                ],
+                ["u1", "s2"],
             ),
         ]
     )
-    def test_briefing_order(
-        self, _name: str, reports: list[tuple[str, str, float | None, BriefingReportRelation]], expected: list[str]
-    ) -> None:
-        updated_at = datetime(2026, 9, 29, tzinfo=UTC)
-        ordered = sorted(reports, key=lambda r: _briefing_order(r[3], r[1], r[2], updated_at))
+    def test_briefing_pick(self, _name: str, specs: list[_Spec], expected: list[str]) -> None:
+        assert [c.report_id for c in _briefing_pick(_candidates(specs), limit=None)] == expected
 
-        assert [report_id for report_id, *_ in ordered] == expected
+    def test_the_top_n_is_always_the_first_n_of_the_same_list(self) -> None:
+        candidates = _candidates(
+            [
+                ("w1", WAITING, "P2", 0.05, 0.6, None),
+                ("w2", WAITING, "P3", None, None, None),
+                ("s1", REVIEW, "P3", 0.3, 0.1, None),
+                ("s2", REVIEW, "P1", 0.2, None, None),
+                ("c1", BriefingReportRelation.CLAIMED, "P4", 0.25, 0.3, None),
+            ]
+        )
+        full = [c.report_id for c in _briefing_pick(candidates, limit=None)]
+
+        for limit in range(1, len(candidates) + 1):
+            assert [c.report_id for c in _briefing_pick(candidates, limit=limit)] == full[:limit]
 
 
 class TestSummaryLead(SimpleTestCase):

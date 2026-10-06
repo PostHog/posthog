@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -46,6 +47,14 @@ class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
+        # Filing needs the scout's own scope, which no session carries.
+        self.producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(self.producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
 
     def _optimize(self, flow_id: str) -> None:
         response = self.client.post(
@@ -85,7 +94,10 @@ class TestWorkflowProposals(APIBaseTest):
             live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
             payload["base_version"] = live.json()["version"]
         response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/", payload, format="json"
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert response.status_code == 201, response.json()
         return response.json()
@@ -234,36 +246,32 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).draft is None
 
-    def test_a_step_sent_whole_leaves_the_fields_it_did_not_change(self, _mock_flag):
+    @parameterized.expand([("below the first version", 0), ("far below", -1000000000), ("beyond the live one", 99)])
+    def test_a_base_version_the_workflow_never_had_is_refused(self, _mock_flag, _name: str, base_version: int):
+        # The outcome card reads every version between the base and the live one, so an unreal base
+        # would make that span unbounded.
         flow_id = self._create_active_flow()
-        # The producer sends the step as it read it, changing only the name.
-        whole_step = _webhook_action()
-        whole_step["name"] = "renamed by the suggestion"
-        proposal = self._propose(flow_id, content={"actions": [whole_step]})
-        self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {
-                "operations": [
-                    {
-                        "op": "update_action",
-                        "id": "action_1",
-                        "patch": {"config": {"inputs": {"url": {"value": "https://moved.example.com"}}}},
-                    }
-                ]
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "base_version": base_version,
+                "evidence": {
+                    "metric": "email open rate",
+                    "current_value": 0.07,
+                    "unit": "rate",
+                    "n": 120,
+                    "guardrails": [],
+                },
             },
-            HTTP_X_POSTHOG_CLIENT="mcp",
-        )
-        self._publish(flow_id)
-
-        approve = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {"overwrite": True}
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
 
-        assert approve.status_code == 200, approve.json()
-        draft = HogFlow.objects.get(id=flow_id).draft
-        assert draft is not None
-        assert draft["actions"][1]["name"] == "renamed by the suggestion"
-        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://moved.example.com"
+        assert response.status_code == 400, response.json()
+        assert "base_version" in str(response.json())
 
     def test_a_secret_input_in_a_patch_is_not_stored(self, _mock_flag):
         # The patch carries no template_id, so the secret is only knowable from the step it patches.
@@ -302,6 +310,92 @@ class TestWorkflowProposals(APIBaseTest):
         stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
         assert "api_key" not in stored.content["actions"][0]["config"]["inputs"]
         assert "sk-live-not-a-real-key" not in json.dumps(proposal)
+
+    def test_a_secret_on_a_step_the_suggestion_adds_is_not_returned(self, _mock_flag):
+        secret_template = {
+            **webhook_template,
+            "id": "template-webhook-secret",
+            "inputs_schema": [
+                *(webhook_template.get("inputs_schema") or []),
+                {"key": "api_key", "type": "string", "secret": True},
+            ],
+        }
+        sync_template_to_db(secret_template)
+        flow_id = self._create_active_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        draft_step = {
+            "id": "action_draft",
+            "name": "action_draft",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook-secret",
+                "inputs": {"url": {"value": "https://example.com"}},
+            },
+        }
+        flow.draft = {"actions": [_trigger_action(), _webhook_action(), draft_step]}
+        flow.draft_encrypted_inputs = {"action_draft": {"api_key": {"value": "sk-live-not-a-real-key"}}}
+        flow.save(update_fields=["draft", "draft_encrypted_inputs"])
+
+        live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        edges = [*(live.get("edges") or []), {"from": "action_1", "to": "action_draft", "type": "continue"}]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Point the webhook somewhere that answers",
+                "rationale": "Every call to the current URL failed over the last week.",
+                "base_version": flow.version,
+                "content": {
+                    "actions": [
+                        {
+                            **draft_step,
+                            "config": {
+                                "template_id": "template-webhook-secret",
+                                "inputs": {
+                                    "url": {"value": "https://example.com"},
+                                    "api_key": {"secret": True},
+                                },
+                            },
+                        }
+                    ],
+                    "edges": edges,
+                },
+                "evidence": {
+                    "metric": "failure rate",
+                    "current_value": 1.0,
+                    "n": 240,
+                    "unit": "rate",
+                    "guardrails": [{"metric": "complaint rate", "value": 0.0, "n": 240, "unit": "rate"}],
+                },
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+
+        assert response.status_code == 201, response.json()
+        assert "sk-live-not-a-real-key" not in json.dumps(response.json())
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert "sk-live-not-a-real-key" not in json.dumps(stored.content)
+
+    def test_a_value_the_serializer_rewrites_is_stored_the_way_it_will_publish(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={"actions": [{"id": "action_1", "output_variable": "result"}]},
+        )
+
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert stored.content["actions"][0]["output_variable"] == {"key": "result"}
+
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        # The publish wrote the coerced shape, so the change has to read as still in its own version.
+        assert outcome["change_ended_at_version"] is None, outcome
+        assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2], outcome
 
     def test_a_field_the_merge_replaces_is_compared_whole(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -381,6 +475,70 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft["exit_condition"] == "exit_only_at_end"
         assert {action["name"] for action in draft["actions"]} >= {"renamed"}
 
+    def test_the_workflow_list_counts_what_is_waiting(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        other_id = self._create_active_flow()
+        self._propose(flow_id, source_id="waiting:1")
+        self._propose(flow_id, source_id="waiting:2")
+        rejected = self._propose(flow_id, source_id="waiting:3")
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{rejected['id']}/reject/", {})
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?suggestions_first=true").json()["results"]
+        # Something waiting on a person sorts above the workflow edited most recently, but only for
+        # the page that asks: every other reader keeps recency.
+        assert listed[0]["id"] == flow_id
+        recency = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
+        assert recency[0]["id"] == other_id
+        counts = {item["id"]: item["pending_suggestions"] for item in listed}
+        assert counts[flow_id] == 2
+        assert counts[other_id] == 0
+        # A workflow with suggestions on but none waiting still reads as self-improving in the list.
+        enabled = {item["id"]: item["suggestions_enabled"] for item in listed}
+        assert enabled[flow_id] is True
+        assert enabled[other_id] is True
+        detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        assert "pending_suggestions" not in detail
+
+    def test_the_evidence_step_must_be_one_the_workflow_has(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "x",
+                "rationale": "y",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "ghost_step",
+                "base_version": 1,
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+        assert response.status_code == 400, response.json()
+        assert "step_id" in str(response.json())
+        assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
+    def test_a_workflow_that_is_not_live_cannot_be_opted_in_or_suggested_against(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        disabled = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+        assert disabled.status_code == 200, disabled.json()
+
+        suggested = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {"title": "x", "rationale": "y", "content": {"exit_condition": "exit_only_at_end"}, "base_version": 1},
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+        assert suggested.status_code == 409, suggested.json()
+        assert suggested.json()["code"] == "workflow_not_live"
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/?optimization_enabled=true").json()
+        assert flow_id not in {item["id"] for item in listed["results"]}
+
+        turned_on = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization", {"enabled": True}, format="json"
+        )
+        assert turned_on.status_code == 409, turned_on.json()
+        assert turned_on.json()["code"] == "workflow_not_live"
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(
@@ -403,6 +561,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "base_version": 1,
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert refused.status_code == 409, refused.json()
         assert refused.json()["code"] == "workflow_not_optimized"
@@ -435,6 +594,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "source_id": "run-1",
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert again.status_code == 200, again.json()
         assert again.json()["id"] == first["id"]
@@ -529,6 +689,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "source_id": "run:1:finding:webhook-url",
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert again.status_code == 200, again.json()
         assert again.json()["id"] == first["id"]
@@ -572,9 +733,11 @@ class TestWorkflowProposals(APIBaseTest):
                 },
                 "needs a `unit`",
             ),
+            ("a bare string", "0.07", "object"),
+            ("a bare number", 7, "object"),
         ]
     )
-    def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: dict, expected: str):
+    def test_a_rate_the_panel_cannot_read_back_is_refused(self, _mock_flag, _name: str, evidence: Any, expected: str):
         flow_id = self._create_active_flow()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
@@ -585,6 +748,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "evidence": evidence,
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert response.status_code == 400, response.json()
         assert expected in str(response.json())
@@ -609,7 +773,7 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
-        with patch("products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals") as mock_totals:
+        with patch("products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals") as mock_totals:
             mock_totals.return_value = SimpleNamespace(totals={})
             response = self.client.get(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
@@ -641,6 +805,167 @@ class TestWorkflowProposals(APIBaseTest):
         ]
         assert body["unavailable_guardrails"] == ["unsubscribe rate"]
 
+    def test_the_after_side_runs_on_until_someone_changes_what_the_suggestion_changed(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": "renamed"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        assert outcome["after"]["versions"] == [2, 3]
+        assert outcome["change_ended_at_version"] is None
+        assert outcome["before"]["versions"] == [1]
+        # v3 renamed the trigger on top of the suggestion, so its numbers hold both changes.
+        assert [version["version"] for version in outcome["versions"] if version["other_changes"]] == [3]
+        applied = next(version for version in outcome["versions"] if version["applied"])
+        assert [(change["field"], change["after"], change["from_suggestion"]) for change in applied["changes"]] == [
+            ("url", "https://proposed.example.com", True)
+        ]
+        assert applied["published_by"]["email"] == self.user.email
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": "https://someone-else.example.com"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        assert outcome["after"]["versions"] == [2, 3]
+        assert outcome["change_ended_at_version"] == 4
+
+    @patch("products.workflows.backend.services.workflow_proposals.OUTCOME_VERSION_LIMIT", 2)
+    def test_the_after_side_charts_every_version_it_sums(self, _mock_flag):
+        # Enough publishes after the applied one that the recent range no longer reaches it.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        for name in ("renamed_once", "renamed_twice", "renamed_thrice"):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": name}}]},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+
+        charted = {version["version"] for version in outcome["versions"]}
+        assert set(outcome["after"]["versions"]) <= charted, outcome
+        assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2]
+        # v5 is past the versions the slice read, so the after side must not claim it.
+        assert outcome["after"]["versions"] == [2, 3], outcome
+
+    def test_a_version_that_removes_a_step_says_so(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "add_action",
+                        "action": _webhook_action("action_2", "https://second.example.com"),
+                        "edges": [{"from": "action_1", "to": "action_2", "type": "continue"}],
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_2"}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        latest = max(outcome["versions"], key=lambda version: version["version"])
+        assert [change["field"] for change in latest["changes"] if change["field"] == "step removed"] == [
+            "step removed"
+        ], latest
+
+    def test_changing_the_trigger_is_not_also_counted_as_a_workflow_change(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "trigger_node",
+                        "patch": {
+                            "config": {
+                                "filters": {
+                                    "events": [
+                                        {"id": "$autocapture", "name": "$autocapture", "type": "events", "order": 0}
+                                    ]
+                                }
+                            }
+                        },
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        latest = max(outcome["versions"], key=lambda version: version["version"])
+        # The trigger is derived from the trigger step, so the step change is the only one to report.
+        assert [change["field"] for change in latest["changes"] if change["step_name"] is None] == [], latest
+
+    def test_the_outcome_reads_the_metric_the_suggestion_aimed_at(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            evidence={"metric": "email_bounced", "current_value": 0.07, "n": 132, "unit": "rate", "guardrails": []},
+        )
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+        assert outcome["after"]["target"]["metric"] == "bounce rate"
+        # Opens sit beside it, since a bounce fix that costs opens is worth seeing.
+        assert outcome["after"]["secondary"]["metric"] == "email open rate"
+        assert [version["target"]["metric"] for version in outcome["versions"]] == ["bounce rate"] * len(
+            outcome["versions"]
+        )
+
     def test_an_api_key_can_read_the_outcome_of_what_it_proposed(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(flow_id)
@@ -660,6 +985,39 @@ class TestWorkflowProposals(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["after"]["version"] == 2
 
+    def test_suggesting_takes_its_own_scope_not_workflow_write(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        payload = {
+            "title": "Point the webhook somewhere that answers",
+            "rationale": "Every call to the current URL failed over the last week.",
+            "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
+            "evidence": {"metric": "failure rate", "current_value": 1.0, "unit": "rate", "n": 240, "guardrails": []},
+            "base_version": 1,
+        }
+        suggest_only = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(suggest_only),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        self.client.logout()
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert created.status_code == 201, created.json()
+
+        published = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {},
+            headers={"authorization": f"Bearer {suggest_only}"},
+        )
+        assert published.status_code == 403, published.json()
+
     def test_a_suggestion_carries_only_the_step_it_changes(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(
@@ -676,6 +1034,49 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft is not None
         assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+
+    def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={
+                "actions": [
+                    {"id": "action_1", "config": {"inputs": {"url": {"value": "https://proposed.example.com"}}}}
+                ]
+            },
+        )
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        step = draft["actions"][1]
+        assert step["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+        assert step["name"] == "action_1"
+        assert step["type"] == "function"
+        assert step["config"]["template_id"] == "template-webhook"
+
+    def test_a_change_publish_would_refuse_is_refused_at_create(self, _mock_flag):
+        flow_id = self._create_active_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Drop the webhook's url",
+                "rationale": "A null field deletes it, and a webhook step without a url cannot be published.",
+                "content": {"actions": [{"id": "action_1", "config": {"inputs": {"url": None}}}]},
+                "base_version": 1,
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Publishing this change would be refused" in str(response.json())
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 0
 
     def test_a_suggestion_survives_an_edit_to_a_different_step(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -698,6 +1099,35 @@ class TestWorkflowProposals(APIBaseTest):
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
         assert draft["actions"][0]["name"] == "renamed by a human"
+        assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+
+    @parameterized.expand([("another field of that step", "renamed"), ("the same change made by hand", None)])
+    def test_a_step_change_still_approves_after(self, _mock_flag, _label: str, new_name: str | None):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id, content={"actions": [_webhook_action(url="https://proposed.example.com")]}, source_id="one-field"
+        )
+        patch = (
+            {"name": new_name}
+            if new_name
+            else {"config": {"inputs": {"url": {"value": "https://proposed.example.com"}}}}
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": patch}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        self._publish(flow_id)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/").json()["results"]
+        assert [item["is_stale"] for item in listed] == [False]
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        assert draft["actions"][1]["name"] == (new_name or "action_1")
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
     def test_a_suggestion_is_refused_once_the_step_it_changes_is_deleted(self, _mock_flag):
@@ -735,6 +1165,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "base_version": 1,
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
 
         assert response.status_code == 400, response.json()
@@ -772,17 +1203,19 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_a_whole_list_proposal_must_say_which_version_it_read(self, _mock_flag):
         flow_id = self._create_active_flow()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
-            {
-                "title": "Point the webhook somewhere else",
-                "rationale": "Testing the version contract.",
-                "content": {"actions": [_trigger_action(), _webhook_action()]},
-            },
-            format="json",
-        )
-        assert response.status_code == 400, response.json()
-        assert "base_version" in str(response.json())
+        for content in ({"actions": [_trigger_action(), _webhook_action()]}, {"exit_condition": "exit_only_at_end"}):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+                {
+                    "title": "Point the webhook somewhere else",
+                    "rationale": "Testing the version contract.",
+                    "content": content,
+                },
+                format="json",
+                headers={"authorization": f"Bearer {self.producer_key}"},
+            )
+            assert response.status_code == 400, response.json()
+            assert "base_version" in str(response.json())
 
     @parameterized.expand(
         [
@@ -806,37 +1239,43 @@ class TestWorkflowProposals(APIBaseTest):
                 "base_version": 1,
             },
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert response.status_code == 400, response.json()
         assert expected in str(response.json())
 
-    def test_editing_the_draft_returns_the_approved_suggestion_to_the_queue(self, _mock_flag):
+    @parameterized.expand(
+        [
+            ("undoes the change", "https://edited.example.com", "action_1", "suggested", None),
+            ("touches another field of that step", "https://proposed.example.com", "renamed", "applied", 2),
+        ]
+    )
+    def test_editing_the_draft_hands_the_suggestion_back_only_if_the_edit(
+        self, _mock_flag, _label: str, url: str, name: str, status: str, applied_version: int | None
+    ):
         flow_id = self._create_active_flow()
-        proposal = self._propose(flow_id)
+        proposal = self._propose(flow_id, content={"actions": [_webhook_action(url="https://proposed.example.com")]})
         approve = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
         )
         assert approve.status_code == 200, approve.json()
 
+        edited = _webhook_action(url=url)
+        edited["name"] = name
         edit = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {
-                "actions": [_trigger_action(), _webhook_action(url="https://edited.example.com")],
-                "stage_draft": True,
-            },
+            {"actions": [_trigger_action(), edited], "stage_draft": True},
             format="json",
         )
         assert edit.status_code == 200, edit.json()
-
-        assert (
-            WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status
-            == WorkflowProposal.Status.SUGGESTED
+        assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == (
+            "approved" if status == "applied" else "suggested"
         )
 
         self._publish(flow_id)
-        applied = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
-        assert applied.status == WorkflowProposal.Status.SUGGESTED
-        assert applied.applied_version is None
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert stored.status == status
+        assert stored.applied_version == applied_version
 
     def test_folding_the_draft_into_a_save_returns_the_suggestion_to_the_queue(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -914,6 +1353,14 @@ class TestWorkflowProposalsFlagOff(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
+        # Filing needs the scout's own scope, which no session carries.
+        self.producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(self.producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
 
     def test_the_surface_does_not_exist_without_the_flag(self, _mock_flag):
         create = self.client.post(
@@ -928,6 +1375,7 @@ class TestWorkflowProposalsFlagOff(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {"title": "x", "rationale": "y", "content": {"actions": []}},
             format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
         )
         assert created.status_code == 404, created.json()
 

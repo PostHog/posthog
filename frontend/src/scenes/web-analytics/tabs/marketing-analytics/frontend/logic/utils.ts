@@ -33,6 +33,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
     RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
@@ -75,6 +76,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     PinterestAds: 'Pinterest Ads',
     AmazonAds: 'Amazon Ads',
     RoktAds: 'Rokt Ads',
+    TwitterAds: 'X Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
 }
@@ -386,6 +388,30 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+            missingCurrencyMessage: 'X Ads currency is missing. Fully resync campaign_stats, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
         },
@@ -838,8 +864,12 @@ export function createMarketingTile(
         }
     }
 
-    if (sourceType === 'AmazonAds') {
-        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+    if (sourceType === 'AmazonAds' || sourceType === 'TwitterAds') {
+        const requiredFields =
+            sourceType === 'AmazonAds'
+                ? ['campaign_id', 'date', 'cost', 'impressions', 'clicks']
+                : ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks']
+        if (!requiredFields.every((field) => field in table.fields)) {
             return null
         }
         const monetaryColumn =
@@ -847,7 +877,8 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
             tileColumnSelection === 'cost_per_reported_conversion'
-        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+        const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
+        if (monetaryColumn && !(currencyColumn in table.fields)) {
             return null
         }
     }
@@ -1007,9 +1038,13 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
     })
 }
 
-/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+/** The stored filter is whatever an older build of this page wrote, so keep only the fields we still read.
  * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
 export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
     const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
-    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
+    const includeNonIntegrated = (stored as IntegrationFilter | null | undefined)?.includeNonIntegrated
+    return {
+        integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [],
+        ...(typeof includeNonIntegrated === 'boolean' ? { includeNonIntegrated } : {}),
+    }
 }

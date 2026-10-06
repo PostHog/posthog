@@ -1237,16 +1237,39 @@ class TestSignalReportListAPI(APIBaseTest):
             )
             return report
 
-        waiting = report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
-        report_naming_me("Names me as reviewer", SignalReport.Status.READY)
+        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
         self._create_report(title="Someone else's report")
 
         response = self.client.get(f"{self._list_url()}for_you/?limit=1")
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert [row["id"] for row in body["results"]] == [str(waiting.id)]
+        # Neither report has a score or a priority, so the newest comes first.
+        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
+
+    def test_for_you_excludes_unowned_p0_reports_when_asked(self):
+        mine = self._create_report(title="Names me as reviewer")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=mine,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
+        self._priority_artefact(unowned, priority="P0")
+
+        with_unowned = self.client.get(f"{self._list_url()}for_you/")
+        without_unowned = self.client.get(f"{self._list_url()}for_you/?include_unowned=false")
+
+        assert with_unowned.status_code == status.HTTP_200_OK
+        assert without_unowned.status_code == status.HTTP_200_OK
+        # The P0 leads by default, because priority is the first ranking key.
+        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
+        assert with_unowned.json()["count"] == 2
+        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
+        assert without_unowned.json()["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them

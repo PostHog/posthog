@@ -24,11 +24,12 @@ class TestValidateAdhocExportContext(SimpleTestCase):
             {"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}}
         )
 
-    def test_accepts_data_visualization_node_over_hogql(self):
+    @parameterized.expand(["DataVisualizationNode", "BIVisualizationNode"])
+    def test_accepts_data_visualization_node_over_hogql(self, kind: str) -> None:
         _validate_adhoc_export_context(
             {
                 "source": {
-                    "kind": "DataVisualizationNode",
+                    "kind": kind,
                     "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
                     "display": "ActionsLineGraph",
                 }

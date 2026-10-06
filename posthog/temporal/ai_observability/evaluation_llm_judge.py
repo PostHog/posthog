@@ -27,6 +27,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
     terminal_user_error_result_from_application_error,
+    truncate_error_detail,
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     extract_event_io,
@@ -49,21 +50,25 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderConfigurationError,
     ProviderConnectionError,
+    ProviderHostUnresolvedError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
+    provider_error_detail,
 )
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneEndpointBlockedError,
-    SystemOneRateLimitError,
-    SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
@@ -87,6 +92,17 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=60),
     backoff_coefficient=2.0,
 )
+
+
+# A retry can fix these client errors, so they stay on the retry policy like a 5xx.
+# 499 is a cancellation, which Gemini already maps to the transport lane.
+_RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
+
+
+def _is_last_judge_attempt() -> bool:
+    if not temporalio.activity.in_activity():
+        return False
+    return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
 
 class TransientJudgeError(NonReportableError):
@@ -341,6 +357,24 @@ def _build_output_limit_skip_result(
     return result
 
 
+def _build_content_filtered_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str, output_type: str = "boolean"
+) -> EvaluationActivityResult:
+    """Per-item skip for a judge call the provider's content filter refused.
+
+    Backfills treat it as covered, like an over-window prompt, because a re-run sends the same
+    content to the same filter.
+    """
+    result = build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=allows_na,
+        reasoning="Evaluation model's content filter refused the input; evaluation skipped.",
+        skip_reason="content_filtered",
+    )
+    result.update({"is_byok": is_byok, "key_id": key_id, "model": model, "provider": provider})
+    return result
+
+
 def _build_unparsable_response_skip_result(
     allows_na: bool,
     *,
@@ -371,6 +405,55 @@ def _build_unparsable_response_skip_result(
         "key_id": key_id,
         "model": model,
         "provider": provider,
+    }
+    return result
+
+
+def _rejected_request_status(error: Exception) -> int | None:
+    """The 4xx status of a provider rejection that no retry can fix, or None.
+
+    The OpenAI and Anthropic SDKs put the status on `status_code`. google-genai puts it on `code`.
+    """
+    status = getattr(error, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(error, "code", None)
+    if not isinstance(status, int) or isinstance(status, bool):
+        return None
+    if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_ERROR_STATUSES:
+        return status
+    return None
+
+
+def _build_rejected_request_skip_result(
+    allows_na: bool,
+    *,
+    is_byok: bool,
+    key_id: str | None,
+    status: int,
+    error: Exception,
+    output_type: str = "boolean",
+) -> EvaluationActivityResult:
+    """Per-item skip for a provider rejection that has no specific mapping.
+
+    The provider's message goes into the reasoning, because nothing else tells the user why the
+    provider rejected the request.
+    """
+    reasoning = (
+        f"The model provider rejected the evaluation request with status {status}, so this run was skipped. "
+        "Check the model and provider settings if this keeps happening."
+    )
+    detail = truncate_error_detail(provider_error_detail(error) or str(error))
+    if detail:
+        reasoning = f"{reasoning} Provider message: {detail}"
+    result: EvaluationActivityResult = {
+        **build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=reasoning,
+            skip_reason="request_rejected",
+        ),
+        "is_byok": is_byok,
+        "key_id": key_id,
     }
     return result
 
@@ -669,7 +752,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except SystemOneEndpointBlockedError as e:
+    except (SystemOneEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
@@ -679,7 +762,7 @@ def call_llm_judge(
             key_id=key_id,
             is_byok=is_byok,
         )
-    except SystemOneRequestRejectedError as e:
+    except ProviderRequestRejectedError as e:
         increment_user_errors("request_rejected", provider=provider)
         return build_skipped_evaluation_result(
             output_type=output_type,
@@ -687,7 +770,7 @@ def call_llm_judge(
             reasoning=str(e),
             skip_reason="request_rejected",
         )
-    except SystemOneRateLimitError as e:
+    except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(
             str(e),
@@ -826,6 +909,36 @@ def call_llm_judge(
             allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
         )
 
+    except ContentFilteredError as e:
+        # Skip rather than raise: the refusal comes from customer content, so a retry rarely
+        # changes it, and raising files a new error tracking issue per call site.
+        increment_errors("content_filtered", provider=provider)
+        logger.warning(
+            "LLM judge request was refused by the provider content filter",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error=str(e),
+        )
+        return _build_content_filtered_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
+        )
+
+    except ProviderHostUnresolvedError as e:
+        if not _is_last_judge_attempt():
+            increment_errors("connection_error", provider=provider)
+            raise TransientJudgeError(str(e)) from e
+        # The host did not resolve on any attempt, so the base URL is probably wrong. A failed
+        # workflow shows the user nothing, so skip the run with the reason instead. A skip leaves
+        # the evaluation and its key enabled, because a DNS outage that ends needs no user action.
+        increment_user_errors("host_unresolved", provider=provider)
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=str(e),
+            skip_reason="host_unresolved",
+        )
+
     except ProviderConnectionError as e:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
         # so track it as a metric and re-raise for the retry policy. `TransientJudgeError` keeps it
@@ -841,6 +954,28 @@ def call_llm_judge(
         raise
 
     except Exception as e:
+        rejected_status = _rejected_request_status(e)
+        # On a PostHog key a rejection is our bug, so it falls through to error tracking below.
+        if rejected_status is not None and is_byok:
+            # A single bad input and a bad configuration look the same here, so skip this run and
+            # leave the evaluation and its key alone.
+            increment_user_errors("request_rejected", provider=provider)
+            logger.warning(
+                "LLM provider rejected the judge request",
+                evaluation_id=evaluation["id"],
+                provider=provider,
+                model=model,
+                status=rejected_status,
+                error_class=type(e).__name__,
+            )
+            return _build_rejected_request_skip_result(
+                allows_na,
+                is_byok=is_byok,
+                key_id=key_id,
+                status=rejected_status,
+                error=e,
+                output_type=output_type,
+            )
         logger.exception(
             "Unhandled error from LLM client",
             evaluation_id=evaluation["id"],

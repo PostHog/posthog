@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    external_destination_ids_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_worker_shutdown_handoff_metric,
@@ -70,9 +73,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     SimpleSource,
     SourceExtractionNotImplementedError,
     error_message_matches,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
-    is_byte_bounded_extraction_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
     SourceCursorManager,
@@ -117,9 +117,6 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so a flag change between activity attempts cannot mix a stale
-    # keyset checkpoint with a server-cursor retry that reset the destination table.
-    keyset_full_load_enabled: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -131,7 +128,6 @@ class ImportDataActivityInputs:
             "reset_pipeline": self.reset_pipeline,
             "fast_return_eligible": self.fast_return_eligible,
             "scheduled_full_refresh": self.scheduled_full_refresh,
-            "keyset_full_load_enabled": self.keyset_full_load_enabled,
         }
 
 
@@ -518,9 +514,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             fanout_warehouse_reuse = await _warehouse_parent_reuse_available(
                 new_source, schema, inputs.source_id, inputs.team_id, logger
             )
-            byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
-                inputs.team_id, str(source_type)
-            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -569,8 +562,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 # A schema-level override (user-managed) wins over the source pin.
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
-                byte_bounded_extraction=byte_bounded_extraction,
-                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
                 source_cursor=source_cursor_manager,
             )
@@ -665,6 +656,10 @@ class ImportJobModels:
     schema: ExternalDataSchema
     source: ExternalDataSource
     table: DataWarehouseTable | None
+    # The run's destinations minus the PostHog warehouse. Resolved here because this is the
+    # run's one async-safe ORM fetch: the pipeline is built inside an async activity, where
+    # the same query raises `SynchronousOnlyOperation`.
+    external_destination_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async_pool
@@ -684,7 +679,13 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return ImportJobModels(job=job, schema=schema, source=source, table=table)
+    return ImportJobModels(
+        job=job,
+        schema=schema,
+        source=source,
+        table=table,
+        external_destination_ids=external_destination_ids_for(job.team_id, list(job.destination_ids or [])),
+    )
 
 
 # What a customer reads when a PostHog-managed credential is unavailable. Deliberately says
