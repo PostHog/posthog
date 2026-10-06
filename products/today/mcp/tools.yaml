@@ -50,3 +50,15 @@ tools:
             urgent first.
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
+    today-excerpt-choice-create:
+        operation: today_excerpt_choice_create
+        enabled: false
+    today-reports-figure-marks-retrieve:
+        operation: today_reports_figure_marks_retrieve
+        enabled: false
+    today-reports-key-clauses-retrieve:
+        operation: today_reports_key_clauses_retrieve
+        enabled: false
+    today-reports-page-retrieve:
+        operation: today_reports_page_retrieve
+        enabled: false
