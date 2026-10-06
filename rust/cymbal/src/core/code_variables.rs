@@ -25,11 +25,13 @@ const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
 const SECRET_REJECT_CHARS: &str = "()[]{}<>'\"`,;";
 
 // The SDK's `DEFAULT_CODE_VARIABLES_MASK_PATTERNS`. The SDK matches them against names and
-// string values alike, so a value that contains `token` is redacted whole.
+// string values alike, so a value that contains `token` is redacted whole. One difference:
+// `sk_` must start a word here, so `task_id` and `disk_usage` keep their values. A team can
+// change the SDK patterns in its own code, but not these.
 static MASK_PATTERNS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
         r"(?i)password|secret|passwd|pwd|api_key|apikey|auth|credentials|privatekey|",
-        r"private_key|token|aws_access_key_id|_pass|sk_|jwt|connection_string|",
+        r"private_key|token|aws_access_key_id|_pass|(?:^|[^a-z0-9])sk_|jwt|connection_string|",
         r"connectionstring|conn_str|connstr|dsn|[?&]sig="
     ))
     .unwrap()
@@ -76,9 +78,9 @@ static KNOWN_SECRET: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 // The SDK uses a lookahead that the regex crate lacks, so `redact_url_credential` checks
-// for the `:` instead.
+// for the `:` instead. The userinfo ends where the authority ends, at `/`, `?` or `#`.
 static URL_CREDENTIALS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)([a-z][a-z0-9+.\-]{0,30}://)([^/\s]*)@").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)([a-z][a-z0-9+.\-]{0,30}://)([^/?#\s]*)@").unwrap());
 
 // A header pair list or an ASGI scope holds an `Authorization` value apart from its header
 // name, so the name patterns never see it. The separator also accepts a colon or an opening
@@ -156,22 +158,23 @@ fn parse_json_container(value: &str) -> Option<Value> {
 
 fn mask_mapping(entries: Map<String, Value>, depth: usize) -> Map<String, Value> {
     let mut result = Map::new();
+    let mut next_placeholder = 0;
     for (key, mut value) in entries {
         if key.chars().count() > MAX_LENGTH_FOR_PATTERN_MATCH {
-            let placeholder = redacted_key(&result);
+            let placeholder = redacted_key(&result, &mut next_placeholder);
             result.insert(placeholder, Value::String(TOO_LONG.to_string()));
             continue;
         }
         let key_matches_mask = MASK_PATTERNS.is_match(&key);
         let mut out_key =
             if (key_matches_mask && !FIELD_NAME.is_match(&key)) || looks_like_secret(&key) {
-                redacted_key(&result)
+                redacted_key(&result, &mut next_placeholder)
             } else {
                 redact_embedded_credentials(&key).into_owned()
             };
         // Two keys can mask to the same text, e.g. URLs that differ only in their credentials.
         if result.contains_key(&out_key) {
-            out_key = redacted_key(&result);
+            out_key = redacted_key(&result, &mut next_placeholder);
         }
         if key_matches_mask {
             value = Value::String(REDACTED.to_string());
@@ -183,11 +186,15 @@ fn mask_mapping(entries: Map<String, Value>, depth: usize) -> Map<String, Value>
     result
 }
 
-fn redacted_key(result: &Map<String, Value>) -> String {
-    (0..)
-        .map(|n| format!("$$_posthog_redacted_key_{n}_$$"))
-        .find(|candidate| !result.contains_key(candidate))
-        .expect("an unused placeholder exists")
+// Placeholders are only added, so the search resumes from the last one instead of zero.
+fn redacted_key(result: &Map<String, Value>, next: &mut usize) -> String {
+    loop {
+        let candidate = format!("$$_posthog_redacted_key_{next}_$$");
+        *next += 1;
+        if !result.contains_key(&candidate) {
+            return candidate;
+        }
+    }
 }
 
 fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
@@ -384,6 +391,24 @@ mod tests {
                 json!({"user": format!("{{\"name\":\"bob\",\"password\":\"{REDACTED}\"}}")}),
             ),
             (
+                "URL credentials end at the authority",
+                json!({"url": "https://app:hunter22@db.example.com?next=a@b"}),
+                json!({"url": format!("https://{REDACTED}@db.example.com?next=a@b")}),
+            ),
+            (
+                "sk_ at the start of a word",
+                json!({"stripe_sk_key": "abc"}),
+                json!({"stripe_sk_key": REDACTED}),
+            ),
+            (
+                "several keys that hold text get distinct placeholders",
+                json!({"pools": {"password=a": 1, "password=b": 2}}),
+                json!({"pools": {
+                    "$$_posthog_redacted_key_0_$$": REDACTED,
+                    "$$_posthog_redacted_key_1_$$": REDACTED,
+                }}),
+            ),
+            (
                 "URL credentials in a key",
                 json!({"pools": {"postgresql://app:hunter22@db.example.com/app": 1}}),
                 json!({"pools": Map::from_iter([(
@@ -413,9 +438,15 @@ mod tests {
             "da39a3ee5e6b4b0d3255bfef95601890afd80709",
             "/usr/local/lib/python3.12/site-packages/app/views.py",
             "{\"name\": \"bob\"}",
+            "disk_usage at 91%",
+            "https://db.example.com?next=a:b@c",
         ] {
             let input = json!({"value": value});
             assert_eq!(masked(&input), input, "{value}");
+        }
+        for key in ["task_id", "disk_usage"] {
+            let input = json!({key: "42"});
+            assert_eq!(masked(&input), input, "{key}");
         }
     }
 }
