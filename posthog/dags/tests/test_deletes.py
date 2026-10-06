@@ -1225,11 +1225,10 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
     assert resolve_sweep_targets(context) == expected
 
 
-def test_events_json_is_skipped_by_default() -> None:
-    # The events cluster is not reliably reachable from the sweep, and a run that resolves it
-    # inconsistently reports an erasure it did not perform. Dropping the default would resume that
-    # sweep silently, because nothing else in a run says which targets it was supposed to reach.
-    expected = ["sharded_events", "sharded_flag_evaluations"]
+def test_events_json_is_swept_by_default() -> None:
+    # Skipping a target by default leaves its rows in place while the requests covering them are
+    # marked verified, and nothing else in a run says which targets it was supposed to reach.
+    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]
     assert resolve_sweep_targets(build_op_context()) == expected
     assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 
