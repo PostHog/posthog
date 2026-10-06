@@ -70,18 +70,32 @@ Two sources, highest-confidence first:
 
 For each watchlist flow whose cadence is due (default: re-score daily flows ~daily, weekly cohorts ~weekly), score the **latest complete window** against the flow's trailing baseline:
 
-- **Funnels** — `query-funnel` over the latest complete _and mature_ entrant window (see conversion maturity below), compared with the prior N comparable windows (prior weeks, same weekday span) for the baseline. The metric is **step-to-step conversion %**, not step counts. Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors). A step whose conversion dropped while its entrant count held is the signal.
+- **Funnels** — `query-funnel` over the latest complete _and mature_ entrant window (see conversion maturity below), compared with the prior N comparable windows (prior weeks, same weekday span) for the baseline.
+  The metric is **step-to-step conversion %**, not step counts.
+  Compare the latest overall + per-step conversion to the baseline band (median + MAD, or a simple delta with floors).
+  A step whose conversion dropped while its entrant count held is the signal.
 - **Retention** — `query-retention` and compare the latest cohort's day-1 / day-7 / day-N return rate to the prior cohorts' rates for the same day-offset. A retention _cliff_ is a cohort whose curve sits clearly below the prior cohorts' band.
 - **Lifecycle / stickiness** — `query-lifecycle` (new / returning / resurrecting / dormant composition) and `query-stickiness`; a composition tilting toward dormant, or stickiness dropping, against the trailing baseline.
 
 **Always score only the latest _complete_ window.** The in-progress day/week is partial and will always look like a drop.
 
-**Funnels need a second check: conversion maturity.** A complete entrant window can still hold entrants whose conversion window has not ended. Those entrants have had less time to convert than older cohorts, so the window shows a conversion drop with steady entrants. That is the same shape as a real regression.
+**Funnels need a second check: conversion maturity.**
+A complete entrant window can still hold entrants whose conversion window has not ended.
+Those entrants have had less time to convert than older cohorts, so the window shows a conversion drop with steady entrants.
+That is the same shape as a real regression.
 
-- Before you choose the entrant window, read the saved funnel's `funnelsFilter.funnelWindowInterval` and `funnelWindowIntervalUnit` with `insight-get`. When they are absent, the default is 14 days.
-- Score a funnel entrant window only when the full conversion interval has elapsed after its final possible entrant. Apply the same rule to each seasonality-matched baseline window.
-- The funnel `dateRange` bounds every step, not only the entry step. A `steps` query over only the entrant week cuts off conversions at the week's end, so late entrants never get the full interval. To score maturity correctly, run `query-funnel` with `funnelVizType: trends`, `interval: week` (or `day`), and a `dateRange` that ends now. Each point is one entrant period, and its conversions can fall after the period ends. Score only the points whose entrant period ended at least one conversion interval ago, and use the older mature points as the baseline. For one step-to-step rate, set `funnelFromStep` / `funnelToStep`.
-- Example: a 7-day entrant week of Mon 1 – Sun 7 with a 14-day conversion interval becomes scoreable only after Sun 21 ends. From Mon 8 to Sun 21 the week is calendar-complete but not mature, so score the latest mature week instead.
+- Before you choose the entrant window, read the saved funnel's `funnelsFilter.funnelWindowInterval` and `funnelWindowIntervalUnit` with `insight-get`.
+  When they are absent, the default is 14 days.
+- Score a funnel entrant window only when the full conversion interval has elapsed after its final possible entrant.
+  Apply the same rule to each seasonality-matched baseline window.
+- The funnel `dateRange` bounds every step, not only the entry step.
+  A `steps` query over only the entrant week cuts off conversions at the week's end, so late entrants never get the full interval.
+  To score maturity correctly, run `query-funnel` with `funnelVizType: trends`, `interval: week` (or `day`), and a `dateRange` that ends now.
+  Each point is one entrant period, and its conversions can fall after the period ends.
+  Score only the points whose entrant period ended at least one conversion interval ago, and use the older mature points as the baseline.
+  For one step-to-step rate, set `funnelFromStep` / `funnelToStep`.
+- Example: a 7-day entrant week of Mon 1 – Sun 7 with a 14-day conversion interval becomes scoreable only after Sun 21 ends.
+  From Mon 8 to Sun 21 the week is calendar-complete but not mature, so score the latest mature week instead.
 
 Keep the two checks separate: calendar completeness applies to every flow, and conversion maturity applies to funnels.
 
