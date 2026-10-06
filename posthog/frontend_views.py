@@ -43,16 +43,6 @@ _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
 }
 
 
-# Matches the Organization that posthog.com publishes, so search engines tie the app to the same entity.
-_POSTHOG_ORGANIZATION: dict[str, Any] = {
-    "@type": "Organization",
-    "name": "PostHog",
-    "url": "https://posthog.com",
-    "logo": "https://posthog.com/brand/posthog-logo-stacked.png",
-    "sameAs": ["https://twitter.com/PostHog", "https://github.com/PostHog", "https://www.linkedin.com/company/posthog"],
-}
-
-
 def _structured_data_json(metadata: _PageMetadata, canonical_url: str) -> str:
     structured_data = {
         "@context": "https://schema.org",
@@ -69,7 +59,18 @@ def _structured_data_json(metadata: _PageMetadata, canonical_url: str) -> str:
             "url": "https://posthog.com",
             "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
         },
-        "publisher": _POSTHOG_ORGANIZATION,
+        # Matches the Organization that posthog.com publishes, so search engines tie the app to the same entity.
+        "publisher": {
+            "@type": "Organization",
+            "name": "PostHog",
+            "url": "https://posthog.com",
+            "logo": "https://posthog.com/brand/posthog-logo-stacked.png",
+            "sameAs": [
+                "https://twitter.com/PostHog",
+                "https://github.com/PostHog",
+                "https://www.linkedin.com/company/posthog",
+            ],
+        },
     }
     # The template renders this inside <script> with |safe, so no character may close the element.
     return json.dumps(structured_data).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
