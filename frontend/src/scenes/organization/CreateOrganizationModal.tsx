@@ -41,6 +41,8 @@ export function CreateOrganizationModal({
     const isAtProjectLimit =
         showSeparateOrganizationNote &&
         !!preflight?.cloud &&
+        // Without billing features the limit is unknown, so do not claim the organization is at it.
+        !!currentOrganization?.available_product_features?.length &&
         !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length ?? 0)
 
     const closeModal: () => void = () => {

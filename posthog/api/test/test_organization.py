@@ -119,6 +119,8 @@ class TestOrganizationAPI(APIBaseTest):
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_create_organization_reports_previous_organization(self, mock_capture):
+        Team.objects.create(organization=self.organization, project=self.project)
+
         with self.is_cloud(True):
             response = self.client.post("/api/organizations/", {"name": "New org"})
 

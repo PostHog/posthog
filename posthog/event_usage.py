@@ -154,7 +154,7 @@ def report_organization_created(
             "had_existing_organization": previous_organization is not None,
             "previous_organization_id": str(previous_organization.id) if previous_organization else None,
             "previous_organization_project_count": (
-                previous_organization.teams.count() if previous_organization else None
+                previous_organization.projects.count() if previous_organization else None
             ),
             "user_number_of_org_membership": current_user.organization_memberships.count(),
         },
