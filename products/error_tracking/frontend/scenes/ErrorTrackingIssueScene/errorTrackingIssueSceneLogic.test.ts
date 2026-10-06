@@ -10,7 +10,8 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
-import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { toErrorTrackingIssueSummary } from './issueSummaryLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
