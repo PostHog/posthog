@@ -1072,9 +1072,11 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def _editable_alert_scope(self) -> Optional[str]:
-        """The owning product's scope object when this request edits an alert destination."""
+        """The owning product's scope object when this request writes to an alert destination."""
+        # The draft actions (restore_revision, then publish) and rerun also change or replay what the
+        # destination delivers, so every write action needs the scope.
         hog_function_id = self.kwargs.get("pk")
-        if self.action not in ("update", "partial_update", "invocations") or not hog_function_id:
+        if self.action not in self.scope_object_write_actions or not hog_function_id:
             return None
         if not hasattr(self, "_cached_editable_alert_scope"):
             try:
@@ -1105,9 +1107,10 @@ class HogFunctionViewSet(
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # A managed alert destination is also gated by the owning product's write scope, so a
         # token that cannot configure the alert cannot redirect its notifications either.
+        required_scopes = ["hog_function:write"]
         alert_scope = self._editable_alert_scope()
         if alert_scope:
-            return ["hog_function:write", f"{alert_scope}:write"]
+            required_scopes.append(f"{alert_scope}:write")
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use
@@ -1116,8 +1119,8 @@ class HogFunctionViewSet(
         # — the same data-read scopes the invocation-inspection paths require.
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
-            return ["hog_function:write", "person:read", "group:read"]
-        return None
+            required_scopes += ["person:read", "group:read"]
+        return required_scopes if len(required_scopes) > 1 else None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":

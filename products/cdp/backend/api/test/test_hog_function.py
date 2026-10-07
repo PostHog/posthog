@@ -357,23 +357,44 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
     @parameterized.expand(
         [
-            ("both write scopes", ["hog_function:write", "logs:write"], status.HTTP_200_OK),
-            ("hog function write only", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
-            ("logs write only", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("edit with both write scopes", "patch", "", ["hog_function:write", "logs:write"], status.HTTP_200_OK),
+            ("edit with hog function write only", "patch", "", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("edit with logs write only", "patch", "", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("restore revision", "post", "revisions/1/restore", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("publish", "post", "publish/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("discard draft", "post", "discard_draft/", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "rerun without logs write",
+                "post",
+                "rerun/",
+                ["hog_function:write", "person:read", "group:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "rerun without the data read scopes",
+                "post",
+                "rerun/",
+                ["hog_function:write", "logs:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
-    def test_editing_a_logs_alert_destination_needs_the_logs_write_scope_too(self, _name, scopes, expected_status):
+    def test_writing_to_a_logs_alert_destination_needs_the_logs_write_scope_too(
+        self, _name, method, path, scopes, expected_status
+    ):
         managed = self._create_internal_destination(_alert_filters())
         key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
-        patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/{path}",
             data={"name": "Renamed alert destination"},
             HTTP_AUTHORIZATION=f"Bearer {key}",
         )
 
-        self.assertEqual(patch_response.status_code, expected_status, patch_response.json())
+        self.assertEqual(response.status_code, expected_status, response.json())
+        managed.refresh_from_db()
+        self.assertEqual(managed.name == "Renamed alert destination", expected_status == status.HTTP_200_OK)
 
     def test_editing_a_logs_alert_destination_needs_logs_editor_access(self):
         managed = self._create_internal_destination(_alert_filters())
