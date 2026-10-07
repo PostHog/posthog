@@ -41,7 +41,7 @@ def insight_table_names(query: object) -> set[str]:
         table_name = query.get("table_name")
         if isinstance(table_name, str) and table_name:
             names.add(table_name)
-        expressions = [query.get("math_hogql")]
+        expressions = [query.get("math_hogql")] if query.get("math") == "hogql" else []
         if query.get("type") == "hogql":
             expressions.append(query.get("key"))
             expressions.append(query.get("property"))

@@ -91,6 +91,11 @@ class TestInsightTableNames(SimpleTestCase):
                 {"orders_view"},
             ),
             (
+                "inactive_hogql_aggregation",
+                _trends({**PAGEVIEWS, "math": "total", "math_hogql": "sum(id IN (SELECT id FROM orders_view))"}),
+                set(),
+            ),
+            (
                 "hogql_breakdown",
                 {
                     "kind": "InsightVizNode",
