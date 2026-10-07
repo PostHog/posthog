@@ -40,17 +40,19 @@ def test_preparation_repairs_missing_workspace_outputs(monkeypatch: pytest.Monke
 
 
 @pytest.mark.parametrize(
-    "dependency", ["node_modules", "frontend/node_modules", ".flox", ".flox/cache", ".flox/cache/venv"]
+    "dependency", ["node_modules", "frontend/node_modules", "frontend", ".flox", ".flox/cache", ".flox/cache/venv"]
 )
 def test_preparation_refuses_dependency_directories_linked_to_another_checkout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dependency: str, capfd: pytest.CaptureFixture[str]
 ) -> None:
     target = tmp_path / "another-checkout"
     target.mkdir()
-    link = tmp_path / dependency
+    repository = tmp_path / "worktree"
+    repository.mkdir()
+    link = repository / dependency
     link.parent.mkdir(parents=True, exist_ok=True)
     link.symlink_to(target, target_is_directory=True)
-    monkeypatch.setattr("hogli.command_types.REPO_ROOT", tmp_path)
+    monkeypatch.setattr("hogli.command_types.REPO_ROOT", repository)
     result = CliRunner().invoke(cli, ["worktree:prepare"])
     assert result.exit_code != 0
     assert "must be local directories" in result.output + capfd.readouterr().err

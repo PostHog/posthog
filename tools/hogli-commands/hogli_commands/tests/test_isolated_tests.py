@@ -18,6 +18,8 @@ def test_cleanup_only_drops_the_current_invocations_databases(
     databases = {prefix, prefix + "_persons", "test_posthog", "test_posthog_fedcba9876543210"}
     if worker:
         databases.add(f"test_posthog_{run_id}_gw1")
+        databases.add(f"test_posthog_{run_id}_stamphog_gw0")
+        databases.add(f"test_posthog_{run_id}_stamphog_gw1")
     connection = MagicMock()
     clickhouse = MagicMock()
     clickhouse_name = f"posthog_test{'_gw0' if worker else ''}_{run_id}"
@@ -63,7 +65,11 @@ def test_cleanup_only_drops_the_current_invocations_databases(
         isolated_tests.pytest_sessionstart(session)
     isolated_tests.pytest_sessionfinish(session)
     assert prefix in databases
-    owned = {name for name in databases if name == prefix or name.startswith(prefix + "_")}
+    owned = {
+        name
+        for name in databases
+        if name == prefix or name.startswith(prefix + "_") or (worker and name.endswith("_gw0"))
+    }
     databases.difference_update(owned)
     clickhouse_names.remove(clickhouse_name)
     isolated_tests.pytest_sessionstart(session)
@@ -71,7 +77,7 @@ def test_cleanup_only_drops_the_current_invocations_databases(
     clickhouse_names.add(clickhouse_name)
     isolated_tests.pytest_sessionfinish(session)
     assert databases == {"test_posthog", "test_posthog_fedcba9876543210"} | (
-        {f"test_posthog_{run_id}_gw1"} if worker else set()
+        {f"test_posthog_{run_id}_gw1", f"test_posthog_{run_id}_stamphog_gw1"} if worker else set()
     )
     assert clickhouse_names == {"posthog_test", "posthog_test_gw1_fedcba9876543210"}
 

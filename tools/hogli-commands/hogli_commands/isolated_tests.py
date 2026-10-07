@@ -63,6 +63,13 @@ def _connect() -> psycopg.Connection[tuple[str]]:
     )
 
 
+def _owns_database(name: str, prefix: str) -> bool:
+    if name == prefix or name.startswith(prefix + "_"):
+        return True
+    worker = os.getenv("PYTEST_XDIST_WORKER")
+    return bool(worker and name.startswith(prefix.removesuffix("_" + worker) + "_") and name.endswith("_" + worker))
+
+
 def pytest_sessionstart(session: pytest.Session) -> None:
     prefix = _database_prefix()
     default = settings.DATABASES["default"]
@@ -71,7 +78,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
             raise pytest.UsageError("--isolated requires PostgreSQL aliases on the same local server and credentials")
     with _connect() as connection:
         names = connection.execute("SELECT datname FROM pg_database").fetchall()
-        if any(name == prefix or name.startswith(prefix + "_") for (name,) in names):
+        if any(_owns_database(name, prefix) for (name,) in names):
             raise pytest.UsageError(f"Private database namespace already exists: {prefix}")
     if _clickhouse_names(_clickhouse()):
         raise pytest.UsageError(f"Private ClickHouse namespace already exists: {prefix}")
@@ -82,13 +89,16 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     prefix = session.config.stash.get(_owned_namespace, None)
     if prefix is None:
         return
-    connections.close_all()
     failures: list[str] = []
+    try:
+        connections.close_all()
+    except Exception as exc:
+        failures.append(f"Closing local database connections: {exc}")
     try:
         with _connect() as connection:
             names = connection.execute("SELECT datname FROM pg_database").fetchall()
             for (name,) in names:
-                if name == prefix or name.startswith(prefix + "_"):
+                if _owns_database(name, prefix):
                     try:
                         connection.execute(sql.SQL("DROP DATABASE {};").format(sql.Identifier(name)))
                     except Exception as exc:

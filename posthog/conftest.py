@@ -339,6 +339,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     for route in load_product_db_routes(settings.BASE_DIR):
         test_product_db_name = test_db_name + f"_{route.database}"
+        writer_alias = f"{route.database}_db_writer"
+        if settings.TEST_RUN_ID and writer_alias in settings.DATABASES:
+            test_product_db_name = settings.DATABASES[writer_alias]["TEST"]["NAME"]
         for suffix in ("_db_writer", "_db_reader", "_db_direct"):
             alias = f"{route.database}{suffix}"
             if alias in settings.DATABASES:
