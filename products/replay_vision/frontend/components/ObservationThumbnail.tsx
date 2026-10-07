@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconVideoCamera } from '@posthog/icons'
 
+import posthog from 'lib/posthog-typed'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getVisionObservationsThumbnailRetrieveUrl } from '../generated/api'
@@ -68,6 +69,12 @@ export function ObservationThumbnail({
             : baseSrc
 
     const onError = (): void => {
+        posthog.capture('replay_vision_thumbnail_load_failed', {
+            observation_id: observation.id,
+            chapter: chapter ?? null,
+            attempt,
+            will_retry: attempt === 0,
+        })
         // One retry: the redirect target can blink, and the poster would stay blank for the whole mount.
         if (attempt === 0) {
             retryTimer.current = setTimeout(() => setAttempt(1), RETRY_DELAY_MS)
