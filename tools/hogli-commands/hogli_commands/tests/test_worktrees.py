@@ -287,13 +287,15 @@ class TestReclaimedBytes:
 
 
 class TestExecute:
-    def test_full_mode_removes_read_only_go_module_cache(self, tmp_path) -> None:
+    @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
+    def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:
         worktree = tmp_path / "wt"
-        module = worktree / "mod" / "lib@v1.0.0"
-        module.mkdir(parents=True)
-        (module / "lib.go").write_text("package lib\n")
-        module.chmod(0o555)
-        module.parent.chmod(0o555)
+        if read_only_go_module_cache:
+            module = worktree / "mod" / "lib@v1.0.0"
+            module.mkdir(parents=True)
+            (module / "lib.go").write_text("package lib\n")
+            module.chmod(0o555)
+            module.parent.chmod(0o555)
 
         _, removed, failed = _execute(
             [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],

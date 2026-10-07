@@ -852,8 +852,7 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
 
     for wt in worktrees:
         if mode == "deps":
-            _, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
-            if failures:
+            if _delete_paths(wt.deps_items):
                 failed += 1
             else:
                 removed += 1
@@ -871,8 +870,6 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
 
         try:
             _rmtree(wt.path)
-        except FileNotFoundError:
-            pass
         except OSError as err:
             click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}: {err}")
             failed += 1
@@ -927,12 +924,15 @@ def _rmtree(path: Path) -> None:
 
     Removal continues past an entry that cannot be deleted, so one stuck entry
     does not keep the rest of the tree on disk. The first such error is raised
-    at the end.
+    at the end. A path that does not exist is already removed, so it is not an
+    error.
     """
 
     unresolved: list[BaseException] = []
 
     def make_parent_writable_and_retry(function: Callable[..., object], failed: str, error: BaseException) -> None:
+        if isinstance(error, FileNotFoundError):
+            return
         parent = Path(failed).parent
         # A parent outside `path` is not part of the tree, so its permissions stay as they are.
         if isinstance(error, PermissionError) and function in (os.unlink, os.rmdir) and parent.is_relative_to(path):
@@ -949,22 +949,17 @@ def _rmtree(path: Path) -> None:
         raise unresolved[0]
 
 
-def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
-    """Remove deps directories; return (bytes actually freed, paths that failed)."""
+def _delete_paths(paths: Sequence[Path]) -> int:
+    """Remove deps directories; return how many could not be removed."""
 
-    freed = 0.0
     failures = 0
     for path in paths:
         try:
             _rmtree(path)
-        except FileNotFoundError:
-            continue  # already gone — not a failure
         except OSError as err:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1
-            continue
-        freed += sizes.get(str(path), 0.0)
-    return freed, failures
+    return failures
 
 
 def _cleanup_empty_parent(path: Path) -> None:
