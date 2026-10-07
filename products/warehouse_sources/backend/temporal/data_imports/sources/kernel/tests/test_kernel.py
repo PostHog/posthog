@@ -1,4 +1,7 @@
+import json
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -227,6 +230,119 @@ class TestGetRows:
             self._collect("apps")
 
         assert mock_session.return_value.get.call_count == 5
+
+
+class TestBrowserTelemetryEvents:
+    def _collect(self, responses: dict[str, list[mock.MagicMock]]) -> tuple[list[dict], list[str]]:
+        requested: list[str] = []
+
+        def _get(url: str, **_kwargs: Any) -> mock.MagicMock:
+            requested.append(url)
+            return responses[urlparse(url).path].pop(0)
+
+        with mock.patch(f"{_MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = _get
+            rows: list[dict] = []
+            for table in get_rows("sk_test", "browser_telemetry_events", mock.MagicMock()):
+                rows.extend(table.to_pylist())
+        return rows, requested
+
+    def test_fans_out_over_browsers_within_retention(self) -> None:
+        now = datetime.now(UTC)
+        browsers = [
+            {"session_id": "active"},
+            {"session_id": "recently_deleted", "deleted_at": (now - timedelta(days=2)).isoformat()},
+            {"session_id": "expired", "deleted_at": (now - timedelta(days=45)).isoformat()},
+        ]
+        network_event = {
+            "category": "network",
+            "type": "network_request",
+            "ts": 1700000000000000,
+            "data": {
+                "url": "https://example.com/api",
+                "headers": {"Authorization": "Bearer secret"},
+                "post_data": "password=secret",
+                "body": '{"access_token": "secret"}',
+            },
+        }
+        screenshot_event = {
+            "category": "screenshot",
+            "type": "monitor_screenshot",
+            "ts": 1700000000000001,
+            "data": {"png": "aGk="},
+        }
+        rows, requested = self._collect(
+            {
+                "/browsers": [_response(browsers, has_more=False)],
+                "/browsers/active/telemetry/events": [
+                    _response([{"seq": 1, "event": network_event}], has_more=True, next_offset=987),
+                    _response([{"seq": 2, "event": screenshot_event}], has_more=False, next_offset=0),
+                ],
+                "/browsers/recently_deleted/telemetry/events": [_response([], has_more=False)],
+            }
+        )
+
+        assert [{**row, "data": json.loads(row["data"])} for row in rows] == [
+            {
+                "browser_session_id": "active",
+                "seq": 1,
+                "category": "network",
+                "type": "network_request",
+                "ts": 1700000000000000,
+                "data": {"url": "https://example.com/api"},
+            },
+            {
+                "browser_session_id": "active",
+                "seq": 2,
+                "category": "screenshot",
+                "type": "monitor_screenshot",
+                "ts": 1700000000000001,
+                "data": {},
+            },
+        ]
+        assert parse_qs(urlparse(requested[0]).query)["status"] == ["all"]
+        assert not any("/browsers/expired/" in url for url in requested)
+
+        first_page, second_page = (parse_qs(urlparse(url).query) for url in requested[1:3])
+        # Without `since` Kernel only returns the last 5 minutes of events.
+        since = datetime.fromisoformat(first_page["since"][0])
+        assert now - timedelta(days=31) < since < now - timedelta(days=29)
+        assert "offset" not in first_page
+        assert second_page["offset"] == ["987"]
+
+    @pytest.mark.parametrize(
+        "has_more, next_offset",
+        [
+            (True, None),
+            (True, 0),
+            (False, 50),
+        ],
+    )
+    def test_stops_when_cursor_cannot_advance(self, has_more: bool, next_offset: int | None) -> None:
+        event = {"category": "page", "type": "page_load", "ts": 1}
+        rows, requested = self._collect(
+            {
+                "/browsers": [_response([{"session_id": "b1"}], has_more=False)],
+                "/browsers/b1/telemetry/events": [
+                    _response([{"seq": 1, "event": event}], has_more=has_more, next_offset=next_offset)
+                ],
+            }
+        )
+
+        assert [row["seq"] for row in rows] == [1]
+        assert len(requested) == 2
+
+    def test_skips_browser_purged_after_listing(self) -> None:
+        event = {"category": "console", "type": "console_log", "ts": 1, "data": {"text": "hello"}}
+        rows, _ = self._collect(
+            {
+                "/browsers": [_response([{"session_id": "gone"}, {"session_id": "b2"}], has_more=False)],
+                "/browsers/gone/telemetry/events": [_response({"code": "not_found"}, status_code=404)],
+                "/browsers/b2/telemetry/events": [_response([{"seq": 7, "event": event}], has_more=False)],
+            }
+        )
+
+        assert [(row["browser_session_id"], row["seq"]) for row in rows] == [("b2", 7)]
 
 
 class TestKernelSourceResponse:
