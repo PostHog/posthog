@@ -390,6 +390,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
 
+        # A deferred bootstrap can retract materialization before this callback runs.
+        if not self.is_materialized:
+            return
         try:
             materialize_saved_query(self, triggered_by_id=triggered_by_id)
         except Exception as e:

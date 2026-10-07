@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
 
 if TYPE_CHECKING:
     # The test client's response type only exists in the stubs, and callers here read `.json()` off it.
@@ -91,6 +91,8 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
         self.assertFalse(response.json()["is_materialized"])
         saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         self.assertFalse(saved_query.is_materialized)
+        self.assertEqual(Node.objects.get(saved_query=saved_query).type, NodeType.VIEW)
+        temporal.start_workflow.assert_not_awaited()
 
     @parameterized.expand(DEFERRED_AND_IMMEDIATE)
     def test_create_returns_a_usable_token(self, _name: str, deferred: bool) -> None:
