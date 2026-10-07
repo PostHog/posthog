@@ -149,6 +149,17 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
+            searchLogic.actions.setIncludePostHogConversions(true)
+            searchLogic.actions.setMetrics('conversions')
+            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
+            searchLogic.actions.setBreakdown('page')
+            expect(searchLogic.values.displayMetrics).toBe('conversions')
+            expect(searchLogic.values.query.includePostHogConversions).toBe(true)
+            searchLogic.actions.setMetrics('traffic')
+            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
+            searchLogic.actions.setMetrics('conversions')
+            searchLogic.actions.setBreakdown('keyword')
+            expect(searchLogic.values.query.includePostHogConversions).toBe(false)
             const organicSource = logic.values.dataWarehouseSources!.results[0]
             await expectLogic(logic, () =>
                 logic.actions.loadSourcesSuccess({

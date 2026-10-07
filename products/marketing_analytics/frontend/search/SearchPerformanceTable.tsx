@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -41,7 +42,9 @@ export function SearchPerformanceTable({
     })
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
-    const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
+    const searchResponse = response as MarketingAnalyticsSearchQueryResponse | undefined
+    const rows = searchResponse?.results ?? []
+    const goals = query.includePostHogConversions ? (searchResponse?.posthogConversionGoals ?? []) : []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
     const hasOrganicSources = query.sources.some((source) => source.sourceType === 'GoogleSearchConsole')
     const metricKeys: (keyof MarketingAnalyticsSearchMetrics)[] =
@@ -66,145 +69,204 @@ export function SearchPerformanceTable({
         )
     }
     return (
-        <LemonTable<MarketingAnalyticsSearchRow>
-            size="small"
-            tableLayout="fixed"
-            className="@max-[40rem]:[&_col:nth-child(2)]:w-10 @max-[40rem]:[&_th]:px-2 @max-[40rem]:[&_td]:px-2 @max-[40rem]:[&_th_svg]:hidden @max-[40rem]:[&_.sorting-indicator]:hidden"
-            dataSource={responseLoading ? [] : rows}
-            loading={responseLoading}
-            loadingSkeletonRows={5}
-            rowKey={(row) => JSON.stringify([row.keyword, row.page, row.platform, row.matchType, row.currency])}
-            pagination={{ pageSize: 10 }}
-            useURLForSorting={false}
-            emptyState={emptyState}
-            columns={[
-                {
-                    title: query.breakdown === 'page' ? 'Landing page' : 'Keyword or query',
-                    key: 'keyword',
-                    width: '24%',
-                    render: (_, row) => (
-                        <div className="min-w-0">
-                            {onSelect && (row.page || row.keyword) ? (
-                                <LemonButton type="tertiary" size="xsmall" noPadding onClick={() => onSelect(row)}>
-                                    <span className="block truncate text-link" title={row.page ?? row.keyword ?? ''}>
-                                        {row.page ?? row.keyword}
+        <>
+            {query.includePostHogConversions && !responseLoading && searchResponse && (
+                <LemonBanner
+                    type="info"
+                    action={
+                        goals.length === 0
+                            ? {
+                                  children: 'Configure conversion goals',
+                                  to: urls.settings('environment-marketing-analytics'),
+                              }
+                            : undefined
+                    }
+                >
+                    {goals.length === 0
+                        ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions by landing page.'
+                        : `PostHog conversions use ${searchResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution, matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.`}
+                    {searchResponse.posthogConversionsWarning && (
+                        <p className="mb-0 mt-1">{searchResponse.posthogConversionsWarning}</p>
+                    )}
+                </LemonBanner>
+            )}
+            <LemonTable<MarketingAnalyticsSearchRow>
+                size="small"
+                tableLayout="fixed"
+                firstColumnSticky
+                allowContentScroll
+                className="[&_th]:whitespace-normal"
+                dataSource={responseLoading ? [] : rows}
+                loading={responseLoading}
+                loadingSkeletonRows={5}
+                rowKey={(row) => JSON.stringify([row.keyword, row.page, row.platform, row.matchType, row.currency])}
+                pagination={{ pageSize: 10 }}
+                useURLForSorting={false}
+                emptyState={emptyState}
+                columns={[
+                    {
+                        title: query.breakdown === 'page' ? 'Landing page' : 'Keyword or query',
+                        key: 'keyword',
+                        width: 260,
+                        render: (_, row) => (
+                            <div className="min-w-0">
+                                {onSelect && (row.page || row.keyword) ? (
+                                    <LemonButton type="tertiary" size="xsmall" noPadding onClick={() => onSelect(row)}>
+                                        <span
+                                            className="block truncate text-link"
+                                            title={row.page ?? row.keyword ?? ''}
+                                        >
+                                            {row.page ?? row.keyword}
+                                        </span>
+                                    </LemonButton>
+                                ) : (
+                                    <span
+                                        className="block truncate"
+                                        title={row.page ?? row.keyword ?? 'Keyword unavailable'}
+                                    >
+                                        {row.page ?? row.keyword ?? 'Keyword unavailable'}
                                     </span>
-                                </LemonButton>
-                            ) : (
-                                <span
-                                    className="block truncate"
-                                    title={row.page ?? row.keyword ?? 'Keyword unavailable'}
-                                >
-                                    {row.page ?? row.keyword ?? 'Keyword unavailable'}
+                                )}
+                                <span className="text-xs text-secondary block truncate">
+                                    {row.platform === 'GoogleSearchConsole'
+                                        ? 'Organic search'
+                                        : [row.matchType, row.currency].filter(Boolean).join(' · ')}
                                 </span>
-                            )}
-                            <span className="text-xs text-secondary block truncate">
-                                {row.platform === 'GoogleSearchConsole'
-                                    ? 'Organic search'
-                                    : [row.matchType, row.currency].filter(Boolean).join(' · ')}
+                            </div>
+                        ),
+                    },
+                    {
+                        title: 'Platform',
+                        width: 220,
+                        key: 'platform',
+                        render: (_, row) => (
+                            <span
+                                className="flex items-center gap-1 min-w-0"
+                                title={SEARCH_PLATFORM_LABELS[row.platform]}
+                            >
+                                <SourceIcon type={row.platform} size="xsmall" disableTooltip />
+                                <span className="truncate">{SEARCH_PLATFORM_LABELS[row.platform]}</span>
                             </span>
-                        </div>
-                    ),
-                },
-                {
-                    title: <span className="@max-[40rem]:sr-only">Platform</span>,
-                    key: 'platform',
-                    render: (_, row) => (
-                        <span className="flex items-center gap-1 min-w-0" title={SEARCH_PLATFORM_LABELS[row.platform]}>
-                            <SourceIcon type={row.platform} size="xsmall" disableTooltip />
-                            <span className="hidden @min-[40rem]:inline truncate">
-                                {SEARCH_PLATFORM_LABELS[row.platform]}
-                            </span>
-                        </span>
-                    ),
-                },
-                ...metricKeys.map((metric) => ({
-                    title: (
-                        <span className="whitespace-normal wrap-anywhere">
-                            <span className="hidden @min-[40rem]:inline">
+                        ),
+                    },
+                    ...metricKeys.map((metric) => ({
+                        title: (
+                            <span className="whitespace-normal">
                                 {
                                     {
                                         clicks: 'Clicks',
                                         impressions: 'Impressions',
                                         ctr: 'CTR',
                                         cost: 'Cost',
-                                        conversions: 'Conversions',
+                                        conversions: 'Reported conversions',
                                         cpc: 'CPC',
-                                        cpa: 'CPA',
+                                        cpa: 'Reported CPA',
                                         position: 'Position',
                                     }[metric]
                                 }
                             </span>
-                            <span className="@min-[40rem]:hidden">
-                                {
-                                    {
-                                        clicks: 'Clicks',
-                                        impressions: 'Impr.',
-                                        ctr: 'CTR',
-                                        cost: 'Cost',
-                                        conversions: 'Conv.',
-                                        cpc: 'CPC',
-                                        cpa: 'CPA',
-                                        position: 'Pos.',
-                                    }[metric]
-                                }
-                            </span>
-                        </span>
+                        ),
+                        width: 200,
+                        tooltip: {
+                            clicks: 'Clicks reported by the search source',
+                            impressions: 'Impressions reported by the search source',
+                            ctr: 'Clicks divided by impressions',
+                            cost: 'Spend in the ad account currency',
+                            conversions: 'Conversions attributed by the ad platform',
+                            cpc: 'Spend divided by clicks',
+                            cpa: 'Spend divided by conversions reported by the ad platform',
+                            position:
+                                'Average position in organic Google search, weighted by impressions. Lower is better.',
+                        }[metric],
+                        key: metric,
+                        align: 'right' as const,
+                        sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
+                            (a[metric] ?? -1) - (b[metric] ?? -1),
+                        render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                            const value = row[metric] ?? null
+                            const money = metric === 'cost' || metric === 'cpc' || metric === 'cpa'
+                            const currency =
+                                row.currency && Object.values(CurrencyCode).includes(row.currency as CurrencyCode)
+                                    ? (row.currency as CurrencyCode)
+                                    : null
+                            return (
+                                <div>
+                                    <ChangeValueCell
+                                        value={value === null ? null : [value, row.previous?.[metric] ?? null]}
+                                        compare={!!query.compareFilter?.compare}
+                                        kind={
+                                            metric === 'ctr'
+                                                ? 'percentage'
+                                                : money && currency
+                                                  ? 'currency'
+                                                  : metric === 'conversions' || metric === 'position' || money
+                                                    ? 'decimal'
+                                                    : 'number'
+                                        }
+                                        currency={currency ?? CurrencyCode.USD}
+                                        reverseColors={
+                                            metric === 'cost' ||
+                                            metric === 'cpc' ||
+                                            metric === 'cpa' ||
+                                            metric === 'position'
+                                        }
+                                    />
+                                    {money && row.platform !== 'GoogleSearchConsole' && (
+                                        <span className="block text-xs text-secondary">
+                                            {row.currency ?? 'Unknown currency'}
+                                        </span>
+                                    )}
+                                </div>
+                            )
+                        },
+                    })),
+                    ...goals.flatMap((goal) =>
+                        (['conversions', 'costPerConversion'] as const).map((metric) => ({
+                            key: `${goal.id}-${metric}`,
+                            title: (
+                                <span className="whitespace-normal">
+                                    {metric === 'conversions' ? goal.name : `Cost per ${goal.name}`}
+                                </span>
+                            ),
+                            tooltip:
+                                metric === 'conversions'
+                                    ? 'Conversions attributed by PostHog'
+                                    : 'Spend divided by PostHog conversions. Unavailable without spend or conversions.',
+                            width: 220,
+                            align: 'right' as const,
+                            sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
+                                (a.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1) -
+                                (b.posthogConversions?.find((value) => value.id === goal.id)?.[metric] ?? -1),
+                            render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
+                                const conversion = row.posthogConversions?.find((value) => value.id === goal.id)
+                                const value = conversion?.[metric]
+                                const money = metric === 'costPerConversion'
+                                const previous = money
+                                    ? conversion?.previousCostPerConversion
+                                    : conversion?.previousConversions
+                                const currency =
+                                    row.currency && Object.values(CurrencyCode).includes(row.currency as CurrencyCode)
+                                        ? (row.currency as CurrencyCode)
+                                        : null
+                                return (
+                                    <div>
+                                        <ChangeValueCell
+                                            value={value == null ? null : [value, previous ?? null]}
+                                            compare={!!query.compareFilter?.compare}
+                                            kind={money && currency ? 'currency' : 'decimal'}
+                                            currency={currency ?? CurrencyCode.USD}
+                                            reverseColors={money}
+                                        />
+                                        {money && row.currency && (
+                                            <span className="block text-xs text-secondary">{row.currency}</span>
+                                        )}
+                                    </div>
+                                )
+                            },
+                        }))
                     ),
-                    tooltip: {
-                        clicks: 'Clicks reported by the search source',
-                        impressions: 'Impressions reported by the search source',
-                        ctr: 'Clicks divided by impressions',
-                        cost: 'Spend in the ad account currency',
-                        conversions: 'Conversions attributed by the ad platform',
-                        cpc: 'Spend divided by clicks',
-                        cpa: 'Spend divided by conversions',
-                        position:
-                            'Average position in organic Google search, weighted by impressions. Lower is better.',
-                    }[metric],
-                    key: metric,
-                    align: 'right' as const,
-                    sorter: (a: MarketingAnalyticsSearchRow, b: MarketingAnalyticsSearchRow) =>
-                        (a[metric] ?? -1) - (b[metric] ?? -1),
-                    render: (_: unknown, row: MarketingAnalyticsSearchRow) => {
-                        const value = row[metric] ?? null
-                        const money = metric === 'cost' || metric === 'cpc' || metric === 'cpa'
-                        const currency =
-                            row.currency && Object.values(CurrencyCode).includes(row.currency as CurrencyCode)
-                                ? (row.currency as CurrencyCode)
-                                : null
-                        return (
-                            <div>
-                                <ChangeValueCell
-                                    value={value === null ? null : [value, row.previous?.[metric] ?? null]}
-                                    compare={!!query.compareFilter?.compare}
-                                    kind={
-                                        metric === 'ctr'
-                                            ? 'percentage'
-                                            : money && currency
-                                              ? 'currency'
-                                              : metric === 'conversions' || metric === 'position' || money
-                                                ? 'decimal'
-                                                : 'number'
-                                    }
-                                    currency={currency ?? CurrencyCode.USD}
-                                    reverseColors={
-                                        metric === 'cost' ||
-                                        metric === 'cpc' ||
-                                        metric === 'cpa' ||
-                                        metric === 'position'
-                                    }
-                                />
-                                {money && row.platform !== 'GoogleSearchConsole' && (
-                                    <span className="block text-xs text-secondary">
-                                        {row.currency ?? 'Unknown currency'}
-                                    </span>
-                                )}
-                            </div>
-                        )
-                    },
-                })),
-            ]}
-        />
+                ]}
+            />
+        </>
     )
 }

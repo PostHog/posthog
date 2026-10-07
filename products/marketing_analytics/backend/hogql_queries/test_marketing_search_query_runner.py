@@ -2,22 +2,29 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.core.cache import cache
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    AttributionMode,
+    BaseMathType,
     Breakdown1,
     CompareFilter,
+    ConversionGoalFilter1,
     DateRange,
+    EventPropertyFilter,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchSource,
+    PropertyOperator,
 )
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.utils import uuid7
+from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
@@ -120,6 +127,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
             "cpc": 1.5,
             "cpa": 24,
             "previous": None,
+            "posthogConversions": None,
         }
         zero = next(row for row in rows if row.keyword == "zero")
         assert zero.ctr is None and zero.cpc is None and zero.cpa is None
@@ -247,6 +255,146 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert (
             MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate().results == []
         )
+
+    @parameterized.expand(
+        [
+            (AttributionMode.LAST_TOUCH, 2, 1, False),
+            (AttributionMode.FIRST_TOUCH, 3, 0, False),
+            (AttributionMode.LAST_TOUCH, None, 1, True),
+        ]
+    )
+    def test_posthog_landing_page_conversions_respect_source_model_filters_and_comparison(
+        self, model: AttributionMode, paid_count: int | None, organic_count: int, multiple_currencies: bool
+    ) -> None:
+        config = self.team.marketing_analytics_config
+        config.attribution_mode = model
+        config.attribution_window_days = 7
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event="purchase",
+                name="Purchases",
+                conversion_goal_id="purchase-goal",
+                conversion_goal_name="Purchases",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+                properties=[EventPropertyFilter(key="qualified", value=True, operator=PropertyOperator.EXACT)],
+            ).model_dump()
+        ]
+        config.save()
+        paid = self._table(
+            "search_conversion_paid",
+            {
+                "landing_page_view_unexpanded_final_url": "String",
+                "customer_currency_code": "String",
+                "metrics_clicks": "Float64",
+                "metrics_impressions": "Float64",
+                "metrics_cost_micros": "Float64",
+                "metrics_conversions": "Float64",
+                "segments_date": "Date",
+                "segments_ad_network_type": "String",
+            },
+            "landing_page_view_unexpanded_final_url,customer_currency_code,metrics_clicks,metrics_impressions,metrics_cost_micros,metrics_conversions,segments_date,segments_ad_network_type\n"
+            "https://example.com/pricing?utm_campaign=spring,USD,20,100,40000000,5,2023-01-10,SEARCH\n"
+            "https://example.com/pricing,USD,10,50,20000000,2,2023-01-10,SEARCH\n"
+            "https://example.com/pricing,USD,5,20,8000000,1,2022-12-15,SEARCH\n"
+            + ("https://example.com/pricing,EUR,3,10,6000000,1,2023-01-10,SEARCH\n" if multiple_currencies else ""),
+        )
+        organic = self._table(
+            "search_conversion_organic",
+            {
+                "page": "String",
+                "clicks": "Float64",
+                "impressions": "Float64",
+                "position": "Float64",
+                "date": "Date",
+            },
+            "page,clicks,impressions,position,date\nhttps://example.com/pricing,40,200,2,2023-01-10\n",
+        )
+        for person, day, url, medium, referrer, qualified in [
+            ("paid", "2023-01-09", "https://example.com/pricing?utm_campaign=spring", "cpc", "$direct", True),
+            ("journey", "2023-01-08", "https://example.com/pricing", "cpc", "$direct", True),
+            ("other-host", "2023-01-09", "https://other.example.com/pricing", "cpc", "$direct", True),
+            ("bing", "2023-01-09", "https://example.com/pricing", "", "www.bing.com", True),
+            (
+                "auto-tagged",
+                "2023-01-09",
+                "https://example.com/pricing?gclid=example-click",
+                "cpc",
+                "www.google.com",
+                True,
+            ),
+            ("excluded", "2023-01-09", "https://example.com/pricing", "cpc", "$direct", False),
+            ("previous", "2022-12-15", "https://example.com/pricing", "cpc", "$direct", True),
+        ]:
+            create_person(team_id=self.team.pk, distinct_ids=[person])
+            at = f"{day}T10:00:00Z"
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=person,
+                timestamp=at,
+                properties={
+                    "$session_id": str(uuid7(at)),
+                    "$current_url": url,
+                    "$pathname": "/pricing",
+                    "utm_source": "google" if medium and person != "auto-tagged" else "",
+                    "gclid": "example-click" if person == "auto-tagged" else "",
+                    "utm_medium": medium,
+                    "$referring_domain": referrer,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=person,
+                timestamp=f"{day}T13:00:00Z",
+                properties={"qualified": qualified},
+            )
+        # The later organic touch earns last-touch credit, but not first-touch credit.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="journey",
+            timestamp="2023-01-08T11:00:00Z",
+            properties={
+                "$session_id": str(uuid7("2023-01-08T11:00:00Z")),
+                "$current_url": "https://example.com/pricing#plans",
+                "$pathname": "/pricing",
+                "$referring_domain": "www.google.com",
+            },
+        )
+        flush_persons_and_events()
+        query = MarketingAnalyticsSearchQuery(
+            sources=[
+                MarketingAnalyticsSearchSource(sourceType="GoogleAds", statsTable=paid),
+                MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable=organic),
+            ],
+            breakdown="page",
+            includePostHogConversions=True,
+            compareFilter=CompareFilter(compare=True),
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+        )
+        result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert len(result.results) == (3 if multiple_currencies else 2)
+        assert bool(result.posthogConversionsWarning) == multiple_currencies
+        assert result.posthogAttributionMode == model
+        paid_row = next(row for row in result.results if row.platform == "GoogleAds" and row.currency == "USD")
+        organic_row = next(row for row in result.results if row.platform == "GoogleSearchConsole")
+        assert paid_row.conversions == 7
+        assert paid_row.cost == 60
+        assert paid_row.posthogConversions is not None
+        assert paid_row.posthogConversions[0].conversions == paid_count
+        assert paid_row.posthogConversions[0].costPerConversion == (60 / paid_count if paid_count else None)
+        assert paid_row.posthogConversions[0].previousConversions == (None if multiple_currencies else 1)
+        assert paid_row.posthogConversions[0].previousCostPerConversion == (None if multiple_currencies else 8)
+        assert organic_row.posthogConversions is not None
+        assert organic_row.posthogConversions[0].conversions == organic_count
+        assert organic_row.posthogConversions[0].costPerConversion is None
+        query.includePostHogConversions = False
+        result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
+        assert result.posthogConversionGoals is None
+        assert all(row.posthogConversions is None for row in result.results)
 
 
 @pytest.mark.ee

@@ -13,9 +13,18 @@ These counts guide connection suggestions; they do not change report attribution
 
 ## Search performance
 
-Spend and conversions require a synced ad platform source in the current search filters.
+Reported conversions and reported CPA require a synced ad platform source in the current search filters.
 Google Search Console reports organic traffic metrics only.
-When no paid source is ready, the disabled control directs users to check their source settings or filters.
+The Traffic and Conversions views both include spend when a paid source is ready.
+The first column stays visible while the metrics scroll horizontally.
+In Landing pages, Include PostHog conversions adds each configured event or action goal and its cost per conversion.
+These conversions use the session attribution engine with the team's attribution model, lookback window, goal filters, and test-account exclusion setting.
+Credit is matched by landing URL and search source after attribution, so other channels retain their share.
+URL query parameters and fragments are combined in this view.
+Google organic search and paid Google search receive separate credit; campaign source aliases use the existing Marketing analytics mappings.
+Organic rows have no cost per conversion, and pages with spend in multiple currencies leave PostHog metrics empty because credit cannot be assigned to individual ad accounts.
+Data warehouse goals are not supported by landing-page attribution.
+The checkbox only loads conversions in the Landing pages Conversions view; keyword detail views do not imply query-level PostHog attribution.
 For Google Ads landing pages, enable `landing_page_stats` and wait for its first sync to finish.
 
 ## X Ads

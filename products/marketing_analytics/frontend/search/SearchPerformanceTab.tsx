@@ -29,6 +29,7 @@ export function SearchPerformanceTab(): JSX.Element {
         readySources,
         displayMetrics,
         hasPaidSources,
+        includePostHogConversions,
         showPosition,
         canShowPosition,
         search,
@@ -38,8 +39,17 @@ export function SearchPerformanceTab(): JSX.Element {
         hasActiveFilters,
         hasSelectedBingSource,
     } = useValues(searchPerformanceLogic)
-    const { loadSources, setMetrics, setSearch, setBreakdown, setChannel, selectRow, setShowPosition, clearFilters } =
-        useActions(searchPerformanceLogic)
+    const {
+        loadSources,
+        setMetrics,
+        setSearch,
+        setBreakdown,
+        setChannel,
+        selectRow,
+        setShowPosition,
+        clearFilters,
+        setIncludePostHogConversions,
+    } = useActions(searchPerformanceLogic)
     const loading = !sourcesError && (dataWarehouseSourcesLoading || !dataWarehouseSources)
 
     return (
@@ -111,6 +121,14 @@ export function SearchPerformanceTab(): JSX.Element {
                                     data-attr="marketing-search-keyword-filter"
                                 />
                                 <div className="flex flex-wrap items-center gap-3">
+                                    {breakdown === 'page' && displayMetrics === 'conversions' && (
+                                        <LemonCheckbox
+                                            checked={includePostHogConversions}
+                                            onChange={setIncludePostHogConversions}
+                                            label="Include PostHog conversions"
+                                            data-attr="marketing-search-include-posthog-conversions"
+                                        />
+                                    )}
                                     {canShowPosition && (
                                         <LemonCheckbox
                                             checked={showPosition}
@@ -126,10 +144,11 @@ export function SearchPerformanceTab(): JSX.Element {
                                             { value: 'traffic', label: 'Traffic' },
                                             {
                                                 value: 'conversions',
-                                                label: 'Spend and conversions',
-                                                disabledReason: !hasPaidSources
-                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
-                                                    : undefined,
+                                                label: 'Conversions',
+                                                disabledReason:
+                                                    !hasPaidSources && breakdown !== 'page'
+                                                        ? 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
+                                                        : undefined,
                                             },
                                         ]}
                                     />
@@ -159,9 +178,9 @@ export function SearchPerformanceTab(): JSX.Element {
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&
                                     'Paid rows show targeted keywords; organic rows show actual Google queries. '}
-                                Conversions use the ad platform's attribution. Google Search Console does not report
-                                spend or conversions, and can omit low-volume queries. Organic positions are weighted by
-                                impressions. Hover over a change to see its comparison value.
+                                Reported conversions use the ad platform's attribution. Google Search Console does not
+                                report spend or conversions, and can omit low-volume queries. Organic positions are
+                                weighted by impressions. Hover over a change to see its comparison value.
                             </p>
                         </>
                     )}

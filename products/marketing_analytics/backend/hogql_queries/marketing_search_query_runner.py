@@ -3,6 +3,11 @@ from functools import cached_property
 
 from posthog.schema import (
     CachedMarketingAnalyticsSearchQueryResponse,
+    DateRange,
+    MarketingAnalyticsAttributionBreakdown,
+    MarketingAnalyticsAttributionQuery,
+    MarketingAnalyticsSearchConversion,
+    MarketingAnalyticsSearchConversionGoal,
     MarketingAnalyticsSearchMetrics,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchQueryResponse,
@@ -18,6 +23,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+
+from .attribution_base import ConversionGoal
+from .search_conversion_query_runner import SearchConversionQueryRunner
 
 
 class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalyticsSearchQueryResponse]):
@@ -52,6 +60,14 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             now=self.now,
         )
 
+    @property
+    def include_posthog_conversions(self) -> bool:
+        return bool(self.query.includePostHogConversions and self.query.breakdown == "page" and not self.query.keyword)
+
+    def _page_expr(self, field: str) -> ast.Expr:
+        page = parse_expr(field)
+        return ast.Call(name="cutQueryStringAndFragment", args=[page]) if self.include_posthog_conversions else page
+
     def _source_query(
         self, source: MarketingAnalyticsSearchSource, date_range: QueryDateRange, period: int
     ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -69,7 +85,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     "keyword_value": ast.Constant(value=None)
                     if self.query.breakdown == "page"
                     else parse_expr("nullIf(lower(trim(s.query)), '')"),
-                    "page_value": ast.Field(chain=["s", "page"])
+                    "page_value": self._page_expr("s.page")
                     if self.query.breakdown == "page"
                     else ast.Constant(value=None),
                     "keyword_filter": parse_expr(
@@ -102,10 +118,11 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         if self.query.breakdown == "page":
             if source.sourceType != "GoogleAds":
                 raise ValueError("Landing pages are supported by Google Ads and Google Search Console")
+            placeholders["page_value"] = self._page_expr("landing_page_view_unexpanded_final_url")
             return parse_select(
                 """
                 SELECT {period} AS period, NULL AS keyword,
-                    nullIf(landing_page_view_unexpanded_final_url, '') AS page,
+                    nullIf({page_value}, '') AS page,
                     'GoogleAds' AS platform, NULL AS matchType,
                     nullIf(upper(customer_currency_code), '') AS currency,
                     sum(toFloat(metrics_clicks)) AS click_count,
@@ -173,6 +190,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
         return parse_select(
             """
             SELECT keyword, page, platform, matchType, currency,
+                {currency_count} AS currency_count,
                 coalesce(sumIf(click_count, period = 0), 0) AS clicks, coalesce(sumIf(impression_count, period = 0), 0) AS impressions,
                 if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(total_cost, period = 0), 0)) AS cost,
                 if(platform = 'GoogleSearchConsole', NULL, coalesce(sumIf(conversion_count, period = 0), 0)) AS conversions,
@@ -194,8 +212,101 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             ORDER BY clicks DESC, impressions DESC, previous_clicks DESC, platform, keyword, page, matchType, currency
             LIMIT 100
             """,
-            placeholders={"sources": sources, "search": ast.Constant(value=(self.query.search or "").strip())},
+            placeholders={
+                "sources": sources,
+                "search": ast.Constant(value=(self.query.search or "").strip()),
+                "currency_count": parse_expr("uniqExact(ifNull(currency, '')) OVER (PARTITION BY page, platform)")
+                if self.include_posthog_conversions
+                else ast.Constant(value=1),
+            },
         )
+
+    def _add_posthog_conversions(
+        self, response: MarketingAnalyticsSearchQueryResponse, ambiguous_keys: set[str]
+    ) -> None:
+        keys = [SearchConversionQueryRunner.row_key(row.page, row.platform) for row in response.results if row.page]
+        goal_runner = SearchConversionQueryRunner(
+            query=MarketingAnalyticsAttributionQuery(
+                properties=[], conversionGoalId="", breakdownBy=MarketingAnalyticsAttributionBreakdown.LANDING_PAGE
+            ),
+            team=self.team,
+            user=self.user,
+            modifiers=self.modifiers,
+            timings=self.timings,
+            limit_context=self.limit_context,
+        )
+        goals = goal_runner._get_team_conversion_goals()
+        event_goals: list[ConversionGoal] = [goal for goal in goals if goal.kind != "DataWarehouseNode"]
+        valid_goals, skipped_goals = goal_runner._filter_invalid_conversion_goals(event_goals)
+        response.posthogConversionGoals = [
+            MarketingAnalyticsSearchConversionGoal(id=goal.conversion_goal_id, name=goal.conversion_goal_name)
+            for goal in valid_goals
+        ]
+        response.posthogAttributionMode = goal_runner.config.attribution_mode
+        warnings = [goal.message for goal in skipped_goals]
+        if len(event_goals) != len(goals):
+            warnings.append(
+                "Landing page attribution supports event and action goals. Data warehouse goals are not included."
+            )
+        if ambiguous_keys:
+            warnings.append(
+                "PostHog conversions are unavailable for pages with spend in multiple currencies because conversion credit cannot be split by ad account."
+            )
+        response.posthogConversionsWarning = " ".join(warnings) or None
+        for row in response.results:
+            row.posthogConversions = []
+        if not keys:
+            return
+        for goal in valid_goals:
+            periods: list[dict[str, float]] = []
+            for date_range in [self.query_date_range, self.comparison_date_range]:
+                if date_range is None:
+                    periods.append({})
+                    continue
+                runner = SearchConversionQueryRunner(
+                    query=MarketingAnalyticsAttributionQuery(
+                        properties=[],
+                        conversionGoalId=goal.conversion_goal_id,
+                        breakdownBy=MarketingAnalyticsAttributionBreakdown.LANDING_PAGE,
+                        dateRange=DateRange(
+                            date_from=date_range.date_from().isoformat(),
+                            date_to=date_range.date_to().isoformat(),
+                            explicitDate=True,
+                        ),
+                        limit=len(keys),
+                    ),
+                    team=self.team,
+                    user=self.user,
+                    modifiers=self.modifiers,
+                    timings=self.timings,
+                    limit_context=self.limit_context,
+                )
+                runner.search_keys = keys
+                periods.append(
+                    {
+                        row.breakdownValue: next(
+                            cell.conversions for cell in row.models if cell.model == response.posthogAttributionMode
+                        )
+                        for row in runner.calculate().results
+                    }
+                )
+            for row in response.results:
+                key = SearchConversionQueryRunner.row_key(row.page, row.platform)
+                current = periods[0].get(key, 0.0) if row.page and key not in ambiguous_keys else None
+                previous = periods[1].get(key, 0.0) if current is not None and self.comparison_date_range else None
+                assert row.posthogConversions is not None
+                row.posthogConversions.append(
+                    MarketingAnalyticsSearchConversion(
+                        id=goal.conversion_goal_id,
+                        name=goal.conversion_goal_name,
+                        conversions=current,
+                        costPerConversion=row.cost / current if row.cost is not None and current else None,
+                        previousConversions=previous,
+                        previousCostPerConversion=row.previous.cost / previous
+                        if row.previous and row.previous.cost is not None and previous
+                        else None,
+                    )
+                )
 
     def _calculate(self) -> MarketingAnalyticsSearchQueryResponse:
         if not self.query.sources:
@@ -209,9 +320,12 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        rows = []
+        rows: list[MarketingAnalyticsSearchRow] = []
+        ambiguous_keys: set[str] = set()
         for row in result.results:
             values = dict(zip(result.columns or [], row))
+            if values.pop("currency_count") > 1:
+                ambiguous_keys.add(SearchConversionQueryRunner.row_key(values.get("page"), values["platform"]))
             previous = {
                 metric: values.pop(f"previous_{metric}") for metric in MarketingAnalyticsSearchMetrics.model_fields
             }
@@ -221,4 +335,7 @@ class MarketingAnalyticsSearchQueryRunner(AnalyticsQueryRunner[MarketingAnalytic
                     previous=MarketingAnalyticsSearchMetrics(**previous) if self.comparison_date_range else None,
                 )
             )
-        return MarketingAnalyticsSearchQueryResponse(results=rows)
+        response = MarketingAnalyticsSearchQueryResponse(results=rows)
+        if self.include_posthog_conversions:
+            self._add_posthog_conversions(response, ambiguous_keys)
+        return response

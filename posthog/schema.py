@@ -2022,6 +2022,26 @@ class MarketingAnalyticsDrillDownConfig(BaseModel):
     excludesConversionGoals: bool | None = None
 
 
+class MarketingAnalyticsSearchConversion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversions: float | None = None
+    costPerConversion: float | None = None
+    id: str
+    name: str
+    previousConversions: float | None = None
+    previousCostPerConversion: float | None = None
+
+
+class MarketingAnalyticsSearchConversionGoal(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    name: str
+
+
 class MarketingAnalyticsSearchMetrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2053,6 +2073,7 @@ class MarketingAnalyticsSearchRow(BaseModel):
     page: str | None = None
     platform: Platform
     position: float | None = None
+    posthogConversions: list[MarketingAnalyticsSearchConversion] | None = None
     previous: MarketingAnalyticsSearchMetrics | None = None
 
 
@@ -14165,6 +14186,9 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -20092,6 +20116,9 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21998,6 +22025,9 @@ class QueryResponseAlternative38(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    posthogAttributionMode: AttributionMode | None = None
+    posthogConversionGoals: list[MarketingAnalyticsSearchConversionGoal] | None = None
+    posthogConversionsWarning: str | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -28824,6 +28854,7 @@ class MarketingAnalyticsSearchQuery(BaseModel):
     breakdown: Breakdown1 | None = None
     compareFilter: CompareFilter | None = None
     dateRange: DateRange | None = None
+    includePostHogConversions: bool | None = None
     keyword: str | None = None
     kind: Literal["MarketingAnalyticsSearchQuery"] = "MarketingAnalyticsSearchQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

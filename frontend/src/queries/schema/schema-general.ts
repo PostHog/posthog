@@ -8182,6 +8182,7 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     breakdown?: 'keyword' | 'page'
     keyword?: string
     page?: string
+    includePostHogConversions?: boolean
 }
 
 export interface MarketingAnalyticsSearchMetrics {
@@ -8195,6 +8196,18 @@ export interface MarketingAnalyticsSearchMetrics {
     position?: number | null
 }
 
+export interface MarketingAnalyticsSearchConversionGoal {
+    id: string
+    name: string
+}
+
+export interface MarketingAnalyticsSearchConversion extends MarketingAnalyticsSearchConversionGoal {
+    conversions: number | null
+    costPerConversion: number | null
+    previousConversions?: number | null
+    previousCostPerConversion?: number | null
+}
+
 export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
     keyword: string | null
     page?: string | null
@@ -8202,10 +8215,14 @@ export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMet
     matchType: string | null
     currency: string | null
     previous?: MarketingAnalyticsSearchMetrics | null
+    posthogConversions?: MarketingAnalyticsSearchConversion[]
 }
 
 export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
     results: MarketingAnalyticsSearchRow[]
+    posthogConversionGoals?: MarketingAnalyticsSearchConversionGoal[]
+    posthogConversionsWarning?: string
+    posthogAttributionMode?: AttributionMode
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>

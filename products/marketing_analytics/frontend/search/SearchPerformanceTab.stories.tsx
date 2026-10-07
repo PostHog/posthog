@@ -11,7 +11,11 @@ import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytic
 import { mswDecorator } from '~/mocks/browser'
 import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { MarketingAnalyticsSearchQuery, MarketingAnalyticsSearchRow } from '~/queries/schema/schema-general'
+import {
+    AttributionMode,
+    MarketingAnalyticsSearchQuery,
+    MarketingAnalyticsSearchRow,
+} from '~/queries/schema/schema-general'
 
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -183,6 +187,13 @@ const MOCKS: Mocks = {
             return [
                 200,
                 {
+                    posthogConversionGoals: query.includePostHogConversions
+                        ? [
+                              { id: 'signup', name: 'Signups' },
+                              { id: 'purchase', name: 'Purchases' },
+                          ]
+                        : undefined,
+                    posthogAttributionMode: query.includePostHogConversions ? AttributionMode.LastTouch : undefined,
                     results: (query.breakdown === 'page'
                         ? ROWS.filter((row) => row.platform !== 'BingAds' && row.clicks > 0).map((row) => ({
                               ...row,
@@ -203,6 +214,32 @@ const MOCKS: Mocks = {
                         )
                         .map((row) => ({
                             ...row,
+                            posthogConversions: query.includePostHogConversions
+                                ? [
+                                      {
+                                          id: 'signup',
+                                          name: 'Signups',
+                                          conversions: 24,
+                                          costPerConversion: row.cost == null ? null : row.cost / 24,
+                                          previousConversions: query.compareFilter?.compare ? 20 : null,
+                                          previousCostPerConversion:
+                                              query.compareFilter?.compare && row.cost != null
+                                                  ? (row.cost * 1.1) / 20
+                                                  : null,
+                                      },
+                                      {
+                                          id: 'purchase',
+                                          name: 'Purchases',
+                                          conversions: 6,
+                                          costPerConversion: row.cost == null ? null : row.cost / 6,
+                                          previousConversions: query.compareFilter?.compare ? 8 : null,
+                                          previousCostPerConversion:
+                                              query.compareFilter?.compare && row.cost != null
+                                                  ? (row.cost * 1.1) / 8
+                                                  : null,
+                                      },
+                                  ]
+                                : undefined,
                             previous: query.compareFilter?.compare
                                 ? {
                                       clicks: row.clicks * 0.8,
@@ -550,4 +587,26 @@ export const NewDashboardFlagOff: Story = {
         ...LegacyScene.parameters,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
     },
+}
+
+export const PostHogConversions: Story = {
+    ...Comparison,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
+        await userEvent.click(await canvas.findByRole('checkbox', { name: 'Include PostHog conversions' }))
+        await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
+    },
+}
+
+export const PostHogConversionsNarrow: Story = {
+    ...PostHogConversions,
+    decorators: [
+        (Story) => (
+            <div className="w-[520px]">
+                <Story />
+            </div>
+        ),
+    ],
 }

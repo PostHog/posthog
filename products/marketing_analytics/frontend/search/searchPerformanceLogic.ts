@@ -28,6 +28,7 @@ export interface searchPerformanceLogicValues extends Pick<
     marketingAnalyticsLogicValues,
     'dataWarehouseSources' | 'dataWarehouseSourcesLoading' | 'dateFilter' | 'compareFilter' | 'integrationFilter'
 > {
+    includePostHogConversions: boolean
     metrics: SearchMetrics
     hasPaidSources: boolean
     displayMetrics: SearchMetrics
@@ -57,6 +58,7 @@ export interface searchPerformanceLogicActions extends Pick<
     marketingAnalyticsLogicActions,
     'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
 > {
+    setIncludePostHogConversions: (include: boolean) => { include: boolean }
     clearFilters: () => { value: true }
     setShowPosition: (showPosition: boolean) => { showPosition: boolean }
     setMetrics: (metrics: SearchMetrics) => { metrics: SearchMetrics }
@@ -83,6 +85,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
     })),
     actions({
         clearFilters: true,
+        setIncludePostHogConversions: (include: boolean) => ({ include }),
         setMetrics: (metrics: SearchMetrics) => ({ metrics }),
         setShowPosition: (showPosition: boolean) => ({ showPosition }),
         setBreakdown: (breakdown: SearchBreakdown) => ({ breakdown }),
@@ -92,6 +95,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         setQuerySearch: (search: string) => ({ search }),
     }),
     reducers({
+        includePostHogConversions: [false, { setIncludePostHogConversions: (_, { include }) => include }],
         breakdown: ['keyword' as SearchBreakdown, { setBreakdown: (_, { breakdown }) => breakdown }],
         channel: ['all' as SearchChannel, { setChannel: (_, { channel }) => channel }],
         selectedRow: [
@@ -179,8 +183,9 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
         displayMetrics: [
-            (s) => [s.hasPaidSources, s.metrics],
-            (hasPaidSources: boolean, metrics: SearchMetrics): SearchMetrics => (hasPaidSources ? metrics : 'traffic'),
+            (s) => [s.hasPaidSources, s.metrics, s.breakdown],
+            (hasPaidSources: boolean, metrics: SearchMetrics, breakdown): SearchMetrics =>
+                hasPaidSources || breakdown === 'page' ? metrics : 'traffic',
         ],
         canShowPosition: [
             (s) => [s.readySources, s.metrics],
@@ -190,12 +195,30 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
         query: [
-            (s) => [s.readySources, s.dateFilter, s.querySearch, s.compareFilter, s.breakdown],
-            (sources, dateFilter, search, compareFilter, breakdown): MarketingAnalyticsSearchQuery => ({
+            (s) => [
+                s.readySources,
+                s.dateFilter,
+                s.querySearch,
+                s.compareFilter,
+                s.breakdown,
+                s.includePostHogConversions,
+                s.displayMetrics,
+            ],
+            (
+                sources,
+                dateFilter,
+                search,
+                compareFilter,
+                breakdown,
+                includePostHogConversions,
+                metrics
+            ): MarketingAnalyticsSearchQuery => ({
                 kind: NodeKind.MarketingAnalyticsSearchQuery,
                 sources,
                 breakdown,
                 compareFilter,
+                includePostHogConversions:
+                    breakdown === 'page' && metrics === 'conversions' && includePostHogConversions,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                 search,
             }),
@@ -228,6 +251,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 })
                 return {
                     ...query,
+                    includePostHogConversions: false,
                     sources: detailSources,
                     search: undefined,
                     breakdown: row.page ? 'keyword' : 'page',
