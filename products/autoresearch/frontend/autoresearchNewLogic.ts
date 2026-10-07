@@ -570,7 +570,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                             ? 'Experiment budget must be a whole number'
                             : undefined,
             }),
-            submit: async (payload: NewPipelineFormValues) => {
+            submit: async (payload: NewPipelineFormValues, breakpoint) => {
                 if (!values.currentTeamId) {
                     lemonToast.error('Select a project before creating a model')
                     return
@@ -640,6 +640,8 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 }
                 posthog.capture('autoresearch model created', { ...eventProperties, pipeline_id: created.id })
                 if (intent === 'train') {
+                    // A person who left the form during creation keeps the model as a draft, without a paid run.
+                    breakpoint()
                     try {
                         await autoresearchTrainCreate(teamId, created.id)
                         posthog.capture('autoresearch model training started', {
@@ -666,6 +668,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 } else {
                     lemonToast.success(`Saved "${created.name}" as a draft`)
                 }
+                breakpoint()
                 actions.resetNewPipeline()
                 router.actions.push(urls.autoresearchPipeline(created.id))
             },

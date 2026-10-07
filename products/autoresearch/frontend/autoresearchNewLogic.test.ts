@@ -348,6 +348,39 @@ describe('autoresearchNewLogic', () => {
     )
 
     it.each([
+        ['creates the model', 0],
+        ['starts training', 1],
+    ])(
+        'neither trains nor navigates late when the person leaves while the form %s',
+        async (pendingStep, expectedTrains) => {
+            let finishPendingStep: () => void = () => {}
+            const pending = new Promise<void>((resolve) => {
+                finishPendingStep = resolve
+            })
+            const created = { id: 'pipeline-1', name: 'Sharing' }
+            if (pendingStep === 'creates the model') {
+                mockCreate.mockReturnValue(pending.then(() => created))
+            } else {
+                mockCreate.mockResolvedValue(created)
+            }
+            mockTrain.mockReturnValue(pending.then(() => ({ id: 'run-1', status: 'running' })))
+            const logic = autoresearchNewLogic()
+            logic.mount()
+
+            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+            await settle(logic)
+            logic.actions.submitWithIntent('train')
+            await jest.advanceTimersByTimeAsync(0)
+            logic.unmount()
+            finishPendingStep()
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(mockTrain).toHaveBeenCalledTimes(expectedTrains)
+            expect(router.values.location.pathname).not.toContain(urls.autoresearchPipeline('pipeline-1'))
+        }
+    )
+
+    it.each([
         ['a validation error', { detail: 'A training run is already running' }, 'A training run is already running'],
         [
             'a usage limit',
