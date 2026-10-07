@@ -421,7 +421,11 @@ _LEADING_INDEXES_SQL = """
       AND att.attname = %(column)s
       AND am.amname = 'btree'
       AND idx.indisvalid
-      AND idx.indpred IS NULL
+      -- A key lookup is an equality, which implies IS NOT NULL, so Postgres uses such a partial index for it.
+      AND (
+        idx.indpred IS NULL
+        OR pg_get_expr(idx.indpred, idx.indrelid) = '(' || quote_ident(att.attname) || ' IS NOT NULL)'
+      )
 """
 
 

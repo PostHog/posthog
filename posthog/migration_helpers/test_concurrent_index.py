@@ -527,20 +527,33 @@ def _indexes_on_only(table: str, column: str) -> set[str]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "on_delete,db_constraint,to_field,index_fields,conditional_unique",
+    "on_delete,db_constraint,to_field,index_fields,index_condition,conditional_unique",
     [
-        pytest.param(models.CASCADE, True, None, ["owner", "seq"], False, id="another_index_leads_with_the_column"),
-        pytest.param(models.CASCADE, True, None, ["owner"], False, id="a_meta_index_on_the_same_column"),
-        pytest.param(models.DO_NOTHING, False, None, None, False, id="no_parent_delete_reads_the_column"),
-        pytest.param(models.CASCADE, True, "code", ["owner", "seq"], False, id="a_key_to_a_text_column"),
-        pytest.param(models.CASCADE, True, None, ["owner", "seq"], True, id="a_conditional_unique_on_the_column"),
+        pytest.param(
+            models.CASCADE, True, None, ["owner", "seq"], None, False, id="another_index_leads_with_the_column"
+        ),
+        pytest.param(models.CASCADE, True, None, ["owner"], None, False, id="a_meta_index_on_the_same_column"),
+        pytest.param(
+            models.CASCADE,
+            True,
+            None,
+            ["owner"],
+            models.Q(owner__isnull=False),
+            False,
+            id="a_partial_index_that_skips_only_nulls",
+        ),
+        pytest.param(models.DO_NOTHING, False, None, None, None, False, id="no_parent_delete_reads_the_column"),
+        pytest.param(models.CASCADE, True, "code", ["owner", "seq"], None, False, id="a_key_to_a_text_column"),
+        pytest.param(models.CASCADE, True, None, ["owner", "seq"], None, True, id="a_conditional_unique_on_the_column"),
     ],
 )
 def test_drop_foreign_key_index_drops_only_the_automatic_indexes(
-    key_tables, on_delete, db_constraint, to_field, index_fields, conditional_unique
+    key_tables, on_delete, db_constraint, to_field, index_fields, index_condition, conditional_unique
 ):
     parent, child = key_tables
-    indexes = [models.Index(fields=index_fields, name=f"{child}_meta")] if index_fields else []
+    indexes = (
+        [models.Index(fields=index_fields, condition=index_condition, name=f"{child}_meta")] if index_fields else []
+    )
     constraints = (
         [models.UniqueConstraint(fields=["owner"], condition=models.Q(seq__gt=0), name=f"{child}_uniq")]
         if conditional_unique
@@ -623,6 +636,13 @@ def test_drop_field_indexes_drops_only_the_like_companion_of_a_unique_field(key_
             'DROP INDEX "{automatic}"',
             "No other btree index",
             id="the_automatic_index_is_already_gone",
+        ),
+        pytest.param(
+            models.CASCADE,
+            True,
+            'CREATE INDEX "{child}_partial" ON "{child}" (owner_id, seq) WHERE owner_id IS NOT NULL AND seq > 0',
+            "No other btree index",
+            id="a_partial_index_that_skips_more_than_nulls",
         ),
         pytest.param(
             models.DO_NOTHING,

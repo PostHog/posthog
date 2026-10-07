@@ -556,7 +556,7 @@ Drop them with `DropFieldIndexesConcurrently(model_name="mymodel", name="team")`
 - For a field with `db_index=True`, set `db_index=False` on the model and use the op in place of the `AlterField` that `makemigrations` writes. It drops both indexes.
 - For a field with `unique=True`, it drops only the `_like` companion. Model state cannot record that, so a fresh database still creates the companion.
 
-It refuses when the table holds another index on only that column that no `Meta` index or constraint names. It also refuses when no other btree index leads with the column while a parent delete still reads it, including through a foreign key that only the database holds, such as one added with `AddForeignKeyNotValid`.
+It refuses when the table holds another index on only that column that no `Meta` index or constraint names. It also refuses when no other btree index leads with the column while a parent delete still reads it, including through a foreign key that only the database holds, such as one added with `AddForeignKeyNotValid`. A partial index counts only when its sole condition is `<column> IS NOT NULL`, because a key lookup never matches a null.
 
 ### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
 
