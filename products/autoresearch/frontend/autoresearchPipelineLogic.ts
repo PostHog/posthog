@@ -177,7 +177,10 @@ export function trainingRunProgress(run: AutoresearchTrainingRunApi): TrainingRu
     }
 }
 
-/** Features a run's model uses that the champion does not, and champion features the run's model left out. */
+/**
+ * Features in the run model's reported top drivers but not the champion's, and the reverse.
+ * Each list is capped and can be partial, so a feature missing from a list can still be a model input.
+ */
 export interface FeatureChanges {
     added: string[]
     dropped: string[]

@@ -13,9 +13,9 @@ export function FeatureImportanceChart({
 }: {
     explanation: ModelExplanationFieldApi
     header?: ReactNode
-    /** Features to tag as new, compared with another model. */
+    /** Top drivers to tag as new, because the champion's top drivers do not include them. */
     addedFeatures?: string[]
-    /** Features another model uses that this model does not. */
+    /** Champion top drivers that this model's top drivers do not include. */
     droppedFeatures?: string[]
 }): JSX.Element {
     const features = explanation.top_features ?? []
@@ -44,9 +44,11 @@ export function FeatureImportanceChart({
                                         {f.name}
                                     </span>
                                     {addedFeatures.includes(f.name) && (
-                                        <LemonTag type="highlight" size="small" className="shrink-0">
-                                            New
-                                        </LemonTag>
+                                        <Tooltip title="Not in the champion's top drivers">
+                                            <LemonTag type="highlight" size="small" className="shrink-0">
+                                                New
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </div>
                                 <div
@@ -69,7 +71,7 @@ export function FeatureImportanceChart({
                 </div>
                 {droppedFeatures.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                        Dropped:
+                        Champion top drivers not in this list:
                         {droppedFeatures.map((name) => (
                             <LemonTag key={name} type="muted" size="small" className="font-mono">
                                 {name}
