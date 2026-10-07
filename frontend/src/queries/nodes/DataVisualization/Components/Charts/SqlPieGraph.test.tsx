@@ -122,6 +122,14 @@ describe('SqlPieGraph', () => {
             expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
             showsTotal: false,
         },
+        {
+            // `sliceContent` is a pie-only "show on slices" setting with no proportion-bar control,
+            // so a value carried over from a prior pie selection must not suppress the bar's total.
+            name: 'a proportion bar still shows the total when a stale pie sliceContent carries over',
+            chartSettings: { pie: { sliceContent: 'labels' as const } },
+            expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
+            showsTotal: true,
+        },
     ])('$name', ({ chartSettings, expectedShares, showsTotal }) => {
         const { container } = render(
             <SqlPieGraph {...baseProps(chartSettings, [40, 30, 20, 10], ChartDisplayType.ActionsProportionBar)} />

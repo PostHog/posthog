@@ -63,7 +63,10 @@ export const SqlPieGraph = ({
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
     // The total is a sum-of-values readout, so default it on only when slices show values.
     // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
-    const showPieTotal = chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? sliceContent === 'values'
+    // A proportion bar has no "show on slices" control, so `sliceContent` is a leftover from a
+    // prior pie/donut selection, not a setting of its own — default its total on regardless.
+    const showPieTotal =
+        chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? (isProportionBar || sliceContent === 'values')
     // The proportion bar has no "show values as" control: its legend and tooltip show both.
     const asPercent = !isProportionBar && (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
