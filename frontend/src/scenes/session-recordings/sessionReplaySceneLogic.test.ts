@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -48,6 +50,31 @@ describe('sessionReplaySceneLogic', () => {
         ])('lands %s where expected', (_, variant, path, params, expected) => {
             land(variant, path, params)
             expect(router.values.location.pathname).toMatch(new RegExp(`${expected}$`))
+        })
+
+        it('hides every arm when the organization has not approved AI data processing', () => {
+            logic.unmount()
+            playlistLogic.unmount()
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            playlistLogic = sessionRecordingsPlaylistLogic(SCENE_PLAYLIST_LOGIC_PROPS)
+            playlistLogic.mount()
+            land('both', '/replay/home')
+            expect(logic.values.watchPicksVariant).toBeNull()
+            expect(router.values.location.pathname).toMatch(/\/replay\/home$/)
+        })
+
+        it.each([
+            ['Collections', '/replay/playlists', 'playlists'],
+            ['What to watch', '/replay/what-to-watch', 'what-to-watch'],
+            ['Recordings', '/replay/home', 'home'],
+        ])('switches to %s after landing', (_, path, tab) => {
+            land('both', '/replay/home')
+            router.actions.push(path)
+            expect(logic.values.tab).toBe(tab)
+            expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
         })
 
         it('redirects once per visit, so the Recordings tab stays reachable', () => {

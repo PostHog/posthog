@@ -58,7 +58,7 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
                     <span className="truncate text-xs font-normal text-secondary">
                         <span>{scannerName}</span>
                         <span> · </span>
-                        <TZLabel time={observation.created_at} />
+                        <TZLabel time={observation.created_at} showPopover={false} noStyles />
                     </span>
                     <span className="truncate text-xs font-normal text-secondary">{watchReasonCopy(reason)}</span>
                 </span>

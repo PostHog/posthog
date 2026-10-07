@@ -392,6 +392,20 @@ describe('replayScannerLogic', () => {
 
         // A ?goal= link (e.g. crafted or shared) must not spend the user's AI allowance on its own;
         // it only prefills the box for an explicit click.
+        it('a ?goal= link with ?draft= starts the draft, the way the Replay page empty state does', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'), {
+                goal: 'tell me what to watch',
+                draft: true,
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.goalDraftInput).toEqual('tell me what to watch')
+            expect(draftSpy).toHaveBeenCalledTimes(1)
+            expect(router.values.searchParams.goal).toBeUndefined()
+            expect(router.values.searchParams.draft).toBeUndefined()
+        })
+
         it('a bare ?goal= param prefills the input without auto-starting the draft', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
 

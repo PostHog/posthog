@@ -205,7 +205,7 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
         setListMode: ({ mode }) => {
             posthog.capture('replay_vision_watch_picks_list_mode_changed', { mode })
         },
-        watchPick: ({ item, position, surface }) => {
+        watchPick: async ({ item, position, surface }, breakpoint) => {
             const { observation, reason } = item
             const keyMomentMs = observationKeyMomentMs(observation)
             posthog.capture('replay_vision_watch_clip_clicked', {
@@ -223,10 +223,10 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                 sidebarTab: SessionRecordingSidebarTab.OBSERVATIONS,
                 showInspector: true,
             }
-            if (!observation.viewed && values.currentTeamId) {
-                actions.markPickViewed(observation.id)
-                void visionObservationsViewedCreate(String(values.currentTeamId), observation.id).catch(() => undefined)
-            }
+            const markViewed =
+                !observation.viewed && values.currentTeamId
+                    ? visionObservationsViewedCreate(String(values.currentTeamId), observation.id)
+                    : null
             sessionReplaySceneLogic.findMounted()?.actions.setPickSeekSessionId(observation.session_id)
             const { location, searchParams, hashParams } = router.values
             if (props.playlistLogicProps) {
@@ -240,6 +240,16 @@ export const watchPicksLogic: LogicWrapper<watchPicksLogicType> = kea<watchPicks
                     ...playerParams,
                 })
             }
+            if (!markViewed) {
+                return
+            }
+            try {
+                await markViewed
+            } catch {
+                return
+            }
+            breakpoint()
+            actions.markPickViewed(observation.id)
         },
         [props.playlistLogicProps
             ? sessionRecordingsPlaylistLogic(props.playlistLogicProps).actionTypes.setSelectedRecordingId
