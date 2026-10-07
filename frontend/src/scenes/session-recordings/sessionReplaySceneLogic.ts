@@ -128,12 +128,10 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
 
     selectors(() => ({
-        // TODO: drop the local 'both' fallback before the experiment ships.
         watchPicksVariant: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): WatchPicksVariant | null =>
-                watchPicksVariantFromFlag(featureFlags[FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]) ??
-                (process.env.NODE_ENV === 'development' ? 'both' : null),
+                watchPicksVariantFromFlag(featureFlags[FEATURE_FLAGS.REPLAY_VISION_WATCH_IN_LIST_EXPERIMENT]),
         ],
         breadcrumbs: [
             (s) => [s.tab],
