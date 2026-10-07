@@ -481,6 +481,32 @@ const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>,
     },
 })
 
+const WorkflowsRecipientListCreateSchema = () => {
+    const WorkflowRecipientListsCreateBody = orvalSchemas.WorkflowRecipientListsCreateBody()
+    return WorkflowRecipientListsCreateBody
+}
+
+const workflowsRecipientListCreate = (): ToolBase<
+    ReturnType<typeof WorkflowsRecipientListCreateSchema>,
+    Schemas.RecipientList
+> => ({
+    name: 'workflows-recipient-list-create',
+    schema: WorkflowsRecipientListCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsRecipientListCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.rows !== undefined) {
+            body['rows'] = params.rows
+        }
+        const result = await context.api.request<Schemas.RecipientList>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_recipient_lists/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsRestoreRevisionSchema = () => {
     const HogFlowsRevisionsRestoreCreateBody = orvalSchemas.HogFlowsRevisionsRestoreCreateBody()
     const HogFlowsRevisionsRestoreCreateParams = orvalSchemas.HogFlowsRevisionsRestoreCreateParams()
@@ -746,6 +772,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
+    'workflows-recipient-list-create': workflowsRecipientListCreate,
     'workflows-restore-revision': workflowsRestoreRevision,
     'workflows-stats': workflowsStats,
     'workflows-suggest': workflowsSuggest,

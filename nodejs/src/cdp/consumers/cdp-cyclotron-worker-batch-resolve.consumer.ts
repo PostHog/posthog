@@ -19,6 +19,7 @@ import {
 import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
+    RecipientListRecipient,
 } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -275,7 +276,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const isAccountAudience = state.filters.audience_type === 'accounts'
 
         // Normalized page shape so budget/truncation/state logic below stays single-path.
-        let page: { ids: string[]; cursor: string | null; has_more: boolean; accountGroupType?: string }
+        let page: {
+            ids: string[]
+            cursor: string | null
+            has_more: boolean
+            accountGroupType?: string
+            recipients?: RecipientListRecipient[]
+        }
         try {
             if (isAccountAudience) {
                 const accountPage = await instrumentFn('cdpBatchResolve.getAccountAudiencePage', () =>
@@ -286,6 +293,20 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     cursor: accountPage.cursor,
                     has_more: accountPage.has_more,
                     accountGroupType: accountPage.group_type,
+                }
+            } else if (state.filters.audience_type === 'recipient_list') {
+                const listPage = await instrumentFn('cdpBatchResolve.getRecipientListPage', () =>
+                    this.hogFlowBatchPersonQueryService.getRecipientListPage(
+                        team,
+                        state.filters.recipient_list_id ?? '',
+                        state.cursor
+                    )
+                )
+                page = {
+                    ids: listPage.recipients.map((recipient) => recipient.email),
+                    cursor: listPage.cursor,
+                    has_more: listPage.has_more,
+                    recipients: listPage.recipients,
                 }
             } else {
                 const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
@@ -340,31 +361,45 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id) =>
-            isAccountAudience
-                ? buildAccountHogFlowInvocation({
-                      siteUrl: this.config.SITE_URL,
-                      parentRunId: state.batchJobId,
-                      team,
-                      hogFlow,
-                      externalId: id,
-                      groupType: page.accountGroupType ?? '',
-                      defaultVariables,
-                  })
-                : buildHogFlowInvocation({
-                      siteUrl: this.config.SITE_URL,
-                      parentRunId: state.batchJobId,
-                      team,
-                      hogFlow,
-                      personId: id,
-                      defaultVariables,
-                  })
-        )
+        const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id, index) => {
+            if (isAccountAudience) {
+                return buildAccountHogFlowInvocation({
+                    siteUrl: this.config.SITE_URL,
+                    parentRunId: state.batchJobId,
+                    team,
+                    hogFlow,
+                    externalId: id,
+                    groupType: page.accountGroupType ?? '',
+                    defaultVariables,
+                })
+            }
+            const recipient = page.recipients?.[index]
+            return buildHogFlowInvocation({
+                siteUrl: this.config.SITE_URL,
+                parentRunId: state.batchJobId,
+                team,
+                hogFlow,
+                // A recipient list row carries its own match: a person, with the row's distinct ID
+                // when it named one, or nothing at all.
+                personId: recipient ? (recipient.person_id ?? undefined) : id,
+                distinctId: recipient?.distinct_id ?? undefined,
+                defaultVariables: recipient ? { ...defaultVariables, ...recipient.variables } : defaultVariables,
+            })
+        })
 
         // Batch-built invocations skip the event-triggered pipeline entirely, so
         // trigger_masking has to be applied here explicitly — otherwise a workflow
         // with a masking TTL re-enrolls the same audience on every scheduled run.
-        const { masked, notMasked, release } = await this.hogMasker.filterByMasking(builtInvocations)
+        // A list row that matched nobody has no person to mask on. A mask that still evaluates for
+        // it gives every such row the same key, and all but one would be dropped.
+        const isUnmatchedRow = (invocation: CyclotronJobInvocationHogFlow): boolean =>
+            !!page.recipients && !invocation.person
+        const {
+            masked,
+            notMasked: maskChecked,
+            release,
+        } = await this.hogMasker.filterByMasking(builtInvocations.filter((invocation) => !isUnmatchedRow(invocation)))
+        const notMasked = [...maskChecked, ...builtInvocations.filter(isUnmatchedRow)]
 
         // Only the unmasked runs get a lifecycle row: a masked one is never enqueued, so a
         // `running` row for it would sit in the invocations list forever with no terminal row.
@@ -668,17 +703,19 @@ export function buildAccountHogFlowInvocation(params: {
 
 // Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children
 // land in cyclotron_jobs looking the same regardless of dispatch path.
-function buildHogFlowInvocation(params: {
+export function buildHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string
     team: Team
     hogFlow: HogFlow
-    personId: string
+    personId?: string
+    distinctId?: string
     defaultVariables: Record<string, unknown>
 }): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
         personId: params.personId,
+        distinctId: params.distinctId,
         siteUrl: params.siteUrl,
     })
 

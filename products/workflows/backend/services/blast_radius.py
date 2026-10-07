@@ -23,6 +23,7 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
+from products.workflows.backend.services.recipient_lists import RecipientListNotFound, get_recipient_list
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 
 
@@ -69,6 +70,18 @@ def get_account_audience_size(*, team_id: int, filters: dict, sends_email: bool)
     return AudienceSize(
         affected=get_account_audience_count(team, filters),
         total=get_account_audience_count(team, {"audience_type": "accounts"}),
+        limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+        dedupe_key=None,
+    )
+
+
+def get_recipient_list_audience_size(*, team_id: int, filters: dict, sends_email: bool) -> AudienceSize:
+    recipient_list = get_recipient_list(team_id=team_id, list_id=filters.get("recipient_list_id"))
+    if recipient_list is None:
+        raise RecipientListNotFound()
+    return AudienceSize(
+        affected=recipient_list.row_count,
+        total=recipient_list.row_count,
         limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
         dedupe_key=None,
     )

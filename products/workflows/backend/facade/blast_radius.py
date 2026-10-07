@@ -8,6 +8,7 @@ from products.workflows.backend.services.blast_radius import (
     get_account_group_type_name,
     get_audience_person_page,
     get_audience_size,
+    get_recipient_list_audience_size,
 )
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "get_account_group_type_name",
     "get_audience_person_page",
     "get_audience_size",
+    "get_recipient_list_audience_size",
     "is_account_audience",
     "parse_account_audience_filters",
 ]

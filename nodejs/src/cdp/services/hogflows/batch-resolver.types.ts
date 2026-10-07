@@ -22,7 +22,8 @@ export const BatchResolverStateSchema = z.object({
         // 'accounts' switches the resolver to page customer analytics accounts
         // (external ids) instead of persons. Frozen here like the rest of the
         // audience so a mid-run trigger edit can't change what a page fans out to.
-        audience_type: z.enum(['persons', 'accounts']).optional(),
+        audience_type: z.enum(['persons', 'accounts', 'recipient_list']).optional(),
+        recipient_list_id: z.string().optional(),
         // Each property entry is an arbitrary record — keep loose so resolver
         // replays survive new filter-property fields the worker doesn't read.
         properties: z.array(z.record(z.string(), z.any())).optional(),

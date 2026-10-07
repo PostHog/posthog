@@ -14929,6 +14929,21 @@
             "readOnlyHint": false
         }
     },
+    "workflows-recipient-list-create": {
+        "description": "Save recipients for a batch workflow or broadcast when each one needs their own data. Returns an id: set the batch trigger's filters to {audience_type:'recipient_list', recipient_list_id:<id>, properties:[]} and the email step's to.email to '{{ variables.email }}'. Sends nothing.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create recipient list",
+        "title": "Create recipient list",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-broadcast-recipient-lists"
+    },
     "workflows-restore-revision": {
         "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",
         "category": "Workflows",

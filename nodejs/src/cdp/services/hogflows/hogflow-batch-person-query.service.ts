@@ -6,6 +6,7 @@ import { logger, serializeError } from '~/common/utils/logger'
 import { Team } from '~/types'
 
 import { HogFunctionFilters } from '../../types'
+import { ScopedServiceJwt } from '../../utils/scoped-service-jwt'
 
 export interface BlastRadiusResponse {
     users_affected: number
@@ -25,6 +26,19 @@ export interface AccountAudienceResponse {
     group_type: string
 }
 
+export interface RecipientListRecipient {
+    email: string
+    person_id: string | null
+    distinct_id: string | null
+    variables: Record<string, string>
+}
+
+export interface RecipientListPageResponse {
+    recipients: Array<RecipientListRecipient>
+    cursor: string | null
+    has_more: boolean
+}
+
 const counterAudienceFetchTimeout = new Counter({
     name: 'cdp_batch_hog_flow_audience_fetch_timeout',
     help: 'An audience fetch for a batch hog flow exceeded its client-side timeout budget',
@@ -39,7 +53,11 @@ const histogramAudienceFetchDuration = new Histogram({
     buckets: [1, 2, 5, 10, 20, 30, 40, 50, 60, 90, 120],
 })
 
-export type AudienceFetchEndpoint = 'user_blast_radius' | 'user_blast_radius_persons' | 'account_audience'
+export type AudienceFetchEndpoint =
+    | 'user_blast_radius'
+    | 'user_blast_radius_persons'
+    | 'account_audience'
+    | 'recipient_list_page'
 
 /**
  * An audience fetch used its full CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS budget.
@@ -80,7 +98,9 @@ const isTimeoutError = (error: unknown): boolean => {
 export class HogFlowBatchPersonQueryService {
     constructor(
         private internalFetchService: InternalFetchService,
-        private audienceFetchTimeoutMs: number
+        private audienceFetchTimeoutMs: number,
+        // The recipient list endpoint takes a scoped JWT, so its fetch service carries no INTERNAL_API_SECRET.
+        private recipientLists?: { fetchService: InternalFetchService; jwt: ScopedServiceJwt }
     ) {}
 
     /**
@@ -121,15 +141,18 @@ export class HogFlowBatchPersonQueryService {
         endpoint: AudienceFetchEndpoint,
         urlPath: `/${string}`,
         body: Record<string, unknown>,
-        failureLabel: string
+        failureLabel: string,
+        fetchService: InternalFetchService = this.internalFetchService,
+        headers?: Record<string, string>
     ): Promise<T> {
         const startedAt = performance.now()
-        const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+        const { fetchResponse, fetchError } = await fetchService.fetch({
             urlPath,
             fetchParams: {
                 method: 'POST',
                 timeoutMs: this.audienceFetchTimeoutMs,
                 body: JSON.stringify(body),
+                headers,
             },
         })
         const elapsedMs = (): number => Math.round(performance.now() - startedAt)
@@ -241,6 +264,38 @@ export class HogFlowBatchPersonQueryService {
             )
         } catch (error) {
             logger.error('Error calling account audience endpoint', { error: serializeError(error), urlPath })
+            throw error
+        }
+    }
+
+    /**
+     * Page an uploaded recipient list. Each recipient arrives matched to a person where one exists.
+     */
+    async getRecipientListPage(
+        team: Team,
+        recipientListId: string,
+        cursor?: string | null
+    ): Promise<RecipientListPageResponse> {
+        if (!this.recipientLists?.jwt.enabled) {
+            throw new Error(
+                'Recipient list audiences are not configured in this environment (WORKFLOW_RECIPIENT_LIST_JWT_SECRET unset)'
+            )
+        }
+        const urlPath = `/api/projects/${team.id}/workflow_recipient_list_pages/` as const
+        // The token names the list, so Django never trusts a list id from the request body.
+        const token = this.recipientLists.jwt.mint({ team_id: team.id, recipient_list_id: recipientListId })
+
+        try {
+            return await this.fetchAudience<RecipientListPageResponse>(
+                'recipient_list_page',
+                urlPath,
+                { cursor: cursor || null },
+                'recipient list page',
+                this.recipientLists.fetchService,
+                { Authorization: `Bearer ${token}` }
+            )
+        } catch (error) {
+            logger.error('Error calling recipient list page endpoint', { error: serializeError(error), urlPath })
             throw error
         }
     }

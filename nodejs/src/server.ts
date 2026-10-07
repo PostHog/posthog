@@ -52,6 +52,8 @@ import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invoc
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
+import { ScopedServiceJwt } from './cdp/utils/scoped-service-jwt'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
@@ -425,7 +427,14 @@ export class PluginServer implements NodeServer {
                 )
                 const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(
                     internalFetchService,
-                    this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS
+                    this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS,
+                    {
+                        fetchService: new InternalFetchService(this.config.INTERNAL_API_BASE_URL, ''),
+                        jwt: new ScopedServiceJwt(
+                            PosthogJwtAudience.WORKFLOW_RECIPIENT_LIST,
+                            this.config.WORKFLOW_RECIPIENT_LIST_JWT_SECRET
+                        ),
+                    }
                 )
                 const consumer = new CdpCyclotronWorkerBatchResolve(
                     this.config,

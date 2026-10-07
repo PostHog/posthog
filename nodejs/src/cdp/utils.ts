@@ -105,20 +105,24 @@ export function convertToHogFunctionInvocationGlobals(
 export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     team,
     personId,
+    distinctId,
     siteUrl,
 }: {
     team: Team
-    personId: string
+    personId?: string
+    distinctId?: string
     siteUrl: string
 }): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
 
-    const person: HogFunctionInvocationGlobals['person'] = {
-        id: personId,
-        properties: {},
-        name: '',
-        url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
-    }
+    const person: HogFunctionInvocationGlobals['person'] = personId
+        ? {
+              id: personId,
+              properties: {},
+              name: '',
+              url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
+          }
+        : undefined
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -130,7 +134,9 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             event: '$batch_hog_flow_invocation',
             properties: {},
             uuid: new UUIDT().toString(),
-            distinct_id: '', // Not applicable for batch processing but left here for compatibility
+            // Empty unless a recipient list row names its own distinct ID. The hogflow worker
+            // backfills it from the person for every other batch run.
+            distinct_id: distinctId ?? '',
             elements_chain: '',
             timestamp: DateTime.now().toISO(),
             url: '',

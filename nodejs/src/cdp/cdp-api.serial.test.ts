@@ -1400,6 +1400,52 @@ describe('CDP API', () => {
             }
         })
 
+        it('keeps a person-filter snapshot on persons when the live trigger names a recipient list', async () => {
+            const listFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch hog flow sending to a recipient list',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [],
+                trigger: {
+                    type: 'batch',
+                    filters: {
+                        audience_type: 'recipient_list',
+                        recipient_list_id: '00000000-0000-4000-8000-000000000001',
+                        properties: [],
+                    },
+                },
+            })
+            const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(`/api/projects/${listFlow.team_id}/hog_flows/${listFlow.id}/batch_invocations/job-793`)
+                    .send({ filters: { properties: snapshotProperties } })
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                expect(state.filters).toMatchObject({ properties: snapshotProperties })
+                expect(state.filters.audience_type).toBeUndefined()
+                expect(state.filters.recipient_list_id).toBeUndefined()
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
         it('sets email dedupe on the resolver state when the flow sends email to the default {{person.properties.email}}', async () => {
             const emailHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),

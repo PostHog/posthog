@@ -429,6 +429,24 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
         })
 
+        it('runs a batch invocation without a person when it has no distinct_id and no personId', async () => {
+            // An uploaded recipient list row that matched nobody still sends, with no person attached.
+            const getPerson = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: { distinct_id: '', properties: {} } as any,
+                variables: { email: 'nobody@example.com' },
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results).toHaveLength(1)
+            expect(results[0].invocation.person).toBeUndefined()
+            expect(results[0].invocation.state.event.distinct_id).toBe('')
+            expect(getPerson).not.toHaveBeenCalled()
+        })
+
         it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
             const results = (await processor.processInvocations(
                 invocations

@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
+from products.workflows.backend.facade.recipient_lists import create_recipient_list
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -240,6 +241,27 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, getattr(response, "data", response.content))
+
+    def test_recipient_list_audience_requires_resource_level_access(self):
+        # Rows reach workflow variables, so an editor grant on one workflow must not send to a list by its id.
+        recipient_list = create_recipient_list(team_id=self.team.id, rows=[{"email": "ada@example.com"}])
+        self._create_project_default(access_level="none")
+        self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level="editor")
+        self.client.force_login(self.no_access_user)
+
+        batch_trigger = {
+            **TRIGGER_ACTION,
+            "config": {
+                "type": "batch",
+                "filters": {"audience_type": "recipient_list", "recipient_list_id": recipient_list.id},
+            },
+        }
+        response = self.client.patch(
+            self._detail_url(), data={"status": "active", "actions": [batch_trigger]}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, getattr(response, "data", None))
+        self.assertIn("access to all workflows", str(response.data))
 
     def test_org_admin_bypasses_object_level_denial(self):
         # self.user is the organization owner; object-level denials never apply to org admins.

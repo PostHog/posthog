@@ -1399,7 +1399,11 @@ export class CdpApi {
             }
 
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
-            const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
+            // A person-filter snapshot omits audience_type and recipient_list_id. Resolved key by key,
+            // both would come from a live trigger that names a list, and the run would send to every
+            // row of that list instead of the people the confirm check validated.
+            const audienceSource = snapshotFilters ?? hogFlow.trigger.filters
+            const audienceType = audienceSource.audience_type
             // A snapshot saved before assignment statuses existed carries assignee ids or the legacy
             // flag, but no status. Resolved key by key, it inherits the live trigger's status, and
             // Django rejects a status paired with assignee ids, so the run fails instead of sending
@@ -1418,6 +1422,7 @@ export class CdpApi {
                     // trigger here would let an edit landing after the confirm check widen the send.
                     // Fallback covers callers that predate the snapshot.
                     audience_type: audienceType,
+                    recipient_list_id: audienceSource.recipient_list_id,
                     properties: snapshotFilters?.properties ?? (hogFlow.trigger.filters.properties || []),
                     filter_test_accounts:
                         snapshotFilters?.filter_test_accounts ??
@@ -1434,7 +1439,11 @@ export class CdpApi {
                 // strings) would make the dedupe key diverge from the actual send target — better to skip
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
-                dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
+                // A recipient list is deduplicated by email when it is uploaded.
+                dedupeKey:
+                    (!audienceType || audienceType === 'persons') && canDedupeByEmail(hogFlow)
+                        ? ('email' as const)
+                        : undefined,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,

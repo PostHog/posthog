@@ -335,6 +335,21 @@ tools:
             delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
             moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
             still parked shortly after publishing are normal, not a sign of a failed publish.
+    workflows-recipient-list-create:
+        operation: workflow_recipient_lists_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create recipient list
+        description: >
+            Save recipients for a batch workflow or broadcast when each one needs their own data. Returns an id: set the
+            batch trigger's filters to {audience_type:'recipient_list', recipient_list_id:<id>, properties:[]} and the
+            email step's to.email to '{{ variables.email }}'. Sends nothing.
+        feature_flag: workflows-broadcast-recipient-lists
     workflows-restore-revision:
         operation: hog_flows_revisions_restore_create
         enabled: true

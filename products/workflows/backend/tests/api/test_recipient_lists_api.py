@@ -66,6 +66,14 @@ class TestRecipientListsAPI(ClickhouseTestMixin, APIBaseTest):
         url = f"/api/projects/{self.team.id}/workflow_recipient_lists/{uploaded['id']}/"
         assert self.client.get(url).json() == uploaded
 
+        filters = {"audience_type": "recipient_list", "recipient_list_id": uploaded["id"], "properties": []}
+        preview = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius/", {"filters": filters}, format="json"
+        )
+        assert preview.status_code == status.HTTP_200_OK, preview.json()
+        assert preview.json()["affected"] == 2
+        assert preview.json()["confirm_token"]
+
         page = self._page(_token(self.team.id, uploaded["id"]))
         assert page.status_code == status.HTTP_200_OK, page.json()
         assert page.json() == {
@@ -103,3 +111,11 @@ class TestRecipientListsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert 'column named "email"' in response.json()["detail"]
+
+    def test_preview_rejects_an_unknown_list(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius/",
+            {"filters": {"audience_type": "recipient_list", "recipient_list_id": OTHER_LIST_ID}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

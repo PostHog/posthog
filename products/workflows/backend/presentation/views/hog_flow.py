@@ -129,6 +129,7 @@ from products.workflows.backend.facade.blast_radius import (
     get_account_group_type_name,
     get_audience_person_page,
     get_audience_size,
+    get_recipient_list_audience_size,
     is_account_audience,
     parse_account_audience_filters,
 )
@@ -182,6 +183,11 @@ from products.workflows.backend.facade.proposals import (
     target_metric_in,
     unstage_workflow_proposals,
     version_outcome,
+)
+from products.workflows.backend.facade.recipient_lists import (
+    RecipientListNotFound,
+    get_recipient_list,
+    is_recipient_list_audience,
 )
 from products.workflows.backend.facade.revisions import count_revisions, get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.schedules import (
@@ -1164,6 +1170,9 @@ class HogFlowActionTypeField(serializers.ChoiceField):
         return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'
 
 
+_RECIPIENT_LIST_AUDIENCE_KEYS = {"audience_type", "recipient_list_id", "properties", "filter_test_accounts"}
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -1216,6 +1225,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and "
             "assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. "
             "all_roles_unassigned remains accepted for workflows saved before assignment_status was added. "
+            "audience_type 'recipient_list' sends to an uploaded list: set recipient_list_id to the id from "
+            "workflows-recipient-list-create, and use each row's columns as {{ variables.<column> }}. "
             "function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable "
             "hog templating ({person.x}, {event.x}); flat strings won't interpolate. "
             "function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open "
@@ -1456,9 +1467,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
                 if strict and isinstance(filters, dict):
                     audience_type = filters.get("audience_type")
-                    if audience_type not in (None, "persons", "accounts"):
+                    if audience_type not in (None, "persons", "accounts", "recipient_list"):
                         raise serializers.ValidationError(
-                            {"filters": {"audience_type": "Must be 'persons' or 'accounts'."}}
+                            {"filters": {"audience_type": "Must be 'persons', 'accounts' or 'recipient_list'."}}
                         )
                     # The audience targets who a person/account is (properties / cohort membership), not what
                     # they did. Event/action filters are silently dropped by the person-based blast radius
@@ -1501,6 +1512,39 @@ class HogFlowActionSerializer(serializers.Serializer):
                                 {"filters": "You do not have access to customer analytics accounts."}
                             )
                         parse_account_audience_filters(filters)
+                    elif audience_type == "recipient_list":
+                        team = self.context["get_team"]()
+                        list_id = filters.get("recipient_list_id")
+                        # The list is the whole audience, so a filter here would be ignored at send time.
+                        if (
+                            filters.get("properties")
+                            or filters.get("filter_test_accounts")
+                            or set(filters) - _RECIPIENT_LIST_AUDIENCE_KEYS
+                        ):
+                            raise serializers.ValidationError(
+                                {"filters": "A recipient list audience can't have other filters."}
+                            )
+                        # The list API needs project-wide workflow access. A grant on one workflow must not
+                        # reach a list by its id, because resolution runs under a service principal.
+                        request = self.context.get("request")
+                        user = getattr(request, "user", None)
+                        if (
+                            user is not None
+                            and user.is_authenticated
+                            and not isinstance(user, SyntheticUser)
+                            and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                                "hog_flow", "viewer"
+                            )
+                        ):
+                            raise serializers.ValidationError(
+                                {
+                                    "filters": "You need access to all workflows in this project to send to an uploaded list."
+                                }
+                            )
+                        if get_recipient_list(team_id=team.id, list_id=list_id) is None:
+                            raise serializers.ValidationError(
+                                {"filters": {"recipient_list_id": "Recipient list not found. Upload the list again."}}
+                            )
                     else:
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
             elif data.get("config", {}).get("type") == "schedule":
@@ -5901,6 +5945,27 @@ class HogFlowViewSet(
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
             size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": size.affected,
+                        "total": size.total,
+                        "limit": size.limit,
+                        "dedupe_key": None,
+                        "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                    }
+                ).data
+            )
+
+        if is_recipient_list_audience(filters):
+            try:
+                size = get_recipient_list_audience_size(
+                    team_id=self.team_id, filters=filters, sends_email=params["sends_email"]
+                )
+            except RecipientListNotFound:
+                raise exceptions.ValidationError(
+                    {"filters": {"recipient_list_id": "Recipient list not found. Upload the list again."}}
+                )
             return Response(
                 BlastRadiusSerializer(
                     {

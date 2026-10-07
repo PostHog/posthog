@@ -214,6 +214,73 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
+        it('gives each recipient list row its own run, variables and person match', async () => {
+            const row = (email: string, distinct_id: string | null, person_id: string | null, org: string): any => ({
+                email,
+                distinct_id,
+                person_id,
+                variables: { email, org },
+            })
+            const getRecipientListPage = jest.fn().mockResolvedValue({
+                recipients: [
+                    row('ada@example.com', 'user-1', 'person-1', 'Hedgebox'),
+                    row('grace@example.com', null, 'person-9', 'Hogflix'),
+                    row('nobody@example.com', null, null, 'Unknown'),
+                ],
+                cursor: null,
+                has_more: false,
+            })
+            Object.assign(consumer, {
+                hogFlowBatchPersonQueryService: { getRecipientListPage },
+                hogFlowManager: {
+                    getHogFlow: jest.fn().mockResolvedValue({
+                        ...hogFlow,
+                        variables: [
+                            { key: 'org', default: 'Fallback' },
+                            { key: 'footer', default: 'Bye' },
+                        ],
+                    }),
+                },
+            })
+
+            await (consumer as any).processOnePage(
+                { bulkCreateAndCheckIn, reschedule: jest.fn() },
+                { ...state, filters: { audience_type: 'recipient_list', recipient_list_id: 'list-1', properties: [] } }
+            )
+
+            expect(getRecipientListPage).toHaveBeenCalledWith(team, 'list-1', null)
+            // Only rows with a person reach the masker, in list order.
+            expect(filterByMasking.mock.calls[0][0].map((run: any) => run.person?.id)).toEqual(['person-1', 'person-9'])
+            const runs = bulkCreateAndCheckIn.mock.calls[0][0].newJobs.map(
+                (job: any) => parseJSON(job.state.toString()).state
+            )
+            expect(
+                runs.map((run: any) => ({
+                    distinctId: run.event.distinct_id,
+                    personId: run.personId,
+                    variables: run.variables,
+                }))
+            ).toEqual([
+                // The row's own distinct ID is what later opens and clicks are attributed to.
+                {
+                    distinctId: 'user-1',
+                    personId: 'person-1',
+                    variables: { email: 'ada@example.com', org: 'Hedgebox', footer: 'Bye' },
+                },
+                {
+                    distinctId: '',
+                    personId: 'person-9',
+                    variables: { email: 'grace@example.com', org: 'Hogflix', footer: 'Bye' },
+                },
+                // No distinct ID and no person: the worker has nothing to resolve, so the run sends without one.
+                {
+                    distinctId: '',
+                    personId: undefined,
+                    variables: { email: 'nobody@example.com', org: 'Unknown', footer: 'Bye' },
+                },
+            ])
+        })
+
         it('leaves masked runs out of both the triggered count and the invocations list', async () => {
             // A masked run is never enqueued, so counting it as started would strand it in the
             // in-progress figure forever, and its running row would never get a terminal row.

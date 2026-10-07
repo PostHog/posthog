@@ -3495,6 +3495,26 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "audience_type" in json.dumps(response.json())
 
+    @parameterized.expand(
+        [
+            (
+                "person_property",
+                {"properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}]},
+            ),
+            ("account_tags", {"properties": [], "tag_names": ["vip"]}),
+        ]
+    )
+    def test_hog_flow_batch_trigger_recipient_list_rejects_other_filters(self, _name, extra_filters):
+        response = self._post_batch_flow(
+            {
+                "audience_type": "recipient_list",
+                "recipient_list_id": "01970000-0000-0000-0000-000000000000",
+                **extra_filters,
+            }
+        )
+        assert response.status_code == 400, response.json()
+        assert "can't have other filters" in json.dumps(response.json())
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_account_audience_pages_accounts(self):
         with (
