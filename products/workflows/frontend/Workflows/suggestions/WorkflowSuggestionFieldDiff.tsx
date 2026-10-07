@@ -17,6 +17,7 @@ const DIFF_OPTIONS: MonacoDiffEditorProps['options'] = {
     renderOverviewRuler: false,
     scrollBeyondLastLine: false,
     minimap: { enabled: false },
+    scrollbar: { alwaysConsumeMouseWheel: false },
     wordWrap: 'on',
     diffWordWrap: 'on',
     diffAlgorithm: 'advanced',
