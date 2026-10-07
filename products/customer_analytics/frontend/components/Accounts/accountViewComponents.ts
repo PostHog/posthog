@@ -3,17 +3,28 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { AccountExpansionTab } from './accountsExpansionLogic'
 
-export type AccountViewComponentKind = AccountExpansionTab
+export type AccountViewComponentKind = AccountExpansionTab | 'session_replays'
 
-export interface AccountViewComponentDefinition {
-    kind: AccountViewComponentKind
+interface AccountViewComponentBase {
     tagName: string
     label: string
-    systemTabId: `system:${AccountViewComponentKind}`
     featureFlag?: FeatureFlagKey
 }
 
+export interface AccountSystemTabDefinition extends AccountViewComponentBase {
+    kind: AccountExpansionTab
+    systemTabId: `system:${AccountExpansionTab}`
+}
+
+export type AccountViewComponentDefinition =
+    | AccountSystemTabDefinition
+    | (AccountViewComponentBase & {
+          kind: 'session_replays'
+          systemTabId?: never
+      })
+
 export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
+    { kind: 'session_replays', tagName: 'SessionReplays', label: 'Session replays' },
     { kind: 'notes', tagName: 'Notes', label: 'Notes', systemTabId: 'system:notes' },
     {
         kind: 'tasks',
@@ -62,6 +73,12 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
 export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet): AccountViewComponentDefinition[] {
     return ACCOUNT_VIEW_COMPONENTS.filter(
         (component) => !component.featureFlag || !!featureFlags[component.featureFlag]
+    )
+}
+
+export function listAvailableAccountSystemTabs(featureFlags: FeatureFlagsSet): AccountSystemTabDefinition[] {
+    return listAvailableAccountViewComponents(featureFlags).filter(
+        (component): component is AccountSystemTabDefinition => component.systemTabId !== undefined
     )
 }
 
