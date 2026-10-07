@@ -53,12 +53,20 @@ describe('apiStatusLogic', () => {
             logoutSpy.mockRestore()
         })
 
-        it('triggers auto-logout on 401 for non-impersonated users', async () => {
+        it.each([
+            ['an expired session', {}, undefined],
+            ['an access rule refusal', { code: 'access_blocked' }, 'access_blocked'],
+        ])('triggers auto-logout on 401 for non-impersonated users, for %s', async (_, body, reason) => {
             // The real logout listener submits a <form>, which jsdom doesn't implement
-            const submitSpy = jest.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation()
+            let submitted: HTMLFormElement | undefined
+            const submitSpy = jest
+                .spyOn(HTMLFormElement.prototype, 'submit')
+                .mockImplementation(function (this: HTMLFormElement) {
+                    submitted = this
+                })
             useMocks({
                 get: {
-                    '/api/users/@me/': () => [401, {}],
+                    '/api/users/@me/': () => [401, body],
                 },
             })
             initKeaTests()
@@ -76,7 +84,9 @@ describe('apiStatusLogic', () => {
                 logic.actions.onApiResponse(mockResponse)
             }).toFinishAllListeners()
 
-            expect(logoutSpy).toHaveBeenCalled()
+            expect(logoutSpy).toHaveBeenCalledWith(true, undefined, reason)
+            // The /logout view turns the reason into the message the login page shows.
+            expect((submitted?.elements.namedItem('reason') as HTMLInputElement | null)?.value).toBe(reason)
             logoutSpy.mockRestore()
             submitSpy.mockRestore()
         })
