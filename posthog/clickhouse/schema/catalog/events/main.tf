@@ -1,18 +1,33 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  read   = contains(local.deployment.components, "read")
-  ingest = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -56,7 +71,9 @@ locals {
 }
 
 module "sharded_events_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "events"
   database = var.database
@@ -253,8 +270,9 @@ module "sharded_events_family" {
 
 module "events_batch_export" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "events_batch_export")
+  enabled  = contains(var.objects, "events_batch_export")
   database = var.database
   name     = "events_batch_export"
   query    = <<-SQL
@@ -294,8 +312,9 @@ module "events_batch_export" {
 
 module "events_batch_export_backfill" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "events_batch_export_backfill")
+  enabled  = contains(var.objects, "events_batch_export_backfill")
   database = var.database
   name     = "events_batch_export_backfill"
   query    = <<-SQL
@@ -334,8 +353,9 @@ module "events_batch_export_backfill" {
 
 module "events_batch_export_unbounded" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "events_batch_export_unbounded")
+  enabled  = contains(var.objects, "events_batch_export_unbounded")
   database = var.database
   name     = "events_batch_export_unbounded"
   query    = <<-SQL
@@ -375,10 +395,11 @@ module "events_batch_export_unbounded" {
 
 module "kafka_events_json" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_events_json")
+  enabled  = contains(var.objects, "kafka_events_json")
   database = var.database
   name     = "kafka_events_json"
   engine   = "Kafka(msk_cluster)"
@@ -388,9 +409,11 @@ module "kafka_events_json" {
 }
 
 module "events_json_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "events_json_mv")
+  enabled  = contains(var.objects, "events_json_mv")
   database = var.database
   name     = "events_json_mv"
   to_table = "${var.database}.writable_events"

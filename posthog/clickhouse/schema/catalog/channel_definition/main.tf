@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -17,10 +23,21 @@ variable "dictionary_password" {
   sensitive   = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 terraform {
@@ -32,8 +49,6 @@ terraform {
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
 
   # A dictionary source has no PASSWORD clause when the user has no password.
   dictionary_password_clause = var.dictionary_password == "" ? "" : " PASSWORD '${var.dictionary_password}'"
@@ -43,7 +58,9 @@ locals {
 # nothing. channel_definition_dict reads it, and ClickHouse refuses to drop a table a dictionary
 # reads unless the drop skips that check.
 module "channel_definition_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "channel_definition"
   database = var.database
@@ -75,11 +92,12 @@ module "channel_definition_family" {
 
 # channel_definitions.json is written by `python manage.py create_channel_definitions_file`. Each
 # row has a sixth field that the table does not store. A root whose channel_definition is a
-# Distributed table over another cluster excludes "channel_definition_contents".
+# Distributed table over another cluster does not list "channel_definition_contents".
 resource "clickhousedbops_table_contents" "channel_definition" {
-  count = local.storage && !contains(local.deployment.exclude, "channel_definition") && !contains(local.deployment.exclude, "channel_definition_contents") ? 1 : 0
+  count = contains(var.objects, "channel_definition_contents") ? 1 : 0
 
   database = var.database
+  node     = var.node == null ? null : { name = var.node.name, host = var.node.host, port = try(var.node.port, null) }
   table    = "channel_definition"
   format   = "JSONCompactEachRow"
   data     = join("\n", [for row in jsondecode(file("${path.module}/channel_definitions.json")) : jsonencode(slice(row, 0, 5))])
@@ -91,8 +109,9 @@ resource "clickhousedbops_table_contents" "channel_definition" {
 
 module "channel_definition_dict" {
   source = "../../lib/dictionary"
+  node   = var.node
 
-  enabled     = local.read && !contains(local.deployment.exclude, "channel_definition_dict")
+  enabled     = contains(var.objects, "channel_definition_dict")
   database    = var.database
   name        = "channel_definition_dict"
   primary_key = ["domain", "kind"]

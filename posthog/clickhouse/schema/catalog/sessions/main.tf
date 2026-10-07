@@ -1,20 +1,35 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 # Reads from events. Those must exist on the node first.
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
 }
 
 # Column lists that more than one object uses.
@@ -58,7 +73,9 @@ locals {
 }
 
 module "sharded_sessions_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "sessions"
   database = var.database
@@ -79,9 +96,11 @@ module "sharded_sessions_family" {
 # Tables that hold data, and the materialized views between them.
 
 module "sessions_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "sessions_mv")
+  enabled  = contains(var.objects, "sessions_mv")
   database = var.database
   name     = "sessions_mv"
   to_table = "${var.database}.writable_sessions"
@@ -138,8 +157,9 @@ module "sessions_mv" {
 
 module "sessions_v" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "sessions_v")
+  enabled  = contains(var.objects, "sessions_v")
   database = var.database
   name     = "sessions_v"
   query    = <<-SQL

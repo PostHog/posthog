@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,16 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
-  ingest  = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -216,7 +230,9 @@ locals {
 }
 
 module "metric_attributes_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_attributes"
   database = var.database
@@ -247,7 +263,9 @@ module "metric_attributes_family" {
 }
 
 module "metric_attributes2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_attributes_distributed"
   database = var.database
@@ -274,7 +292,9 @@ module "metric_attributes2_family" {
 }
 
 module "metric_attributes3_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_attributes3"
   database = var.database
@@ -297,7 +317,9 @@ module "metric_attributes3_family" {
 }
 
 module "metric_names3_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_names3"
   database = var.database
@@ -313,7 +335,9 @@ module "metric_names3_family" {
 }
 
 module "metric_samples1_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_samples"
   database = var.database
@@ -337,7 +361,9 @@ module "metric_samples1_family" {
 }
 
 module "metric_series1_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_series"
   database = var.database
@@ -363,7 +389,9 @@ module "metric_series1_family" {
 }
 
 module "metric_series2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_series_distributed"
   database = var.database
@@ -391,7 +419,9 @@ module "metric_series2_family" {
 }
 
 module "metric_series3_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metric_series3"
   database = var.database
@@ -415,7 +445,9 @@ module "metric_series3_family" {
 }
 
 module "metrics1_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics"
   database = var.database
@@ -449,7 +481,9 @@ module "metrics1_family" {
 }
 
 module "metrics2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics_distributed"
   database = var.database
@@ -481,7 +515,9 @@ module "metrics2_family" {
 }
 
 module "metrics4_attributes_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics4_attributes"
   database = var.database
@@ -508,7 +544,9 @@ module "metrics4_attributes_family" {
 }
 
 module "metrics4_names_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics4_names"
   database = var.database
@@ -527,7 +565,9 @@ module "metrics4_names_family" {
 }
 
 module "metrics4_samples_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics4_samples"
   database = var.database
@@ -580,7 +620,9 @@ module "metrics4_samples_family" {
 }
 
 module "metrics4_series_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics4_series"
   database = var.database
@@ -646,7 +688,9 @@ module "metrics4_series_family" {
 }
 
 module "metrics_kafka_metrics_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "metrics_kafka_metrics"
   database = var.database
@@ -671,8 +715,9 @@ module "metrics_kafka_metrics_family" {
 
 module "metrics4_input" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input")
+  enabled  = contains(var.objects, "metrics4_input")
   database = var.database
   name     = "metrics4_input"
   engine   = "`Null`"
@@ -681,9 +726,11 @@ module "metrics4_input" {
 }
 
 module "metrics4_input_to_metrics4_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input_to_metrics4_attributes")
+  enabled  = contains(var.objects, "metrics4_input_to_metrics4_attributes")
   database = var.database
   name     = "metrics4_input_to_metrics4_attributes"
   to_table = "${var.database}.writable_metrics4_attributes"
@@ -732,9 +779,11 @@ module "metrics4_input_to_metrics4_attributes" {
 }
 
 module "metrics4_input_to_metrics4_names" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input_to_metrics4_names")
+  enabled  = contains(var.objects, "metrics4_input_to_metrics4_names")
   database = var.database
   name     = "metrics4_input_to_metrics4_names"
   to_table = "${var.database}.writable_metrics4_names"
@@ -764,9 +813,11 @@ module "metrics4_input_to_metrics4_names" {
 }
 
 module "metrics4_input_to_metrics4_resource_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input_to_metrics4_resource_attributes")
+  enabled  = contains(var.objects, "metrics4_input_to_metrics4_resource_attributes")
   database = var.database
   name     = "metrics4_input_to_metrics4_resource_attributes"
   to_table = "${var.database}.writable_metrics4_attributes"
@@ -815,9 +866,11 @@ module "metrics4_input_to_metrics4_resource_attributes" {
 }
 
 module "metrics4_input_to_metrics4_samples" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input_to_metrics4_samples")
+  enabled  = contains(var.objects, "metrics4_input_to_metrics4_samples")
   database = var.database
   name     = "metrics4_input_to_metrics4_samples"
   to_table = "${var.database}.writable_metrics4_samples"
@@ -863,9 +916,11 @@ module "metrics4_input_to_metrics4_samples" {
 }
 
 module "metrics4_input_to_metrics4_series" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics4_input_to_metrics4_series")
+  enabled  = contains(var.objects, "metrics4_input_to_metrics4_series")
   database = var.database
   name     = "metrics4_input_to_metrics4_series"
   to_table = "${var.database}.writable_metrics4_series"
@@ -899,8 +954,9 @@ module "metrics4_input_to_metrics4_series" {
 
 module "metrics4_view" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "metrics4_view")
+  enabled  = contains(var.objects, "metrics4_view")
   database = var.database
   name     = "metrics4_view"
   query    = <<-SQL
@@ -977,10 +1033,11 @@ module "metrics4_view" {
 
 module "kafka_metrics_avro4" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro4")
+  enabled  = contains(var.objects, "kafka_metrics_avro4")
   database = var.database
   name     = "kafka_metrics_avro4"
   engine   = "Kafka(warpstream_metrics)"
@@ -990,9 +1047,11 @@ module "kafka_metrics_avro4" {
 }
 
 module "kafka_metrics_avro4_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro4_mv")
+  enabled  = contains(var.objects, "kafka_metrics_avro4_mv")
   database = var.database
   name     = "kafka_metrics_avro4_mv"
   to_table = "${var.database}.metrics4_input"

@@ -1,25 +1,42 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  read = contains(local.deployment.components, "read")
 }
 
 # Distributed tables, views and dictionaries that queries read from.
 
 module "custom_metrics" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics")
+  enabled  = contains(var.objects, "custom_metrics")
   database = var.database
   name     = "custom_metrics"
   query    = <<-SQL
@@ -76,7 +93,7 @@ module "custom_metrics" {
             `table`,
             partition_id
     )
-    ${contains(local.deployment.components, "test") ? "UNION ALL SELECT * FROM ${var.database}.custom_metrics_counters" : ""}
+    ${var.test ? "UNION ALL SELECT * FROM ${var.database}.custom_metrics_counters" : ""}
   SQL
   override = try(local.deployment.overrides["custom_metrics"], {})
 
@@ -93,8 +110,9 @@ module "custom_metrics" {
 
 module "custom_metrics_backups" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_backups")
+  enabled  = contains(var.objects, "custom_metrics_backups")
   database = var.database
   name     = "custom_metrics_backups"
   query    = <<-SQL
@@ -119,8 +137,9 @@ module "custom_metrics_backups" {
 
 module "custom_metrics_dictionaries" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_dictionaries")
+  enabled  = contains(var.objects, "custom_metrics_dictionaries")
   database = var.database
   name     = "custom_metrics_dictionaries"
   query    = <<-SQL
@@ -146,8 +165,9 @@ module "custom_metrics_dictionaries" {
 
 module "custom_metrics_part_counts" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_part_counts")
+  enabled  = contains(var.objects, "custom_metrics_part_counts")
   database = var.database
   name     = "custom_metrics_part_counts"
   query    = <<-SQL
@@ -185,8 +205,9 @@ module "custom_metrics_part_counts" {
 
 module "custom_metrics_replication_queue" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_replication_queue")
+  enabled  = contains(var.objects, "custom_metrics_replication_queue")
   database = var.database
   name     = "custom_metrics_replication_queue"
   query    = <<-SQL
@@ -211,8 +232,9 @@ module "custom_metrics_replication_queue" {
 
 module "custom_metrics_server_crash" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_server_crash")
+  enabled  = contains(var.objects, "custom_metrics_server_crash")
   database = var.database
   name     = "custom_metrics_server_crash"
   query    = <<-SQL
@@ -231,8 +253,9 @@ module "custom_metrics_server_crash" {
 
 module "custom_metrics_table_sizes" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_table_sizes")
+  enabled  = contains(var.objects, "custom_metrics_table_sizes")
   database = var.database
   name     = "custom_metrics_table_sizes"
   query    = <<-SQL
@@ -250,8 +273,9 @@ module "custom_metrics_table_sizes" {
 
 module "custom_metrics_test" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "custom_metrics_test")
+  enabled  = contains(var.objects, "custom_metrics_test")
   database = var.database
   name     = "custom_metrics_test"
   query    = <<-SQL
@@ -267,8 +291,9 @@ module "custom_metrics_test" {
 
 module "custom_metrics_counter_events" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled      = contains(local.deployment.components, "test")
+  enabled      = contains(var.objects, "custom_metrics_counter_events")
   database     = var.database
   name         = "custom_metrics_counter_events"
   engine       = "ReplicatedMergeTree('${coalesce(lookup(local.deployment, "keeper_path", null), "/clickhouse/tables/noshard/${var.database}.metrics_counter_events")}', '{replica}-{shard}')"
@@ -284,8 +309,9 @@ module "custom_metrics_counter_events" {
 
 module "custom_metrics_counters" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled    = contains(local.deployment.components, "test")
+  enabled    = contains(var.objects, "custom_metrics_counters")
   database   = var.database
   name       = "custom_metrics_counters"
   query      = "SELECT name, mapSort(labels) AS labels, sum(increment) AS value, '' AS help, 'counter' AS type FROM ${var.database}.custom_metrics_counter_events GROUP BY name, type, labels ORDER BY name ASC, type ASC, labels ASC"

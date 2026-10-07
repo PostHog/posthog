@@ -22,6 +22,12 @@ variable "name" {
   type        = string
 }
 
+variable "node" {
+  description = "The server the object lives on: { name, host, port, leader }. Null puts it on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "override" {
   description = "Changes to the definition for the target nodes. A key that is present wins over the argument of the same name, and `null` clears it."
   type        = any
@@ -81,4 +87,6 @@ resource "clickhousedbops_dictionary" "this" {
   range       = try(var.override.range, var.range)
   settings    = try(var.override.settings, var.settings)
   comment     = try(var.override.comment, var.comment)
+
+  node = var.node == null ? null : { name = var.node.name, host = var.node.host, port = try(var.node.port, null) }
 }

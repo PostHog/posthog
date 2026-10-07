@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,14 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  ingest = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -40,7 +56,9 @@ locals {
 }
 
 module "log_entries_data_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "log_entries_distributed"
   database = var.database
@@ -62,7 +80,9 @@ module "log_entries_data_family" {
 }
 
 module "sharded_log_entries_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "log_entries"
   database = var.database
@@ -77,13 +97,16 @@ module "sharded_log_entries_family" {
   }
   sharding_key = "rand()"
   routing = {
-    read = !contains(local.deployment.components, "test")
+    read = !var.test
   }
   deployment = merge({ cluster = "posthog" }, local.deployment)
 }
 
 module "test_log_entries_family" {
   source = "../../lib/table_family"
+  node   = var.node
+  # Only the test suite has this table; production has the reader of the same name.
+  objects = var.test ? var.objects : []
 
   name     = "log_entries"
   database = var.database
@@ -97,20 +120,18 @@ module "test_log_entries_family" {
     settings     = "index_granularity = 512"
   }
   # Existing fixtures truncate this entry point directly between Kafka batches.
-  deployment = merge(
-    { components = contains(local.deployment.components, "test") ? ["storage"] : [] },
-    lookup(local.deployment, "keeper_path", null) == null ? {} : { keeper_path = local.deployment.keeper_path },
-  )
+  deployment = lookup(local.deployment, "keeper_path", null) == null ? {} : { keeper_path = local.deployment.keeper_path }
 }
 
 # Kafka tables and the materialized views that consume them.
 
 module "kafka_log_entries_aux" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_aux")
+  enabled  = contains(var.objects, "kafka_log_entries_aux")
   database = var.database
   name     = "kafka_log_entries_aux"
   engine   = "Kafka(warpstream_ingestion)"
@@ -121,10 +142,11 @@ module "kafka_log_entries_aux" {
 
 module "kafka_log_entries_v3" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_v3")
+  enabled  = contains(var.objects, "kafka_log_entries_v3")
   database = var.database
   name     = "kafka_log_entries_v3"
   engine   = "Kafka(msk_cluster)"
@@ -135,10 +157,11 @@ module "kafka_log_entries_v3" {
 
 module "kafka_log_entries_ws" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_ws")
+  enabled  = contains(var.objects, "kafka_log_entries_ws")
   database = var.database
   name     = "kafka_log_entries_ws"
   engine   = "Kafka(warpstream_ingestion)"
@@ -148,9 +171,11 @@ module "kafka_log_entries_ws" {
 }
 
 module "log_entries_aux_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "log_entries_aux_mv")
+  enabled  = contains(var.objects, "log_entries_aux_mv")
   database = var.database
   name     = "log_entries_aux_mv"
   to_table = "${var.database}.writable_log_entries_aux"
@@ -177,9 +202,11 @@ module "log_entries_aux_mv" {
 }
 
 module "log_entries_v3_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "log_entries_v3_mv")
+  enabled  = contains(var.objects, "log_entries_v3_mv")
   database = var.database
   name     = "log_entries_v3_mv"
   to_table = "${var.database}.writable_log_entries"
@@ -206,9 +233,11 @@ module "log_entries_v3_mv" {
 }
 
 module "log_entries_ws_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "log_entries_ws_mv")
+  enabled  = contains(var.objects, "log_entries_ws_mv")
   database = var.database
   name     = "log_entries_ws_mv"
   to_table = "${var.database}.writable_log_entries"

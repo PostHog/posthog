@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -23,14 +29,24 @@ variable "dictionary_password" {
   sensitive   = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  read = contains(local.deployment.components, "read")
 
   # A dictionary source has no PASSWORD clause when the user has no password.
   dictionary_password_clause = var.dictionary_password == "" ? "" : " PASSWORD '${var.dictionary_password}'"
@@ -274,7 +290,9 @@ locals {
 }
 
 module "sharded_web_bounces_dimensional_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_bounces_dimensional_preaggregated"
   database = var.database
@@ -298,7 +316,9 @@ module "sharded_web_bounces_dimensional_preaggregated_family" {
 }
 
 module "sharded_web_goals_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_goals_preaggregated"
   database = var.database
@@ -322,7 +342,9 @@ module "sharded_web_goals_preaggregated_family" {
 }
 
 module "sharded_web_overview_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_overview_preaggregated"
   database = var.database
@@ -346,7 +368,9 @@ module "sharded_web_overview_preaggregated_family" {
 }
 
 module "sharded_web_sessions_dimensional_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_sessions_dimensional_preaggregated"
   database = var.database
@@ -370,7 +394,9 @@ module "sharded_web_sessions_dimensional_preaggregated_family" {
 }
 
 module "sharded_web_stats_dimensional_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_stats_dimensional_preaggregated"
   database = var.database
@@ -394,7 +420,9 @@ module "sharded_web_stats_dimensional_preaggregated_family" {
 }
 
 module "sharded_web_stats_frustration_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_stats_frustration_preaggregated"
   database = var.database
@@ -418,7 +446,9 @@ module "sharded_web_stats_frustration_preaggregated_family" {
 }
 
 module "sharded_web_stats_paths_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_stats_paths_preaggregated"
   database = var.database
@@ -442,7 +472,9 @@ module "sharded_web_stats_paths_preaggregated_family" {
 }
 
 module "sharded_web_stats_paths_preaggregated_pathkey_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_stats_paths_preaggregated_pathkey"
   database = var.database
@@ -466,7 +498,9 @@ module "sharded_web_stats_paths_preaggregated_pathkey_family" {
 }
 
 module "sharded_web_stats_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_stats_preaggregated"
   database = var.database
@@ -490,7 +524,9 @@ module "sharded_web_stats_preaggregated_family" {
 }
 
 module "sharded_web_vitals_paths_preaggregated_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_vitals_paths_preaggregated"
   database = var.database
@@ -514,7 +550,9 @@ module "sharded_web_vitals_paths_preaggregated_family" {
 }
 
 module "web_pre_aggregated_bounces_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_pre_aggregated_bounces"
   database = var.database
@@ -528,7 +566,9 @@ module "web_pre_aggregated_bounces_family" {
 }
 
 module "web_pre_aggregated_bounces_staging_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_pre_aggregated_bounces_staging"
   database = var.database
@@ -542,7 +582,9 @@ module "web_pre_aggregated_bounces_staging_family" {
 }
 
 module "web_pre_aggregated_stats_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_pre_aggregated_stats"
   database = var.database
@@ -556,7 +598,9 @@ module "web_pre_aggregated_stats_family" {
 }
 
 module "web_pre_aggregated_stats_staging_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_pre_aggregated_stats_staging"
   database = var.database
@@ -570,7 +614,9 @@ module "web_pre_aggregated_stats_staging_family" {
 }
 
 module "web_pre_aggregated_teams_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_pre_aggregated_teams"
   database = var.database
@@ -597,8 +643,9 @@ module "web_pre_aggregated_teams_family" {
 
 module "web_pre_aggregated_teams_dict" {
   source = "../../lib/dictionary"
+  node   = var.node
 
-  enabled     = local.read && !contains(local.deployment.exclude, "web_pre_aggregated_teams_dict")
+  enabled     = contains(var.objects, "web_pre_aggregated_teams_dict")
   database    = var.database
   name        = "web_pre_aggregated_teams_dict"
   primary_key = ["team_id"]

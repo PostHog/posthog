@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,14 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  ingest = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -49,7 +65,9 @@ locals {
 }
 
 module "sharded_tophog_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "tophog"
   database = var.database
@@ -90,10 +108,11 @@ timestamp,
 
 module "kafka_tophog_ws" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_tophog_ws")
+  enabled  = contains(var.objects, "kafka_tophog_ws")
   database = var.database
   name     = "kafka_tophog_ws"
   engine   = "Kafka(warpstream_ingestion)"
@@ -104,9 +123,11 @@ module "kafka_tophog_ws" {
 
 
 module "tophog_ws_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "tophog_ws_mv")
+  enabled  = contains(var.objects, "tophog_ws_mv")
   database = var.database
   name     = "tophog_ws_mv"
   to_table = "${var.database}.writable_tophog"

@@ -1,18 +1,33 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  write   = contains(local.deployment.components, "write")
 }
 
 # Column lists that more than one object uses.
@@ -217,7 +232,9 @@ locals {
 }
 
 module "query_log_archive_v2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "query_log_archive_v2"
   database = var.database
@@ -233,7 +250,9 @@ module "query_log_archive_v2_family" {
 }
 
 module "sharded_query_log_archive_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "query_log_archive"
   database = var.database
@@ -253,7 +272,9 @@ module "sharded_query_log_archive_family" {
 }
 
 module "sharded_query_log_archive_old_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "query_log_archive_old"
   database = var.database
@@ -275,9 +296,11 @@ module "sharded_query_log_archive_old_family" {
 # Tables that hold data, and the materialized views between them.
 
 module "ops_query_log_archive_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "ops_query_log_archive_mv")
+  enabled  = contains(var.objects, "ops_query_log_archive_mv")
   database = var.database
   name     = "ops_query_log_archive_mv"
   to_table = "${var.database}.writable_query_log_archive"
@@ -326,8 +349,9 @@ module "ops_query_log_archive_mv" {
 
 module "query_log_archive_buffer" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "query_log_archive_buffer")
+  enabled  = contains(var.objects, "query_log_archive_buffer")
   database = var.database
   name     = "query_log_archive_buffer"
   engine   = "Buffer('posthog', 'sharded_query_log_archive', 16, 10, 60, 10000, 1000000, 10000000, 100000000)"
@@ -339,8 +363,9 @@ module "query_log_archive_buffer" {
 
 module "writable_query_log_archive" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.write && !contains(local.deployment.exclude, "writable_query_log_archive")
+  enabled  = contains(var.objects, "writable_query_log_archive")
   database = var.database
   name     = "writable_query_log_archive"
   engine   = "Distributed('ops', '${var.database}', 'query_log_archive_buffer')"

@@ -22,7 +22,9 @@ locals {
 }
 
 module "billing_usage_records" {
-  source = "../lib/table_family"
+  source  = "../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "billing_usage_records"
   database = var.database
@@ -39,5 +41,5 @@ module "billing_usage_records" {
     settings = { date_time_input_format = "'best_effort'" }
   }
   mv_select  = join(", ", [for column in local.sharded_billing_usage_records_columns : column.name])
-  deployment = merge(var.deployment.sharded, try(var.deployment.families.billing_usage_records, {}))
+  deployment = merge(var.deployment.sharded, try(var.deployment.families.billing_usage_records, {}), { overrides = var.overrides })
 }

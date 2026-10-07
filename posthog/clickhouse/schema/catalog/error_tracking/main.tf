@@ -1,18 +1,33 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  write  = contains(local.deployment.components, "write")
-  ingest = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -64,7 +79,9 @@ locals {
 }
 
 module "error_tracking_issue_fingerprint_overrides_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "error_tracking_issue_fingerprint_overrides"
   database = var.database
@@ -86,7 +103,9 @@ module "error_tracking_issue_fingerprint_overrides_family" {
 }
 
 module "raw_error_tracking_fingerprint_issue_state_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "error_tracking_fingerprint_issue_state"
   database = var.database
@@ -137,8 +156,9 @@ team_id,
 
 module "writable_error_tracking_issue_fingerprint_embeddings" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.write && !contains(local.deployment.exclude, "writable_error_tracking_issue_fingerprint_embeddings")
+  enabled  = contains(var.objects, "writable_error_tracking_issue_fingerprint_embeddings")
   database = var.database
   name     = "writable_error_tracking_issue_fingerprint_embeddings"
   engine   = "Distributed('posthog_single_shard', '${var.database}', 'error_tracking_issue_fingerprint_embeddings')"
@@ -154,9 +174,11 @@ module "writable_error_tracking_issue_fingerprint_embeddings" {
 
 
 module "error_tracking_issue_fingerprint_embeddings_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "error_tracking_issue_fingerprint_embeddings_mv")
+  enabled  = contains(var.objects, "error_tracking_issue_fingerprint_embeddings_mv")
   database = var.database
   name     = "error_tracking_issue_fingerprint_embeddings_mv"
   to_table = "${var.database}.writable_error_tracking_issue_fingerprint_embeddings"
@@ -182,9 +204,11 @@ module "error_tracking_issue_fingerprint_embeddings_mv" {
 }
 
 module "error_tracking_issue_fingerprint_overrides_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "error_tracking_issue_fingerprint_overrides_mv")
+  enabled  = contains(var.objects, "error_tracking_issue_fingerprint_overrides_mv")
   database = var.database
   name     = "error_tracking_issue_fingerprint_overrides_mv"
   to_table = "${var.database}.writable_error_tracking_issue_fingerprint_overrides"
@@ -212,10 +236,11 @@ module "error_tracking_issue_fingerprint_overrides_mv" {
 
 module "kafka_error_tracking_issue_fingerprint_embeddings" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_error_tracking_issue_fingerprint_embeddings")
+  enabled  = contains(var.objects, "kafka_error_tracking_issue_fingerprint_embeddings")
   database = var.database
   name     = "kafka_error_tracking_issue_fingerprint_embeddings"
   engine   = "Kafka(msk_cluster)"
@@ -226,10 +251,11 @@ module "kafka_error_tracking_issue_fingerprint_embeddings" {
 
 module "kafka_error_tracking_issue_fingerprint_overrides" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_error_tracking_issue_fingerprint_overrides")
+  enabled  = contains(var.objects, "kafka_error_tracking_issue_fingerprint_overrides")
   database = var.database
   name     = "kafka_error_tracking_issue_fingerprint_overrides"
   engine   = "Kafka(msk_cluster)"

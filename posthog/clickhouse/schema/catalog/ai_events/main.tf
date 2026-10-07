@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,14 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  ingest = contains(local.deployment.components, "ingest")
 }
 
 # Column lists that more than one object uses.
@@ -88,7 +104,9 @@ locals {
 }
 
 module "sharded_ai_events_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "ai_events"
   database = var.database
@@ -125,9 +143,11 @@ module "sharded_ai_events_family" {
 # Kafka tables and the materialized views that consume them.
 
 module "ai_events_json_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "ai_events_json_mv")
+  enabled  = contains(var.objects, "ai_events_json_mv")
   database = var.database
   name     = "ai_events_json_mv"
   to_table = "${var.database}.ai_events"
@@ -203,10 +223,11 @@ module "ai_events_json_mv" {
 
 module "kafka_ai_events_json" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_ai_events_json")
+  enabled  = contains(var.objects, "kafka_ai_events_json")
   database = var.database
   name     = "kafka_ai_events_json"
   engine   = "Kafka(msk_cluster)"

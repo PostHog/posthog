@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,15 +16,25 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  test    = contains(local.deployment.components, "test")
+  test = var.test
 }
 
 # Column lists that more than one object uses.
@@ -156,7 +172,9 @@ locals {
 }
 
 module "log_attributes_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "log_attributes"
   database = var.database
@@ -188,7 +206,9 @@ module "log_attributes_family" {
 }
 
 module "log_attributes2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "log_attributes2"
   database = var.database
@@ -211,7 +231,9 @@ module "log_attributes2_family" {
 }
 
 module "log_attributes3_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "log_attributes_distributed"
   database = var.database
@@ -239,7 +261,9 @@ module "log_attributes3_family" {
 }
 
 module "logs32_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs"
   database = var.database
@@ -272,7 +296,9 @@ module "logs32_family" {
 }
 
 module "logs34_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs_distributed"
   database = var.database
@@ -370,7 +396,9 @@ uuid,
 }
 
 module "logs_billing_metrics_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs_billing_metrics_distributed"
   database = var.database
@@ -392,7 +420,9 @@ module "logs_billing_metrics_family" {
 }
 
 module "logs_kafka_metrics_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs_kafka_metrics_distributed"
   database = var.database
@@ -410,7 +440,9 @@ module "logs_kafka_metrics_family" {
 }
 
 module "logs_pattern_buckets_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs_pattern_buckets_distributed"
   database = var.database
@@ -433,7 +465,9 @@ module "logs_pattern_buckets_family" {
 }
 
 module "logs_volume_buckets_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "logs_volume_buckets_distributed"
   database = var.database
@@ -457,9 +491,11 @@ module "logs_volume_buckets_family" {
 # Tables that hold data, and the materialized views between them.
 
 module "kafka_logs_avro_billing_metrics_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "kafka_logs_avro_billing_metrics_mv")
+  enabled  = contains(var.objects, "kafka_logs_avro_billing_metrics_mv")
   database = var.database
   name     = "kafka_logs_avro_billing_metrics_mv"
   to_table = "${var.database}.logs_billing_metrics"
@@ -495,9 +531,11 @@ module "kafka_logs_avro_billing_metrics_mv" {
 }
 
 module "kafka_logs_avro_kafka_metrics_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "kafka_logs_avro_kafka_metrics_mv")
+  enabled  = contains(var.objects, "kafka_logs_avro_kafka_metrics_mv")
   database = var.database
   name     = "kafka_logs_avro_kafka_metrics_mv"
   to_table = "${var.database}.logs_kafka_metrics"
@@ -528,9 +566,11 @@ module "kafka_logs_avro_kafka_metrics_mv" {
 
 
 module "logs32_to_log_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "logs32_to_log_attributes")
+  enabled  = contains(var.objects, "logs32_to_log_attributes")
   database = var.database
   name     = "logs32_to_log_attributes"
   to_table = "${var.database}.log_attributes"
@@ -578,9 +618,11 @@ module "logs32_to_log_attributes" {
 }
 
 module "logs32_to_resource_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "logs32_to_resource_attributes")
+  enabled  = contains(var.objects, "logs32_to_resource_attributes")
   database = var.database
   name     = "logs32_to_resource_attributes"
   to_table = "${var.database}.log_attributes"
@@ -628,9 +670,11 @@ module "logs32_to_resource_attributes" {
 
 
 module "logs34_to_log_attributes3" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "logs34_to_log_attributes3")
+  enabled  = contains(var.objects, "logs34_to_log_attributes3")
   database = var.database
   name     = "logs34_to_log_attributes3"
   to_table = "${var.database}.log_attributes3"
@@ -681,9 +725,11 @@ module "logs34_to_log_attributes3" {
 }
 
 module "logs34_to_resource_attributes3" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "logs34_to_resource_attributes3")
+  enabled  = contains(var.objects, "logs34_to_resource_attributes3")
   database = var.database
   name     = "logs34_to_resource_attributes3"
   to_table = "${var.database}.log_attributes3"
@@ -733,9 +779,11 @@ module "logs34_to_resource_attributes3" {
 }
 
 module "logs34_to_volume_buckets" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "logs34_to_volume_buckets")
+  enabled  = contains(var.objects, "logs34_to_volume_buckets")
   database = var.database
   name     = "logs34_to_volume_buckets"
   to_table = "${var.database}.logs_volume_buckets"
@@ -780,9 +828,11 @@ module "logs34_to_volume_buckets" {
 # Objects only the test suite uses, such as materialized views that stand in for the kafka pipeline.
 
 module "logs32_to_log_attributes3" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.test && !contains(local.deployment.exclude, "logs32_to_log_attributes3")
+  enabled  = contains(var.objects, "logs32_to_log_attributes3")
   database = var.database
   name     = "logs32_to_log_attributes3"
   to_table = "${var.database}.log_attributes3"
@@ -833,9 +883,11 @@ module "logs32_to_log_attributes3" {
 }
 
 module "logs32_to_resource_attributes3" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.test && !contains(local.deployment.exclude, "logs32_to_resource_attributes3")
+  enabled  = contains(var.objects, "logs32_to_resource_attributes3")
   database = var.database
   name     = "logs32_to_resource_attributes3"
   to_table = "${var.database}.log_attributes3"

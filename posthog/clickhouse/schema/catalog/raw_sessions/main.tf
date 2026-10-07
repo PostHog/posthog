@@ -1,21 +1,36 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 # Reads from events, session_replay. Those must exist on the node first.
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
-  test    = contains(local.deployment.components, "test")
+  test = var.test
 }
 
 # Column lists that more than one object uses.
@@ -133,7 +148,9 @@ locals {
 }
 
 module "sharded_raw_sessions_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "raw_sessions"
   database = var.database
@@ -152,7 +169,9 @@ module "sharded_raw_sessions_family" {
 }
 
 module "sharded_raw_sessions_v3_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "raw_sessions_v3"
   database = var.database
@@ -233,9 +252,11 @@ module "sharded_raw_sessions_v3_family" {
 # Tables that hold data, and the materialized views between them.
 
 module "raw_sessions_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "raw_sessions_mv")
+  enabled  = contains(var.objects, "raw_sessions_mv")
   database = var.database
   name     = "raw_sessions_mv"
   to_table = "${var.database}.writable_raw_sessions"
@@ -316,8 +337,9 @@ module "raw_sessions_mv" {
 
 module "raw_sessions_v" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "raw_sessions_v")
+  enabled  = contains(var.objects, "raw_sessions_v")
   database = var.database
   name     = "raw_sessions_v"
   query    = <<-SQL
@@ -390,8 +412,9 @@ module "raw_sessions_v" {
 
 module "raw_sessions_v3_v" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "raw_sessions_v3_v")
+  enabled  = contains(var.objects, "raw_sessions_v3_v")
   database = var.database
   name     = "raw_sessions_v3_v"
   query    = <<-SQL
@@ -461,9 +484,11 @@ module "raw_sessions_v3_v" {
 # Objects only the test suite uses, such as materialized views that stand in for the kafka pipeline.
 
 module "raw_sessions_v3_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.test && !contains(local.deployment.exclude, "raw_sessions_v3_mv")
+  enabled  = contains(var.objects, "raw_sessions_v3_mv")
   database = var.database
   name     = "raw_sessions_v3_mv"
   to_table = "${var.database}.writable_raw_sessions_v3"
@@ -574,9 +599,11 @@ module "raw_sessions_v3_mv" {
 }
 
 module "raw_sessions_v3_recordings_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.test && !contains(local.deployment.exclude, "raw_sessions_v3_recordings_mv")
+  enabled  = contains(var.objects, "raw_sessions_v3_recordings_mv")
   database = var.database
   name     = "raw_sessions_v3_recordings_mv"
   to_table = "${var.database}.writable_raw_sessions_v3"

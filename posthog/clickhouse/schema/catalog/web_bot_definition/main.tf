@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -17,10 +23,21 @@ variable "dictionary_password" {
   sensitive   = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 terraform {
@@ -32,7 +49,6 @@ terraform {
 }
 
 locals {
-  read = contains(local.deployment.components, "read")
 
   # A dictionary source has no PASSWORD clause when the user has no password.
   dictionary_password_clause = var.dictionary_password == "" ? "" : " PASSWORD '${var.dictionary_password}'"
@@ -53,7 +69,9 @@ locals {
 # Its rows are declared below, so recreating the table loses nothing. web_bot_definition_dict
 # reads it, and ClickHouse refuses to drop a table a dictionary reads unless the drop skips that check.
 module "web_bot_definition_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "web_bot_definition"
   database = var.database
@@ -67,7 +85,6 @@ module "web_bot_definition_family" {
   }
   deployment = merge({
     }, local.deployment, {
-    components = contains(local.deployment.components, "read") ? ["storage"] : []
     overrides = {
       "web_bot_definition" = merge({ ignore_drop_dependencies = true, force_destroy = true }, try(local.deployment.overrides["web_bot_definition"], {}))
     }
@@ -81,9 +98,10 @@ module "web_bot_definition_family" {
 
 # web_bot_definitions.jsonl is generated from BOT_DEFINITIONS by `python manage.py write_bot_definitions_file`.
 resource "clickhousedbops_table_contents" "web_bot_definition" {
-  count = local.read && !contains(local.deployment.exclude, "web_bot_definition") && !contains(local.deployment.exclude, "web_bot_definition_contents") ? 1 : 0
+  count = contains(var.objects, "web_bot_definition_contents") ? 1 : 0
 
   database = var.database
+  node     = var.node == null ? null : { name = var.node.name, host = var.node.host, port = try(var.node.port, null) }
   table    = "web_bot_definition"
   format   = "JSONCompactEachRow"
   data     = file("${path.module}/web_bot_definitions.jsonl")
@@ -93,8 +111,9 @@ resource "clickhousedbops_table_contents" "web_bot_definition" {
 
 module "web_bot_definition_dict" {
   source = "../../lib/dictionary"
+  node   = var.node
 
-  enabled     = local.read && !contains(local.deployment.exclude, "web_bot_definition_dict")
+  enabled     = contains(var.objects, "web_bot_definition_dict")
   database    = var.database
   name        = "web_bot_definition_dict"
   primary_key = ["regexp"]

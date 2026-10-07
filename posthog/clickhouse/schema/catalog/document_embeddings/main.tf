@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,15 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
 }
 
 # Column lists that more than one object uses.
@@ -59,7 +74,9 @@ locals {
 }
 
 module "partitioned_sharded_posthog_document_embeddings_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "distributed_posthog_document_embeddings"
   database = var.database
@@ -81,7 +98,9 @@ module "partitioned_sharded_posthog_document_embeddings_family" {
 }
 
 module "sharded_posthog_document_embeddings_buffer_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "posthog_document_embeddings_buffer"
   database = var.database
@@ -138,7 +157,9 @@ team_id,
 }
 
 module "sharded_posthog_document_embeddings_text_embedding_3_large_3072_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "distributed_posthog_document_embeddings_text_embedding_3_large_3072"
   database = var.database
@@ -165,7 +186,9 @@ module "sharded_posthog_document_embeddings_text_embedding_3_large_3072_family" 
 }
 
 module "sharded_posthog_document_embeddings_text_embedding_3_small_1536_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "distributed_posthog_document_embeddings_text_embedding_3_small_1536"
   database = var.database
@@ -195,9 +218,11 @@ module "sharded_posthog_document_embeddings_text_embedding_3_small_1536_family" 
 
 
 module "posthog_document_embeddings_text_embedding_3_large_3072_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "posthog_document_embeddings_text_embedding_3_large_3072_mv")
+  enabled  = contains(var.objects, "posthog_document_embeddings_text_embedding_3_large_3072_mv")
   database = var.database
   name     = "posthog_document_embeddings_text_embedding_3_large_3072_mv"
   to_table = "${var.database}.writable_posthog_document_embeddings_text_embedding_3_large_3072"
@@ -228,9 +253,11 @@ module "posthog_document_embeddings_text_embedding_3_large_3072_mv" {
 }
 
 module "posthog_document_embeddings_text_embedding_3_small_1536_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "posthog_document_embeddings_text_embedding_3_small_1536_mv")
+  enabled  = contains(var.objects, "posthog_document_embeddings_text_embedding_3_small_1536_mv")
   database = var.database
   name     = "posthog_document_embeddings_text_embedding_3_small_1536_mv"
   to_table = "${var.database}.writable_posthog_document_embeddings_text_embedding_3_small_1536"
@@ -267,8 +294,9 @@ module "posthog_document_embeddings_text_embedding_3_small_1536_mv" {
 
 module "posthog_document_embeddings_union_view" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "posthog_document_embeddings_union_view")
+  enabled  = contains(var.objects, "posthog_document_embeddings_union_view")
   database = var.database
   name     = "posthog_document_embeddings_union_view"
   query    = <<-SQL

@@ -1,25 +1,42 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
   default     = "posthog"
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  read = contains(local.deployment.components, "read")
 }
 
 # Distributed tables, views and dictionaries that queries read from.
 
 module "distributed_system_processes" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "distributed_system_processes")
+  enabled  = contains(var.objects, "distributed_system_processes")
   database = var.database
   name     = "distributed_system_processes"
   engine   = "Distributed('posthog', 'system', 'processes')"

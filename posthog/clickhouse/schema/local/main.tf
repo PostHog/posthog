@@ -34,10 +34,3 @@ provider "clickhousedbops" {
   manage_dictionary_passwords = true
 }
 
-locals {
-  components = setunion(
-    ["storage", "read", "write"],
-    var.kafka ? ["ingest"] : [],
-    var.test ? ["test"] : [],
-  )
-}

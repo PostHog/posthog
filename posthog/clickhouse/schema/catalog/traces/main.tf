@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,14 +16,24 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  storage = contains(local.deployment.components, "storage")
 }
 
 # Column lists that more than one object uses.
@@ -77,7 +93,9 @@ locals {
 }
 
 module "trace_attributes_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "trace_attributes_distributed"
   database = var.database
@@ -102,7 +120,9 @@ module "trace_attributes_family" {
 }
 
 module "trace_attributes2_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "trace_attributes2"
   database = var.database
@@ -124,7 +144,9 @@ module "trace_attributes2_family" {
 }
 
 module "trace_spans_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "trace_spans_distributed"
   database = var.database
@@ -229,7 +251,9 @@ uuid,
 }
 
 module "trace_spans_kafka_metrics_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "trace_spans_kafka_metrics"
   database = var.database
@@ -254,9 +278,11 @@ module "trace_spans_kafka_metrics_family" {
 
 
 module "trace_span_to_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_attributes")
+  enabled  = contains(var.objects, "trace_span_to_attributes")
   database = var.database
   name     = "trace_span_to_attributes"
   to_table = "${var.database}.trace_attributes"
@@ -302,9 +328,11 @@ module "trace_span_to_attributes" {
 }
 
 module "trace_span_to_attributes2" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_attributes2")
+  enabled  = contains(var.objects, "trace_span_to_attributes2")
   database = var.database
   name     = "trace_span_to_attributes2"
   to_table = "${var.database}.trace_attributes2"
@@ -350,9 +378,11 @@ module "trace_span_to_attributes2" {
 }
 
 module "trace_span_to_resource_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_resource_attributes")
+  enabled  = contains(var.objects, "trace_span_to_resource_attributes")
   database = var.database
   name     = "trace_span_to_resource_attributes"
   to_table = "${var.database}.trace_attributes"
@@ -398,9 +428,11 @@ module "trace_span_to_resource_attributes" {
 }
 
 module "trace_span_to_resource_attributes2" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_resource_attributes2")
+  enabled  = contains(var.objects, "trace_span_to_resource_attributes2")
   database = var.database
   name     = "trace_span_to_resource_attributes2"
   to_table = "${var.database}.trace_attributes2"
@@ -446,9 +478,11 @@ module "trace_span_to_resource_attributes2" {
 }
 
 module "trace_span_to_span_attributes" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_span_attributes")
+  enabled  = contains(var.objects, "trace_span_to_span_attributes")
   database = var.database
   name     = "trace_span_to_span_attributes"
   to_table = "${var.database}.trace_attributes"
@@ -493,9 +527,11 @@ module "trace_span_to_span_attributes" {
 }
 
 module "trace_span_to_span_attributes2" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_span_to_span_attributes2")
+  enabled  = contains(var.objects, "trace_span_to_span_attributes2")
   database = var.database
   name     = "trace_span_to_span_attributes2"
   to_table = "${var.database}.trace_attributes2"
@@ -542,9 +578,11 @@ module "trace_span_to_span_attributes2" {
 
 
 module "trace_spans_to_kafka_metrics_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "trace_spans_to_kafka_metrics_mv")
+  enabled  = contains(var.objects, "trace_spans_to_kafka_metrics_mv")
   database = var.database
   name     = "trace_spans_to_kafka_metrics_mv"
   to_table = "${var.database}.trace_spans_kafka_metrics"

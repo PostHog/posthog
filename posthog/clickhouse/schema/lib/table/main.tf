@@ -28,12 +28,20 @@ variable "name" {
 #   drop_columns = ["name"], add_columns = [{...}], modify_columns = { name = {...} }
 #   drop_indexes, add_indexes, drop_projections, add_projections, drop_constraints, add_constraints
 #     the same, by name; to change one, drop it and add it
+#   columns, indexes, projections, constraints
+#     replace the whole list; the drop_ and add_ keys of the same list are then ignored
 #   unmanaged_columns, unmanaged_indexes = ["regex"]
 #     replace the argument of the same name
 #   force_destroy = true
 #     allow dropping or replacing the table while it holds rows; apply it on its own first
 #   ignore_drop_dependencies = true
 #     allow dropping or replacing the table while a dictionary or view reads from it
+variable "node" {
+  description = "The server the object lives on: { name, host, port, leader }. Null puts it on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "override" {
   description = "Changes to the definition for the target nodes."
   type        = any
@@ -145,22 +153,22 @@ locals {
   drop_projections = try(local.o.drop_projections, [])
   drop_constraints = try(local.o.drop_constraints, [])
 
-  columns = concat(
+  columns = try(local.o.columns, concat(
     [for c in var.columns : try(local.o.modify_columns[c.name], c) if !contains(local.drop_columns, c.name)],
     try(local.o.add_columns, []),
-  )
-  indexes = concat(
+  ))
+  indexes = try(local.o.indexes, concat(
     [for i in var.indexes : i if !contains(local.drop_indexes, i.name)],
     try(local.o.add_indexes, []),
-  )
-  projections = concat(
+  ))
+  projections = try(local.o.projections, concat(
     [for p in var.projections : p if !contains(local.drop_projections, p.name)],
     try(local.o.add_projections, []),
-  )
-  constraints = concat(
+  ))
+  constraints = try(local.o.constraints, concat(
     [for c in var.constraints : c if !contains(local.drop_constraints, c.name)],
     try(local.o.add_constraints, []),
-  )
+  ))
 }
 
 locals {
@@ -195,6 +203,10 @@ resource "clickhousedbops_table" "this" {
 
   unmanaged_columns = try(local.o.unmanaged_columns, var.unmanaged_columns)
   unmanaged_indexes = try(local.o.unmanaged_indexes, var.unmanaged_indexes)
+
+  node = var.node == null ? null : { name = var.node.name, host = var.node.host, port = try(var.node.port, null) }
+  # The shard's leader runs the ALTERs that Keeper replicates; the other replicas wait for them.
+  replica_role = var.node != null && startswith(lower(local.engine), "replicated") ? (try(var.node.leader, true) ? "leader" : "follower") : null
 
   force_destroy            = try(local.o.force_destroy, false)
   ignore_drop_dependencies = try(local.o.ignore_drop_dependencies, false)

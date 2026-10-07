@@ -60,8 +60,8 @@ module "sharded" {
     columns = local.input_columns
   }
   mv_select = "team_id, timestamp, value"
+  objects   = ["sharded_family", "family", "writable_family", "kafka_family", "family_mv"]
   deployment = {
-    components         = ["storage", "read", "write", "ingest"]
     cluster            = "aux"
     kafka_topic_prefix = "isolated_"
     kafka_topic_suffix = "_test"
@@ -88,8 +88,8 @@ module "global" {
   mv_target = "${var.database}.reference"
   routing   = { read = true }
   names     = { read = "reference_read" }
+  objects   = ["reference", "reference_read", "writable_reference", "kafka_reference", "reference_mv"]
   deployment = {
-    components         = ["storage", "read", "write", "ingest"]
     cluster            = "posthog"
     kafka_topic_suffix = "_test"
     overrides          = { reference = { force_destroy = true } }
@@ -104,6 +104,7 @@ module "plain" {
   layout   = "global"
   columns  = local.input_columns
   storage  = { replicated = false, order_by = "team_id" }
+  objects  = ["plain_reference"]
 }
 
 module "query" {
@@ -114,8 +115,8 @@ module "query" {
   columns  = local.stored_columns
   storage  = local.storage
   names    = { read = "routed_read", write = "routed_write" }
+  objects  = ["routed_read", "routed_write"]
   deployment = {
-    components = ["read", "write"]
-    cluster    = "aux"
+    cluster = "aux"
   }
 }

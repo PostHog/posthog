@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -10,17 +16,26 @@ variable "ttl" {
   default     = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 # Reads from events. Those must exist on the node first.
 
 locals {
-  storage = contains(local.deployment.components, "storage")
-  read    = contains(local.deployment.components, "read")
 }
 
 # Column lists that more than one object uses.
@@ -60,7 +75,9 @@ locals {
 }
 
 module "sharded_events_recent_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "distributed_events_recent"
   database = var.database
@@ -85,9 +102,11 @@ module "sharded_events_recent_family" {
 # Tables that hold data, and the materialized views between them.
 
 module "events_recent_json_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.storage && !contains(local.deployment.exclude, "events_recent_json_mv")
+  enabled  = contains(var.objects, "events_recent_json_mv")
   database = var.database
   name     = "events_recent_json_mv"
   to_table = "${var.database}.writable_events_recent"
@@ -131,8 +150,9 @@ module "events_recent_json_mv" {
 
 module "events_batch_export_recent" {
   source = "../../lib/view"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "events_batch_export_recent")
+  enabled  = contains(var.objects, "events_batch_export_recent")
   database = var.database
   name     = "events_batch_export_recent"
   query    = <<-SQL
@@ -172,8 +192,9 @@ module "events_batch_export_recent" {
 
 module "events_recent" {
   source = "../../lib/table"
+  node   = var.node
 
-  enabled  = local.read && !contains(local.deployment.exclude, "events_recent")
+  enabled  = contains(var.objects, "events_recent")
   database = var.database
   name     = "events_recent"
   engine   = "Distributed('posthog_primary_replica', '${var.database}', 'sharded_events_recent', sipHash64(distinct_id))"

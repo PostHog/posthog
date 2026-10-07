@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server the object lives on: { name, host, port, leader }. Null puts it on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "name" {
   description = "Logical family name. Standard object names are derived from it."
   type        = string
@@ -127,10 +133,14 @@ variable "names" {
   default = {}
 }
 
+variable "objects" {
+  description = "Names of the objects to create. A name that is not one of this family's objects is ignored."
+  type        = set(string)
+}
+
 variable "deployment" {
-  description = "Placement and operational differences supplied by the calling root. Keeper paths are complete paths, never suffixes."
+  description = "Operational differences supplied by the calling root. Keeper paths are complete paths, never suffixes."
   type = object({
-    components         = optional(set(string), ["storage", "read", "write", "ingest"])
     cluster            = optional(string)
     read_cluster       = optional(string)
     write_cluster      = optional(string)
@@ -140,14 +150,9 @@ variable "deployment" {
     kafka_topic_suffix = optional(string, "")
     keeper_path        = optional(string)
     replica_name       = optional(string)
-    exclude            = optional(set(string), [])
     overrides          = optional(any, {})
   })
   default = {}
-  validation {
-    condition     = length(setsubtract(var.deployment.components, ["storage", "read", "write", "ingest", "test"])) == 0
-    error_message = "Unknown table-family component. Use storage, read, write, ingest or test."
-  }
   validation {
     condition = alltrue([for name, override in var.deployment.overrides :
       name == coalesce(var.names.storage, var.layout == "sharded" ? "sharded_${var.name}" : var.name) ||
@@ -182,11 +187,11 @@ locals {
   cluster   = coalesce(var.deployment.cluster, var.layout == "global" ? "posthog" : "aux")
   overrides = { for name, override in var.deployment.overrides : name => override if contains(values(local.names), name) }
   enabled = {
-    storage = contains(var.deployment.components, "storage") && !contains(var.deployment.exclude, local.names.storage)
-    read    = coalesce(var.routing.read, var.layout == "sharded") && contains(var.deployment.components, "read") && !contains(var.deployment.exclude, local.names.read)
-    write   = coalesce(var.routing.write, var.layout == "sharded" || var.kafka != null) && contains(var.deployment.components, "write") && !contains(var.deployment.exclude, local.names.write)
-    kafka   = var.kafka != null && contains(var.deployment.components, "ingest") && !contains(var.deployment.exclude, local.names.kafka)
-    mv      = var.kafka != null && contains(var.deployment.components, "ingest") && !contains(var.deployment.exclude, local.names.mv)
+    storage = contains(var.objects, local.names.storage)
+    read    = coalesce(var.routing.read, var.layout == "sharded") && contains(var.objects, local.names.read)
+    write   = coalesce(var.routing.write, var.layout == "sharded" || var.kafka != null) && contains(var.objects, local.names.write)
+    kafka   = var.kafka != null && contains(var.objects, local.names.kafka)
+    mv      = var.kafka != null && contains(var.objects, local.names.mv)
   }
   keeper_path = coalesce(var.deployment.keeper_path,
     var.layout == "sharded" ? "/clickhouse/tables/{shard}/${var.database}.${local.names.storage}" : "/clickhouse/tables/noshard/${var.database}.${local.names.storage}"
@@ -229,6 +234,7 @@ locals {
 
 module "storage" {
   source = "../table"
+  node   = var.node
 
   enabled           = local.enabled.storage
   database          = var.database
@@ -251,6 +257,7 @@ module "storage" {
 
 module "read" {
   source = "../table"
+  node   = var.node
 
   enabled    = local.enabled.read
   database   = var.database
@@ -263,6 +270,7 @@ module "read" {
 
 module "write" {
   source = "../table"
+  node   = var.node
 
   enabled    = local.enabled.write
   database   = var.database
@@ -275,6 +283,7 @@ module "write" {
 
 module "kafka" {
   source = "../table"
+  node   = var.node
 
   deployment = var.deployment
 
@@ -289,7 +298,9 @@ module "kafka" {
 }
 
 module "mv" {
-  source = "../materialized_view"
+  source  = "../materialized_view"
+  node    = var.node
+  objects = var.objects
 
   enabled    = local.enabled.mv
   database   = var.database

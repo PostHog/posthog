@@ -24,7 +24,7 @@ Switch local, test and Hobby setup only after the cloud handover is verified. De
 
 Add a `.tf` file under `catalog/` for a standard sharded or global table family.
 Every local and cloud root calls that catalogue, so a new family needs no per-cluster wiring.
-The calling root supplies placement; the declaration supplies the topic, columns, storage keys and ingestion transformation.
+The calling root lists the objects it wants; the declaration supplies the topic, columns, storage keys and ingestion transformation.
 `catalog/billing_usage_records.tf` is a complete sharded example and `catalog/property_definitions.tf` is a global example.
 
 ```hcl
@@ -49,9 +49,9 @@ module "example_events" {
 }
 ```
 
-`table_family` creates `sharded_<name>`, `<name>`, `writable_<name>`, `kafka_<name>` and `<name>_mv` on their selected components. Omit `kafka` and `mv_select` for a family without Kafka ingestion.
+`table_family` declares `sharded_<name>`, `<name>`, `writable_<name>`, `kafka_<name>` and `<name>_mv`, and creates the ones the root lists. Omit `kafka` and `mv_select` for a family without Kafka ingestion.
 `storage.engine` defaults to `MergeTree`; set `ReplacingMergeTree` and `engine_args = ["version"]` for versioned rows. The library supplies replication arguments.
-`sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly. A standalone family defaults to all components and aux routing; a global family defaults to posthog routing. Catalogue declarations receive the root's placement policy.
+`sharding_key` defaults to `cityHash64(team_id)` and can be changed explicitly. A standalone family defaults to aux routing; a global family defaults to posthog routing.
 The materialized view's `mv_select` is the expression list after `SELECT`; the library supplies its Kafka `FROM` and writable `TO`. More complex queries can use an explicit MV `query` override or the low-level helper.
 
 Indexes, projections, constraints, codecs, column TTLs and computed expressions belong to storage. Readers expose computed values as plain columns; writers expose insertable columns. Kafka has its own input columns. The library rejects index, projection and constraint overrides unless the target uses a MergeTree engine. Existing routing schemas can explicitly retain computed expressions.
@@ -62,9 +62,9 @@ Kafka topic namespaces come from deployment: `kafka_topic_prefix` and `kafka_top
 For a global family, set `layout = "global"` and use `var.deployment.global`. Its storage table is `<name>` with one Keeper path across the participating nodes; it has no Distributed reader. A global family without Kafka creates only storage. Set `storage.replicated = false` for a plain MergeTree reference table. With Kafka, the library also creates its ingestion objects and a writable table routing to one shard of the storage cluster. Replica names must be unique across the participating nodes.
 
 New replication paths use the actual database name, so test databases are isolated without a suffix. Deployment can set a complete `keeper_path` and `replica_name`; `names` can preserve historical object names. Do not change existing Keeper paths as part of a refactor. Before adopting an existing custom database whose path previously used `posthog` plus a suffix, supply that exact complete path.
-Placement, exclusions and per-object overrides stay in the calling root. Pass a group's deployment directly to each family; the library selects only that family's overrides and ignores the test component. Unknown component names still fail validation. Cloud defaults are aux storage, small ingestion and reads on the app query cluster. Local development puts the components on one server. Existing families keep their recorded placement until an explicit migration changes it.
+Placement and per-object overrides stay in the calling root. Pass a group's deployment directly to each family; the library selects only that family's overrides.
 
-All existing groups live in the catalogue. Each group has one `main.tf` containing its inputs, columns, families and custom objects. `catalog/main.tf` contains their callers. Shared column lists are declared once and reused. Historical groups receive explicit deployment records, so a refactor does not move data or create missing objects. Three legacy Kafka pipelines keep their low-level declarations because their input schemas carry codecs.
+All existing groups live in the catalogue. Each group has one `main.tf` containing its inputs, columns, families and custom objects. `catalog/main.tf` contains their callers. Shared column lists are declared once and reused. Three legacy Kafka pipelines keep their low-level declarations because their input schemas carry codecs.
 
 Keep unusual views, dictionaries and extra ingestion pipelines in explicit modules built from `lib/table`, `lib/materialized_view`, `lib/view` and `lib/dictionary`. A family does not have to fit the standard five-object pattern.
 
@@ -76,48 +76,37 @@ bin/clickhouse-schema test-family
 
 The check creates and removes its own scratch database, checks storage-only physical attributes and computed-column routing, and requires an empty second plan.
 
-## Groups and components
+## Objects and placement
 
-A group holds the objects that belong to one table family.
-`catalog/events`, for example, has the sharded data table, the Distributed tables that read from it and write to it, the Kafka table and the materialized view that fills it.
+Every object has one name and one definition in the catalogue. A group is only a directory that keeps related objects
+and their shared column lists together: `catalog/events`, for example, has the sharded data table, the Distributed
+tables that read from it and write to it, the Kafka table and the materialized view that fills it.
 
-Each object is in one component of its group:
+A root says which objects go on a node by listing their names in `objects`. The catalogue creates exactly those, and
+`overrides` changes single objects by name. `lib/table/main.tf` lists the override keys for tables; views,
+materialized views and dictionaries accept the arguments of their `lib` module as keys.
 
-| Component | What is in it                                                          |
-| --------- | ---------------------------------------------------------------------- |
-| `storage` | Tables that hold data, and the materialized views between them         |
-| `read`    | Distributed tables, views and dictionaries that queries read from      |
-| `write`   | Distributed tables that inserts go through                             |
-| `ingest`  | Kafka tables and the materialized views that consume them              |
-| `test`    | Objects only the test suite uses, for example views that replace Kafka |
+A materialized view must be on the same node as the tables it reads from and writes to. `lib/materialized_view`
+checks this at plan time and names the missing table.
 
-Components exist because a group does not live on one node in production.
-The storage tables are on the data nodes, the Kafka tables on the ingestion nodes, and the Distributed tables on every cluster that queries the group.
-A root module says which components of which groups go on which nodes.
+`test = true` is not a placement: it switches the definitions the test suite expects, such as the `log_entries` test
+table in place of its reader.
 
 ## What this repository owns
 
-This repository owns the catalogue, explicit groups, definitions, and one root: `local/`, which puts every component of every group on a single server.
-That root is what local development, tests, CI and self-hosted installs use.
+This repository owns the catalogue and one root: `local/`, which puts its objects on a single server.
+That root is what local development, tests, CI and self-hosted installs use. `local/objects.tf` lists its objects,
+with separate lists for Kafka ingestion and for the test suite.
 
-Which clusters and nodes get which components in PostHog Cloud is not decided here.
-The infrastructure repository has one root per cluster.
-Each root calls the catalogue from `master` and supplies deployment records with three things:
-
-- `components`: the parts of the group that cluster has.
-- `exclude`: objects of those components that cluster does not have.
-- `overrides`: per-object changes, for a cluster whose definition differs from the one here (a different sorting key, a storage policy, extra columns, a Distributed table that points at another cluster).
-
-`lib/table/main.tf` lists the override keys for tables.
-Views, materialized views and dictionaries accept the arguments of their `lib` module as keys.
-
-Objects that exist only in PostHog Cloud are declared in the infrastructure repository, not here.
+Which objects are on which nodes in PostHog Cloud is decided in the infrastructure repository, one root per cluster.
+Groups whose objects only exist in Cloud (`query_log_archive_v3`, `ops_metrics`, `events_json_buffer` and the other
+groups declared from production) are in the catalogue too; `local/` does not list their objects.
 
 ## Changing the schema
 
 1. Edit the module of the group. Column lists that several objects use are in its `main.tf`, so a new column usually goes in one place.
 2. Write expressions the way ClickHouse prints them in `SHOW CREATE TABLE`. The provider compares your text with what the server reports and ignores only whitespace, so `x::Date` instead of `CAST(x, 'Date')` shows up as a change on every plan. The exception is text inside a quoted string, such as the `QUERY` of a dictionary source: ClickHouse stores that as written.
-3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its catalogue group and component. A new custom group is a directory under `catalog/` and a caller in `catalog/main.tf`; local deployment selects its components in `local/modules.tf`.
+3. A standard family goes in `catalog/` and uses `lib/table_family`. An unusual object goes in its catalogue group. A new custom group is a directory under `catalog/` and a caller in `catalog/main.tf`. Add every new object's name to a list in `local/objects.tf`.
 4. Run `bin/clickhouse-schema plan` to see the statements, then `bin/clickhouse-schema apply`.
 
 A pull request that changes this directory gets applied to a fresh ClickHouse in CI, and a second plan must come back empty.
@@ -168,7 +157,7 @@ bin/clickhouse-schema apply    # create or update every object
 `bin/migrate --scope=clickhouse` and `python manage.py migrate_clickhouse` create the database, call the script and load the reference data.
 The test suite builds its databases the same way, with `CLICKHOUSE_SCHEMA_KAFKA=false` and `CLICKHOUSE_SCHEMA_TEST=true`. Each regular test process recreates its database first and supplies a complete Keeper path with a unique run ID and the `{table}` macro. This avoids reconciling fixture definitions and reusing paths still owned by asynchronous table drops. AI evaluations retain their database between runs.
 It records that initial schema once per test process and restores it between packages and after destructive fixtures.
-In tests, the `logs` and `logs_distributed` entry points both route to `logs32` and use its columns, as existing fixtures expect. Test components include counter metrics and start without the AI columns that runtime materialization adds.
+In tests, the `logs` and `logs_distributed` entry points both route to `logs32` and use its columns, as existing fixtures expect. Test objects include counter metrics and start without the AI columns that runtime materialization adds.
 Schema refactors must preserve product test inputs and assertions. SQL factories still called by isolated test fixtures remain available; they do not apply deployment migrations.
 
 No state has been deployed for this system, so it has no state-address migration blocks. Bootstrap imports in cloud roots adopt existing objects.

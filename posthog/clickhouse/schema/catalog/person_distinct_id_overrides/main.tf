@@ -1,3 +1,9 @@
+variable "node" {
+  description = "The server these objects live on: { name, host, port, leader }. Null puts them on the provider's host."
+  type        = any
+  default     = null
+}
+
 variable "database" {
   description = "Database the objects live in."
   type        = string
@@ -17,15 +23,24 @@ variable "dictionary_password" {
   sensitive   = true
 }
 
+variable "objects" {
+  description = "Names of the objects to create."
+  type        = set(string)
+}
+
+variable "test" {
+  description = "Use the definitions the test suite expects."
+  type        = bool
+  default     = false
+}
+
 variable "deployment" { type = any }
 
 locals {
-  deployment = merge({ exclude = [], overrides = {} }, var.deployment)
+  deployment = merge({ overrides = {} }, var.deployment)
 }
 
 locals {
-  read   = contains(local.deployment.components, "read")
-  ingest = contains(local.deployment.components, "ingest")
 
   # A dictionary source has no PASSWORD clause when the user has no password.
   dictionary_password_clause = var.dictionary_password == "" ? "" : " PASSWORD '${var.dictionary_password}'"
@@ -50,7 +65,9 @@ locals {
 }
 
 module "person_distinct_id_overrides_family" {
-  source = "../../lib/table_family"
+  source  = "../../lib/table_family"
+  node    = var.node
+  objects = var.objects
 
   name     = "person_distinct_id_overrides"
   database = var.database
@@ -75,8 +92,9 @@ module "person_distinct_id_overrides_family" {
 
 module "person_distinct_id_overrides_dict" {
   source = "../../lib/dictionary"
+  node   = var.node
 
-  enabled     = local.read && !contains(local.deployment.exclude, "person_distinct_id_overrides_dict")
+  enabled     = contains(var.objects, "person_distinct_id_overrides_dict")
   database    = var.database
   name        = "person_distinct_id_overrides_dict"
   primary_key = ["team_id", "distinct_id"]
@@ -99,10 +117,11 @@ module "person_distinct_id_overrides_dict" {
 
 module "kafka_person_distinct_id_overrides" {
   source = "../../lib/table"
+  node   = var.node
 
   deployment = local.deployment
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_person_distinct_id_overrides")
+  enabled  = contains(var.objects, "kafka_person_distinct_id_overrides")
   database = var.database
   name     = "kafka_person_distinct_id_overrides"
   engine   = "Kafka(msk_cluster)"
@@ -112,9 +131,11 @@ module "kafka_person_distinct_id_overrides" {
 }
 
 module "person_distinct_id_overrides_mv" {
-  source = "../../lib/materialized_view"
+  source  = "../../lib/materialized_view"
+  node    = var.node
+  objects = var.objects
 
-  enabled  = local.ingest && !contains(local.deployment.exclude, "person_distinct_id_overrides_mv")
+  enabled  = contains(var.objects, "person_distinct_id_overrides_mv")
   database = var.database
   name     = "person_distinct_id_overrides_mv"
   to_table = "${var.database}.writable_person_distinct_id_overrides"
