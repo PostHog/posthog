@@ -6,6 +6,8 @@ from uuid import UUID
 import pytest
 from unittest.mock import MagicMock, patch
 
+from confluent_kafka import KafkaError, KafkaException
+
 from posthog.clickhouse.client import sync_execute
 from posthog.dags.detach_distinct_id import (
     _count_other_distinct_ids,
@@ -245,6 +247,26 @@ class TestDetachDistinctIdJob:
         assert override_rows[0][1] == "$posthog_cookieless"
         assert override_rows[0][2] == DUMMY_OVERRIDE_UUID
         assert override_rows[0][4] == PDI_VERSION + 2
+
+    @patch("posthog.dags.detach_distinct_id.sync_execute")
+    def test_a_failed_kafka_delivery_fails_the_job_before_the_override(self, mock_sync_execute):
+        mock_sync_execute.return_value = [(0,)]
+        lookup_row = (PDI_ID, PDI_VERSION, PERSON_PK, UUID(PERSON_UUID))
+        conn, _cursor = self._make_connection(lookup_row, other_count=2)
+        producer = MagicMock()
+        producer.produce.return_value.get.side_effect = KafkaException(KafkaError(KafkaError._MSG_TIMED_OUT))
+
+        result = detach_distinct_id_job.execute_in_process(
+            run_config=self._run_config(dry_run=False),
+            resources={"persons_database": conn, "kafka_producer": producer},
+            raise_on_error=False,
+        )
+
+        assert not result.success
+        conn.commit.assert_called_once()
+        assert not [
+            c for c in mock_sync_execute.call_args_list if "INSERT INTO person_distinct_id_overrides" in c.args[0]
+        ]
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_uses_explicit_override_person_id(self, mock_sync_execute):

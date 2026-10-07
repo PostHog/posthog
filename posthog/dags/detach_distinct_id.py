@@ -30,6 +30,7 @@ Example Dagster launchpad config (run with dry_run: true first!)::
 
 import json
 import uuid
+import shlex
 from datetime import datetime
 
 import dagster
@@ -40,6 +41,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dags.common import JobOwners
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
+
+KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
 
 
 class DetachDistinctIdConfig(dagster.Config):
@@ -170,7 +173,7 @@ def _publish_deletion_to_kafka(
 
     ``version`` is the one the Postgres tombstone carries, so a revived mapping lands above it.
     """
-    producer.produce(
+    result = producer.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
         data={
             "distinct_id": distinct_id,
@@ -180,7 +183,23 @@ def _publish_deletion_to_kafka(
             "is_deleted": 1,
         },
     )
-    producer.flush()
+    producer.flush(KAFKA_DELIVERY_TIMEOUT_SECONDS)
+    # flush() counts only messages still queued. A failed delivery leaves the queue, so only its result shows it.
+    result.get(timeout=0)
+
+
+def _undelivered_tombstone_message(team_id: int, distinct_id: str, override_person_uuid: str, version: int) -> str:
+    insert_override = (
+        "from posthog.dags.detach_distinct_id import _insert_ch_override; "
+        f"_insert_ch_override({team_id}, {json.dumps(distinct_id)}, {json.dumps(override_person_uuid)}, {version + 1})"
+    )
+    return (
+        f"Postgres tombstoned distinct_id={distinct_id!r} at version {version}, but Kafka did not deliver the "
+        "ClickHouse tombstone, so the override was not inserted. A rerun of this job cannot find the row. "
+        "Recover with:\n"
+        f"  1. python manage.py sync_persons_to_clickhouse --person-distinct-id --deletes --live-run --team-id {team_id}\n"
+        f"  2. python manage.py shell -c {shlex.quote(insert_override)}"
+    )
 
 
 def _insert_ch_override(
@@ -268,13 +287,18 @@ def detach_distinct_id_op(
         )
 
     # --- 4. Sync deletion to ClickHouse via Kafka ---
-    _publish_deletion_to_kafka(
-        kafka_producer,
-        team_id=config.team_id,
-        distinct_id=config.distinct_id,
-        person_uuid=info["person_uuid"],
-        version=version,
-    )
+    try:
+        _publish_deletion_to_kafka(
+            kafka_producer,
+            team_id=config.team_id,
+            distinct_id=config.distinct_id,
+            person_uuid=info["person_uuid"],
+            version=version,
+        )
+    except Exception as e:
+        raise dagster.Failure(
+            _undelivered_tombstone_message(config.team_id, config.distinct_id, override_target, version)
+        ) from e
     log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version}, is_deleted=1)")
 
     # --- 5. Override: fix person_id baked into historical events (see module docstring) ---
