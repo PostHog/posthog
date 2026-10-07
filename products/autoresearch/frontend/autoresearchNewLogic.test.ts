@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -345,9 +347,20 @@ describe('autoresearchNewLogic', () => {
         }
     )
 
-    it('opens the created model when training fails to start', async () => {
+    it.each([
+        ['a validation error', { detail: 'A training run is already running' }, 'A training run is already running'],
+        [
+            'a usage limit',
+            new ApiError("You've reached your usage limit.", 429, undefined, {
+                code: 'usage_limit_exceeded',
+                error: "You've reached your usage limit.",
+            }),
+            "You've reached your usage limit.",
+        ],
+    ])('opens the created model and shows the reason when training fails with %s', async (_, error, reason) => {
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
         mockCreate.mockResolvedValue({ id: 'pipeline-1', name: 'Sharing' })
-        mockTrain.mockRejectedValue({ detail: 'Usage limit reached' })
+        mockTrain.mockRejectedValue(error)
         const logic = autoresearchNewLogic()
         logic.mount()
 
@@ -357,6 +370,7 @@ describe('autoresearchNewLogic', () => {
         await settle(logic)
 
         expect(mockTrain).toHaveBeenCalledTimes(1)
+        expect(toastError).toHaveBeenCalledWith(expect.stringContaining(reason))
         expect(router.values.location.pathname).toContain(urls.autoresearchPipeline('pipeline-1'))
     })
 })

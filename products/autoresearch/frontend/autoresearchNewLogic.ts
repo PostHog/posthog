@@ -653,9 +653,13 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                             ...eventProperties,
                             pipeline_id: created.id,
                         })
+                        // The access and usage gates put their reason in `error`, not in DRF's `detail`.
                         lemonToast.error(
                             `Saved "${created.name}" as a draft, but training didn't start. ${
-                                error?.detail ?? error?.data?.detail ?? 'Start it from the model page.'
+                                error?.detail ??
+                                error?.data?.detail ??
+                                error?.data?.error ??
+                                'Start it from the model page.'
                             }`
                         )
                     }
