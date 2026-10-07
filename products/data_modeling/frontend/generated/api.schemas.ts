@@ -99,6 +99,7 @@ export interface PatchedEdgeApi {
  * * `matview` - Mat View
  * * `endpoint` - Endpoint
  * * `metric` - Metric
+ * * `insight` - Insight
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -108,6 +109,7 @@ export const NodeTypeEnumApi = {
     Matview: 'matview',
     Endpoint: 'endpoint',
     Metric: 'metric',
+    Insight: 'insight',
 } as const
 
 /**
@@ -181,6 +183,16 @@ export interface NodeApi {
     readonly saved_query_id: string | null
     /** @nullable */
     readonly metric_id: string | null
+    /**
+     * ID of the insight an insight node stands for, or null for any other node.
+     * @nullable
+     */
+    readonly insight_id: number | null
+    /**
+     * Short ID of the insight an insight node stands for, which its URL uses. Null for any other node.
+     * @nullable
+     */
+    readonly insight_short_id: string | null
     readonly lineage_issue: LineageIssueApi | null
     /** Where a table originates, or null for legacy and unrecognized nodes.
      *
@@ -247,6 +259,16 @@ export interface PatchedNodeApi {
     readonly saved_query_id?: string | null
     /** @nullable */
     readonly metric_id?: string | null
+    /**
+     * ID of the insight an insight node stands for, or null for any other node.
+     * @nullable
+     */
+    readonly insight_id?: number | null
+    /**
+     * Short ID of the insight an insight node stands for, which its URL uses. Null for any other node.
+     * @nullable
+     */
+    readonly insight_short_id?: string | null
     readonly lineage_issue?: LineageIssueApi | null
     /** Where a table originates, or null for legacy and unrecognized nodes.
      *

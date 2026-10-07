@@ -59991,6 +59991,7 @@ export namespace Schemas {
      * * `matview` - Mat View
      * * `endpoint` - Endpoint
      * * `metric` - Metric
+     * * `insight` - Insight
      */
     export type NodeTypeEnum = typeof NodeTypeEnum[keyof typeof NodeTypeEnum];
 
@@ -60001,6 +60002,7 @@ export namespace Schemas {
       Matview: 'matview',
       Endpoint: 'endpoint',
       Metric: 'metric',
+      Insight: 'insight',
     } as const;
 
     /**
@@ -60049,6 +60051,16 @@ export namespace Schemas {
       readonly saved_query_id: string | null;
       /** @nullable */
       readonly metric_id: string | null;
+      /**
+         * ID of the insight an insight node stands for, or null for any other node.
+         * @nullable
+         */
+      readonly insight_id: number | null;
+      /**
+         * Short ID of the insight an insight node stands for, which its URL uses. Null for any other node.
+         * @nullable
+         */
+      readonly insight_short_id: string | null;
       readonly lineage_issue: LineageIssue | null;
       /** Where a table originates, or null for legacy and unrecognized nodes.
        *
@@ -79466,6 +79478,16 @@ export namespace Schemas {
       readonly saved_query_id?: string | null;
       /** @nullable */
       readonly metric_id?: string | null;
+      /**
+         * ID of the insight an insight node stands for, or null for any other node.
+         * @nullable
+         */
+      readonly insight_id?: number | null;
+      /**
+         * Short ID of the insight an insight node stands for, which its URL uses. Null for any other node.
+         * @nullable
+         */
+      readonly insight_short_id?: string | null;
       readonly lineage_issue?: LineageIssue | null;
       /** Where a table originates, or null for legacy and unrecognized nodes.
        *

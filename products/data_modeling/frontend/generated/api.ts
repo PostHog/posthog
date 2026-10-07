@@ -147,6 +147,13 @@ export const getDataModelingEdgesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_edges/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesList = async (
     projectId: string,
     params?: DataModelingEdgesListParams,
@@ -162,6 +169,13 @@ export const getDataModelingEdgesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_edges/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesCreate = async (
     projectId: string,
     edgeApi: NonReadonly<EdgeApi>,
@@ -179,6 +193,13 @@ export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesRetrieve = async (
     projectId: string,
     id: string,
@@ -194,6 +215,13 @@ export const getDataModelingEdgesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesUpdate = async (
     projectId: string,
     id: string,
@@ -212,6 +240,13 @@ export const getDataModelingEdgesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -230,6 +265,13 @@ export const getDataModelingEdgesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingEdgesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingEdgesDestroyUrl(projectId, id), {
         ...options,
@@ -253,6 +295,13 @@ export const getDataModelingNodesListUrl = (projectId: string, params?: DataMode
         : `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesList = async (
     projectId: string,
     params?: DataModelingNodesListParams,
@@ -268,6 +317,13 @@ export const getDataModelingNodesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesCreate = async (
     projectId: string,
     nodeApi: NonReadonly<NodeApi>,
@@ -285,6 +341,13 @@ export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesRetrieve = async (
     projectId: string,
     id: string,
@@ -300,6 +363,13 @@ export const getDataModelingNodesUpdateUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesUpdate = async (
     projectId: string,
     id: string,
@@ -318,6 +388,13 @@ export const getDataModelingNodesPartialUpdateUrl = (projectId: string, id: stri
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesPartialUpdate = async (
     projectId: string,
     id: string,
@@ -336,6 +413,13 @@ export const getDataModelingNodesDestroyUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getDataModelingNodesDestroyUrl(projectId, id), {
         ...options,
