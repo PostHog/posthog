@@ -23,7 +23,6 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_backfill import (
     ACTIVITY_RETRY_POLICY,
     BACKFILL_MAX_CONSECUTIVE_FAILURES,
-    BACKFILL_MAX_IN_FLIGHT,
     MAX_BACKFILL_BATCH_SIZE,
     AdvanceCursorInputs,
     AdvanceCursorOutput,
@@ -336,7 +335,7 @@ class TestEvaluationBackfillWorkflow:
         )
 
     @pytest.mark.asyncio
-    async def test_bounded_dispatch_waits_for_outcomes_before_advancing(self) -> None:
+    async def test_batch_dispatch_waits_for_outcomes_before_advancing(self) -> None:
         found = dataclasses.replace(
             _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
             next_cursor_timestamp=(UNIT_TIMESTAMP - timedelta(hours=1)).isoformat(),
@@ -352,12 +351,16 @@ class TestEvaluationBackfillWorkflow:
         await _run(mocks, bounded=True)
 
         advances = [value for fn, value in mocks.activity_calls if fn is advance_evaluation_backfill_cursor_activity]
-        assert mocks.peak_children == BACKFILL_MAX_IN_FLIGHT
-        assert mocks.active_at_advance == [0] * len(advances)
-        assert sum(value.completed_delta for value in advances) == 19
-        assert [value.exhausted for value in advances] == [False, False, False, False, True]
-        assert advances[1].expected_cursor_unit_id == advances[0].new_cursor_unit_id
-        assert (advances[-1].new_cursor_timestamp, advances[-1].new_cursor_unit_id) == (
+        assert mocks.peak_children == 19
+        assert mocks.active_at_advance == [0]
+        assert len(advances) == 1
+        assert advances[0].completed_delta == 19
+        assert advances[0].exhausted
+        assert (advances[0].expected_cursor_timestamp, advances[0].expected_cursor_unit_id) == (
+            found.started_from_cursor_timestamp,
+            found.started_from_cursor_unit_id,
+        )
+        assert (advances[0].new_cursor_timestamp, advances[0].new_cursor_unit_id) == (
             found.next_cursor_timestamp,
             found.next_cursor_unit_id,
         )
@@ -423,21 +426,23 @@ class TestEvaluationBackfillWorkflow:
         assert _advance_input(mocks).skipped_delta == int(not restarted)
 
     @pytest.mark.asyncio
-    async def test_failed_group_stops_before_dispatching_more(self) -> None:
+    async def test_failed_batch_stops_before_dispatching_another_page(self) -> None:
         mocks = _BackfillMocks(
             activity_results={
                 prepare_evaluation_backfill_tick_activity: _tick(),
                 find_evaluation_backfill_candidates_activity: _found([_candidate(f"u{i}") for i in range(9)]),
             },
             child_results_for_ids={
-                f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("worker unavailable") for i in range(4)
+                f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("worker unavailable") for i in range(9)
             },
         )
 
-        await _run(mocks, bounded=True)
+        continue_as_new = await _run(mocks, bounded=True)
 
-        assert len(mocks.child_calls) == 4
+        assert len(mocks.child_calls) == 9
+        assert _advance_input(mocks).failed_delta == 9
         assert fail_evaluation_backfill_activity in _called(mocks)
+        continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_finished_tick_returns_without_dispatch(self) -> None:
