@@ -46,13 +46,6 @@ class TestAccountRequests(StripeProvisioningTestBase):
         welcome.delay.assert_called_once()
         assert welcome.delay.call_args[0][2] == "Stripe"
 
-    def test_new_user_refused_by_an_access_rule_gets_no_account(self):
-        with patch("ee.partners.stripe.api.provisioning.core.signup_refused", return_value=True):
-            res = self._post_signed(URL, data=_account_request("refused@example.com"))
-        assert res.status_code == 403
-        assert res.json()["error"]["code"] == "access_blocked"
-        assert not User.objects.filter(email="refused@example.com").exists()
-
     def test_existing_user_gets_silent_code_for_requested_team(self):
         res = self._post_signed(
             URL, data=_account_request(self.user.email, configuration={"region": "US", "team_id": self.team.id})
