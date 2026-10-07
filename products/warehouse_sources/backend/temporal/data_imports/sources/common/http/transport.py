@@ -37,7 +37,7 @@ RequestTimeout = float | tuple[float, float] | tuple[float, None]
 NO_REQUEST_TIMEOUT: RequestTimeout = cast(RequestTimeout, (None, None))
 
 
-def default_request_timeout() -> tuple[float, float]:
+def default_request_timeout() -> RequestTimeout:
     """The (connect, read) timeout for a request that names none."""
     return (
         settings.DATA_WAREHOUSE_SOURCE_CONNECT_TIMEOUT_SECONDS,
