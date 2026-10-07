@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.knowbe4.knowbe4 import (
     build_base_url,
@@ -103,6 +104,19 @@ class TestKnowBe4Transport:
         assert paginator.page == 1
         assert paginator.page_param == "page"
 
+    def test_get_resource_account_is_single_unpaginated_request(self) -> None:
+        # `/v1/account` returns one object; a page paginator would refetch it forever because
+        # the response never becomes an empty array.
+        resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["account"]))
+        assert resource["endpoint"]["params"] == {}
+        assert isinstance(resource["endpoint"]["paginator"], SinglePagePaginator)
+
+    def test_get_resource_account_risk_score_history_requests_full_history(self) -> None:
+        # Without full=true KnowBe4 returns only the last six months.
+        resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["account_risk_score_history"]))
+        assert resource["endpoint"]["params"] == {"per_page": 500, "full": "true"}
+        assert isinstance(resource["endpoint"]["paginator"], PageNumberPaginator)
+
     def test_get_resource_training_campaigns_carries_exclude_percentages(self) -> None:
         # Without exclude_percentages=true, KnowBe4 caps the response at 10 campaigns.
         resource = cast(dict[str, Any], get_resource(KNOWBE4_ENDPOINTS["training_campaigns"]))
@@ -124,23 +138,50 @@ class TestKnowBe4Transport:
         assert response.primary_keys == ["id"]
         assert response.sort_mode == "asc"
 
+    @parameterized.expand(
+        [
+            (
+                "group_members",
+                "groups",
+                {"id": "user_1", "email": "a@b.com", "_groups_id": "grp_1"},
+                {"id": "user_1", "email": "a@b.com", "group_id": "grp_1"},
+                ["group_id", "id"],
+            ),
+            (
+                "group_risk_score_history",
+                "groups",
+                {"risk_score": 37.3, "date": "2021-02-07", "_groups_id": "grp_1"},
+                {"risk_score": 37.3, "date": "2021-02-07", "group_id": "grp_1"},
+                ["group_id", "date"],
+            ),
+            (
+                "user_risk_score_history",
+                "users",
+                {"risk_score": 37.3, "date": "2021-02-07", "_users_id": "user_1"},
+                {"risk_score": 37.3, "date": "2021-02-07", "user_id": "user_1"},
+                ["user_id", "date"],
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
     )
-    def test_knowbe4_source_group_members_fanout_injects_and_renames_parent_id(self, mock_rest_api_resources) -> None:
+    def test_knowbe4_source_fanout_injects_and_renames_parent_id(
+        self, endpoint, parent_name, raw_child_row, expected_row, expected_primary_keys, mock_rest_api_resources
+    ) -> None:
+        parent_id = expected_row[expected_primary_keys[0]]
         mock_rest_api_resources.return_value = [
-            _FakeDltResource("groups", [{"id": "grp_1"}]),
-            _FakeDltResource("group_members", [{"id": "user_1", "email": "a@b.com", "_groups_id": "grp_1"}]),
+            _FakeDltResource(parent_name, [{"id": parent_id}]),
+            _FakeDltResource(endpoint, [raw_child_row]),
         ]
 
-        response = knowbe4_source(api_key="tok", region="us", endpoint="group_members", team_id=1, job_id="job-1")
+        response = knowbe4_source(api_key="tok", region="us", endpoint=endpoint, team_id=1, job_id="job-1")
 
         rows = list(cast(Any, response.items()))
-        # The parent group id is injected and renamed to `group_id` to avoid colliding with the
-        # member's own `id` field.
-        assert rows == [{"id": "user_1", "email": "a@b.com", "group_id": "grp_1"}]
-        # A user can belong to multiple groups, so the parent group id is required in the key.
-        assert response.primary_keys == ["group_id", "id"]
+        # The parent id is renamed so it can't collide with a child `id`, and it anchors the key
+        # because the child rows from every parent land in one table.
+        assert rows == [expected_row]
+        assert response.primary_keys == expected_primary_keys
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
@@ -175,3 +216,37 @@ class TestKnowBe4Transport:
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], PageNumberPaginator)
         assert kwargs["parent_endpoint_extra"]["data_selector"] == "$"
         assert kwargs["child_endpoint_extra"]["data_selector"] == "$"
+
+    @parameterized.expand(
+        [
+            ("group_members", 500, 500, PageNumberPaginator, {}),
+            ("group_risk_score_history", 500, 500, PageNumberPaginator, {"full": "true"}),
+            # Documented as unpaginated (up to 1000 records), so no per_page that could truncate it.
+            ("user_risk_score_history", 500, None, SinglePagePaginator, {"full": "true"}),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_knowbe4_source_fanout_request_shaping(
+        self,
+        endpoint,
+        expected_parent_per_page,
+        expected_child_per_page,
+        expected_child_paginator,
+        expected_child_extra_params,
+        mock_rest_api_resources,
+    ) -> None:
+        mock_rest_api_resources.side_effect = lambda config, *args, **kwargs: [
+            _FakeDltResource(resource["name"], []) for resource in config["resources"]
+        ]
+
+        knowbe4_source(api_key="tok", region="us", endpoint=endpoint, team_id=1, job_id="job-1")
+
+        parent, child = mock_rest_api_resources.call_args.args[0]["resources"]
+        assert parent["endpoint"]["params"]["per_page"] == expected_parent_per_page
+        assert isinstance(parent["endpoint"]["paginator"], PageNumberPaginator)
+        assert child["endpoint"]["params"].get("per_page") == expected_child_per_page
+        assert isinstance(child["endpoint"]["paginator"], expected_child_paginator)
+        for key, value in expected_child_extra_params.items():
+            assert child["endpoint"]["params"][key] == value
