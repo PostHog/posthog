@@ -9,7 +9,7 @@ import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
-import { overrideStateLabel } from './todayBriefingItems'
+import { itemStateLabel } from './todayBriefingItems'
 import { BRIEFING_POLL_MS, MORE_REPORTS_LIMIT, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { todayReportLogic } from './todayReportLogic'
 import { isSampleReportId } from './todaySampleReports'
@@ -377,7 +377,7 @@ describe('todayLogic', () => {
     })
 
     test.each([
-        ['takes a report the person steps off their list', 204, 'dismissed', 'Not yours'],
+        ['takes a report the person steps off their list', 204, 'left', 'Not yours'],
         ['puts the report back when stepping off it fails', 500, 'open', null],
     ])('%s', async (_, status, finalState, finalLabel) => {
         briefingResponses = [[200, makeBriefing()]]
@@ -387,11 +387,11 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         logic.actions.leaveReportReview('a', 'sidebar')
-        expect(logic.values.briefingItems[0].state).toEqual('dismissed')
+        expect(logic.values.briefingItems[0].state).toEqual('left')
 
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.briefingItems[0].state).toEqual(finalState)
-        expect(overrideStateLabel(logic.values.reportStateOverrides.a ?? 'open')).toEqual(finalLabel)
+        expect(itemStateLabel({ state: logic.values.reportStateOverrides.a ?? 'open' })).toEqual(finalLabel)
         // Stepping off changes who the report is routed to, never the report's own state.
         expect(stateCalls).toEqual(0)
     })

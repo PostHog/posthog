@@ -100,6 +100,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'experiment-setup-context': true,
         'scout-trials': true,
         'signals-report-checks-replace': true,
+        'signals-reports-leave-reviewers': true,
         'ai-observability-offline-evaluations': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>

@@ -219,6 +219,9 @@ tools:
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_destroy
         enabled: true
+        # MCP and Django deploy separately, so turn the flag on once the endpoint serves.
+        feature_flag: signals-reports-leave-reviewers
+        feature_flag_behavior: enable
         scopes:
             - task:write
         annotations:

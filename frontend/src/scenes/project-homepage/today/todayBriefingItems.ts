@@ -44,25 +44,12 @@ const STATE_LABELS: Record<BriefingItemStateEnumApi, string | null> = {
     open: null,
     done: 'Resolved',
     dismissed: 'Dismissed',
+    left: 'Not yours',
 }
 
 /** What happened to the item since the briefing was written, or null while it is still open. */
 export function itemStateLabel(item: Pick<BriefingItemApi, 'state'>): string | null {
     return STATE_LABELS[item.state]
-}
-
-/**
- * What Today shows for a report the person has acted on, until the next briefing is written. `left`
- * is Today's own state: the person stepped off the report's reviewers, and it stays open for the rest.
- */
-export type TodayReportOverride = BriefingItemStateEnumApi | 'left'
-
-export function overrideItemState(override: TodayReportOverride): BriefingItemStateEnumApi {
-    return override === 'left' ? 'dismissed' : override
-}
-
-export function overrideStateLabel(override: TodayReportOverride): string | null {
-    return override === 'left' ? 'Not yours' : STATE_LABELS[override]
 }
 
 // The briefing reasons a report gets when it names the person, the reports the for_you count covers.

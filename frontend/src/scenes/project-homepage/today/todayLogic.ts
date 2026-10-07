@@ -43,7 +43,6 @@ import type { TeamPublicType } from '../../../types'
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import {
     TodayItemOpenSurface,
-    type TodayReportOverride,
     briefingDayKey,
     briefingItemReportCard,
     hasBriefingText,
@@ -52,7 +51,6 @@ import {
     itemHref,
     itemNamesPerson,
     itemReportId,
-    overrideItemState,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
@@ -238,7 +236,7 @@ export interface todayLogicValues {
     reloadingAfterRefresh: boolean
     reportId: string | null
     reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
-    reportStateOverrides: Record<string, TodayReportOverride>
+    reportStateOverrides: Record<string, BriefingItemStateEnumApi>
     reportSummary: string
     reports: SignalReport[]
     reportsFailed: boolean
@@ -454,7 +452,7 @@ export interface todayLogicMeta {
         briefingItems: (
             personalBriefing: BriefingApi | null,
             showPersonalBriefing: boolean,
-            reportStateOverrides: Record<string, TodayReportOverride>
+            reportStateOverrides: Record<string, BriefingItemStateEnumApi>
         ) => BriefingItemApi[]
         reportPreviews: (
             briefingItems: BriefingItemApi[]
@@ -679,7 +677,7 @@ export const todayLogic = kea<todayLogicType>([
         // A verdict shows at once in the text, the left bar and the hover card. The next briefing load
         // gives the same state from the server, and a failed request takes the verdict back.
         reportStateOverrides: [
-            {} as Record<string, TodayReportOverride>,
+            {} as Record<string, BriefingItemStateEnumApi>,
             {
                 setReportVerdict: (overrides, { target, verdict }) => ({
                     ...overrides,
@@ -757,15 +755,15 @@ export const todayLogic = kea<todayLogicType>([
             (
                 personalBriefing: BriefingApi | null,
                 showPersonalBriefing: boolean,
-                reportStateOverrides: Record<string, TodayReportOverride>
+                reportStateOverrides: Record<string, BriefingItemStateEnumApi>
             ): BriefingItemApi[] => {
                 if (!showPersonalBriefing || !personalBriefing) {
                     return []
                 }
                 return personalBriefing.items.map((item) => {
                     const reportId = itemReportId(item)
-                    const override = reportId ? reportStateOverrides[reportId] : undefined
-                    return override ? { ...item, state: overrideItemState(override) } : item
+                    const state = reportId ? reportStateOverrides[reportId] : undefined
+                    return state ? { ...item, state } : item
                 })
             },
         ],

@@ -8,7 +8,7 @@ import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/utils/reportPresentation'
 
-import { overrideItemState, overrideStateLabel } from './todayBriefingItems'
+import { itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
 import { TodayReportOpenSource, todayLogic } from './todayLogic'
 import { TodayNavItem } from './TodayNavItem'
@@ -30,13 +30,13 @@ export function TodayReportNavItem({ report, preview, source, dataAttr }: TodayR
         <TodayPreviewTrigger payload={preview}>
             <TodayNavItem
                 title={displayConventionalCommitTitle(report.title, 'Untitled report')}
-                meta={overrideStateLabel(override ?? 'open') ?? reportMeta(report)}
+                meta={itemStateLabel({ state: override ?? 'open' }) ?? reportMeta(report)}
                 color={reportSource(report).color}
                 icon={<TodayIcon icon={reportIcon(report)} />}
                 to={urls.todayReport(report.id)}
                 active={hoveredReportId === report.id}
                 current={reportId === report.id}
-                state={override && overrideItemState(override)}
+                state={override}
                 dataAttr={dataAttr}
                 onClick={() => reportOpened(report, source)}
                 onHoverChange={(hovered) => setHoveredReportId(hovered ? report.id : null)}

@@ -32,7 +32,7 @@ import {
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
-import { overrideStateLabel } from './todayBriefingItems'
+import { itemStateLabel } from './todayBriefingItems'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
 
@@ -65,7 +65,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
 
     // Read live, not from the card: the card stays open after a click, and keeps the payload it opened with.
     const override = card.reportId ? reportStateOverrides[card.reportId] : undefined
-    const stateLabel = override ? overrideStateLabel(override) : card.stateLabel
+    const stateLabel = override ? itemStateLabel({ state: override }) : card.stateLabel
     const resolved = override ? override === 'done' : card.resolved
     const { reportId } = card
     const giveVerdict = (verdict: TodayReportVerdict): void => {
