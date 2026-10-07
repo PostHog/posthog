@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -29,7 +30,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
 from posthog.cdp.internal_events import (
-    is_generic_api_editable_alert_event,
+    generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
 )
@@ -58,6 +59,7 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
+from posthog.scopes import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
@@ -345,15 +347,15 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
-_AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[tuple[object, object]]]
+_AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]
 
 
 def _managed_alert_markers(filters: Optional[dict]) -> Optional[_AlertMarkers]:
     """The parts of a filter set that make a destination alert-owned: the managed alert events it
     follows and the alert_id properties that pin it to an alert. None when it follows no managed
     alert event. The alert layer finds a destination by its event ids and alert_id values, so a
-    change to those strands the row; the operator counts too, since `is_not` would make the row
-    fire for every other alert."""
+    change to those strands the row; the rest of the alert_id entry counts too, since another
+    operator or property type would make the row fire for other alerts."""
     filters = filters or {}
     events = frozenset(
         (event_filter.get("id"), event_filter.get("type"))
@@ -363,7 +365,7 @@ def _managed_alert_markers(filters: Optional[dict]) -> Optional[_AlertMarkers]:
     if not events:
         return None
     alert_ids = frozenset(
-        (json.dumps(property_filter.get("value"), sort_keys=True), property_filter.get("operator"))
+        json.dumps(property_filter, sort_keys=True)
         for property_filter in filters.get("properties") or []
         if isinstance(property_filter, dict) and property_filter.get("key") == "alert_id"
     )
@@ -669,7 +671,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # the function stays editable here.
             current_markers = _managed_alert_markers(current_filters)
             if current_markers is not None and not all(
-                is_generic_api_editable_alert_event(event_id) for event_id, _ in current_markers[0]
+                generic_api_editable_alert_scope(event_id) for event_id, _ in current_markers[0]
             ):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
@@ -1069,7 +1071,43 @@ class HogFunctionViewSet(
     log_source = "hog_function"
     app_source = "hog_function"
 
+    def _editable_alert_scope(self) -> Optional[str]:
+        """The owning product's scope object when this request edits an alert destination."""
+        hog_function_id = self.kwargs.get("pk")
+        if self.action not in ("update", "partial_update", "invocations") or not hog_function_id:
+            return None
+        if not hasattr(self, "_cached_editable_alert_scope"):
+            try:
+                filters = (
+                    HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
+                    .values_list("filters", flat=True)
+                    .first()
+                )
+            except (ValueError, DjangoValidationError):
+                filters = None
+            scopes = {
+                generic_api_editable_alert_scope(event_filter.get("id"))
+                for event_filter in (filters or {}).get("events") or []
+                if isinstance(event_filter, dict)
+            }
+            scopes.discard(None)
+            self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
+        return self._cached_editable_alert_scope
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        alert_scope = self._editable_alert_scope()
+        if alert_scope and not self.user_access_control.check_access_level_for_resource(
+            cast(APIScopeObject, alert_scope), required_level="editor"
+        ):
+            raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # A managed alert destination is also gated by the owning product's write scope, so a
+        # token that cannot configure the alert cannot redirect its notifications either.
+        alert_scope = self._editable_alert_scope()
+        if alert_scope:
+            return ["hog_function:write", f"{alert_scope}:write"]
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
         # reconfigured) function. A `hog_function:write`-only token could use

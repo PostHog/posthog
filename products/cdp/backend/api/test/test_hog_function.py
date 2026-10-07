@@ -317,6 +317,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 },
                 "filters",
             ),
+            (
+                "another property type",
+                {
+                    "filters": _alert_filters(
+                        properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "person"}]
+                    )
+                },
+                "filters",
+            ),
             ("no managed event", {"filters": _alert_filters("$pageview")}, "filters"),
             ("soft delete", {"deleted": True}, "deleted"),
         ]
@@ -345,6 +354,42 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertIn("managed through the alert API", patch_response.json()["detail"])
         managed.refresh_from_db()
         self.assertEqual((managed.inputs or {})["channel"]["value"], "#alerts")
+
+    @parameterized.expand(
+        [
+            ("both write scopes", ["hog_function:write", "logs:write"], status.HTTP_200_OK),
+            ("hog function write only", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("logs write only", ["logs:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_editing_a_logs_alert_destination_needs_the_logs_write_scope_too(self, _name, scopes, expected_status):
+        managed = self._create_internal_destination(_alert_filters())
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+            data={"name": "Renamed alert destination"},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        self.assertEqual(patch_response.status_code, expected_status, patch_response.json())
+
+    def test_editing_a_logs_alert_destination_needs_logs_editor_access(self):
+        managed = self._create_internal_destination(_alert_filters())
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "logs",
+        ):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
+                data={"name": "Renamed alert destination"},
+            )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN, patch_response.json())
+        managed.refresh_from_db()
+        self.assertEqual(managed.name, "Alert destination")
 
     def test_generic_api_cannot_restore_a_managed_alert_destination(self):
         managed = self._create_internal_destination(_alert_filters(), deleted=True)
