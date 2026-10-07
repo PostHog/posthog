@@ -520,10 +520,10 @@ When a sandbox was sized by a worker that does not know the preview flag, the pr
 Known limit for v1: the dev stack runs with `DEBUG=1`, so a server error renders Django's debug
 page inside the preview.
 
-Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
-The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
+Restricted runs can use the VM runtime only when the Modal network allowlist applies.
+The network interlock runs before state overrides, image-builder routing, custom-image routing,
 and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Modal is the authoritative network enforcement layer whenever that flag is enabled, including on VMs.
+Modal is the authoritative network enforcement layer on every Modal run, including on VMs.
 AgentSH also applies the compiled policy to the agent-server process tree as defense in depth. The
 provider policy applies outside the sandbox, so it covers traffic from the VM and its Docker containers
 without relying on AgentSH process tracing.
@@ -597,9 +597,7 @@ task = Task.create_and_run(
 
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
-Modal enforces the network boundary on every restricted run when
-`tasks-modal-network-allowlist` is enabled. During the rollout, restricted runs without that flag stay
-on gVisor and use agentsh; they cannot route to a VM without the provider policy.
+Modal enforces the network boundary on every restricted Modal run.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.

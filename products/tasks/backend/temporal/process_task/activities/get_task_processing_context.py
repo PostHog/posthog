@@ -30,7 +30,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
-    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
@@ -979,45 +978,6 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
-def _is_modal_network_allowlist_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> bool:
-    state_override = (state or {}).get("use_modal_network_allowlist")
-    if isinstance(state_override, bool):
-        log_with_activity_context(
-            "modal_network_allowlist_state_override",
-            run_id=run_id,
-            use_modal_network_allowlist=state_override,
-        )
-        return state_override
-
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("modal_network_allowlist_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context(
-        "modal_network_allowlist_flag_checked",
-        run_id=run_id,
-        use_modal_network_allowlist=enabled,
-    )
-    return enabled
-
-
 def _resolve_sandbox_backend(
     *,
     distinct_id: str,
@@ -1461,17 +1421,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     context_layer_enabled = not trial_origin and context_layer_facade.is_context_layer_enabled(
         organization_id=organization_id, distinct_id=distinct_id
     )
-    use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
-    )
+    use_modal_network_allowlist = True
 
     if codex_model_access == "own-subscription" and allowed_domains is not None:
         allowed_domains = [
@@ -1490,16 +1440,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 sandbox_environment_id=sandbox_environment_id,
                 invalid_domain_positions=[item.index + 1 for item in error.invalid_domains],
             )
-            if use_modal_network_allowlist:
-                raise SandboxNetworkPolicyError(
-                    "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
-                    {
-                        "run_id": run_id,
-                        "sandbox_environment_id": sandbox_environment_id,
-                        "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
-                    },
-                    cause=error,
-                ) from error
+            raise SandboxNetworkPolicyError(
+                "This sandbox environment contains an invalid allowed domain. Update its network settings and run the task again.",
+                {
+                    "run_id": run_id,
+                    "sandbox_environment_id": sandbox_environment_id,
+                    "invalid_domain_positions": [item.index + 1 for item in error.invalid_domains],
+                },
+                cause=error,
+            ) from error
 
     _require_template_compatible_with_custom_image(state, environment_custom_image_name, run_id=run_id)
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
