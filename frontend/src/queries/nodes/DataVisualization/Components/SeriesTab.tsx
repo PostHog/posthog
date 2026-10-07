@@ -29,6 +29,7 @@ import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, Column, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { BoxPlotSeriesTab } from './BoxPlotSeriesTab'
+import { hasLabelColumn } from './Charts/sqlPieGraphAdapter'
 import { HeatmapSeriesTab } from './Heatmap/HeatmapSeriesTab'
 import { AxisBreakdownSeries, BREAKDOWN_LIMIT_LABEL, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { getAvailableSeriesBreakdownColumns } from './seriesBreakdownUtils'
@@ -120,6 +121,8 @@ export const SeriesTab = (): JSX.Element => {
     const xAxisOptions = isScatterPlot ? numericalColumns.map(toColumnOption) : options
 
     if (PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        const drawsOnePartPerColumn =
+            effectiveVisualizationType === ChartDisplayType.ActionsProportionBar && !hasLabelColumn(xData)
         const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
         const valueOptions = numericalColumns.map(({ name, type }) => ({
             value: name,
@@ -162,19 +165,25 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
-                <LemonSelect
-                    className="w-full"
-                    placeholder="Select a column"
-                    value={valueColumn}
-                    options={valueOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
-                    onChange={(value) => {
-                        if (value) {
-                            setValueColumn(value)
-                        }
-                    }}
-                />
+                {drawsOnePartPerColumn ? (
+                    <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />
+                ) : (
+                    <>
+                        <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
+                        <LemonSelect
+                            className="w-full"
+                            placeholder="Select a column"
+                            value={valueColumn}
+                            options={valueOptions}
+                            disabledReason={responseLoading ? 'Query loading...' : undefined}
+                            onChange={(value) => {
+                                if (value) {
+                                    setValueColumn(value)
+                                }
+                            }}
+                        />
+                    </>
+                )}
             </div>
         )
     }
@@ -207,11 +216,22 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakdownSelector && <SeriesBreakdownSelector />}
 
-            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
+            <YSeriesList label="Y-axis" addLabel="Add Y-series" showAdd={!hideAddYSeries} />
+        </div>
+    )
+}
+
+function YSeriesList({ label, addLabel, showAdd }: { label: string; addLabel: string; showAdd: boolean }): JSX.Element {
+    const { yData } = useValues(dataVisualizationLogic)
+    const { addYSeries } = useActions(dataVisualizationLogic)
+
+    return (
+        <>
+            <LemonLabel className="mt-4 mb-1">{label}</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
-            {!hideAddYSeries && (
+            {showAdd && (
                 <LemonButton
                     className="mt-1"
                     type="tertiary"
@@ -219,10 +239,10 @@ export const SeriesTab = (): JSX.Element => {
                     icon={<IconPlusSmall />}
                     fullWidth
                 >
-                    Add Y-series
+                    {addLabel}
                 </LemonButton>
             )}
-        </div>
+        </>
     )
 }
 

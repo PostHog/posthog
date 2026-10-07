@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getHogChart, mockRect, setupJsdom, setupSyncRaf, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -149,6 +149,19 @@ describe('SqlPieGraph', () => {
         const legendRows = getHogChart(container).legendItems()
         expect(legendRows.map((row) => row.secondaryLabel)).toEqual(expectedShares)
         expect(screen.queryByText('100') !== null).toBe(showsTotal)
+    })
+
+    it("shows a proportion bar part's share in its tooltip, even for a percent-formatted column", async () => {
+        const props = baseProps({}, [0.2, 0.2], ChartDisplayType.ActionsProportionBar)
+        props.yData[0].settings = { formatting: { style: 'percent' } }
+        const { container } = render(<SqlPieGraph {...props} />)
+        const chart = getHogChart(container)
+
+        const tooltip = await waitForHogChartTooltip(3000, () =>
+            fireEvent.mouseMove(chart.element, { clientX: mockRect.width / 4, clientY: mockRect.height / 2 })
+        )
+
+        expect(tooltip).toHaveTextContent('50%')
     })
 
     it('shows the total in the center of a donut', async () => {

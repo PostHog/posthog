@@ -54,6 +54,9 @@ const seriesToSlices = (yData: SqlPieYSeries[]): PieSlice[] =>
         }))
         .filter((slice) => slice.value > 0)
 
+export const hasLabelColumn = (xData: AxisSeries<string> | null): xData is AxisSeries<string> =>
+    !!xData && xData.column.name !== 'None'
+
 export const buildPieSlices = (
     xData: AxisSeries<string> | null,
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
@@ -66,7 +69,7 @@ export const buildPieSlices = (
         return seriesToSlices(yData)
     }
 
-    if (yData.length === 1 && xData && xData.column.name !== 'None') {
+    if (yData.length === 1 && hasLabelColumn(xData)) {
         const totalsByLabel = new Map<string, number>()
 
         xData.data.forEach((rawLabel, index) => {

@@ -168,7 +168,6 @@ export const SqlPieGraph = ({
                     series={series}
                     theme={theme}
                     config={proportionBarConfig}
-                    tooltip={renderTooltip}
                     valueFormatter={absoluteFormatter}
                     dataAttr="sql-proportion-bar"
                     onError={handleChartError}
