@@ -1,7 +1,7 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from requests import HTTPError, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.scrunch import (
     ScrunchSourceConfig,
 )
@@ -79,6 +79,10 @@ def params(transport: MagicMock, index: int) -> dict[str, list[str]]:
     return parse_qs(urlsplit(transport.call_args_list[index].args[0].url).query)
 
 
+def sync_batches(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
 @pytest.mark.parametrize("terminal", [[], [{"id": 3}], [{"id": 3}, {"id": 4}]])
 def test_brand_pagination(
     terminal: list[dict[str, Any]], inputs: SourceInputs, manager: MagicMock, transport: MagicMock
@@ -86,7 +90,7 @@ def test_brand_pagination(
     total = 2 + len(terminal) if terminal else 5
     transport.side_effect = [page([{"id": 1}, {"id": 2}], total), page(terminal, total)]
     result = scrunch_source("test-key", inputs, manager)
-    iterator = iter(result.items())
+    iterator = iter(sync_batches(result))
     assert next(iterator) == [{"id": 1}, {"id": 2}]
     assert manager.save_state.call_args.args[0].paginator_state == {"offset": 2}
     remaining = list(iterator)
@@ -122,7 +126,7 @@ def test_children_keep_brand_identity_and_reset_offsets(
         page([{"id": 1}], 1),
     ]
     result = scrunch_source("test-key", inputs, manager)
-    rows = [row for batch in result.items() for row in batch]
+    rows = [row for batch in sync_batches(result) for row in batch]
     assert rows == [
         {"id": 1, "brand_id": 11},
         {"id": 2, "brand_id": 11},
@@ -140,6 +144,18 @@ def test_children_keep_brand_identity_and_reset_offsets(
         if table != "responses":
             assert "start_date" not in params(transport, index)
             assert "end_date" not in params(transport, index)
+
+
+def test_child_requests_reject_off_host_brand_ids(
+    inputs: SourceInputs, manager: MagicMock, transport: MagicMock
+) -> None:
+    inputs.schema_name = "prompts"
+    transport.return_value = page([{"id": "https://attacker.example/collect"}], 1)
+
+    with pytest.raises(ValueError, match="disallowed host"):
+        list(sync_batches(scrunch_source("test-key", inputs, manager)))
+
+    assert transport.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -170,7 +186,7 @@ def test_response_date_filters(
     ]
     today = datetime.now(UTC).date().isoformat()
     result = scrunch_source("test-key", inputs, manager)
-    list(result.items())
+    list(sync_batches(result))
     assert result.sort_mode == "desc"
     assert result.partition_keys == ["created_at"]
     for index in (1, 2):
@@ -197,7 +213,7 @@ def test_child_resume_keeps_window_and_skips_completed_brands(
     )
     transport.side_effect = [page([{"id": 11}, {"id": 22}], 2), page([{"id": 9}], 3 if not terminal else 1)]
     result = scrunch_source("test-key", inputs, manager)
-    iterator = iter(result.items())
+    iterator = iter(sync_batches(result))
     assert next(iterator) == [{"id": 9, "brand_id": 22}]
     assert manager.save_state.call_args.args[0].paginator_state == {
         "completed": ["11/responses", "22/responses"],
@@ -225,7 +241,7 @@ def test_brand_resume(inputs: SourceInputs, manager: MagicMock, transport: Magic
         complete=complete,
     )
     transport.return_value = page([{"id": 3}], 3)
-    rows = [row for batch in scrunch_source("test-key", inputs, manager).items() for row in batch]
+    rows = [row for batch in sync_batches(scrunch_source("test-key", inputs, manager)) for row in batch]
     assert rows == ([] if complete else [{"id": 3}])
     assert transport.call_count == (0 if complete else 1)
     if not complete:
@@ -251,7 +267,9 @@ def test_empty_children_do_not_stop_parent_pagination(
     safe_point = MagicMock()
     with activate_safe_point(safe_point, covers_framework_checkpoints=True):
         result = scrunch_source("test-key", inputs, manager)
-        assert [row for batch in result.items() for row in batch] == ([{"id": 1, "brand_id": 33}] if has_brands else [])
+        assert [row for batch in sync_batches(result) for row in batch] == (
+            [{"id": 1, "brand_id": 33}] if has_brands else []
+        )
     assert transport.call_count == (5 if has_brands else 1)
     if has_brands:
         assert params(transport, 3)["offset"] == ["2"]

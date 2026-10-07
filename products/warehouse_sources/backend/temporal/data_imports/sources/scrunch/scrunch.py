@@ -40,7 +40,13 @@ class ScrunchResumeConfig:
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    client = RESTClient(base_url=BASE_URL, auth=BearerTokenAuth(api_key), request_timeout=60)
+    client = RESTClient(
+        base_url=BASE_URL,
+        auth=BearerTokenAuth(api_key),
+        request_timeout=60,
+        allowed_hosts=[],
+        allow_redirects=False,
+    )
     try:
         next(
             client.paginate(
@@ -90,7 +96,7 @@ def scrunch_source(
         )
 
     parent: EndpointResource = {"name": "brands", "endpoint": {"path": ENDPOINTS["brands"]}}
-    resources: list[EndpointResource] = [parent]
+    resources: list[str | EndpointResource] = [parent]
     if inputs.schema_name != "brands":
         params: dict[str, Any] = {"brand_id": {"type": "resolve", "resource": "brands", "field": "id"}}
         if inputs.schema_name == "prompts":
@@ -114,6 +120,8 @@ def scrunch_source(
             "auth": {"type": "bearer", "token": api_key},
             "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": "total"},
             "request_timeout": 60,
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resource_defaults": {"endpoint": {"data_selector": "items", "data_selector_required": True}},
         "resources": resources,
