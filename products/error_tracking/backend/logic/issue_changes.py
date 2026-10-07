@@ -217,7 +217,10 @@ def issue_change_log_enabled(team_id: int) -> bool:
             str(team_id),
             groups={"project": str(team_id)},
             group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=False,
+            # Every manual mutation checks this flag, and the remote fallback can block a request for
+            # its full timeout. Local evaluation needs the flag to target projects only through the
+            # project group's `id` property supplied above; any other condition evaluates to off.
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     except Exception:
