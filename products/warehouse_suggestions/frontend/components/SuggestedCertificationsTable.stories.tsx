@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { dayjs } from 'lib/dayjs'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
@@ -16,7 +14,7 @@ const status: WarehouseSuggestionStatusApi = {
     days_with_data: 30,
     window_days: 30,
     paused_reason: null,
-    refreshed_at: dayjs().subtract(2, 'hour').toISOString(),
+    refreshed_at: '2026-10-07T08:30:00Z',
 }
 
 function suggestion(
@@ -42,12 +40,12 @@ function suggestion(
             human_days: kind === 'certify' ? 28 : 0,
             requests_by_surface: kind === 'certify' ? { dashboard: 400, mcp: 240 } : {},
         },
-        evidence_window_start: dayjs().subtract(30, 'day').toISOString(),
-        evidence_window_end: dayjs().toISOString(),
-        last_seen_at: dayjs().subtract(2, 'hour').toISOString(),
+        evidence_window_start: '2026-09-07T00:00:00Z',
+        evidence_window_end: '2026-10-07T00:00:00Z',
+        last_seen_at: '2026-10-07T08:30:00Z',
         score: 2,
         status: 'proposed',
-        surfaced_at: dayjs().subtract(2, 'hour').toISOString(),
+        surfaced_at: '2026-10-07T08:30:00Z',
         reviewed_by: null,
         reviewed_at: null,
         dismissal_reason: null,
@@ -79,7 +77,7 @@ function TableStory({ results }: TableStoryProps): JSX.Element {
 const meta: Meta<typeof TableStory> = {
     title: 'Warehouse suggestions/Suggested certifications',
     component: TableStory,
-    parameters: { layout: 'padded' },
+    parameters: { layout: 'padded', mockDate: '2026-10-07T10:30:00Z' },
 }
 export default meta
 

@@ -1,8 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
-import { dayjs } from 'lib/dayjs'
-
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
@@ -18,7 +16,7 @@ const status: WarehouseSuggestionStatusApi = {
     days_with_data: 30,
     window_days: 30,
     paused_reason: null,
-    refreshed_at: dayjs().subtract(2, 'hour').toISOString(),
+    refreshed_at: '2026-10-07T08:30:00Z',
 }
 
 function materialize(id: string, name: string, savedSeconds: number, canAct = true): WarehouseSuggestionApi {
@@ -44,12 +42,12 @@ function materialize(id: string, name: string, savedSeconds: number, canAct = tr
             human_days: 27,
             requests_by_surface: { sql_editor: 120, dashboard: 60, api: 34 },
         },
-        evidence_window_start: dayjs().subtract(30, 'day').toISOString(),
-        evidence_window_end: dayjs().toISOString(),
-        last_seen_at: dayjs().subtract(2, 'hour').toISOString(),
+        evidence_window_start: '2026-09-07T00:00:00Z',
+        evidence_window_end: '2026-10-07T00:00:00Z',
+        last_seen_at: '2026-10-07T08:30:00Z',
         score: 2,
         status: 'proposed',
-        surfaced_at: dayjs().subtract(2, 'hour').toISOString(),
+        surfaced_at: '2026-10-07T08:30:00Z',
         reviewed_by: null,
         reviewed_at: null,
         dismissal_reason: null,
@@ -101,7 +99,7 @@ function StripStory({
 const meta: Meta<typeof StripStory> = {
     title: 'Warehouse suggestions/Suggested models strip',
     component: StripStory,
-    parameters: { layout: 'padded' },
+    parameters: { layout: 'padded', mockDate: '2026-10-07T10:30:00Z' },
 }
 export default meta
 

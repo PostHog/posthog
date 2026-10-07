@@ -23,11 +23,12 @@ export function warehouseSuggestionActivityDescriber(
     if (!verb) {
         return defaultDescriber(logItem, asNotification)
     }
+    const name = logItem.detail.name ?? 'suggestion'
     return {
-        summary: activityLogSummary(logItem, verb, logItem.detail.name ?? 'suggestion'),
+        summary: activityLogSummary(logItem, verb, name),
         description: (
             <>
-                <ActivityLogUserName logItem={logItem} /> {verb} the <b>{logItem.detail.name}</b>
+                <ActivityLogUserName logItem={logItem} /> {verb} the <b>{name}</b>
             </>
         ),
     }
