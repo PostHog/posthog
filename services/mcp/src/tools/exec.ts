@@ -1551,6 +1551,13 @@ function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
 }
 
 /**
+ * Tools whose `output_format` is a backend parameter that changes the data the
+ * backend returns, not only its encoding. Their schemas keep the field, so a
+ * caller can find the supported values that the description names.
+ */
+const BACKEND_OUTPUT_FORMAT_TOOLS = new Set(['dashboard-insights-run'])
+
+/**
  * Exec mode owns output encoding through the `--json` call flag, so tools must
  * not also advertise their `output_format` input — an agent passing
  * `output_format: "json"` would make the handler skip the server-side formatter
@@ -1558,9 +1565,9 @@ function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
  * into the field for tools that have it (see the `call` verb), so hiding it here
  * loses no capability.
  */
-function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<string, unknown> {
+function stripOutputFormatProperty(toolName: string, jsonSchema: Record<string, unknown>): Record<string, unknown> {
     const properties = jsonSchema.properties as Record<string, unknown> | undefined
-    if (!properties || !('output_format' in properties)) {
+    if (!properties || !('output_format' in properties) || BACKEND_OUTPUT_FORMAT_TOOLS.has(toolName)) {
         return jsonSchema
     }
     const { output_format: _omitted, ...rest } = properties
@@ -1838,6 +1845,7 @@ export function createExecTool(
                     const fullSchema =
                         tool.rawInputSchema ??
                         stripOutputFormatProperty(
+                            tool.name,
                             z.toJSONSchema(tool.schema, { io: 'input' }) as Record<string, unknown>
                         )
                     // YAML for the top shape, but inputSchema stays as a JSON
@@ -1887,6 +1895,7 @@ export function createExecTool(
                     const fullJsonSchema =
                         schemaTool.rawInputSchema ??
                         stripOutputFormatProperty(
+                            schemaTool.name,
                             z.toJSONSchema(schemaTool.schema, { io: 'input' }) as Record<string, unknown>
                         )
 
@@ -1957,7 +1966,7 @@ export function createExecTool(
                         }
                     }
 
-                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // `output_format` is hidden from most exec-mode schemas — `--json` owns output
                     // encoding. Honor a stray `output_format: "json"` as `--json` instead of
                     // letting the handler skip the formatter only for the result to be
                     // TOON-encoded anyway.
