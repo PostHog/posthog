@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +21,7 @@ import {
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
+    leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
@@ -1513,6 +1515,17 @@ describe('replayScannerLogic', () => {
                 .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
             expect(logic.values.scanner?.name).toBe('Edited')
             expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
+        })
+    })
+
+    describe('leaveScannerEditor', () => {
+        it.each([
+            ['the saved scanner’s editor is open', 'scanner-a', urls.replayVision('scanner-a')],
+            ['another scanner’s editor is open', 'scanner-b', urls.replayVisionScannerConfigure('scanner-b')],
+        ])('when %s', (_, openScannerId, expectedPathname) => {
+            router.actions.push(urls.replayVisionScannerConfigure(openScannerId))
+            leaveScannerEditor('scanner-a', urls.replayVision('scanner-a'))
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedPathname)
         })
     })
 

@@ -86,7 +86,6 @@ import {
     SCANNER_EDITOR_STEPS,
     ScannerEditorStep,
     firstErroredScannerStep,
-    isScannerEditorPath,
     scannerEditorSceneLogic,
     scannerStepErrors,
     scannerStepUrl,
@@ -1092,7 +1091,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             scannerToApiBody({ ...body, creation_method: values.creationMethod })
                         )
                         actions.scannerSaved(scanner)
-                        leaveScannerEditor(urls.replayVision(response.id))
+                        leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
                         // pending panel and the button hands off to the instant on-demand tab.
                         lemonToast.success('Scanner created. First scan in progress.', {
@@ -1106,7 +1105,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
-                        leaveScannerEditor(urls.replayVision(props.id))
+                        leaveScannerEditor(props.id, urls.replayVision(props.id))
                     }
                 } catch (error: any) {
                     // A duplicate name is the one field error the details step can fix, so route back to it.
@@ -2727,9 +2726,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 ])
 
-export function leaveScannerEditor(destination: string): void {
-    // A save can finish after the user has left the editor, and must not pull them back.
-    if (!isScannerEditorPath(router.values.location.pathname)) {
+export function leaveScannerEditor(scannerId: string, destination: string): void {
+    // A save can finish after the user has left this scanner's editor, and must not pull them away from where they are.
+    if (!scannerEditorPaths(scannerId).includes(removeProjectIdIfPresent(router.values.location.pathname))) {
         return
     }
     const editor = scannerEditorSceneLogic.findMounted()

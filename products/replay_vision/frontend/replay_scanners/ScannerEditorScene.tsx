@@ -515,7 +515,7 @@ function EditorFooter({
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
         discardScannerDraft()
-        leaveScannerEditor(isNew ? urls.replayVision() : urls.replayVision(scannerId))
+        leaveScannerEditor(scannerId, isNew ? urls.replayVision() : urls.replayVision(scannerId))
     }
     const handleCancel = (): void => {
         if (!hasUnsavedChanges) {
