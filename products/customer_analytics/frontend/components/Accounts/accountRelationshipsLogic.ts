@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -316,6 +317,12 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
                 actions.loadRelationships()
                 refreshAccountsList()
             } catch (error) {
+                // The server refuses to delete the history of a controlled relationship.
+                if (error instanceof ApiError && error.status === 409) {
+                    actions.closeDeleteConfirmation()
+                    lemonToast.error(error.detail ?? `Couldn't delete the ${relationship.definition.name} assignment`)
+                    return
+                }
                 posthog.captureException(error as Error, { scope: 'accountRelationshipsLogic.deleteRelationship' })
                 lemonToast.error(`Failed to delete ${relationship.definition.name} assignment`)
             } finally {

@@ -137,7 +137,15 @@ export function AccountRelationshipsExpansion({
                                 status="danger"
                                 icon={<IconTrash />}
                                 tooltip="Delete assignment"
-                                disabledReason={relationshipSaving ? 'Saving…' : undefined}
+                                disabledReason={
+                                    relationship.definition.is_controlled
+                                        ? relationship.ended_at
+                                            ? "Customer analytics controls this relationship, so its history can't be deleted."
+                                            : 'Customer analytics controls this relationship. Unassign it instead of deleting it.'
+                                        : relationshipSaving
+                                          ? 'Saving…'
+                                          : undefined
+                                }
                                 data-attr="account-relationships-delete-button"
                                 onClick={() => openDeleteConfirmation(relationship)}
                             />
