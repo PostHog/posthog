@@ -413,24 +413,29 @@ function variantAnalysisTemplate(scannerId: string, scannerName: string): Scanne
         cron: SCANNER_SCOUT_CRON,
         body: buildScoutBody(scannerId, {
             heading: 'Replay Vision variant analysis',
-            role: 'You compare the variants of the experiment one Replay Vision experiment scanner watches. Read its session summaries variant by variant, name the behaviors they share, and report what users in each variant do differently.',
-            reads: `- \`vision-scanners-get\` with id \`${scannerId}\` gives \`scanner_version\`. Read only observations of that version: a prompt edit changes what a summary looks at, so mixing versions compares two different questions.
+            role: 'You compare the variants of the experiment one Replay Vision experiment scanner watches. Read its session summaries variant by variant, name the behaviors they share, and report whether users in each variant behave differently. Most experiments change behavior too little to see in a few dozen sessions, so "no clear difference" is the usual answer, not a failed run.',
+            reads: `- \`vision-scanners-get\` with id \`${scannerId}\` gives \`scanner_version\`, and \`scanner_config.experiment_id\`. Read only observations of that version: a prompt edit changes what a summary looks at, so mixing versions compares two different questions.
+- \`experiment-get\` with that \`experiment_id\` gives the experiment's hypothesis (its \`description\`) and the definitions of its \`metrics\`, \`metrics_secondary\` and \`saved_metrics\`. Use them only to learn which behaviors the team cares about. Do not read the experiment's results with \`experiment-results\` or any other results tool, and ignore \`conclusion\` and \`conclusion_comment\`. A metric can move for reasons no replay shows, and knowing a result makes it easy to find a story that fits it.
 - \`vision-scanners-variants-list\` (scanner_id \`${scannerId}\`) gives the variant keys, each variant's observation and people counts, and its sampling rate. Those live counts are the trusted numbers: never restate them from your own reading.
 - \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) with \`variant\` set to each key, \`status=succeeded\` and \`order_by=-completed_at\`: up to the 40 most recent summaries per variant. Read the same number from each variant where you can, so their shares compare. \`vision-observations-get\` reads one in full when its summary line is not enough.`,
-            notable: `Name the themes first, across all variants at once, so a theme means the same thing in every variant: one observable behavior each ("Reopens the pricing page before checking out"). Then count, per variant, how many of the summaries you read show each theme.
+            notable: `Name the themes first, across all variants at once, so a theme means the same thing in every variant: one observable behavior each ("Reopens the pricing page before checking out"). Prefer behaviors that the hypothesis and the metrics point at. Then count, per variant, how many of the summaries you read show each theme.
 
-A difference is a theme whose share differs between variants by enough to matter on the summaries you read. With 40 summaries a variant, a gap of a few sessions is noise.`,
-            quiet: 'Variants that behave the same is a real result. Say so in the report, and record no differences.',
+A difference is a theme whose share differs between variants by at least 20 percentage points (for example 14 of 40 against 6 of 40), and that you can see in the summaries themselves. A smaller gap on a few dozen summaries is noise. Your counts come from model-written summaries, so they are approximate: when you are not sure a difference is real, leave it out. Finding no difference is normal.`,
+            quiet: 'Variants that behave the same is a real result, and the most common one. Say so in the report, describe the themes all variants share, and record no differences.',
+            quietVerdict:
+                'When no theme clears the bar, still file the report: open with the verdict `No clear difference between variants`, then one line with how many summaries you read per variant, then the main themes all variants share.',
             skip: `- Restating the variants counts as findings: the variants view already shows them.
 - A difference resting on fewer than 5 sessions in either variant.
-- Claims about which variant wins. The experiment's metrics decide that; you describe what users do.`,
+- Effects too small to see in a few dozen sessions, such as a 1 to 2% change in watch time or conversion. Only the experiment's metrics can show those, across thousands of sessions.
+- Claims about which variant wins. The experiment's metrics decide that; you describe what users do.
+- Explaining, confirming, or predicting a metric result.`,
             priority: 'Priority P3 by default.',
             record: `Every run also records exactly one structured record with \`scout-record-output\`: the whole comparison, matching the schema in your instructions. It fills in the experiment's variants view in Replay Vision, so record it even when nothing differs.
 
 - \`scanner_version\`: the version you read from \`vision-scanners-get\`. A record for an older version is not shown.
 - \`observations_read\`: per variant key, how many summaries you read. Every count below is out of this number.
 - \`variants\`: per variant key, up to 5 themes, most common first. \`count\` is how many of that variant's summaries you read show the theme. Cite up to 2 observation ids of that variant that show it in \`example_observation_ids\`.
-- \`differences\`: up to 5, most meaningful first, each resting on one theme, with \`counts\` per variant key. Empty when the variants behave the same.
+- \`differences\`: up to 5, most meaningful first, each resting on one theme, with \`counts\` per variant key. Empty when no theme clears the bar, which is the usual result.
 - Use the same \`theme\` label in every variant and in \`differences\`, so the view can line them up.
 - Submit once per run. The newest record replaces the previous one in the view.`,
         }),
