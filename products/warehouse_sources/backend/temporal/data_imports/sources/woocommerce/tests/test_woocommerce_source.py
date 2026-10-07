@@ -53,26 +53,31 @@ class TestWooCommerceSource:
         )
 
     @pytest.mark.parametrize(
-        "status, schema_name, expected_valid",
+        "status, schema_name, expected_valid, expected_message_fragment",
         [
-            (200, None, True),
-            (200, "orders", True),
-            (401, None, False),
-            (403, None, True),  # valid key without scope for the probe endpoint -> allowed at create
-            (403, "orders", False),  # but rejected for a specific schema check
-            (404, None, False),
-            (None, None, False),  # connection error
+            (200, None, True, None),
+            (200, "orders", True, None),
+            (401, None, False, "consumer key and secret"),
+            (403, None, True, None),  # valid key without scope for the probe endpoint -> allowed at create
+            (403, "orders", False, "blocked before it reached WooCommerce"),  # but rejected for a specific schema
+            (404, None, False, "permalinks"),
+            (500, None, False, "returned an error"),
+            (None, None, False, "Couldn't reach your WooCommerce store"),  # connection error
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.validate_woocommerce_credentials"
     )
-    def test_validate_credentials(self, mock_validate, status, schema_name, expected_valid):
+    def test_validate_credentials(self, mock_validate, status, schema_name, expected_valid, expected_message_fragment):
         mock_validate.return_value = status
 
-        is_valid, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
+        if expected_message_fragment is None:
+            assert message is None
+        else:
+            assert message is not None and expected_message_fragment in message
         mock_validate.assert_called_once_with("https://example.com", "ck_test", "cs_test", self.team_id)
 
     def test_validate_credentials_missing_fields(self):
