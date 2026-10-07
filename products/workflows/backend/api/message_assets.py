@@ -204,6 +204,34 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _add_date_filters(
+    where: list[str],
+    kwargs: dict[str, Any],
+    after: Optional[datetime],
+    before: Optional[datetime],
+) -> None:
+    if after:
+        where.append("sent_at >= toDateTime64(%(after)s, 6)")
+        kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    if before:
+        where.append("sent_at <= toDateTime64(%(before)s, 6)")
+        kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _message_assets_query(where: list[str]) -> str:
+    return f"""
+        SELECT {_OUTER_COLUMNS}
+        FROM (
+            SELECT {_COLLAPSED_AGGREGATES}
+            FROM message_assets
+            WHERE {" AND ".join(where)}
+            GROUP BY invocation_id, action_id
+        )
+        WHERE latest_is_deleted = 0
+        {_ORDER_AND_PAGE}
+    """
+
+
 def fetch_message_assets(
     team_id: int,
     function_kind: str,
@@ -248,26 +276,11 @@ def fetch_message_assets(
     if search:
         where.append("(recipient ILIKE %(search)s OR subject ILIKE %(search)s)")
         kwargs["search"] = f"%{_escape_like(search)}%"
-    if after:
-        where.append("sent_at >= toDateTime64(%(after)s, 6)")
-        kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    if before:
-        where.append("sent_at <= toDateTime64(%(before)s, 6)")
-        kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
+    _add_date_filters(where, kwargs, after, before)
 
     # Sends can share a sent_at down to the millisecond. The (invocation_id, action_id) tiebreak gives
     # them a stable order, so offset pages neither repeat a send nor skip one at a page boundary.
-    query = f"""
-        SELECT {_OUTER_COLUMNS}
-        FROM (
-            SELECT {_COLLAPSED_AGGREGATES}
-            FROM message_assets
-            WHERE {" AND ".join(where)}
-            GROUP BY invocation_id, action_id
-        )
-        WHERE latest_is_deleted = 0
-        {_ORDER_AND_PAGE}
-    """
+    query = _message_assets_query(where)
 
     results = cast(list, sync_execute(query, kwargs))
     return [_build_asset(row) for row in results]
@@ -300,24 +313,8 @@ def fetch_message_assets_for_person(
         "limit": limit,
         "offset": offset,
     }
-    if after:
-        where.append("sent_at >= toDateTime64(%(after)s, 6)")
-        kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-    if before:
-        where.append("sent_at <= toDateTime64(%(before)s, 6)")
-        kwargs["before"] = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
-
-    query = f"""
-        SELECT {_OUTER_COLUMNS}
-        FROM (
-            SELECT {_COLLAPSED_AGGREGATES}
-            FROM message_assets
-            WHERE {" AND ".join(where)}
-            GROUP BY invocation_id, action_id
-        )
-        WHERE latest_is_deleted = 0
-        {_ORDER_AND_PAGE}
-    """
+    _add_date_filters(where, kwargs, after, before)
+    query = _message_assets_query(where)
 
     results = cast(list, sync_execute(query, kwargs))
     return [_build_asset(row) for row in results]
