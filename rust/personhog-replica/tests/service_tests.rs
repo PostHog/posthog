@@ -6,15 +6,16 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest, VersionBoundedPerson,
+    EnsurePersonVersionFloorsRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, PersonVersionFloor,
+    PersonVersionFloorResult, SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest,
+    SplitPersonRequest, TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
+    VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1722,6 +1723,49 @@ async fn test_set_person_version_floor() {
         .await
         .expect("RPC failed");
     assert!(!response.into_inner().updated);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_ensure_person_version_floors_maps_results_to_proto() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_floor_live", None).await.unwrap();
+    let absent_person = Uuid::now_v7();
+
+    let person_floors = ctx
+        .service
+        .ensure_person_version_floors(Request::new(EnsurePersonVersionFloorsRequest {
+            team_id: ctx.team_id,
+            floors: vec![
+                PersonVersionFloor {
+                    person_uuid: person.uuid.to_string(),
+                    min_version: 2,
+                },
+                PersonVersionFloor {
+                    person_uuid: absent_person.to_string(),
+                    min_version: 5,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_floors.results,
+        vec![
+            PersonVersionFloorResult {
+                person_uuid: person.uuid.to_string(),
+                outcome: VersionFloorOutcome::Live as i32,
+                version: 0,
+            },
+            PersonVersionFloorResult {
+                person_uuid: absent_person.to_string(),
+                outcome: VersionFloorOutcome::TombstoneInserted as i32,
+                version: 5,
+            },
+        ]
+    );
 
     ctx.cleanup().await.ok();
 }

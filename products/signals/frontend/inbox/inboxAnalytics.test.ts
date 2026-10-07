@@ -129,6 +129,7 @@ describe('inboxAnalytics', () => {
                         scores: { pr_merged: 0.4 },
                         lifts: {},
                         readable_heads: ['pr_merged'],
+                        stale: false,
                     },
                 }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),

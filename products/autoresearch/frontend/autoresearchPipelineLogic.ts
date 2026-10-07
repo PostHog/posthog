@@ -38,6 +38,7 @@ import {
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
+import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
@@ -244,6 +245,7 @@ export interface autoresearchPipelineLogicValues {
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
+    predictionsPeopleView: PredictionsPeopleView
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
     probabilityDistributionLoading: boolean
@@ -528,6 +530,9 @@ export interface autoresearchPipelineLogicActions {
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
     }
+    setPredictionsPeopleView: (view: PredictionsPeopleView) => {
+        view: PredictionsPeopleView
+    }
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
@@ -638,6 +643,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     }),
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
+        setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
         reportNotebookOpened: (runId: string) => ({ runId }),
@@ -659,6 +665,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'overview' as AutoresearchPipelineTab,
             {
                 setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        predictionsPeopleView: [
+            'most_likely' as PredictionsPeopleView,
+            {
+                setPredictionsPeopleView: (_, { view }) => view,
             },
         ],
         activeScoreRun: [
@@ -1207,6 +1219,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         reportNotebookOpened: ({ runId }) => {
             posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
+        },
+        setPredictionsPeopleView: ({ view }) => {
+            posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
         },
     })),
     actionToUrl(({ values }) => ({

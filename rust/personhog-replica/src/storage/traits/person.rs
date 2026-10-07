@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult, TombstonedDeleteOutcome,
-    TombstonedPerson,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
+    TombstonedDeleteOutcome, TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -150,4 +150,12 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    /// Raise each person tombstone to at least its min version in one primary transaction, inserting a
+    /// tombstone for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>>;
 }

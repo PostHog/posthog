@@ -74,6 +74,23 @@ pub(crate) fn env_usize(name: &str, default: usize) -> usize {
     }
 }
 
+/// Whether the setting `value` of an on/off kill switch keeps the feature on: `0`,
+/// `false`, `off` and `no` turn it off; unset or any other value keeps it on.
+pub(crate) fn switch_setting(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        ),
+        None => true,
+    }
+}
+
+/// [`switch_setting`] of the environment variable `name`.
+pub(crate) fn env_switch(name: &str) -> bool {
+    switch_setting(std::env::var(name).ok().as_deref())
+}
+
 impl ProcessLimits {
     /// Build limits with explicit capacities and the default fetch budget. Zero
     /// capacities are clamped to 1 (a zero-permit semaphore would deadlock every upsert

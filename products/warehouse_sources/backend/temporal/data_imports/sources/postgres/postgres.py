@@ -2460,6 +2460,16 @@ def _column_is_not_null(table: Table[PostgreSQLColumn], column_name: str) -> boo
     return any(is_not_null(column.nullable) for column in table.columns if column.name == column_name)
 
 
+def _is_uuid_column(table: Table[PostgreSQLColumn], column_name: str) -> bool:
+    """Whether a keyset checkpoint can hold `column_name` as a uuid.
+
+    The Arrow type of a uuid column is string, which a checkpoint refuses because the order of text
+    depends on a collation. Postgres compares uuid values byte by byte, with no collation. The value
+    goes into the checkpoint as text, and Postgres reads that text back as the same uuid.
+    """
+    return any(column.data_type.lower() == "uuid" for column in table.columns if column.name == column_name)
+
+
 def _build_keyset_query(
     schema: str,
     table_name: str,
@@ -2840,7 +2850,11 @@ def resolve_postgres_keyset(
         # Were it reached, the SELECT would omit the key and the seek would fail looking it up in the
         # cursor description, so fall back to the server cursor rather than crash the read.
         return PostgresKeyset(reason=f"primary_key_not_projected:{missing[0]}")
-    unorderable = [key for key in primary_keys if not is_orderable_keyset_type(arrow_schema.field(key).type)]
+    unorderable = [
+        key
+        for key in primary_keys
+        if not is_orderable_keyset_type(arrow_schema.field(key).type) and not _is_uuid_column(full_table, key)
+    ]
     if unorderable:
         # Seeking in-process on this key stays fine: one connection, one collation, one process. What
         # it cannot do is survive the trip through Redis, where the ordering assumption would have to

@@ -67,6 +67,32 @@ pub struct TombstonedDeleteOutcome {
     pub rows_deleted: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionFloorOutcome {
+    TombstoneInserted,
+    TombstoneRaised,
+    TombstoneAtFloor,
+    Live,
+}
+
+impl VersionFloorOutcome {
+    /// Classify a row that existed before the call, from its state then.
+    pub fn for_existing(is_deleted: bool, version: i64, min_version: i64) -> Self {
+        match (is_deleted, version < min_version) {
+            (false, _) => Self::Live,
+            (true, true) => Self::TombstoneRaised,
+            (true, false) => Self::TombstoneAtFloor,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVersionFloorResult {
+    pub uuid: Uuid,
+    pub outcome: VersionFloorOutcome,
+    pub version: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

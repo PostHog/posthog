@@ -1,4 +1,5 @@
 import json
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -28,11 +29,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaTableRef,
     _purge_s3_prefix,
     live_row_count,
+    live_size_mib,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
     make_logger,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
+    _live_delta_size_mib,
+)
+
+_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
 
 def table_ref():
@@ -163,6 +170,246 @@ class TestGetDeltaTableCache:
 
         mock_delta_table.is_deltatable.assert_not_called()
         mock_delta_table.assert_not_called()
+
+
+def _no_table(path: Path) -> None:
+    pass
+
+
+def _data_file_only(path: Path) -> None:
+    path.mkdir(parents=True)
+    pq.write_table(pa.table({"id": [1]}), path / "part-0.parquet")
+
+
+def _stray_log_file(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "_commit_0.json.tmp").write_text("{}")
+
+
+def _checkpoint_hint_only(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "_last_checkpoint").write_text('{"version": 5, "size": 10}')
+
+
+def _commit_without_metadata(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "00000000000000000000.json").write_text('{"commitInfo": {"timestamp": 1}}\n')
+
+
+def _files_under(path: Path) -> set[str]:
+    return {str(file.relative_to(path)) for file in path.rglob("*") if file.is_file()}
+
+
+class TestOpenWithoutExistenceCheck:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @parameterized.expand(
+        [
+            # (name, expect_missing, table_exists, existence_checks, opens)
+            ("existing_table_opens_with_no_check", False, True, 0, 1),
+            ("expected_missing_table_costs_one_check", True, False, 1, 0),
+            ("unexpected_missing_table_falls_back_to_the_check", False, False, 1, 1),
+            ("expected_missing_but_present_checks_then_opens", True, True, 1, 1),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_object_store_calls_for_one_open(
+        self, _name: str, expect_missing: bool, table_exists: bool, existence_checks: int, opens: int
+    ) -> None:
+        ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+        handle = MagicMock()
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+        ):
+            mock_delta_table.is_deltatable.return_value = table_exists
+            if table_exists:
+                mock_delta_table.return_value = handle
+            else:
+                mock_delta_table.side_effect = deltalake.exceptions.TableNotFoundError(
+                    "Generic delta kernel error: No files in log segment"
+                )
+
+            table = await ref.get_delta_table()
+
+        assert table is (handle if table_exists else None)
+        assert ref.is_first_sync is not table_exists
+        assert mock_delta_table.is_deltatable.call_count == existence_checks
+        assert mock_delta_table.call_count == opens
+
+    @parameterized.expand(
+        [
+            (f"{layout.__name__.strip('_')}_{'expected' if expect_missing else 'unexpected'}", layout, expect_missing)
+            for layout in (_no_table, _data_file_only, _stray_log_file, _checkpoint_hint_only)
+            for expect_missing in (False, True)
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_prefix_that_holds_no_table_reads_as_no_table_and_keeps_its_files(
+        self, _name: str, layout: Callable[[Path], None], expect_missing: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            layout(path)
+            before = _files_under(path)
+            ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+
+            with (
+                patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=str(path))),
+                patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+                patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()) as purge,
+            ):
+                assert await ref.get_delta_table() is None
+                assert await ref.is_table_corrupted() is False
+
+            assert ref.is_first_sync is True
+            purge.assert_not_awaited()
+            assert _files_under(path) == before
+
+    @parameterized.expand([("unexpected", False), ("expected", True)])
+    @pytest.mark.asyncio
+    async def test_a_log_with_no_metadata_is_still_corrupt_and_still_healed(
+        self, _name: str, expect_missing: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            _commit_without_metadata(path)
+            ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+            s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+            with (
+                patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=str(path))),
+                patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+                patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+                patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()) as purge,
+                patch(f"{self._MODULE}.capture_exception"),
+            ):
+                assert await ref.is_table_corrupted() is True
+                assert await ref.get_delta_table() is None
+
+            purge.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reset_makes_the_next_open_start_with_the_existence_check(self) -> None:
+        ref = DeltaTableRef("t", MagicMock(), make_logger())
+        s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+            patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+        ):
+            mock_delta_table.is_deltatable.return_value = False
+            await ref.reset_table()
+
+            assert await ref.get_delta_table() is None
+
+        mock_delta_table.assert_not_called()
+        mock_delta_table.is_deltatable.assert_called_once()
+
+
+class TestCorruptionCheckSharesItsOpen:
+    @parameterized.expand(
+        [
+            # (name, step between the check and the read, opens made by the read)
+            ("read_reuses_the_handle", "nothing", 0),
+            ("reset_drops_the_handle", "reset", 1),
+            ("invalidate_drops_the_handle", "invalidate", 1),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_read_after_the_corruption_check(self, _name: str, step: str, later_opens: int) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+            ref = make_local_table_ref(uri)
+            module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+            s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+            with (
+                patch.object(ref, "_open_delta_table", AsyncMock(side_effect=ref._open_delta_table)) as later_open,
+                patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+                patch(f"{module}._purge_s3_prefix", AsyncMock()),
+            ):
+                assert await ref.is_table_corrupted() is False
+                if step == "reset":
+                    await ref.reset_table()
+                elif step == "invalidate":
+                    ref.invalidate_cached_table()
+
+                table = await ref.get_delta_table()
+
+            assert table is not None
+            assert later_open.await_count == later_opens
+
+    @pytest.mark.asyncio
+    async def test_a_commit_through_the_shared_handle_is_visible_to_the_next_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+            ref = make_local_table_ref(uri)
+
+            assert await ref.is_table_corrupted() is False
+            maintenance_handle = await ref.get_delta_table()
+            assert maintenance_handle is not None
+            deltalake.write_deltalake(maintenance_handle, pa.table({"id": [2]}), mode="append")
+            deltalite.DeltaLiteTable.open(uri).upsert(pa.table({"id": [3]}), primary_keys=["id"])
+            ref.note_deltalite_commit(None)
+
+            reader = await ref.get_delta_table()
+
+            assert reader is not None
+            assert reader.version() == deltalake.DeltaTable(uri).version() == 2
+            assert set(reader.to_pyarrow_table().column("id").to_pylist()) == {1, 2, 3}
+
+    @pytest.mark.asyncio
+    async def test_a_corrupt_table_leaves_no_handle_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            _commit_without_metadata(path)
+            ref = make_local_table_ref(str(path))
+
+            assert await ref.is_table_corrupted() is True
+            assert ref.pop_cached_table() is None
+
+
+class TestKnownMissingTable:
+    @parameterized.expand(
+        [
+            # (name, allow_known_missing, step between the two reads, probes, second read finds a table)
+            ("default_read_looks_again", False, "nothing", 2, False),
+            ("allowed_read_reuses_the_answer", True, "nothing", 1, False),
+            ("default_read_finds_a_table_another_writer_created", False, "created_elsewhere", 2, True),
+            ("adopted_table_is_returned_with_no_probe", True, "adopted", 1, True),
+            ("invalidate_forgets_the_answer", True, "invalidated", 2, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_second_read_of_a_missing_table(
+        self, _name: str, allow_known_missing: bool, step: str, probes: int, finds_table: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            ref = make_local_table_ref(uri)
+
+            with patch.object(ref, "_open_delta_table", AsyncMock(side_effect=ref._open_delta_table)) as probe:
+                assert await ref.get_delta_table() is None
+
+                if step == "created_elsewhere":
+                    deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+                elif step == "adopted":
+                    ref.adopt_created_table(deltalake.DeltaTable.create(uri, schema=pa.schema([("id", pa.int64())])))
+                elif step == "invalidated":
+                    ref.invalidate_cached_table()
+
+                table = await ref.get_delta_table(allow_known_missing=allow_known_missing)
+
+            assert (table is not None) is finds_table
+            assert probe.await_count == probes
 
 
 class TestStorageOptionsCommitSafety:
@@ -319,6 +566,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = OSError("unexpected end of stream while reading response")
             mock_delta_table.is_deltatable.side_effect = OSError("unexpected end of stream while reading response")
 
             with pytest.raises(OSError, match="unexpected end of stream"):
@@ -349,6 +597,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = original_error
             mock_delta_table.is_deltatable.side_effect = original_error
 
             with pytest.raises(TransientObjectStoreError, match="operation timed out") as exc_info:
@@ -381,6 +630,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = original_error
             mock_delta_table.is_deltatable.side_effect = original_error
 
             with pytest.raises(ObjectStorePermissionDeniedError) as exc_info:
@@ -578,6 +828,15 @@ def _upserted_with_deltalite(uri: str) -> None:
     deltalite.DeltaLiteTable.open(uri).upsert(_rows([3, 10, 11], "a"), primary_keys=["id"], partition_key="part")
 
 
+def _overwritten_without_partitions(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([7], "c"), mode="overwrite")
+
+
+def _compacted_without_partitions(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([5, 6], "b"), mode="append")
+    deltalake.DeltaTable(uri).optimize.compact()
+
+
 def _compacted(uri: str) -> None:
     _appended(uri)
     deltalake.DeltaTable(uri).optimize.compact()
@@ -655,6 +914,69 @@ class TestLiveRowCount:
         ref = make_local_table_ref(str(self.tmp_path / "missing"))
 
         assert await ref.get_live_row_count() is None
+        assert await ref.get_live_size_mib() is None
+
+    @parameterized.expand(
+        [
+            ("append_only", True, lambda uri: None),
+            ("append", True, _appended),
+            ("full_refresh", True, _overwritten),
+            ("delete", True, _deleted_from),
+            ("empty_table", True, _emptied),
+            ("merge", True, _merged),
+            ("deltalite_upsert", True, _upserted_with_deltalite),
+            ("compaction", True, _compacted),
+            ("vacuum", True, _vacuumed),
+            ("unpartitioned", False, lambda uri: None),
+            ("unpartitioned_full_refresh", False, _overwritten_without_partitions),
+            ("unpartitioned_compaction", False, _compacted_without_partitions),
+        ]
+    )
+    def test_size_matches_the_published_files_and_the_size_activity(
+        self, _name: str, partitioned: bool, history: Callable[[str], None]
+    ) -> None:
+        # The loader records this number in place of the size activity, and billing sums it. It has
+        # to be the bytes of the files the query folder holds, with no removed file counted.
+        uri = self._create(self.tmp_path) if partitioned else self._create_unpartitioned(self.tmp_path)
+        history(uri)
+        table = deltalake.DeltaTable(uri)
+
+        published_mib = sum(Path(path).stat().st_size for path in table.file_uris()) / (1024 * 1024)
+        with patch(f"{_TABLE_MODULE}.delta_storage_options", return_value={}):
+            activity_mib = _live_delta_size_mib(uri)
+
+        assert live_size_mib(table) == published_mib == activity_mib
+
+    @parameterized.expand(
+        [
+            ("a_file_without_a_size", MagicMock(return_value={"a.parquet": 10, "b.parquet": None})),
+            ("an_unreadable_log", MagicMock(side_effect=Exception("Generic delta kernel error"))),
+        ]
+    )
+    def test_no_size_when_the_log_cannot_give_every_file_size(self, _name: str, get_add_file_sizes: MagicMock) -> None:
+        # None keeps the recorded size and leaves the measurement to the size activity. A partial
+        # sum or a 0 would under-report the table.
+        table = MagicMock()
+        table._table.get_add_file_sizes = get_add_file_sizes
+
+        assert live_size_mib(table) is None
+
+    @pytest.mark.asyncio
+    async def test_ref_reads_the_size_after_a_deltalite_commit(self) -> None:
+        uri = self._create(self.tmp_path)
+        ref = make_local_table_ref(uri)
+        size_before = await ref.get_live_size_mib()
+
+        deltalite.DeltaLiteTable.open(uri).upsert(_rows([10, 11], "a"), primary_keys=["id"], partition_key="part")
+        ref.note_deltalite_commit(None)
+
+        assert await ref.get_live_size_mib() == live_size_mib(deltalake.DeltaTable(uri)) != size_before
+
+    @staticmethod
+    def _create_unpartitioned(tmp_path: Path) -> str:
+        uri = str(tmp_path / "t")
+        deltalake.write_deltalake(uri, _rows([1, 2, 3, 4], "a"))
+        return uri
 
     @pytest.fixture(autouse=True)
     def _tmp(self, tmp_path: Path) -> None:

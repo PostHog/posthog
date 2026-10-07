@@ -402,6 +402,46 @@ message SetPersonVersionFloorResponse {
   bool updated = 1;
 }
 
+// What EnsurePersonVersionFloors found and did for one person.
+enum VersionFloorOutcome {
+  VERSION_FLOOR_OUTCOME_UNSPECIFIED = 0;
+  // No row existed. The call inserted a tombstone at min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED = 1;
+  // A tombstone below min_version. The call raised it to min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED = 2;
+  // A tombstone at or above min_version. Nothing changed.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR = 3;
+  // A live row. Nothing changed: the call never raises a live row.
+  VERSION_FLOOR_OUTCOME_LIVE = 4;
+}
+
+message PersonVersionFloor {
+  string person_uuid = 1;
+  int64 min_version = 2;
+}
+
+// EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version in one transaction,
+// inserting a tombstone for a missing person and leaving a live person unchanged. Publish a ClickHouse tombstone
+// at the returned version for every non-LIVE result, because the Postgres cleanup drain removes only tombstones
+// the ClickHouse deletion sweep finds.
+message EnsurePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate person_uuids are rejected.
+  repeated PersonVersionFloor floors = 2;
+}
+
+message PersonVersionFloorResult {
+  string person_uuid = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+}
+
+message EnsurePersonVersionFloorsResponse {
+  // Same order as the request.
+  repeated PersonVersionFloorResult results = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.
