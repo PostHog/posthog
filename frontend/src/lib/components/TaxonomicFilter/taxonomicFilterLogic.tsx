@@ -554,6 +554,7 @@ export interface taxonomicFilterLogicValues {
     infiniteListResultCounts: {
         [k: string]: number
     }
+    intentPromotedGroupType: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -648,6 +649,9 @@ export interface taxonomicFilterLogicActions {
     }
     setIncludeStaleEvents: (includeStaleEvents: boolean) => {
         includeStaleEvents: boolean
+    }
+    setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => {
+        groupType: TaxonomicFilterGroupType | null
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -805,7 +809,8 @@ export interface taxonomicFilterLogicMeta {
         ) => string
         suggestedFilterGroupOrder: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            metaGroupTypes: Set<string>,
+            intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
@@ -893,6 +898,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }),
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
+        setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => ({ groupType }),
     })),
     reducers(({ props }) => ({
         searchQuery: [
@@ -975,6 +981,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     includeStaleEvents,
                 setSearchQuery: () => false,
                 setActiveTab: () => false,
+            },
+        ],
+        intentPromotedGroupType: [
+            // Set by taxonomicSearchIntentLogic in the promote arm of its experiment. Every new
+            // search clears it, so a promotion never outlives the search it was made for.
+            null as TaxonomicFilterGroupType | null,
+            {
+                setIntentPromotedGroupType: (_, { groupType }) => groupType,
+                setSearchQuery: () => null,
             },
         ],
     })),
@@ -1204,7 +1219,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                            ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                         ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
@@ -1336,9 +1351,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Autocapture elements',
                         searchPlaceholder: 'autocapture elements',
                         type: TaxonomicFilterGroupType.Elements,
-                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                            name: option,
-                        })) as SimpleOption[],
+                        options: (['tag_name', 'text', 'href', 'selector'] as const)
+                            .filter(
+                                (option) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(option)
+                            )
+                            .map((option) => ({
+                                name: option,
+                            })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Autocapture Element',
@@ -2178,10 +2197,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 group: TaxonomicFilterGroupType.EventProperties,
                             })),
                             ...(eventNames.includes('$autocapture')
-                                ? (['text', 'selector'] as const).map((name) => ({
-                                      name,
-                                      group: TaxonomicFilterGroupType.Elements,
-                                  }))
+                                ? (['text', 'selector'] as const)
+                                      .filter(
+                                          (name) =>
+                                              !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name)
+                                      )
+                                      .map((name) => ({
+                                          name,
+                                          group: TaxonomicFilterGroupType.Elements,
+                                      }))
                                 : []),
                             ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
                                 ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({
@@ -2444,32 +2468,40 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                const names = searchGroupTypes
-                    .map((type) => {
-                        const taxonomicGroup = allTaxonomicGroups.find(
-                            (tGroup) => tGroup.type == type
-                        ) as TaxonomicFilterGroup
-                        return taxonomicGroup.searchPlaceholder
-                    })
-                    .filter(Boolean)
-                return names
-                    .filter((a) => !!a)
+                // Meta groups such as "all", "recent" and "pinned" repeat the other groups, so they only name
+                // the search when nothing else can.
+                const contentGroupTypes = searchGroupTypes.filter((type) => !META_GROUP_TYPES.has(type))
+                const names = (contentGroupTypes.length > 0 ? contentGroupTypes : searchGroupTypes)
                     .map(
-                        (name, index) =>
-                            `${index !== 0 ? (index === searchGroupTypes.length - 1 ? ' or ' : ', ') : ''}${name}`
+                        (type) =>
+                            (allTaxonomicGroups.find((tGroup) => tGroup.type == type) as TaxonomicFilterGroup)
+                                .searchPlaceholder
                     )
-                    .join('')
+                    .filter(Boolean)
+                // A long list gets cut off in the search input, so name the first two groups only.
+                if (names.length > 3) {
+                    return `${names[0]}, ${names[1]}, and more`
+                }
+                return names.length > 1
+                    ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+                    : names.join('')
             },
         ],
         suggestedFilterGroupOrder: [
             // The order the cross-category "All" list renders its groups in. Every consumer of that
             // list must read this, so the skeleton rows and the revealed rows land in the same place.
-            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes, s.intentPromotedGroupType],
             (
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
-            ): TaxonomicFilterGroupType[] =>
-                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+                metaGroupTypes: Set<string>,
+                intentPromotedGroupType: TaxonomicFilterGroupType | null
+            ): TaxonomicFilterGroupType[] => {
+                const order = demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t)))
+                if (!intentPromotedGroupType || !order.includes(intentPromotedGroupType)) {
+                    return order
+                }
+                return [intentPromotedGroupType, ...order.filter((t) => t !== intentPromotedGroupType)]
+            },
         ],
         redistributedTopMatchItems: [
             (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],

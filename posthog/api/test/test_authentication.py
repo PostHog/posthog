@@ -47,9 +47,10 @@ from posthog.auth import (
     SessionAuthentication,
     TeamSecretTokenAuthentication,
     TeamSecretTokenUser,
+    WidgetAuthentication,
     _extract_phs_token,
 )
-from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -1609,7 +1610,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
-        self.assertEqual(response.headers["Content-Length"], "0")
+        self.assertNotIn("Content-Length", response.headers)
 
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
@@ -2541,6 +2542,15 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+class TestWidgetAuthentication(SimpleTestCase):
+    @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
+    def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
+        request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
+        with patch("posthog.models.Team.objects.get", side_effect=lookup_error):
+            with self.assertRaises(AuthenticationFailed):
+                WidgetAuthentication().authenticate(request)
+
+
 class TestSyntheticUser(SimpleTestCase):
     def _team(self, team_id=42):
         return type("FakeTeam", (), {"id": team_id})()
@@ -2734,6 +2744,36 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         assert self.psak.last_used_at is not None
         # Should have updated to a recent timestamp
         self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
+
+
+class TestScoutPrivateCaptureAuthentication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ordinary", "query:read", True, False),
+            ("unbound", "scout_experiment_internal:read", False, False),
+            ("trial", "query:read scout_experiment_internal:read", True, True),
+        ]
+    )
+    def test_capture_policy_requires_the_bound_scope(self, _name: str, scope: str, bound: bool, private: bool) -> None:
+        token = OAuthAccessToken(
+            user=User(id=1, current_team_id=2),
+            scope=scope,
+            sandbox_task_id=uuid.uuid4() if bound else None,
+        )
+        request = Request(
+            APIRequestFactory().get(
+                "/?is_scout_experiment=true",
+                HTTP_AUTHORIZATION="Bearer pha_synthetic",
+                HTTP_X_POSTHOG_SUPPRESS_ANALYTICS="true",
+            )
+        )
+        with (
+            tags_context(is_scout_experiment=False),
+            patch.object(OAuthAccessTokenAuthentication, "_validate_token", return_value=token),
+            patch("posthog.auth.activity_storage.is_request_scoped", return_value=False),
+        ):
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+            self.assertEqual(get_query_tags().is_scout_experiment, private)
 
 
 class TestOAuthAccessTokenAuthentication(APIBaseTest):

@@ -37,13 +37,13 @@ def test_neon_schema_field_is_optional():
     assert schema_field.label == "Schema"
 
 
-def test_neon_is_visible_and_beta():
+def test_neon_is_visible_and_ga():
     config = NeonSource().get_source_config
 
     # A finished source must not be hidden behind unreleasedSource or a gating flag.
     assert not config.unreleasedSource
     assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.BETA
+    assert config.releaseStatus == ReleaseStatus.GA
 
 
 def test_neon_host_field_guides_to_the_direct_host():

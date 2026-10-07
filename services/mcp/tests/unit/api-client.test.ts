@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
 import { PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
@@ -8,6 +9,28 @@ import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
+        const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const suppress = vi.fn()
+        const scoped = shared.withAnalyticsSuppression(suppress)
+        for (const header of [undefined, 'false', 'true']) {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        new Response(JSON.stringify({ detail: 'Synthetic response' }), {
+                            status,
+                            headers: header ? { 'X-PostHog-Suppress-Analytics': header } : {},
+                        })
+                )
+            )
+            await scoped.request({ method: 'GET', path: '/api/projects/1/tasks/' }).catch(() => undefined)
+        }
+        expect(suppress).toHaveBeenCalledOnce()
+        expect(shared.config.onPrivateResponse).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it('should create ApiClient with required config', () => {
         const client = new ApiClient({
             apiToken: 'test-token',
@@ -238,6 +261,37 @@ describe('ApiClient', () => {
         expect(mockFetch.mock.calls[0]![1].headers['x-posthog-intent']).toBe('auditing the dashboard tiles')
         expect(mockFetch.mock.calls[1]![1].headers).not.toHaveProperty('x-posthog-intent')
         expect(shared.config.intent).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        ['an IP and a key', { clientIp: '203.0.113.7', clientIpSigningKeys: ['mcp-key', 'old-key'] }, '203.0.113.7'],
+        ['an IP and no key', { clientIp: '203.0.113.7', clientIpSigningKeys: [] }, null],
+        ['a key and no IP', { clientIpSigningKeys: ['mcp-key'] }, null],
+    ] as const)('signs the end user IP for the activity log given %s', async (_label, extraConfig, expectedIp) => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            ...extraConfig,
+            clientIpSigningKeys: [...extraConfig.clientIpSigningKeys],
+        })
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const headers = mockFetch.mock.calls[0]![1].headers
+        expect(headers[MCP_CLIENT_IP_HEADERS.ip] ?? null).toBe(expectedIp)
+        if (expectedIp) {
+            const outcome = await verifySignedClientIp(
+                headers[MCP_CLIENT_IP_HEADERS.ip],
+                headers[MCP_CLIENT_IP_HEADERS.timestamp],
+                headers[MCP_CLIENT_IP_HEADERS.signature],
+                ['mcp-key']
+            )
+            expect(outcome).toBe('valid')
+        }
+
         vi.unstubAllGlobals()
     })
 

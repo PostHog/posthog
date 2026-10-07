@@ -42,6 +42,7 @@ copyRRWebWorkerFiles(__dirname)
 writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
+writeInfrastructureAdminHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -91,6 +92,13 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Infrastructure Admin',
+            entryPoints: ['../products/tasks/frontend/infrastructure/mountInfrastructureAdmin.tsx'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'infrastructure-admin.js'),
+            ...common,
+        },
+        {
             ...getToolbarAppBuildConfig(__dirname),
             ...common,
         },
@@ -130,7 +138,7 @@ await buildInParallel(
                         preludes: new Map(
                             [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
                                 file,
-                                cssPrelude(groups, cssPlan.rankOfGroup),
+                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
                             ])
                         ),
                         extraImports: Object.fromEntries(
@@ -153,6 +161,10 @@ await buildInParallel(
 
             if (config.name === 'Render Query') {
                 writeRenderQueryHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Infrastructure Admin') {
+                writeInfrastructureAdminHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Toolbar') {
@@ -239,6 +251,17 @@ export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
+        'dist/infrastructure_admin.html',
+        'infrastructure-admin',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeRenderQueryHtml(chunks = {}, entrypoints = []) {

@@ -38,6 +38,8 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { AccessControlUIVersion } from '../../../../../../lib/utils/accessControlUtils'
 import type { AccessControlResponseType, AccessControlUpdateType, RoleType } from '../../../../../../types'
@@ -136,6 +138,14 @@ export interface accessControlsLogicValues {
     panelEntryLoading: boolean
     panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
+    productsCollapse: {
+        canCollapse: boolean
+        collapsedCount: number
+        visibleResources: {
+            key: APIScopeObject
+            label: string
+        }[]
+    }
     resourceKeys: {
         key: APIScopeObject
         label: string
@@ -152,15 +162,7 @@ export interface accessControlsLogicValues {
         label: string
     }[]
     searchText: string
-    showAllTools: boolean
-    toolsCollapse: {
-        canCollapse: boolean
-        collapsedCount: number
-        visibleResources: {
-            key: APIScopeObject
-            label: string
-        }[]
-    }
+    showAllProducts: boolean
     visibleResourceKeySet: Set<APIScopeObject>
 }
 
@@ -386,127 +388,7 @@ export interface accessControlsLogicActions {
         scopeType: ScopeType
     }) => {
         projectLevel: AccessControlLevel | null
-        resourceLevels: Record<
-            | 'access_control'
-            | 'account'
-            | 'action'
-            | 'activity_log'
-            | 'ai_observability_clusters'
-            | 'alert'
-            | 'annotation'
-            | 'approvals'
-            | 'autoresearch'
-            | 'batch_export'
-            | 'batch_import'
-            | 'batch_import_support'
-            | 'billing'
-            | 'business_knowledge'
-            | 'canvas'
-            | 'clickhouse_test_cluster_perf'
-            | 'cohort'
-            | 'comment'
-            | 'context_layer_internal'
-            | 'conversation'
-            | 'customer_analytics'
-            | 'customer_journey'
-            | 'customer_profile_config'
-            | 'customer_task'
-            | 'dashboard'
-            | 'dashboard_template'
-            | 'data_catalog'
-            | 'data_catalog_approval'
-            | 'data_deletion'
-            | 'dataset'
-            | 'early_access_feature'
-            | 'element'
-            | 'endpoint'
-            | 'engineering_analytics'
-            | 'error_tracking'
-            | 'evaluation'
-            | 'event_definition'
-            | 'event_filter'
-            | 'experiment'
-            | 'experiment_holdout'
-            | 'experiment_saved_metric'
-            | 'export'
-            | 'external_data_schema'
-            | 'external_data_source'
-            | 'feature_flag'
-            | 'field_note'
-            | 'file_system'
-            | 'file_system_shortcut'
-            | 'group'
-            | 'health_issue'
-            | 'heatmap'
-            | 'hog_flow'
-            | 'hog_function'
-            | 'ingestion_warning'
-            | 'insight'
-            | 'insight_variable'
-            | 'integration'
-            | 'internal_run'
-            | 'legal_document'
-            | 'link'
-            | 'live_debugger'
-            | 'llm_analytics'
-            | 'llm_gateway'
-            | 'llm_playground'
-            | 'llm_prompt'
-            | 'llm_provider_key'
-            | 'llm_skill'
-            | 'logs'
-            | 'loop'
-            | 'marketing_analytics'
-            | 'mcp_analytics'
-            | 'mcp_builtin_agent'
-            | 'metrics'
-            | 'notebook'
-            | 'offline_evaluation_ingestion'
-            | 'organization'
-            | 'organization_integration'
-            | 'organization_member'
-            | 'person'
-            | 'plugin'
-            | 'product_enablement'
-            | 'product_tour'
-            | 'project'
-            | 'property_definition'
-            | 'query'
-            | 'query_performance'
-            | 'replay_scanner'
-            | 'revenue_analytics'
-            | 'review_hog'
-            | 'session_recording'
-            | 'session_recording_playlist'
-            | 'sharing_configuration'
-            | 'signal_scout'
-            | 'signal_scout_internal'
-            | 'signal_scout_report'
-            | 'signal_scratchpad_internal'
-            | 'stamphog'
-            | 'streamlit_app'
-            | 'subscription'
-            | 'survey'
-            | 'tagger'
-            | 'task'
-            | 'ticket'
-            | 'toolbar'
-            | 'tracing'
-            | 'uploaded_media'
-            | 'usage_metric'
-            | 'user'
-            | 'user_interview'
-            | 'vision_action'
-            | 'vision_alert'
-            | 'visual_review'
-            | 'warehouse_objects'
-            | 'warehouse_table'
-            | 'warehouse_view'
-            | 'web_analytics'
-            | 'webhook'
-            | 'wizard_session',
-            AccessControlLevel | null
-        >
+        resourceLevels: Record<ScopeObjectEnumApi, AccessControlLevel | null>
         scopeId: string
         scopeType: ScopeType
     }
@@ -519,7 +401,7 @@ export interface accessControlsLogicActions {
     setSearchText: (searchText: string) => {
         searchText: string
     }
-    setShowAllTools: (show: boolean) => {
+    setShowAllProducts: (show: boolean) => {
         show: boolean
     }
 }
@@ -535,13 +417,13 @@ export interface accessControlsLogicMeta {
             selectedTabOptions: string | null
         ) => AccessDetailSubject | null
         objectRuleResourceOptions: (defaults: AccessControlDefaultsResponse | null) => ObjectRuleResource[]
-        toolsCollapse: (
+        productsCollapse: (
             resourceKeys: {
                 key: APIScopeObject
                 label: string
             }[],
             panelEntry: AccessControlSettingsEntry | null,
-            showAllTools: boolean
+            showAllProducts: boolean
         ) => {
             canCollapse: boolean
             collapsedCount: number
@@ -562,126 +444,7 @@ export interface accessControlsLogicMeta {
         availableResourceLevels: (defaults: AccessControlDefaultsResponse | null) => AccessControlLevel[]
         resourceKeys: (
             defaults: AccessControlDefaultsResponse | null,
-            resources: (
-                | 'access_control'
-                | 'account'
-                | 'action'
-                | 'activity_log'
-                | 'ai_observability_clusters'
-                | 'alert'
-                | 'annotation'
-                | 'approvals'
-                | 'autoresearch'
-                | 'batch_export'
-                | 'batch_import'
-                | 'batch_import_support'
-                | 'billing'
-                | 'business_knowledge'
-                | 'canvas'
-                | 'clickhouse_test_cluster_perf'
-                | 'cohort'
-                | 'comment'
-                | 'context_layer_internal'
-                | 'conversation'
-                | 'customer_analytics'
-                | 'customer_journey'
-                | 'customer_profile_config'
-                | 'customer_task'
-                | 'dashboard'
-                | 'dashboard_template'
-                | 'data_catalog'
-                | 'data_catalog_approval'
-                | 'data_deletion'
-                | 'dataset'
-                | 'early_access_feature'
-                | 'element'
-                | 'endpoint'
-                | 'engineering_analytics'
-                | 'error_tracking'
-                | 'evaluation'
-                | 'event_definition'
-                | 'event_filter'
-                | 'experiment'
-                | 'experiment_holdout'
-                | 'experiment_saved_metric'
-                | 'export'
-                | 'external_data_schema'
-                | 'external_data_source'
-                | 'feature_flag'
-                | 'field_note'
-                | 'file_system'
-                | 'file_system_shortcut'
-                | 'group'
-                | 'health_issue'
-                | 'heatmap'
-                | 'hog_flow'
-                | 'hog_function'
-                | 'ingestion_warning'
-                | 'insight'
-                | 'insight_variable'
-                | 'integration'
-                | 'internal_run'
-                | 'legal_document'
-                | 'link'
-                | 'live_debugger'
-                | 'llm_analytics'
-                | 'llm_gateway'
-                | 'llm_playground'
-                | 'llm_prompt'
-                | 'llm_provider_key'
-                | 'llm_skill'
-                | 'logs'
-                | 'loop'
-                | 'marketing_analytics'
-                | 'mcp_analytics'
-                | 'mcp_builtin_agent'
-                | 'metrics'
-                | 'notebook'
-                | 'offline_evaluation_ingestion'
-                | 'organization'
-                | 'organization_integration'
-                | 'organization_member'
-                | 'person'
-                | 'plugin'
-                | 'product_enablement'
-                | 'product_tour'
-                | 'project'
-                | 'property_definition'
-                | 'query'
-                | 'query_performance'
-                | 'replay_scanner'
-                | 'revenue_analytics'
-                | 'review_hog'
-                | 'session_recording'
-                | 'session_recording_playlist'
-                | 'sharing_configuration'
-                | 'signal_scout'
-                | 'signal_scout_internal'
-                | 'signal_scout_report'
-                | 'signal_scratchpad_internal'
-                | 'stamphog'
-                | 'streamlit_app'
-                | 'subscription'
-                | 'survey'
-                | 'tagger'
-                | 'task'
-                | 'ticket'
-                | 'toolbar'
-                | 'tracing'
-                | 'uploaded_media'
-                | 'usage_metric'
-                | 'user'
-                | 'user_interview'
-                | 'vision_action'
-                | 'vision_alert'
-                | 'visual_review'
-                | 'warehouse_objects'
-                | 'warehouse_table'
-                | 'warehouse_view'
-                | 'web_analytics'
-                | 'webhook'
-                | 'wizard_session'
-            )[],
+            resources: ScopeObjectEnumApi[],
             featureFlags: FeatureFlagsSet
         ) => {
             key: APIScopeObject
@@ -715,251 +478,13 @@ export interface accessControlsLogicMeta {
             searchText: string,
             filters: AccessControlFilters,
             canUseRoles: boolean,
-            visibleResourceKeySet: Set<
-                | 'access_control'
-                | 'account'
-                | 'action'
-                | 'activity_log'
-                | 'ai_observability_clusters'
-                | 'alert'
-                | 'annotation'
-                | 'approvals'
-                | 'autoresearch'
-                | 'batch_export'
-                | 'batch_import'
-                | 'batch_import_support'
-                | 'billing'
-                | 'business_knowledge'
-                | 'canvas'
-                | 'clickhouse_test_cluster_perf'
-                | 'cohort'
-                | 'comment'
-                | 'context_layer_internal'
-                | 'conversation'
-                | 'customer_analytics'
-                | 'customer_journey'
-                | 'customer_profile_config'
-                | 'customer_task'
-                | 'dashboard'
-                | 'dashboard_template'
-                | 'data_catalog'
-                | 'data_catalog_approval'
-                | 'data_deletion'
-                | 'dataset'
-                | 'early_access_feature'
-                | 'element'
-                | 'endpoint'
-                | 'engineering_analytics'
-                | 'error_tracking'
-                | 'evaluation'
-                | 'event_definition'
-                | 'event_filter'
-                | 'experiment'
-                | 'experiment_holdout'
-                | 'experiment_saved_metric'
-                | 'export'
-                | 'external_data_schema'
-                | 'external_data_source'
-                | 'feature_flag'
-                | 'field_note'
-                | 'file_system'
-                | 'file_system_shortcut'
-                | 'group'
-                | 'health_issue'
-                | 'heatmap'
-                | 'hog_flow'
-                | 'hog_function'
-                | 'ingestion_warning'
-                | 'insight'
-                | 'insight_variable'
-                | 'integration'
-                | 'internal_run'
-                | 'legal_document'
-                | 'link'
-                | 'live_debugger'
-                | 'llm_analytics'
-                | 'llm_gateway'
-                | 'llm_playground'
-                | 'llm_prompt'
-                | 'llm_provider_key'
-                | 'llm_skill'
-                | 'logs'
-                | 'loop'
-                | 'marketing_analytics'
-                | 'mcp_analytics'
-                | 'mcp_builtin_agent'
-                | 'metrics'
-                | 'notebook'
-                | 'offline_evaluation_ingestion'
-                | 'organization'
-                | 'organization_integration'
-                | 'organization_member'
-                | 'person'
-                | 'plugin'
-                | 'product_enablement'
-                | 'product_tour'
-                | 'project'
-                | 'property_definition'
-                | 'query'
-                | 'query_performance'
-                | 'replay_scanner'
-                | 'revenue_analytics'
-                | 'review_hog'
-                | 'session_recording'
-                | 'session_recording_playlist'
-                | 'sharing_configuration'
-                | 'signal_scout'
-                | 'signal_scout_internal'
-                | 'signal_scout_report'
-                | 'signal_scratchpad_internal'
-                | 'stamphog'
-                | 'streamlit_app'
-                | 'subscription'
-                | 'survey'
-                | 'tagger'
-                | 'task'
-                | 'ticket'
-                | 'toolbar'
-                | 'tracing'
-                | 'uploaded_media'
-                | 'usage_metric'
-                | 'user'
-                | 'user_interview'
-                | 'vision_action'
-                | 'vision_alert'
-                | 'visual_review'
-                | 'warehouse_objects'
-                | 'warehouse_table'
-                | 'warehouse_view'
-                | 'web_analytics'
-                | 'webhook'
-                | 'wizard_session'
-            >
+            visibleResourceKeySet: Set<ScopeObjectEnumApi>
         ) => AccessControlRoleEntry[]
         filteredMembers: (
             membersData: AccessControlMembersResponse | null,
             searchText: string,
             filters: AccessControlFilters,
-            visibleResourceKeySet: Set<
-                | 'access_control'
-                | 'account'
-                | 'action'
-                | 'activity_log'
-                | 'ai_observability_clusters'
-                | 'alert'
-                | 'annotation'
-                | 'approvals'
-                | 'autoresearch'
-                | 'batch_export'
-                | 'batch_import'
-                | 'batch_import_support'
-                | 'billing'
-                | 'business_knowledge'
-                | 'canvas'
-                | 'clickhouse_test_cluster_perf'
-                | 'cohort'
-                | 'comment'
-                | 'context_layer_internal'
-                | 'conversation'
-                | 'customer_analytics'
-                | 'customer_journey'
-                | 'customer_profile_config'
-                | 'customer_task'
-                | 'dashboard'
-                | 'dashboard_template'
-                | 'data_catalog'
-                | 'data_catalog_approval'
-                | 'data_deletion'
-                | 'dataset'
-                | 'early_access_feature'
-                | 'element'
-                | 'endpoint'
-                | 'engineering_analytics'
-                | 'error_tracking'
-                | 'evaluation'
-                | 'event_definition'
-                | 'event_filter'
-                | 'experiment'
-                | 'experiment_holdout'
-                | 'experiment_saved_metric'
-                | 'export'
-                | 'external_data_schema'
-                | 'external_data_source'
-                | 'feature_flag'
-                | 'field_note'
-                | 'file_system'
-                | 'file_system_shortcut'
-                | 'group'
-                | 'health_issue'
-                | 'heatmap'
-                | 'hog_flow'
-                | 'hog_function'
-                | 'ingestion_warning'
-                | 'insight'
-                | 'insight_variable'
-                | 'integration'
-                | 'internal_run'
-                | 'legal_document'
-                | 'link'
-                | 'live_debugger'
-                | 'llm_analytics'
-                | 'llm_gateway'
-                | 'llm_playground'
-                | 'llm_prompt'
-                | 'llm_provider_key'
-                | 'llm_skill'
-                | 'logs'
-                | 'loop'
-                | 'marketing_analytics'
-                | 'mcp_analytics'
-                | 'mcp_builtin_agent'
-                | 'metrics'
-                | 'notebook'
-                | 'offline_evaluation_ingestion'
-                | 'organization'
-                | 'organization_integration'
-                | 'organization_member'
-                | 'person'
-                | 'plugin'
-                | 'product_enablement'
-                | 'product_tour'
-                | 'project'
-                | 'property_definition'
-                | 'query'
-                | 'query_performance'
-                | 'replay_scanner'
-                | 'revenue_analytics'
-                | 'review_hog'
-                | 'session_recording'
-                | 'session_recording_playlist'
-                | 'sharing_configuration'
-                | 'signal_scout'
-                | 'signal_scout_internal'
-                | 'signal_scout_report'
-                | 'signal_scratchpad_internal'
-                | 'stamphog'
-                | 'streamlit_app'
-                | 'subscription'
-                | 'survey'
-                | 'tagger'
-                | 'task'
-                | 'ticket'
-                | 'toolbar'
-                | 'tracing'
-                | 'uploaded_media'
-                | 'usage_metric'
-                | 'user'
-                | 'user_interview'
-                | 'vision_action'
-                | 'vision_alert'
-                | 'visual_review'
-                | 'warehouse_objects'
-                | 'warehouse_table'
-                | 'warehouse_view'
-                | 'web_analytics'
-                | 'webhook'
-                | 'wizard_session'
-            >
+            visibleResourceKeySet: Set<ScopeObjectEnumApi>
         ) => AccessControlMemberEntry[]
         loading: (defaultsLoading: boolean, rolesDataLoading: boolean, membersDataLoading: boolean) => boolean
     }
@@ -1029,7 +554,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         closeRuleModal: true,
         openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         loadPanelEntry: (subject: AccessDetailSubject) => ({ subject }),
-        setShowAllTools: (show: boolean) => ({ show }),
+        setShowAllProducts: (show: boolean) => ({ show }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -1125,8 +650,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         panelEntry: {
             openAccessDetailPanel: () => null,
         },
-        /** The Tools list starts collapsed for every newly opened subject. */
-        showAllTools: [false, { setShowAllTools: (_, { show }) => show, openAccessDetailPanel: () => false }],
+        /** The Products list starts collapsed for every newly opened subject. */
+        showAllProducts: [false, { setShowAllProducts: (_, { show }) => show, openAccessDetailPanel: () => false }],
         panelSubject: [
             null as AccessDetailSubject | null,
             {
@@ -1165,15 +690,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         /**
-         * The Tools list for the panel's subject: ruled tools first, at least 3 rows visible, the
+         * The Products list for the panel's subject: ruled products first, at least 3 rows visible, the
          * rest collapsed behind a toggle when there are enough to be worth hiding.
          */
-        toolsCollapse: [
-            (s) => [s.resourceKeys, s.panelEntry, s.showAllTools],
+        productsCollapse: [
+            (s) => [s.resourceKeys, s.panelEntry, s.showAllProducts],
             (
                 resourceKeys: { key: APIScopeObject; label: string }[],
                 panelEntry: AccessControlSettingsEntry | null,
-                showAllTools: boolean
+                showAllProducts: boolean
             ): {
                 visibleResources: { key: APIScopeObject; label: string }[]
                 collapsedCount: number
@@ -1189,7 +714,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const canCollapse = collapsedCount > 3
                 return {
                     visibleResources:
-                        showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
+                        showAllProducts || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount),
                     collapsedCount,
                     canCollapse,
                 }

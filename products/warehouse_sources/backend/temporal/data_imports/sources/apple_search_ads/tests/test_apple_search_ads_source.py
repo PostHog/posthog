@@ -1,12 +1,19 @@
 from datetime import date
 from typing import Any, cast
 
+import pytest
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldCredentialAccountSelectConfig,
+    SourceFieldSelectConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
+    AppleAdAccount,
+    AppleSearchAdsAuthError,
     AppleSearchAdsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
@@ -23,8 +30,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     VersionDeprecation,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applesearchads import (
+    AppleSearchAdsAuthMethodConfig,
     AppleSearchAdsSourceConfig,
 )
 
@@ -35,18 +46,30 @@ REPORT_ENDPOINTS = tuple(name for name, config in _PLATFORM_ENDPOINTS.items() if
 ENTITY_ENDPOINTS = tuple(name for name, config in _PLATFORM_ENDPOINTS.items() if not config.partition_key)
 
 
+def key_pair_config(**overrides: Any) -> AppleSearchAdsSourceConfig:
+    fields: dict[str, Any] = {"ad_account_id": "123456789", "start_date": "2026-06-01", **overrides}
+    auth_method = fields.pop("auth_method", None) or AppleSearchAdsAuthMethodConfig(
+        selection="key_pair",
+        client_id="SEARCHADS.client",
+        apple_team_id="SEARCHADS.team",
+        key_id="key-1",
+        private_key="-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+    )
+    return AppleSearchAdsSourceConfig(auth_method=auth_method, **fields)
+
+
+def oauth_config(integration_id: int = 77, **overrides: Any) -> AppleSearchAdsSourceConfig:
+    return key_pair_config(
+        auth_method=AppleSearchAdsAuthMethodConfig(selection="oauth", apple_ads_integration_id=integration_id),
+        **overrides,
+    )
+
+
 class TestAppleSearchAdsSource:
     def setup_method(self) -> None:
         self.source = AppleSearchAdsSource()
         self.team_id = 123
-        self.config = AppleSearchAdsSourceConfig(
-            client_id="SEARCHADS.client",
-            apple_team_id="SEARCHADS.team",
-            key_id="key-1",
-            private_key="-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
-            ad_account_id="123456789",
-            start_date="2026-06-01",
-        )
+        self.config = key_pair_config()
 
     def test_api_version_metadata(self) -> None:
         assert self.source.supported_versions == (APPLE_SEARCH_ADS_API_VERSION_V5, APPLE_ADS_API_VERSION_V1)
@@ -173,42 +196,214 @@ class TestAppleSearchAdsSource:
     def test_both_context_ids_reach_the_credentials(self) -> None:
         # Which one a sync needs follows the version pin, so the form collects either and the
         # request layer picks.
-        config = AppleSearchAdsSourceConfig(
-            client_id="SEARCHADS.client",
-            apple_team_id="SEARCHADS.team",
-            key_id="key-1",
-            private_key="pem",
-            ad_account_id="123456789",
-            org_id="555",
-        )
+        config = key_pair_config(org_id="555")
 
         credentials = self.source._credentials(config)
 
         assert (credentials.ad_account_id, credentials.org_id) == ("123456789", "555")
 
-    def test_the_field_caption_and_step_five_describe_the_same_blank_connect_flow(self) -> None:
+    def test_the_field_caption_and_the_setup_steps_describe_the_same_flow(self) -> None:
+        # Two surfaces describe how someone gets their ad account id, and nothing renders them
+        # together, so one can be rewritten while the other keeps naming a flow that is gone.
         config = self.source.get_source_config
-        field_caption = next(
-            field.caption
-            for field in config.fields
-            if isinstance(field, SourceFieldInputConfig) and field.name == "ad_account_id"
-        )
-        assert field_caption is not None
+        field = next(f for f in config.fields if f.name == "ad_account_id")
+        assert isinstance(field, SourceFieldCredentialAccountSelectConfig)
+        assert field.caption is not None
         assert config.caption is not None
-        step_five = next(line for line in config.caption.splitlines() if line.startswith("5."))
 
-        for text in (field_caption, step_five):
-            assert "connect again" in text
-            assert "expected" in text
+        # The field names both ways of filling it, the manual fallback, and never tells anyone to
+        # connect with it blank.
+        assert "Connect your account" in field.caption
+        assert "fill in the credentials" in field.caption
+        assert "v1/acls" in field.caption
+        assert "blank" not in field.caption
+        # The setup steps still name the signed-in path as the one that fills the list.
+        assert "Sign in with Apple" in config.caption
+        assert "**Ad account** list" in config.caption
 
     def test_the_connect_form_does_not_require_either_context_id(self) -> None:
         # `required` cannot express "depends on the version pin", so `validate_credentials`
         # enforces whichever one applies instead.
-        fields = {
-            field.name: field
-            for field in self.source.get_source_config.fields
-            if isinstance(field, SourceFieldInputConfig)
-        }
+        fields: dict[str, Any] = {field.name: field for field in self.source.get_source_config.fields}
 
         assert fields["ad_account_id"].required is False
         assert fields["org_id"].required is False
+
+    def test_the_connect_form_defaults_to_signing_in_with_apple(self) -> None:
+        # Signing in is the path that asks a customer for nothing, so a reordering or a changed
+        # default must not quietly put everyone back on generating a key pair.
+        fields: dict[str, Any] = {field.name: field for field in self.source.get_source_config.fields}
+        auth_method = fields["auth_method"]
+
+        assert isinstance(auth_method, SourceFieldSelectConfig)
+        assert auth_method.defaultValue == "oauth"
+        assert [option.value for option in auth_method.options] == ["oauth", "key_pair"]
+        assert [field.name for field in auth_method.options[0].fields or []] == ["apple_ads_integration_id"]
+
+    def test_the_ad_account_picker_serves_both_auth_branches(self) -> None:
+        # The picker fills from whichever branch the form holds. Dropping either source leaves
+        # that branch's users typing an ad account id Apple shows nowhere in its UI.
+        field = next(f for f in self.source.get_source_config.fields if f.name == "ad_account_id")
+
+        assert isinstance(field, SourceFieldCredentialAccountSelectConfig)
+        assert field.integrationField == "apple_ads_integration_id"
+        assert field.credentialFields == ["client_id", "apple_team_id", "key_id", "private_key"]
+
+    @parameterized.expand([("generated_default", "oauth"), ("stored_branch", "key_pair")])
+    def test_a_source_holding_key_material_keeps_using_it(self, _name: str, selection: Any) -> None:
+        # Migration 0172 names the branch, but a source holds its key material flat until that
+        # migration runs, and a flat source parses with the branch's generated default. Routing it
+        # down the OAuth path on that default alone would break every pre-existing Apple Ads sync.
+        config = key_pair_config(
+            auth_method=AppleSearchAdsAuthMethodConfig(
+                selection=selection,
+                client_id="SEARCHADS.client",
+                apple_team_id="SEARCHADS.team",
+                key_id="key-1",
+                private_key="pem",
+            )
+        )
+
+        assert self.source._token_provider(config, self.team_id) is None
+        assert self.source._credentials(config).private_key == "pem"
+
+    def test_source_for_pipeline_hands_the_grants_token_to_the_client(self) -> None:
+        # Without a token provider the client falls back to signing an assertion from key
+        # material a signed-in source never holds, and every request 400s at Apple's token endpoint.
+        inputs = mock.MagicMock()
+        inputs.schema_name = "campaigns"
+        inputs.api_version = None
+        inputs.team_id = self.team_id
+        integration = mock.MagicMock()
+        integration.kind = "apple-ads"
+
+        with (
+            mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{SOURCE_MODULE}.apple_ads_access_token", return_value="bearer-1") as mock_token,
+            mock.patch(f"{SOURCE_MODULE}.apple_search_ads_source") as mock_source,
+        ):
+            self.source.source_for_pipeline(oauth_config(), mock.MagicMock(), inputs)
+            provider = cast("dict[str, Any]", mock_source.call_args.kwargs)["token_provider"]
+            assert provider is not None
+            assert provider() == "bearer-1"
+
+        mock_token.assert_called_once_with(integration)
+
+    def test_credential_accounts_list_through_the_connected_account(self) -> None:
+        # The picker is the only place an ad account id comes from, and a signed-in source has no
+        # key pair to sign an assertion with, so it has to reach Apple with the grant's own token.
+        integration = mock.MagicMock()
+        integration.kind = "apple-ads"
+        with (
+            mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{SOURCE_MODULE}.apple_ads_access_token", return_value="bearer-1"),
+            mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client,
+            mock.patch(f"{SOURCE_MODULE}.readable_ad_accounts") as mock_accounts,
+        ):
+            mock_accounts.return_value = [AppleAdAccount(id="1111111", name="Example Retail")]
+
+            accounts = self.source.get_credential_accounts(oauth_config(), self.team_id)
+            assert mock_client.call_args.kwargs["token_provider"]() == "bearer-1"
+
+        assert [(account.value, account.display_name) for account in accounts] == [("1111111", "Example Retail")]
+
+    def test_token_provider_rejects_an_integration_from_another_provider(self) -> None:
+        integration = mock.MagicMock(kind="slack")
+        with mock.patch.object(AppleSearchAdsSource, "get_oauth_integration", return_value=integration):
+            with pytest.raises(ValueError, match="not an Apple Ads integration"):
+                self.source._token_provider(oauth_config(), self.team_id)
+
+    def test_flat_key_pair_config_remains_readable_during_migration(self) -> None:
+        job_inputs = {
+            "client_id": "SEARCHADS.client",
+            "apple_team_id": "SEARCHADS.team",
+            "key_id": "key-1",
+            "private_key": "pem",
+            "ad_account_id": "123456789",
+        }
+
+        valid, errors = self.source.validate_config(job_inputs)
+        config = self.source.parse_config(job_inputs)
+
+        assert valid, errors
+        assert config.auth_method.selection == "key_pair"
+        assert config.auth_method.private_key == "pem"
+        assert self.source.serialize_config(config)["private_key"] == "pem"
+
+    def test_validate_credentials_rejects_a_grant_against_the_retired_api_version(self) -> None:
+        # Apple issues a service provider grant for the Platform API only. A v5-pinned source has
+        # to stay on its own key pair, so accepting one here would connect and then fail on sync.
+        ok, error = self.source.validate_credentials(
+            oauth_config(), self.team_id, api_version=APPLE_SEARCH_ADS_API_VERSION_V5
+        )
+
+        assert ok is False
+        assert error is not None and "Platform API" in error
+
+    def test_validate_credentials_asks_an_unconnected_user_to_sign_in(self) -> None:
+        config = key_pair_config(auth_method=AppleSearchAdsAuthMethodConfig(selection="oauth"))
+
+        ok, error = self.source.validate_credentials(config, self.team_id)
+
+        assert ok is False
+        assert error == "Connect your Apple Ads account, or switch to the API key pair option."
+
+    def test_credential_accounts_map_apples_acl_onto_the_shared_picker_shape(self) -> None:
+        # Apple shows the ad account id nowhere in its UI, so the ACL read is the only way a user
+        # gets one. An account with no name falls back to its id rather than rendering "None".
+        with (
+            mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client,
+            mock.patch(f"{SOURCE_MODULE}.readable_ad_accounts") as mock_accounts,
+        ):
+            mock_accounts.return_value = [
+                AppleAdAccount(id="1111111", name="Example Retail"),
+                AppleAdAccount(id="2222222", name=None),
+            ]
+
+            accounts = self.source.get_credential_accounts(self.config, self.team_id)
+
+        mock_client.return_value.authenticate.assert_called_once()
+        assert [(account.value, account.display_name) for account in accounts] == [
+            ("1111111", "Example Retail"),
+            ("2222222", "2222222"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "a key apple will not accept",
+                AppleSearchAdsAuthError("Could not sign the Apple Ads client secret."),
+                "Could not sign the Apple Ads client secret.",
+            ),
+            (
+                "apple being unreachable",
+                requests.ConnectionError("connection refused"),
+                "couldn't reach Apple",
+            ),
+        ]
+    )
+    def test_a_failed_token_exchange_becomes_a_listing_error(
+        self, _name: str, raised: Exception, expected: str
+    ) -> None:
+        # The endpoint turns `IntegrationAccountListingError` into a 400 carrying its message and
+        # lets everything else 500, so an auth failure that escapes as its own type shows someone
+        # mid-setup an opaque server error instead of the reason their key was refused.
+        with mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client:
+            mock_client.return_value.authenticate.side_effect = raised
+
+            with pytest.raises(IntegrationAccountListingError) as error:
+                self.source.get_credential_accounts(self.config, self.team_id)
+
+        assert expected in str(error.value)
+
+    def test_the_older_api_version_lists_nothing_without_calling_apple(self) -> None:
+        # v5 scopes on an organization id, which Apple does show in its UI, so there is nothing to
+        # list. The picker fires on every completed edit, so spending a token exchange to return an
+        # empty list would burn the customer's Apple rate-limit budget for nothing.
+        with mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client:
+            accounts = self.source.get_credential_accounts(
+                self.config, self.team_id, api_version=APPLE_SEARCH_ADS_API_VERSION_V5
+            )
+
+        assert accounts == []
+        mock_client.assert_not_called()

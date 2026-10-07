@@ -1,3 +1,4 @@
+import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -9,16 +10,41 @@ import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
+import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import {
+    Breadcrumb,
+    DataModelingEdge,
+    DataModelingNode,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    ExternalDataSchemaWithSource,
+    ExternalDataSource,
+} from '~/types'
+
+import { checksApi, type DataQualitySubjectType } from 'products/data_quality/frontend/checksApi'
+import type { DataQualitySubjectApi } from 'products/data_quality/frontend/generated/api.schemas'
 
 import { MATERIALIZING_TYPES } from '../freshness'
 import type { NodeTypeEnumApi } from '../generated/api.schemas'
 
-export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests', 'history'] as const
+export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'data-quality', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
 
 export interface NodeDetailSceneLogicProps {
     id: string
+}
+
+export interface TableDetails {
+    table: DataWarehouseTable
+    source: ExternalDataSource | null
+    schema: ExternalDataSchemaWithSource | null
+}
+
+export interface NodeDetailDataQualitySubject {
+    subjectType: DataQualitySubjectType
+    subjectId: string
+    columns?: DatabaseSchemaField[]
+    editable?: boolean
 }
 
 export interface LineageGraphData {
@@ -40,6 +66,7 @@ export interface nodeDetailSceneLogicValues {
     availableTabs: NodeDetailSceneTab[]
     breadcrumbs: Breadcrumb[]
     currentTab: NodeDetailSceneTab | null
+    dataQualitySubject: NodeDetailDataQualitySubject | null
     defaultTab: NodeDetailSceneTab
     effectiveLastRunAt: string | null
     effectiveLastRunStatus: string | null
@@ -49,14 +76,23 @@ export interface nodeDetailSceneLogicValues {
     lineageGraphError: boolean
     lineageGraphLoading: boolean
     lineageModalOpen: boolean
+    lineageNodePositions: Record<string, XYPosition>
     node: DataModelingNode | null
     nodeLoading: boolean
     nodeType: NodeTypeEnumApi | null
+    postHogSubject: DataQualitySubjectApi | null
+    postHogSubjectAccessDenied: boolean
+    postHogSubjectError: boolean
+    postHogSubjectLoading: boolean
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
     savedQueryLoading: boolean
     savedQuerySettled: boolean
     sceneResolved: boolean
+    tableDetails: TableDetails | null
+    tableDetailsAccessDenied: boolean
+    tableDetailsError: boolean
+    tableDetailsLoading: boolean
     visitedTabs: NodeDetailSceneTab[]
 }
 
@@ -78,11 +114,25 @@ export interface nodeDetailSceneLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     canonicalizeTab: () => {
         value: true
     }
     closeLineageModal: () => {
         value: true
+    }
+    lineageNodeDragStopped: (
+        nodeId: string,
+        position: XYPosition
+    ) => {
+        nodeId: string
+        position: XYPosition
     }
     loadLineageGraph: () => any
     loadLineageGraphFailure: (
@@ -122,6 +172,21 @@ export interface nodeDetailSceneLogicActions {
         node: DataModelingNode
         payload?: any
     }
+    loadPostHogSubject: () => any
+    loadPostHogSubjectFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPostHogSubjectSuccess: (
+        postHogSubject: DataQualitySubjectApi | null,
+        payload?: any
+    ) => {
+        postHogSubject: DataQualitySubjectApi | null
+        payload?: any
+    }
     loadSavedQuery: () => any
     loadSavedQueryFailure: (
         error: string,
@@ -137,11 +202,37 @@ export interface nodeDetailSceneLogicActions {
         savedQuery: DataWarehouseSavedQuery | null
         payload?: any
     }
+    loadTableDetails: () => any
+    loadTableDetailsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTableDetailsSuccess: (
+        tableDetails: {
+            schema: ExternalDataSchemaWithSource | null
+            source: ExternalDataSource | null
+            table: DataWarehouseTable
+        } | null,
+        payload?: any
+    ) => {
+        tableDetails: {
+            schema: ExternalDataSchemaWithSource | null
+            source: ExternalDataSource | null
+            table: DataWarehouseTable
+        } | null
+        payload?: any
+    }
     openLineageModal: () => {
         value: true
     }
+    resetLineageNodePositions: () => {
+        value: true
+    }
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
-        tab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null
+        tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
     updateNodeDescription: (description: string) => {
         description: string
@@ -178,12 +269,16 @@ export interface nodeDetailSceneLogicMeta {
             sceneResolved: boolean,
             featureFlags: FeatureFlagsSet
         ) => NodeDetailSceneTab[]
+        dataQualitySubject: (
+            node: DataModelingNode | null,
+            postHogSubject: DataQualitySubjectApi | null
+        ) => NodeDetailDataQualitySubject | null
         isMaterialized: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         defaultTab: (node: DataModelingNode | null, isMaterialized: boolean) => NodeDetailSceneTab
         effectiveTab: (
-            currentTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null,
-            availableTabs: ('history' | 'lineage' | 'materialization' | 'query' | 'tests')[],
-            defaultTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests'
+            currentTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null,
+            availableTabs: ('data-quality' | 'history' | 'lineage' | 'materialization' | 'query')[],
+            defaultTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query'
         ) => NodeDetailSceneTab | null
         effectiveLastRunAt: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => string | null
         effectiveLastRunStatus: (
@@ -207,6 +302,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
         actions: [
+            featureFlagLogic,
+            ['setFeatureFlags'],
             dataWarehouseViewsLogic,
             ['updateDataWarehouseSavedQuerySuccess', 'deleteDataWarehouseSavedQuerySuccess'],
         ],
@@ -217,6 +314,8 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         canonicalizeTab: true,
         openLineageModal: true,
         closeLineageModal: true,
+        lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetLineageNodePositions: true,
     }),
     reducers({
         // What the address bar asks for. Tab links navigate, so nothing else may write this.
@@ -257,11 +356,50 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 loadLineageGraphFailure: () => true,
             },
         ],
+        tableDetailsAccessDenied: [
+            false,
+            {
+                loadTableDetails: () => false,
+                loadTableDetailsSuccess: () => false,
+                loadTableDetailsFailure: (_, { errorObject }) => errorObject?.status === 403,
+            },
+        ],
+        tableDetailsError: [
+            false,
+            {
+                loadTableDetails: () => false,
+                loadTableDetailsSuccess: () => false,
+                loadTableDetailsFailure: () => true,
+            },
+        ],
+        postHogSubjectAccessDenied: [
+            false,
+            {
+                loadPostHogSubject: () => false,
+                loadPostHogSubjectSuccess: () => false,
+                loadPostHogSubjectFailure: (_, { errorObject }) => errorObject?.status === 403,
+            },
+        ],
+        postHogSubjectError: [
+            false,
+            {
+                loadPostHogSubject: () => false,
+                loadPostHogSubjectSuccess: () => false,
+                loadPostHogSubjectFailure: () => true,
+            },
+        ],
         lineageModalOpen: [
             false,
             {
                 openLineageModal: () => true,
                 closeLineageModal: () => false,
+            },
+        ],
+        lineageNodePositions: [
+            {} as Record<string, XYPosition>,
+            {
+                lineageNodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetLineageNodePositions: () => ({}),
             },
         ],
     }),
@@ -295,6 +433,42 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 }
                 const { nodes, edges } = await api.dataModelingNodes.lineage({ nodeId: node.id })
                 return { nodes, edges, currentNodeId: node.id }
+            },
+        },
+        postHogSubject: {
+            __default: null as DataQualitySubjectApi | null,
+            loadPostHogSubject: async () => {
+                const node = values.node
+                if (node?.type !== 'table' || node.origin !== 'posthog') {
+                    return null
+                }
+                const subjects = await checksApi.subjects()
+                return (
+                    subjects.find(
+                        (subject) => subject.subject_type === 'posthog_table' && subject.name === node.name
+                    ) ?? null
+                )
+            },
+        },
+        tableDetails: {
+            __default: null as TableDetails | null,
+            loadTableDetails: async () => {
+                const node = values.node
+                if (node?.type !== 'table' || !node.warehouse_table_id) {
+                    return null
+                }
+                const table = await api.dataWarehouseTables.get(node.warehouse_table_id)
+                // A grant on the table alone outranks a denial on its source, so a refused or
+                // failed source or schema read narrows the summary rather than emptying it.
+                const [source, schema] = await Promise.all([
+                    table.external_data_source
+                        ? api.externalDataSources.get(table.external_data_source.id).catch(() => null)
+                        : null,
+                    table.external_schema
+                        ? api.externalDataSchemas.get(table.external_schema.id).catch(() => null)
+                        : null,
+                ])
+                return { table, source, schema }
             },
         },
     })),
@@ -331,6 +505,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!sceneResolved || !node) {
                     return []
                 }
+                if (node.type === 'table') {
+                    return [
+                        'lineage',
+                        ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] &&
+                        (node.warehouse_table_id || node.origin === 'posthog')
+                            ? ['data-quality' as const]
+                            : []),
+                    ]
+                }
                 const tabs: NodeDetailSceneTab[] = []
                 if (node.saved_query_id) {
                     tabs.push('query')
@@ -344,12 +527,40 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     tabs.push('materialization')
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && node.saved_query_id) {
-                    tabs.push('tests')
+                    tabs.push('data-quality')
                 }
                 if (node.saved_query_id) {
                     tabs.push('history')
                 }
                 return tabs
+            },
+        ],
+        dataQualitySubject: [
+            (s) => [s.node, s.postHogSubject],
+            (
+                node: DataModelingNode | null,
+                postHogSubject: DataQualitySubjectApi | null
+            ): NodeDetailDataQualitySubject | null => {
+                if (node?.type === 'table' && node.warehouse_table_id) {
+                    return { subjectType: 'table', subjectId: node.warehouse_table_id }
+                }
+                if (node?.type === 'table' && node.origin === 'posthog' && postHogSubject) {
+                    return {
+                        subjectType: postHogSubject.subject_type,
+                        subjectId: postHogSubject.id,
+                        columns: Object.entries(postHogSubject.columns).map(([name, type]) => ({
+                            name,
+                            hogql_value: name,
+                            type: type as DatabaseSchemaField['type'],
+                            schema_valid: true,
+                        })),
+                        editable: postHogSubject.editable,
+                    }
+                }
+                if (node?.saved_query_id) {
+                    return { subjectType: 'view', subjectId: node.saved_query_id }
+                }
+                return null
             },
         ],
         // The saved query is the authority on this, but its request can fail, and the scene still
@@ -414,8 +625,31 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             if (node?.saved_query_id) {
                 actions.loadSavedQuery()
             }
+            if (node?.type === 'table' && node.warehouse_table_id) {
+                actions.loadTableDetails()
+            }
+            if (
+                node?.type === 'table' &&
+                node.origin === 'posthog' &&
+                values.featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]
+            ) {
+                actions.loadPostHogSubject()
+            }
             actions.loadLineageGraph()
             actions.canonicalizeTab()
+        },
+        setFeatureFlags: () => {
+            const node = values.node
+            if (
+                node?.type === 'table' &&
+                node.origin === 'posthog' &&
+                values.featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] &&
+                !values.postHogSubject &&
+                !values.postHogSubjectLoading &&
+                !values.postHogSubjectError
+            ) {
+                actions.loadPostHogSubject()
+            }
         },
         loadSavedQuerySuccess: () => actions.canonicalizeTab(),
         loadSavedQueryFailure: () => actions.canonicalizeTab(),
@@ -447,6 +681,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         // is still mounted while the new URL lands, so it must ignore routes for another id.
         const applyTab = (id: string | undefined, tab: unknown): void => {
             if (id !== props.id) {
+                return
+            }
+            // `tests` is the tab's old URL segment; keep links built before the rename working.
+            if (tab === 'tests') {
+                router.actions.replace(urls.nodeDetail(id, 'data-quality'))
                 return
             }
             actions.setCurrentTab(isNodeDetailSceneTab(tab) ? tab : null)

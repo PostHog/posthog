@@ -31,6 +31,7 @@ from ..constants import (
     build_fallback_empty_query_ast,
 )
 from ..utils import map_url_to_provider
+from .amazon_ads import AmazonAdsAdapter
 from .apple_search_ads import AppleSearchAdsAdapter
 from .base import (
     BingAdsConfig,
@@ -49,7 +50,9 @@ from .base import (
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
 from .openai_ads import OpenAIAdsAdapter
+from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
+from .twitter_ads import TwitterAdsAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -79,8 +82,11 @@ class MarketingSourceFactory:
     # Registry of adapter classes
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
+        "AmazonAds": AmazonAdsAdapter,
         "AppleSearchAds": AppleSearchAdsAdapter,
         "OpenAIAds": OpenAIAdsAdapter,
+        "RoktAds": RoktAdsAdapter,
+        "TwitterAds": TwitterAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -101,8 +107,11 @@ class MarketingSourceFactory:
     # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
     # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "AmazonAds": (NativeMarketingSource.AMAZON_ADS, HierarchicalNativeAdsConfig),
         "AppleSearchAds": (NativeMarketingSource.APPLE_SEARCH_ADS, HierarchicalNativeAdsConfig),
         "OpenAIAds": (NativeMarketingSource.OPEN_AI_ADS, HierarchicalNativeAdsConfig),
+        "RoktAds": (NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig),
+        "TwitterAds": (NativeMarketingSource.TWITTER_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
@@ -190,7 +199,7 @@ class MarketingSourceFactory:
         """Register a new adapter type for a marketing source"""
         cls._adapter_registry[source_type] = adapter_class
 
-    def create_adapters(self) -> list[MarketingSourceAdapter]:
+    def create_adapters(self, *, raise_on_error: bool = False) -> list[MarketingSourceAdapter]:
         """Discover all available marketing sources and create adapters for them."""
         try:
             adapters = []
@@ -202,6 +211,8 @@ class MarketingSourceFactory:
 
         except Exception as e:
             self.logger.exception("Error creating marketing source adapters", error=str(e))
+            if raise_on_error:
+                raise
             return []
 
     def _create_native_adapters(self) -> list[MarketingSourceAdapter]:
@@ -273,6 +284,8 @@ class MarketingSourceFactory:
             # the campaign columns the adapter goes on to reference.
             if schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
+                if schema_name in patterns["stats_table_keywords"]:
+                    campaign_stats_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
             elif schema_name == hierarchy_names.get("adset_table"):
@@ -415,6 +428,21 @@ class MarketingSourceFactory:
             except Exception as e:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
+
+    def get_validation_errors(self, adapters: list[MarketingSourceAdapter]) -> dict[str, list[str]]:
+        errors_by_source: dict[str, list[str]] = {}
+        for adapter in adapters:
+            try:
+                result = adapter.validate()
+                if not result.is_valid:
+                    errors_by_source[adapter.config.source_id] = [
+                        error if not error.startswith("Validation error:") else "Source validation failed."
+                        for error in result.errors
+                    ] or ["Source validation failed."]
+            except Exception:
+                self.logger.exception("Error validating adapter", source_type=adapter.get_source_type())
+                errors_by_source[adapter.config.source_id] = ["Source validation failed."]
+        return errors_by_source
 
     def build_union_query_ast(self, adapters: list[MarketingSourceAdapter]) -> ast.SelectQuery | ast.SelectSetQuery:
         """Build union query AST from all valid adapters.

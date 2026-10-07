@@ -103,37 +103,7 @@ export function countInboxScopeReports(
 
 export type InboxTabKey = "pulls" | "reports" | "runs" | "dismissed";
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = [
-  "pulls",
-  "reports",
-  "runs",
-  "dismissed",
-];
-
-export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
-  pulls: "Pull requests",
-  reports: "Reports",
-  runs: "Runs",
-  dismissed: "Archive",
-};
-
-/**
- * Canonical inbox tab list routes. Use these constants instead of hard-coding
- * `/inbox/pulls` etc., so renames stay in one place.
- *
- * Detail routes (`/inbox/<tab>/$reportId`) stay as TanStack Router
- * literals at call sites – TanStack's typed-link API needs them as literal
- * strings to infer params.
- */
-export const INBOX_TAB_LIST_ROUTE: Record<
-  InboxTabKey,
-  `/inbox/${InboxTabKey}`
-> = {
-  pulls: "/inbox/pulls",
-  reports: "/inbox/reports",
-  runs: "/inbox/runs",
-  dismissed: "/inbox/dismissed",
-};
+const INBOX_TAB_KEYS: InboxTabKey[] = ["pulls", "reports", "runs", "dismissed"];
 
 const INBOX_DETAIL_PATH_RE = new RegExp(
   `^/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
@@ -141,22 +111,6 @@ const INBOX_DETAIL_PATH_RE = new RegExp(
 
 export function isInboxDetailPath(pathname: string): boolean {
   return INBOX_DETAIL_PATH_RE.test(pathname);
-}
-
-/** Which tab a list pathname belongs to; anything unrecognised reads as Pulls. */
-export function inboxTabFromPath(pathname: string): InboxTabKey {
-  if (pathname.startsWith(INBOX_TAB_LIST_ROUTE.reports)) return "reports";
-  if (pathname.startsWith(INBOX_TAB_LIST_ROUTE.runs)) return "runs";
-  if (pathname.startsWith(INBOX_TAB_LIST_ROUTE.dismissed)) return "dismissed";
-  return "pulls";
-}
-
-/**
- * Whether the reviewer-scope control means anything on this tab: Runs is
- * unscoped and the Archive is a terminal list, so neither filters by reviewer.
- */
-export function inboxScopeApplies(tab: InboxTabKey): boolean {
-  return tab !== "runs" && tab !== "dismissed";
 }
 
 /**

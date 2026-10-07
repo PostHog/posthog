@@ -1,7 +1,15 @@
+import { useValues } from 'kea'
+
 import { IconCheck } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { offeredScoutWriteScopes, SCOUT_ALWAYS_GRANTED_ROWS, SCOUT_WRITE_SCOPE_ROWS } from './scoutWriteScopes'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import {
+    filterVisibleScoutWriteScopeRows,
+    offeredScoutWriteScopes,
+    SCOUT_ALWAYS_GRANTED_ROWS,
+} from './scoutWriteScopes'
 
 interface ScoutWriteScopesPickerProps {
     /** Scopes this scout currently holds (`write_scopes`). */
@@ -23,7 +31,9 @@ export function ScoutWriteScopesPicker({
     compact,
     disabledReason,
 }: ScoutWriteScopesPickerProps): JSX.Element {
-    const groups = [...new Set(SCOUT_WRITE_SCOPE_ROWS.map((row) => row.group))]
+    const { featureFlags } = useValues(featureFlagLogic)
+    const rows = filterVisibleScoutWriteScopeRows(featureFlags)
+    const groups = [...new Set(rows.map((row) => row.group))]
     const toggleScope = (scope: string, granted: boolean): void => {
         // A stored scope with no row here would ride along into the save and get the whole update
         // rejected by the API, with no switch to clear it. The token already drops it at mint time.
@@ -40,23 +50,25 @@ export function ScoutWriteScopesPicker({
             {groups.map((group) => (
                 <div key={group} className="flex flex-col gap-1">
                     <span className="text-[11px] font-medium uppercase tracking-wide text-muted">{group}</span>
-                    {SCOUT_WRITE_SCOPE_ROWS.filter((row) => row.group === group).map((row) => (
-                        <div key={row.scope} className="flex items-center justify-between gap-3">
-                            <div className="flex min-w-0 flex-col">
-                                <span className={compact ? 'text-xs text-default' : 'text-sm text-default'}>
-                                    {row.label}
-                                </span>
-                                <span className="text-[11.5px] text-muted">{row.description}</span>
+                    {rows
+                        .filter((row) => row.group === group)
+                        .map((row) => (
+                            <div key={row.scope} className="flex items-center justify-between gap-3">
+                                <div className="flex min-w-0 flex-col">
+                                    <span className={compact ? 'text-xs text-default' : 'text-sm text-default'}>
+                                        {row.label}
+                                    </span>
+                                    <span className="text-[11.5px] text-muted">{row.description}</span>
+                                </div>
+                                <LemonSwitch
+                                    size="small"
+                                    checked={selectedScopes.includes(row.scope)}
+                                    disabledReason={disabledReason}
+                                    onChange={(checked) => toggleScope(row.scope, checked)}
+                                    aria-label={`Let this scout write ${row.label.toLowerCase()}`}
+                                />
                             </div>
-                            <LemonSwitch
-                                size="small"
-                                checked={selectedScopes.includes(row.scope)}
-                                disabledReason={disabledReason}
-                                onChange={(checked) => toggleScope(row.scope, checked)}
-                                aria-label={`Let this scout write ${row.label.toLowerCase()}`}
-                            />
-                        </div>
-                    ))}
+                        ))}
                 </div>
             ))}
             <div className="flex flex-col gap-1">

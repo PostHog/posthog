@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -28,7 +29,10 @@ STABLE_CHUNKS = StableChunks(
 
 class TestGetContextForTemplate(APIBaseTest):
     def test_get_context_for_template(self):
-        with self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]):
+        with (
+            self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
+            mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
+        ):
             actual = get_context_for_template(
                 "layout",
                 MagicMock(),
@@ -44,12 +48,34 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags"], "anonymous": false}',
-            "posthog_bootstrap": "{}",
+            "posthog_app_context": {
+                "persisted_feature_flags": ["the_persisted_flags"],
+                "anonymous": False,
+                "run_mode": "LOCAL",
+            },
+            "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
             "region": None,
             "self_capture": True,
         }
+
+    @parameterized.expand(
+        [
+            ("hobby", None, False, "HOBBY"),
+            ("local", None, True, "LOCAL"),
+            ("cloud_us", "US", False, "US"),
+            ("cloud_eu", "EU", False, "EU"),
+            ("cloud_dev", "DEV", False, "DEV"),
+            ("e2e", "E2E", False, "E2E"),
+        ]
+    )
+    def test_exposes_run_mode(self, _name, deployment, debug, expected):
+        with (
+            mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment),
+            mock.patch("posthog.settings.DEBUG", debug),
+        ):
+            actual = get_context_for_template("layout", MagicMock())
+        assert actual["posthog_app_context"]["run_mode"] == expected
 
     def test_picks_up_stripe_public_key_from_environment(self):
         with self.settings(STRIPE_PUBLIC_KEY="pk_test_12345"):
@@ -59,6 +85,16 @@ class TestGetContextForTemplate(APIBaseTest):
             )
 
         assert actual["stripe_public_key"] == "pk_test_12345"
+
+    def test_renders_one_origin_trial_meta_tag_per_token(self):
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+        with self.settings(ORIGIN_TRIAL_TOKENS=["tokenA+/=", "tokenB"]):
+            html = render_to_string("head.html", get_context_for_template("layout", request), request=request)
+
+        assert html.count('http-equiv="origin-trial"') == 2
+        assert '<meta http-equiv="origin-trial" content="tokenA+/=">' in html
+        assert '<meta http-equiv="origin-trial" content="tokenB">' in html
 
     @parameterized.expand(
         [
@@ -77,7 +113,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         actual = get_context_for_template("layout", request)
 
-        app_context = json.loads(actual["posthog_app_context"])
+        app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
 
     def test_bootstraps_project_tags_into_app_context(self):
@@ -91,7 +127,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         actual = get_context_for_template("layout", request)
 
-        app_context = json.loads(actual["posthog_app_context"])
+        app_context = actual["posthog_app_context"]
         assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
 
     @parameterized.expand(
@@ -138,7 +174,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         assert ("js_posthog_identity_claims" in context) is expects_claim
         if expects_claim:
-            claims = json.loads(context["js_posthog_identity_claims"])
+            claims = context["js_posthog_identity_claims"]
             assert claims["email"]["value"] == self.user.email.lower()
             current_time = int(time.time())
             assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS

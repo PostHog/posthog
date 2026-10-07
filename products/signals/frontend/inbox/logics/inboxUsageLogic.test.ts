@@ -42,6 +42,42 @@ const mockUsageEndpoints = (
     })
 }
 
+// $0.01 per credit after a free first tier: 3 free PRs, then $15 per PR.
+const PRICED_INBOX_PRODUCT = {
+    type: 'inbox',
+    subscribed: true,
+    display_divisor: CREDITS_PER_PR,
+    current_usage: 3 * CREDITS_PER_PR,
+    tiers: [
+        { unit_amount_usd: '0', up_to: 3 * CREDITS_PER_PR },
+        { unit_amount_usd: '0.01', up_to: null },
+    ],
+}
+
+const mountPricedForSave = async (saveStatus: number): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
+    useMocks({
+        get: {
+            '/api/billing': () => [200, { products: [PRICED_INBOX_PRODUCT] }],
+            '/api/projects/:team_id/signals/reports/refund-summary/': () => [
+                200,
+                { period_billable_credits: 0, credited_credits: 0, credited_refund_count: 0, quota_limited: false },
+            ],
+        },
+        patch: {
+            '/api/billing': () =>
+                saveStatus === 200
+                    ? [200, { products: [PRICED_INBOX_PRODUCT], custom_limits_usd: { inbox: 75 } }]
+                    : [saveStatus, { attr: 'custom_limits_usd', detail: 'Rejected.' }],
+        },
+    })
+    featureFlagLogic.mount()
+    setRefundsFlag()
+    const logic = inboxUsageLogic()
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+    return logic
+}
+
 const setRefundsFlag = (): void => {
     featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_PR_REFUNDS], {
         [FEATURE_FLAGS.SIGNALS_PR_REFUNDS]: true,
@@ -161,6 +197,33 @@ describe('inboxUsageLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadRefundSummarySuccess'])
         expect(logic.values.quotaLimited).toBe(true)
+    })
+
+    // A rejected save that closes the modal reads as a saved limit while the agents stay paused.
+    it.each([
+        ['closes the modal and reloads the paused state when the save lands', 200, false, ['loadRefundSummary']],
+        ['keeps the modal open when billing rejects the save', 400, true, []],
+    ])('%s', async (_case, saveStatus, expectedModalOpen, expectedFollowUps) => {
+        logic = await mountPricedForSave(saveStatus)
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 8)
+
+        await expectLogic(logic, () => logic?.actions.submitLimitForm())
+            .toDispatchActions([...expectedFollowUps, 'submitLimitFormSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.isModalOpen).toBe(expectedModalOpen)
+    })
+
+    it('rejects a PR limit whose dollar cap is above the billing ceiling', async () => {
+        logic = await mountPricedForSave(200)
+        logic.actions.openModal()
+
+        logic.actions.setLimitFormValue('prs', 3336)
+        expect(logic.values.limitFormValidationErrors.prs).toBeUndefined()
+
+        logic.actions.setLimitFormValue('prs', 3337)
+        expect(logic.values.limitFormValidationErrors.prs).toBe('Maximum is 3,336 PRs')
     })
 
     // The org-keyed refunds flag resolves late on the client, so the client can fire the summary

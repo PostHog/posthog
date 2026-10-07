@@ -63,7 +63,7 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
 // Stable per-row key: re-runs share a runId, so start time disambiguates attempts. Used for rowKey and
 // the expand-state set, so expanding one attempt doesn't open the others.
 function runRowKey(run: WorkflowRun): string {
-    return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
+    return `${run.ciEngine ?? ''}:${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
 /** The runs of one workflow on this PR, one row per push × attempt. Jobs live on the run page. */
@@ -88,7 +88,13 @@ function PerPushRunsTable({
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    setRunExpanded: (
+        rowKey: string,
+        expanded: boolean,
+        runId: number | null,
+        runAttempt: number | null,
+        ciEngine?: PrRunRow['ciEngine']
+    ) => void
 }): JSX.Element {
     // Oldest push first so rows read in the same order as the timeline strip.
     const ordered = [...runs].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''))
@@ -116,7 +122,7 @@ function PerPushRunsTable({
                 run.runId != null ? (
                     <Link
                         to={withCurrentScope(
-                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
+                            urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId, run.ciEngine),
                             sourceId
                         )}
                         className="font-mono text-xs"
@@ -160,7 +166,10 @@ function PerPushRunsTable({
                       key: 'cost',
                       align: 'right',
                       render: (_: unknown, run: PrRunRow) => {
-                          const cost = run.runId != null ? runCostByKey[jobCacheKey(run.runId, run.runAttempt)] : null
+                          const cost =
+                              run.runId != null
+                                  ? runCostByKey[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
+                                  : null
                           return (
                               <span className="text-xs tabular-nums whitespace-nowrap">
                                   {cost?.cost != null ? compactUsd(cost.cost) : '—'}
@@ -201,7 +210,8 @@ function PerPushRunsTable({
                                   runRowKey(run),
                                   !expandedRunKeys.includes(runRowKey(run)),
                                   run.runId,
-                                  run.runAttempt
+                                  run.runAttempt,
+                                  run.ciEngine
                               ),
                       }
                     : {}
@@ -212,7 +222,11 @@ function PerPushRunsTable({
                 isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
                 expandedRowRender: (run) => (
                     <GroupedJobsTable
-                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
+                        jobs={
+                            run.runId != null
+                                ? runJobs[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
+                                : undefined
+                        }
                         loading={runJobsLoading}
                         embedded
                     />
@@ -252,7 +266,13 @@ function PrWorkflowsTable({
     runJobs: Record<string, WorkflowJobApi[]>
     runJobsLoading: boolean
     expandedRunKeys: string[]
-    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
+    setRunExpanded: (
+        rowKey: string,
+        expanded: boolean,
+        runId: number | null,
+        runAttempt: number | null,
+        ciEngine?: PrRunRow['ciEngine']
+    ) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
     const isWorkflowFailing = (workflowName: string): boolean => {

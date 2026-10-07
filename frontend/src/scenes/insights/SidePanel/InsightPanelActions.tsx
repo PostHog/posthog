@@ -99,7 +99,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive
                     menuItem
-                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                    onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
                     data-attr="insight-copy-to-project"
                     tooltip="Copy this insight to another project"
                 >
@@ -150,7 +150,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 }}
                 dataAttrKey={RESOURCE_TYPE}
                 disabledReasons={{
-                    'You must save the insight first before sharing it as a template': !isSavedInsight,
+                    'You must save the insight first before sharing it': !isSavedInsight,
                     ...(sharingDisabledReason ? { [sharingDisabledReason]: true } : {}),
                 }}
             />

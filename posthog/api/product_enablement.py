@@ -22,7 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET
+from posthog.api.team import TEAM_CONFIG_ADMIN_FIELDS_SET, conversations_settings_as_dict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
@@ -63,7 +63,7 @@ def _enable_conversations(team: Team, touched: set[str]) -> str:
     touched.add("conversations_enabled")
     # Mirror handle_conversations_token_on_update (posthog/api/team.py): mint a widget
     # token but leave the widget off — tickets need a connected channel (the report CTA).
-    settings = dict(team.conversations_settings or {})
+    settings = dict(conversations_settings_as_dict(team.conversations_settings))
     if not settings.get("widget_public_token"):
         settings["widget_public_token"] = secrets.token_urlsafe(32)
         team.conversations_settings = settings

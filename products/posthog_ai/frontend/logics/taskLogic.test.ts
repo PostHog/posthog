@@ -122,6 +122,36 @@ describe('taskLogic', () => {
         })
     })
 
+    describe('renaming', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('shows the new title while the save is pending, and restores the saved title if it fails', async () => {
+            const saved = createMockTask('task-123')
+            jest.spyOn(api.tasks, 'list').mockResolvedValue({ results: [], count: 0, next: null } as any)
+            jest.spyOn(api.tasks, 'get').mockResolvedValue(saved)
+            let rejectUpdate: (error: Error) => void = () => {}
+            jest.spyOn(api.tasks, 'update').mockReturnValue(
+                new Promise((_, reject) => {
+                    rejectUpdate = reject
+                })
+            )
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+            logic.actions.loadTaskSuccess(saved)
+
+            logic.actions.updateTask({ data: { title: 'Renamed' } })
+            expect(logic.values.task?.title).toEqual('Renamed')
+
+            await expectLogic(logic, () => {
+                rejectUpdate(new ApiError('Title is too long', 400))
+            }).toDispatchActions(['updateTaskFailure', 'loadTaskSuccess'])
+            expect(logic.values.task?.title).toEqual(saved.title)
+            expect(api.tasks.get).not.toHaveBeenCalled()
+        })
+    })
+
     describe('refreshing task lists after a mutation', () => {
         afterEach(() => {
             jest.restoreAllMocks()
@@ -219,6 +249,7 @@ describe('taskLogic', () => {
                     error_message: null,
                     output: null,
                     task_summary: null,
+                    task_tags: [],
                     state: {},
                     artifacts: [],
                     created_at: '2024-01-01T00:00:00Z',

@@ -1,8 +1,8 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
 import { mlKafkaRecord } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {
     FetchCandidate,
@@ -301,13 +301,18 @@ class BufferedRepublishBatch implements RepublishBatch {
                             return 'skipped'
                         }
                         try {
+                            const record = mlKafkaRecord(
+                                plan.candidates[0].sessionId ? '2' : '1',
+                                serializeFrontierRecord(plan.candidates)
+                            )
                             await this.producer.produce({
                                 topic: plan.topic,
                                 key: Buffer.from(plan.registrableDomain),
-                                ...mlKafkaRecord(
-                                    plan.candidates[0].sessionId ? '2' : '1',
-                                    serializeFrontierRecord(plan.candidates)
-                                ),
+                                value: record.value,
+                                headers: {
+                                    [CAPTURE_TIMESTAMP_HEADER]: String(earliestFirstSeenAtMs(plan.candidates)),
+                                    ...record.headers,
+                                },
                             })
                             return 'published'
                         } catch {
@@ -358,4 +363,12 @@ class BufferedRepublishBatch implements RepublishBatch {
             ImageFetchRequestMetrics.incRepublishFailed(reason)
         }
     }
+}
+
+function earliestFirstSeenAtMs(candidates: FetchCandidate[]): number {
+    let earliest = candidates[0].firstSeenAtMs
+    for (const candidate of candidates) {
+        earliest = Math.min(earliest, candidate.firstSeenAtMs)
+    }
+    return earliest
 }

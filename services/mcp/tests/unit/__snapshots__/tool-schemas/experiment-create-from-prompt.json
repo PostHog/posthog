@@ -3,6 +3,7 @@
     "properties": {
         "description": {
             "description": "Optional experiment description.",
+            "maxLength": 3000,
             "type": "string"
         },
         "feature_flag_key": {

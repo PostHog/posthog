@@ -24,7 +24,7 @@ from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import GoogleCloudServiceAccountIntegration
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+from products.batch_exports.backend.facade.destinations.bigquery import (
     BigQueryClient,
     verify_impersonated_service_account_ownership,
 )

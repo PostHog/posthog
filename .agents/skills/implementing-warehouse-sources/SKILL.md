@@ -44,8 +44,20 @@ Rule of thumb:
 - Pull-only API, no cursor we can persist → `SimpleSource`.
 - Pull-only API with any cursor/next-page/time-filter we can save between runs → `ResumableSource`.
 - Source can call us back with change events → add `WebhookSource` on top of whichever pull base fits.
+- Source's next run starts from a position only the source can compute, not the max of a column → add `CursorSource`.
 
 Databases and file-transfer sources (SFTP, S3) stay on `SimpleSource` unless there's a clear reason otherwise.
+
+### Durable source cursors (`CursorSource`)
+
+The incremental field covers the common case: the pipeline takes the max of a column and the next run filters above it.
+Some positions are not a column max: a Postgres xmin ceiling captured before the read, or a set of Kafka partition offsets.
+For those, add the `CursorSource[CursorT]` mixin from `sources/common/cursor.py` instead of new fields on `SourceResponse` or new keys in `sync_type_config`.
+
+- Define the cursor as a `@frozen` dataclass with a `cursor_kind: ClassVar[str]`. Keep the kind stable, because a changed kind discards every stored cursor. Give fields added later a default, because a stored cursor that lacks a required field is discarded.
+- Implement `cursor_class()`. Override `merge_cursors(current, candidate)` when a run that read less must not move the cursor back (Kafka keeps the per-partition max). Override `cursor_from_legacy()` only when migrating state that was stored under other keys.
+- In `source_for_pipeline`, call `self.get_cursor_manager(inputs)`. `load()` returns the stored cursor, or `None` on a reset or a table rebuild. `stage(cursor)` hands the next cursor to the pipeline.
+- The pipeline persists the staged cursor only after the run's rows are durable (on v3, the loader promotes it with the final batch), and a reset clears it. `postgres/xmin_cursor.py` is the reference.
 
 ## Prefer the shared REST framework
 
@@ -371,7 +383,7 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v3/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
 For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
@@ -414,7 +426,16 @@ while True:
     url = next_url  # advance before the next fetch, otherwise we loop on the same page
 ```
 
-Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. A source that saves after yielding still works, but a crash re-yields its last batch (merge dedupes on primary key, append does not). A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
+Save state **before** yielding the batch it covers. `save_state` only stages the cursor; the pipeline commits it to Redis once that batch is written, so a crash resumes exactly after the last written batch. Do not save after the yield. On a worker shutdown the pipeline ends the attempt before control returns to the source, so state saved after the `yield` is lost for the last batch: the next attempt reads that batch again (merge dedupes on primary key, a resumed full refresh appends it twice), and an attempt that writes one batch or fewer keeps no progress. A source with nothing yielded yet, such as one persisting an export job id before polling it, stages inside `with manager.committing():`, which commits when the block ends.
+
+Call `manager.safe_point()` wherever the source can make many requests that return no rows: an empty delta page, a fan-out parent with no children, a page with no comments.
+The pipeline checks for a worker shutdown only when an item arrives, so a run of empty responses otherwise holds the worker for the whole graceful shutdown timeout, and its cursor never commits.
+At a safe point the pipeline can hand the run to another worker, and it commits the staged cursor when nothing is waiting to be written.
+Call it only where resuming from the staged cursor loses no rows: every row the cursor covers is already yielded, and none sits in a local buffer.
+References: `document_deltas` in `convex/convex.py`, the sparse-sweep checkpoint in `stripe/stripe.py`, `_page_fan_out` in `notion/notion.py`.
+The `rest_source` framework reaches a safe point after each page and before each retry wait on its own, but only when `SourceResponse.items` returns the framework's `Resource` directly. A source that wraps it gets no framework safe points, because the wrapper could buffer rows.
+The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
+Do not call `safe_point()` or `commit()` in a `resume_hook`.
 
 ### Webhook source pattern
 
@@ -643,9 +664,9 @@ Requirements and behavior:
 
 - **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
 - **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
-  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so opting a child in can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
   Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
-- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Small parents stay on the API.** A parent under `MIN_WAREHOUSE_PARENT_ROWS` (1,000 rows) is not worth opening: the Delta read has a fixed cost of a few seconds, more than paging a small listing, and that cohort measured slower when converted. The gate reads the parent table's `row_count`, so it applies per run without configuration. There is no feature flag any more; rollback is a revert.
 - **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
 - **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
 - **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
@@ -881,6 +902,8 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
+- Resumable state saved after the `yield` it covers: a hand-off loses the state of the last batch, so the next attempt reads that batch again. `posthog/test/repo_invariants/test_resume_state_staged_before_yield.py` fails on a new generator that does this in a loop. Its baseline lists the existing ones and may only get shorter.
+- A deploy waits hours on a resumable source: it pages through responses with no rows and never calls `manager.safe_point()`, so it never sees the worker shutdown.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.

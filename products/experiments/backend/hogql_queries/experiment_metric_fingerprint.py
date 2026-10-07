@@ -1,6 +1,4 @@
 """
-Experiment metric fingerprinting
-
 Generates fingerprints for experiment metrics to detect when metric definitions
 or the experiment itself have changed in ways that would affect calculation results.
 Used to invalidate cached timeseries data when metrics are modified.
@@ -26,7 +24,7 @@ def _strip_empty_breakdowns(clean_metric: dict) -> None:
     """Remove a breakdownFilter that carries no breakdowns before hashing.
 
     An empty breakdown list is the same metric config as no breakdowns, but the two dict shapes hash to
-    different values. Saved-metric resolution (`merge_saved_metric_breakdowns`) injects
+    different values. Saved-metric resolution (`resolve_saved_metric_definition`) injects
     `breakdownFilter.breakdowns = []` when the experiment link has none, so without this normalization the
     merged dict would hash away from an identical config stored without a breakdownFilter, and rows written
     under one shape would be invisible to readers hashing the other.
@@ -51,28 +49,12 @@ def compute_metric_fingerprint(
     only_count_matured_users: bool = False,
     excluded_variants: list[str] | None = None,
 ) -> str:
-    """
-    Compute fingerprint for a metric.
-
-    Args:
-        metric: The metric definition
-        start_date: Experiment start date
-        stats_method
-        exposure_criteria
-        only_count_matured_users
-        excluded_variants: Variant keys excluded from analysis — changing the set
-            invalidates cached results since it alters which data is computed
-
-    Returns:
-        SHA256 hash string representing the metric fingerprint
-    """
     clean_metric = deepcopy(metric)
     for field in METRIC_FIELDS_TO_IGNORE:
         clean_metric.pop(field, None)
     _strip_empty_breakdowns(clean_metric)
 
-    # Convert datetime to ISO string for JSON serialization
-    # Always use UTC to ensure consistent fingerprints regardless of user timezone
+    # Normalize to UTC so that the same instant gives the same fingerprint in every timezone
     if isinstance(start_date, datetime):
         start_date_str = start_date.astimezone(ZoneInfo("UTC")).isoformat()
     else:
@@ -96,7 +78,6 @@ def compute_metric_fingerprint(
     if excluded_variants:
         fingerprint_data["excluded_variants"] = sorted(set(excluded_variants))
 
-    # Create deterministic JSON string with sorted keys at all levels
     json_str = json.dumps(fingerprint_data, sort_keys=True, separators=(",", ":"))
 
     hash_result = hashlib.sha256(json_str.encode("utf-8")).hexdigest()

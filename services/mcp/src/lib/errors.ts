@@ -1,5 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
+import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -20,6 +21,17 @@ export class MCPToolError extends Error {
         this.tool = tool
         this.originalError = originalError
         this.timestamp = new Date()
+    }
+}
+
+export class MCPToolResultError extends Error {
+    constructor(
+        message: string,
+        public readonly errorType: NonNullable<Schemas.MCPToolResponse['error_type']>,
+        public readonly errorCode?: string
+    ) {
+        super(message)
+        this.name = 'MCPToolResultError'
     }
 }
 
@@ -129,17 +141,13 @@ export class PostHogValidationError extends Error {
  * noise problem the 4xx short-circuit exists to prevent.
  */
 export class ToolInputValidationError extends Error {
-    /** Value-free descriptors of the rejection for telemetry: offending
-     *  field paths + issue codes, and the top-level keys the caller sent. Never
-     *  includes input VALUES — see `describeValidationError`. */
+    /** Value-free descriptors of the rejection for telemetry. */
     public readonly fields: string[]
-    public readonly inputKeys: string[]
 
-    constructor(message: string, detail?: { fields?: string[]; inputKeys?: string[] }) {
+    constructor(message: string, detail?: { fields?: string[] }) {
         super(message)
         this.name = 'ToolInputValidationError'
         this.fields = detail?.fields ?? []
-        this.inputKeys = detail?.inputKeys ?? []
     }
 }
 
@@ -488,7 +496,13 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
  *
  * @returns A structured error message.
  */
-export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
+export function handleToolError(
+    error: any,
+    tool?: string,
+    distinctId?: string,
+    sessionUuid?: string,
+    suppressAnalytics = false
+): CallToolResult {
     const toolName = tool || 'unknown'
 
     // Recoverable: expected agent or user state, not a bug — no project picked,
@@ -499,7 +513,8 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         error instanceof MissingProjectContextError ||
         error instanceof MissingOrganizationContextError ||
         error instanceof ToolInputValidationError ||
-        error instanceof ExecCommandError
+        error instanceof ExecCommandError ||
+        (error instanceof MCPToolResultError && ['validation', 'permission'].includes(error.errorType))
     ) {
         return {
             content: [
@@ -543,6 +558,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             team: 'growth',
             tool: toolName,
             is_permission_error: true,
+            suppress_analytics: suppressAnalytics,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
@@ -577,6 +593,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
+        suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
     }
 

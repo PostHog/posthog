@@ -181,7 +181,13 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
             .max(externalDataSchemasUpdateBodyFullRefreshIntervalDaysMax)
             .nullish()
             .describe(
-                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+            ),
+        full_refresh_time_of_day: zod.iso
+            .time({})
+            .nullish()
+            .describe(
+                'UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.'
             ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
@@ -292,7 +298,13 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
             .max(externalDataSchemasPartialUpdateBodyFullRefreshIntervalDaysMax)
             .nullish()
             .describe(
-                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+            ),
+        full_refresh_time_of_day: zod.iso
+            .time({})
+            .nullish()
+            .describe(
+                'UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.'
             ),
         primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
         cdc_table_mode: zod
@@ -411,6 +423,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     .nullish()
                     .describe(
                         'Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.'
+                    ),
+                full_refresh_time_of_day: zod.iso
+                    .time({})
+                    .nullish()
+                    .describe(
+                        'UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.'
                     ),
                 primary_key_columns: zod
                     .array(zod.string())
@@ -571,6 +589,32 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
 export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * List the accounts a source's typed-in credentials can reach, in the shared
+ * IntegrationAccount shape.
+ *
+ * The OAuth twin takes an integration id because the token already lives on the server. Here
+ * the credentials are still in the form, so they arrive in the body — POST, not GET, to keep a
+ * private key out of the URL and out of anything that logs one. Nothing is cached for the same
+ * reason: the cache key would have to include the credentials.
+ */
+export const ExternalDataSourcesCredentialAccountsCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_type: zod
+            .string()
+            .describe("The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds')."),
+        credentials: zod
+            .record(zod.string(), zod.string())
+            .describe(
+                "Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected."
+            ),
+        api_version: zod
+            .string()
+            .nullish()
+            .describe("Vendor API version the source is pinned to. Defaults to the source's current default."),
+    })
+    .describe('Body for listing accounts from credentials the user has typed but not yet submitted.')
 
 /**
  * Create, Read, Update and Delete External data Sources.

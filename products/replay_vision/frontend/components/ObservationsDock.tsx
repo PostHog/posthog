@@ -20,7 +20,12 @@ import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { LIMIT_REACHED_TOOLTIP } from '../replay_scanners/scannerCopy'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { BUILT_IN_SUMMARY_LABEL, dockObservations, isUnsuccessfulScan } from '../utils/observation'
+import {
+    BUILT_IN_SUMMARY_LABEL,
+    dockObservations,
+    isSummaryObservation,
+    isUnsuccessfulScan,
+} from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { ScanBlock, recordingScanBlock } from '../utils/scanEligibility'
 import { VisionDocsLink, visionDocsUrl } from './DocsLink'
@@ -31,7 +36,12 @@ const DEFAULT_EXPANDED_HEIGHT = 480
 const MIN_EXPANDED_HEIGHT = 120
 const MAX_EXPANDED_HEIGHT = 800
 
-export function ObservationsDock(): JSX.Element | null {
+export function ObservationsDock({
+    extraActions,
+}: {
+    /** Recording actions the host places beside the summarize button. */
+    extraActions?: React.ReactNode
+}): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     // The dock is a sibling of the player frame, so it kept its summarize button on screen even when
     // the frame had swapped itself for the "Recording not found" or "deleted" screen — a control that
@@ -41,7 +51,7 @@ export function ObservationsDock(): JSX.Element | null {
     if (!sessionRecordingId || isNotFound || isRecordingDeleted) {
         return null
     }
-    return <ObservationsDockContent sessionId={sessionRecordingId} />
+    return <ObservationsDockContent sessionId={sessionRecordingId} extraActions={extraActions} />
 }
 
 /**
@@ -73,8 +83,9 @@ function useSummarizeBlockedReason(
 /** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
 function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBlock: ScanBlock | null }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { summarizePending, defaultSummarizer, summarizerScanners } = useValues(logic)
+    const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
     const { summarize, summarizeWith } = useActions(logic)
+    const hasSummary = observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')
     const { quota } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
@@ -88,7 +99,11 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
         inFlightDisabledReason ?? blockedReason(scanner)
     // Nobody could tell which summarizer the button used, so it says so. While a scan is running the
     // label is the only thing that says the click landed: the summary takes minutes to arrive.
-    const idleLabel = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
+    const idleLabel = hasSummary
+        ? 'Summarize again'
+        : defaultSummarizer
+          ? `Summarize with ${defaultSummarizer.name}`
+          : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     const summarizerTooltip = summarizePending
         ? 'Watching this recording. The summary appears below when it is ready.'
@@ -129,7 +144,7 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     const button = (
         <LemonButton
             size="small"
-            type="secondary"
+            type={hasSummary ? 'tertiary' : 'secondary'}
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
@@ -219,7 +234,13 @@ function SummarizeExplainer(): JSX.Element {
     )
 }
 
-function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Element {
+function ObservationsDockContent({
+    sessionId,
+    extraActions,
+}: {
+    sessionId: string
+    extraActions?: React.ReactNode
+}): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { observations, observationsLoading, dockOpen, retryingObservationIds, defaultSummarizer, summarizePending } =
         useValues(logic)
@@ -268,6 +289,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
             <div className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0">
                 <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
                 <SummarizeExplainer />
+                {extraActions}
                 {summarizeBlockedReason &&
                     !hasContent && (
                         // Collapsed with nothing to expand, the disabled button's tooltip is the only place

@@ -831,7 +831,7 @@ const ExperimentMetricsRecalculationCreateSchema = () => {
 
 const experimentMetricsRecalculationCreate = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationJob>
 > => ({
     name: 'experiment-metrics-recalculation-create',
     schema: ExperimentMetricsRecalculationCreateSchema(),
@@ -840,7 +840,7 @@ const experimentMetricsRecalculationCreate = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationJob>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/`,
         })
@@ -861,7 +861,7 @@ const ExperimentMetricsRecalculationLatestRetrieveSchema = () => {
 
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationLatest>
 > =>
     withUiApp('experiment-results', {
         name: 'experiment-metrics-recalculation-latest-retrieve',
@@ -871,7 +871,7 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
             params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>>
         ) => {
             const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+            const result = await context.api.request<Schemas.ExperimentMetricsRecalculationLatest>({
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/latest/`,
             })
@@ -906,7 +906,7 @@ const ExperimentMetricsRecalculationRetrieveSchema = () => {
 
 const experimentMetricsRecalculationRetrieve = (): ToolBase<
     ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>,
-    WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
+    WithPostHogUrl<Schemas.ExperimentMetricsRecalculationRun>
 > => ({
     name: 'experiment-metrics-recalculation-retrieve',
     schema: ExperimentMetricsRecalculationRetrieveSchema(),
@@ -915,7 +915,7 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
         params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>>
     ) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
+        const result = await context.api.request<Schemas.ExperimentMetricsRecalculationRun>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/metrics_recalculation/${encodeURIComponent(String(params.recalculation_id))}/`,
         })

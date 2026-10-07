@@ -43,9 +43,8 @@ from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.facade.testing import create_access_control, create_role
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
@@ -503,6 +502,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[1]["aggregations"]["users"], 1)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_search_query_matches_current_issue_id_and_event_text(self) -> None:
+        current_issue_id = str(uuid7())
+        self.create_issue(current_issue_id, "new_issue_fingerprint")
+        self.override_fingerprint(self.issue_three_fingerprint, current_issue_id)
+        _create_event(
+            distinct_id=self.distinct_id_one,
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_issue_id": self.issue_id_two,
+                "$exception_fingerprint": self.issue_two_fingerprint,
+                "$exception_values": f"An error mentions {current_issue_id}",
+            },
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(searchQuery=f" {current_issue_id.upper()} ", withAggregations=True)["results"]
+
+        self.assertEqual({result["id"] for result in results}, {current_issue_id, self.issue_id_two})
+
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
     @snapshot_clickhouse_queries
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]
@@ -873,17 +893,17 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             distinct_ids=[self.distinct_id_one],
         )
         flush_persons_and_events()
-        role = Role.objects.create(name="Test Team", organization=self.organization)
-        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
+        role_id = create_role(organization_id=self.organization.id, name="Test Team")
+        ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role_id=role_id, team=self.team)
         ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
-        results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+        results = self._calculate(assignee={"type": "role", "id": str(role_id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
         with time_machine.travel("2022-01-10T12:11:05", tick=False):
             sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
             ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now() - timedelta(seconds=61))
-            results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+            results = self._calculate(assignee={"type": "role", "id": str(role_id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
@@ -1558,10 +1578,16 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         # bins are left-closed [start, end), so events on an exact bin boundary land in the next bin
         self.assertEqual(first_aggregations["volumeRange"], [55, 60, 5, 0])
 
-    @parameterized.expand(["issueId", "personId"])
-    def test_rejects_malformed_uuid_params(self, field):
+    @parameterized.expand(
+        [
+            ("malformed_issue_id", "issueId", "test-distinct-id"),
+            ("malformed_person_id", "personId", "test-distinct-id"),
+            ("too_many_search_tokens", "searchQuery", " ".join(["token"] * 101)),
+        ]
+    )
+    def test_rejects_invalid_params(self, _name, field, value):
         with self.assertRaises(ValidationError):
-            self._calculate(**{field: "test-distinct-id"})
+            self._calculate(**{field: value})
 
     def test_canonicalizes_uuid_params(self):
         runner = ErrorTrackingQueryRunner(
@@ -1627,7 +1653,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         ):
             self.assertTrue(issubclass(runner_class, ErrorTrackingQueryRunnerAccessMixin))
 
-        AccessControl.objects.create(team=self.team, resource="error_tracking", access_level="none")
+        create_access_control(team_id=self.team.id, resource="error_tracking", access_level="none")
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]

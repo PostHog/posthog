@@ -12,7 +12,11 @@ on:
         # longer run the test matrices per commit — the merge queue's trunk-merge/**
         # run already gated every commit before it landed — so this is where master's
         # matrix coverage, flaky-test baseline, and per-test timing data come from.
-        - cron: '23 * * * *'
+        # Only the every-third-hour cron runs the events_json leg. The merge queue
+        # already runs that leg before every commit lands, and this cadence still gives
+        # Trunk's master monitors enough runs. EVENTS_JSON_SCHEDULE in env repeats this string.
+        - cron: '23 */3 * * *'
+        - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -36,10 +40,12 @@ on:
         # so every unrelated label re-ran these matrices against a commit CI had
         # already covered. A label here takes effect from the next push, or from
         # ready_for_review.
-        # The events_json leg runs wherever the legacy tests run, the hourly master run
-        # included: the paths in .github/new-events-schema-targets.txt rerun against the
+        # The events_json leg runs wherever the legacy tests run, and on every third
+        # hourly master run: the paths in .github/new-events-schema-targets.txt rerun against the
         # native-JSON events table, all of them on full runs and the reached ones on
-        # narrowed runs. The `test-new-events-schema` label opts a PR into the doubled
+        # narrowed runs. A PR whose product-only change forced the full run reruns only
+        # that product's paths, because the merge queue runs the whole list before merge.
+        # The `test-new-events-schema` label opts a PR into the doubled
         # matrices that run the whole suite in both events schemas, in place of that leg.
         # Apply it before a push or ready_for_review because label events do not start
         # this workflow. Manual dispatches also run both modes.
@@ -81,6 +87,9 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
+    # The on.schedule cron whose runs keep the events_json leg. GitHub cannot reference a cron
+    # from an expression, so this copy must match it.
+    EVENTS_JSON_SCHEDULE: '23 */3 * * *'
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -88,6 +97,9 @@ env:
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     UV_HTTP_TIMEOUT: 120
+    # A 4 GiB thread stack cache avoids the uv exit segfault (code 139) on glibc before 2.43.
+    # Remove when uv ships the fix: https://github.com/astral-sh/uv/issues/21428
+    GLIBC_TUNABLES: glibc.pthread.stack_cache_size=0x100000000
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
@@ -167,6 +179,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
@@ -181,6 +194,8 @@ jobs:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       .github/scripts/ci_backend_route.py
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -195,23 +210,6 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - name: Pick the engine that runs the backend tests
-              id: route
-              if: github.event_name == 'pull_request'
-              env:
-                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
-                  EVENT: ${{ github.event_name }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  HEAD_REF: ${{ github.head_ref }}
-                  # The script reads this commit's earlier hand-off check, the durable record
-                  # of the engine that already ran its tests and side effects.
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-              run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
@@ -262,7 +260,6 @@ jobs:
                         - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -355,7 +352,6 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -446,8 +442,43 @@ jobs:
                         - 'AGENTS.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
+                        # A generated file in a frontend-only PR still needs a known producer.
+                        - '**/*.generated.*'
+                        - '**/generated/**'
+                        # test_generated_files_are_registered.py also reads the projection
+                        # registry and the ci-python paths filter it must stay in step with.
+                        - 'tools/hogli-commands/hogli_commands/projections.py'
+                        - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
+                      sdk_manifests:
+                        # Everything the SDK major-version guard reads. Lockfiles are listed
+                        # because a floor-only or `*` spec can move to a new major through
+                        # its lock alone.
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-workspace.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'services/llm-gateway/pyproject.toml'
+                        - 'services/llm-gateway/uv.lock'
+                        - 'common/ingestion/acceptance_tests/requirements.txt'
+                        - 'tools/infra-scripts/clitools/requirements.txt'
+                        - 'tools/infra-scripts/clitools/constraints.txt'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'cli/Cargo.toml'
+                        - 'cli/Cargo.lock'
+                        - 'bin/hobby-installer/go.mod'
+                        - 'bin/hobby-installer/go.sum'
+                        - '.github/scripts/check_sdk_majors.py'
+                        # The guard scans every package.json for an SDK declaration.
+                        - '**/package.json'
+                        - 'rust/Cargo.toml'
+                        - 'cli/Cargo.toml'
+                        - 'bin/hobby-installer/go.mod'
                       product_yamls:
                         # Validates owner team slugs against PostHog/posthog collaborator teams,
                         # and lints the distributed owners.yaml files (schema, conflicts, dead
@@ -467,14 +498,6 @@ jobs:
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
-                        # Task run model catalog: one Python module projected into a
-                        # checked-in .generated.ts per workspace. Only the outputs are
-                        # named — neither sits in a generated/ directory, and the
-                        # desktop one is under products/desktop, which the backend
-                        # filter excludes. The catalog and its generator are .py under
-                        # products/, so the backend filter already catches both.
-                        - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'
@@ -493,6 +516,27 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+            # Last, so the paths filter runs while Depot starts its run for this event.
+            - name: Pick the engine that runs the backend tests
+              id: route
+              if: github.event_name == 'pull_request'
+              env:
+                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
+                  MERGE_QUEUE_PERCENT: ${{ vars.CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT }}
+                  EVENT: ${{ github.event_name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  HEAD_REF: ${{ github.head_ref }}
+                  # The script reads this commit's earlier hand-off check, the durable record
+                  # of the engine that already ran its tests and side effects, and the check of
+                  # the Depot wait job that names this event.
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+              run: python3 .github/scripts/ci_backend_route.py
 
     # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
     # polls this check by name and runs the backend tests only when it concluded
@@ -752,6 +796,17 @@ jobs:
                   restore-keys: |
                       posthog-segment-durations-
 
+            - name: Restore the events_json prune manifest from cache
+              # The timing workflow rebuilds it from the newest hourly recording. A miss
+              # leaves the file absent, and the events_json rows then run every listed test.
+              if: github.event_name == 'pull_request'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: events-schema-prune.json
+                  key: posthog-events-schema-prune-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-events-schema-prune-
+
             - name: Snapshot the sharding plan for this run
               # The timing caches float to their newest entry, so a re-run can shard
               # differently from attempt 1 and, under "re-run failed jobs", a failing
@@ -767,9 +822,10 @@ jobs:
                       .test_durations
                       .test_durations.core
                       .test_durations.temporal
+                      events-schema-prune.json
                   include-hidden-files: true
                   overwrite: true
-                  # The per-segment files are cache-only and may legitimately be absent.
+                  # The per-segment files and the prune manifest are cache-only and may legitimately be absent.
                   if-no-files-found: warn
                   # GitHub allows re-runs for 30 days.
                   retention-days: 30
@@ -975,7 +1031,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # Needs pnpm from the step above.
@@ -1262,6 +1318,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
+                  test-collection-id: C0LrorjW # backend-product
                   # A native-JSON leg uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -1382,6 +1439,20 @@ jobs:
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
+    # Every PostHog SDK this repo installs must stay on its pinned major; the release
+    # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
+    sdk-major-guard:
+        needs: [changes]
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        timeout-minutes: 5
+        permissions: {}
+        name: SDK major-version guard
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check every SDK stays on its pinned major
+              run: python3 .github/scripts/check_sdk_majors.py
+
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
@@ -1411,7 +1482,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1433,6 +1504,14 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
 
+            # Above the boundary for the same reason. product:lint compares the crossings ledger
+            # with the merge commit's first parent, so the clone needs one more level of history.
+            - name: Fetch the pull request base
+              if: github.event_name == 'pull_request'
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1451,6 +1530,8 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
 
             - name: Lint product structure
+              env:
+                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
 
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
@@ -1570,7 +1651,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   # Reuse the app token already minted above instead of a second mint.
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
@@ -1683,7 +1764,7 @@ jobs:
             - name: Set up Python
               uses: ./.github/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # Direct install: The job later checks out the PR head, which may predate the local action, so its post step would fail.
@@ -1715,7 +1796,7 @@ jobs:
 
             - name: Install python dependencies for master
               run: |
-                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
 
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
@@ -1865,9 +1946,10 @@ jobs:
                         app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       fi
 
-                      # Only show SQL for new migrations, not modifications to existing ones
-                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
-                        echo "Skipping $file (already exists on base branch)"
+                      # A stacked PR can carry master's migration at this path. Keep a
+                      # conflicting version visible even when master has the same path.
+                      if git cat-file -e "$BASE_SHA:$file" 2>/dev/null || git diff --quiet origin/master HEAD -- "$file"; then
+                        echo "Skipping $file (already exists on the base branch or matches master)"
                         continue
                       fi
 
@@ -2229,21 +2311,34 @@ jobs:
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
 
-            - name: Check CH migrations
+            - name: List this PR's ClickHouse migrations
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  set -euo pipefail
+                  export LC_ALL=C
                   DIFF_BASE=origin/master
-                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
-                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
-                          DIFF_BASE="origin/$BASE_REF"
-                      else
-                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                  if [ -n "$BASE_SHA" ]; then
+                      if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+                          git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
                       fi
+                      DIFF_BASE="$BASE_SHA"
                   fi
-                  # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  ch_migrations() {
+                      # Migrations share most of their text, so rename detection would pair this PR's
+                      # migration with one master added later and report it as R, dropping it here.
+                      git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- 'posthog/clickhouse/migrations/[0-9]*' | sort
+                  }
+                  ch_migrations A origin/master > "$RUNNER_TEMP/ch-master-added.txt"
+                  ch_migrations AM origin/master > "$RUNNER_TEMP/ch-master-changed.txt"
+                  # A stacked branch can carry master's migrations, and master can edit one later.
+                  # Only a file that master lacks counts as this PR's addition.
+                  ch_migrations A "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-added.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
+                  ch_migrations AM "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-changed.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
+                  cat "$RUNNER_TEMP/ch-migrations-changed.txt"
+
+            - name: Check CH migrations
+              run: python manage.py test_ch_migrations_are_safe < "$RUNNER_TEMP/ch-migrations-added.txt"
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2256,7 +2351,7 @@ jobs:
               id: render_ch_sql
               if: github.event_name == 'pull_request'
               run: |
-                  CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  CHANGED=$(cat "$RUNNER_TEMP/ch-migrations-changed.txt")
                   if [ -z "$CHANGED" ]; then
                       echo "No ClickHouse migrations changed."
                       echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -2424,21 +2519,21 @@ jobs:
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ runner.tool_cache }}/Python/3.13.13
-                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+                  path: ${{ runner.tool_cache }}/Python/3.14.7
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.14.7
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: ${{ runner.tool_cache }}/Python/3.13.13
-                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.13.13
+                  path: ${{ runner.tool_cache }}/Python/3.14.7
+                  key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-3.14.7
 
             # Direct install: Generated changes target the PR head, which may predate the local action.
             - name: Install uv
@@ -2510,6 +2605,13 @@ jobs:
                   fi
 
                   echo "OpenAPI types are out of date"
+
+                  # A push to a merge queue branch ends the queue attempt.
+                  if [[ "$BRANCH" == trunk-merge/* ]]; then
+                      echo "::error::OpenAPI types are out of date once this pull request is merged with master: $(git diff --name-only | tr '\n' ' ')"
+                      echo "Merge master into the pull request branch and push. CI regenerates the types on that branch."
+                      exit 1
+                  fi
 
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "$EVENT_NAME" != "pull_request" ] || \
@@ -2651,6 +2753,7 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == env.EVENTS_JSON_SCHEDULE }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -2710,7 +2813,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2723,7 +2826,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2738,7 +2841,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2751,7 +2854,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2766,7 +2869,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2779,7 +2882,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2801,7 +2904,7 @@ jobs:
                                   segment: "Core",
                                   "person-on-events": false,
                                   "new-events-schema": false,
-                                  "python-version": "3.13.13",
+                                  "python-version": "3.14.7",
                                   concurrency: 1,
                                   group: 1,
                                   compat: true,
@@ -2832,8 +2935,14 @@ jobs:
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS, JsonTargets=$JSON_TARGETS_FULL_SHARDS"
                       fi
-                      # A full run takes every listed events_json path.
+                      # A full run takes every listed events_json path, unless discovery
+                      # shortened the list: a skipped product, or a product-only diff whose
+                      # legacy paths the merge queue runs. An empty list gives 0 rows.
                       json_targets_count="$JSON_TARGETS_FULL_SHARDS"
+                      if [[ -n "$JSON_TARGETS_SHARDS" ]] && (( JSON_TARGETS_SHARDS < json_targets_count )); then
+                          json_targets_count="$JSON_TARGETS_SHARDS"
+                          echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
+                      fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not
                       # land: merge queue and master. Ordinary PR lanes run the
@@ -2850,7 +2959,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2864,7 +2973,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2878,7 +2987,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2892,7 +3001,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2906,7 +3015,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2920,7 +3029,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2938,7 +3047,7 @@ jobs:
                               segment: "Core",
                               "person-on-events": false,
                               "new-events-schema": false,
-                              "python-version": "3.13.13",
+                              "python-version": "3.14.7",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
                             }
@@ -2960,6 +3069,11 @@ jobs:
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
+                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
+                      echo "Skipping the events_json rows on this hourly run"
+                      json_targets_count=0
+                  fi
+
                   # The events_json rows: Core jobs over the listed paths with the
                   # native-JSON events table. They keep Core's person-on-events default.
                   json_targets=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$json_targets_count" '
@@ -2968,7 +3082,7 @@ jobs:
                       "json-targets": true,
                       "person-on-events": false,
                       "new-events-schema": true,
-                      "python-version": "3.13.13",
+                      "python-version": "3.14.7",
                       "clickhouse-server-image": $image,
                       concurrency: $n,
                       group: .,
@@ -3419,7 +3533,7 @@ jobs:
                   # rm first so segment files the snapshot lacks don't survive the floating restore
                   rm -f .test_durations.core .test_durations.temporal
                   cp /tmp/test-durations-plan/.test_durations .test_durations
-                  for f in .test_durations.core .test_durations.temporal; do
+                  for f in .test_durations.core .test_durations.temporal events-schema-prune.json; do
                       if [ -f "/tmp/test-durations-plan/$f" ]; then cp "/tmp/test-durations-plan/$f" "$f"; fi
                   done
                   echo "Sharding plan pinned to this run's snapshot"
@@ -3602,6 +3716,16 @@ jobs:
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           JSON_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
                                       --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
+                      fi
+                      if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+                          # The hourly run keeps every listed test and records which ones read the
+                          # JSON tables. The timing workflow builds the prune manifest from it.
+                          export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
+                      elif [[ "$GITHUB_EVENT_NAME" == "pull_request" && "$GITHUB_HEAD_REF" != trunk-merge/* && -f events-schema-prune.json ]]; then
+                          # Skips the tests that a recording showed never read the JSON tables. The
+                          # merge queue runs every listed test, so a skipped test whose code starts
+                          # to read those tables still fails before the change reaches master.
+                          export POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST=events-schema-prune.json
                       fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
                       # shellcheck disable=SC2086
@@ -3906,6 +4030,17 @@ jobs:
                       junit-*.xml
                       !junit-*-retry-failures.xml
 
+            - name: Upload events schema recording
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ always() && matrix.json-targets && github.event_name == 'schedule' }}
+              with:
+                  name: events-schema-record-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: events-schema-record.json
+                  # A successful run must carry every shard's recording, because the prune
+                  # manifest is built from successful runs only.
+                  if-no-files-found: error
+                  retention-days: 14
+
             # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
               if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
@@ -3927,12 +4062,15 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  # A native-JSON row uploads under its own variant, so a failure in that mode
-                  # does not read as a flake of the legacy test with the same id.
-                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
+                  test-collection-id: AA6dvTdI # backend-core
+                  # Non-default rows upload under their own variant, so a failure only that mode
+                  # hits does not quarantine the default test with the same id.
+                  variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -3942,9 +4080,12 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
+                  test-collection-id: smyQjxZ3 # backend-temporal
                   # A native-JSON row uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -4138,6 +4279,7 @@ jobs:
                 detect-snapshot-mode,
                 handle-snapshots,
                 repo-checks,
+                sdk-major-guard,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-24.04
@@ -4162,20 +4304,29 @@ jobs:
               if: needs.changes.outputs.engine == 'depot'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: .github/scripts/ci_backend_relay.py
+                  sparse-checkout: |
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
+            # The relay reads a failed run's steps and log lines with the Depot CLI. Without
+            # the CLI, the relay prints a warning and still reports the verdict.
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              if: needs.changes.outputs.engine == 'depot'
+              continue-on-error: true
             # The script finds this event's Depot run by the event in its wait job's check
             # name, then waits for that run's gate. Its docstring explains why check times
             # and pull request lists cannot identify the run.
             - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
               env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_REF: ${{ github.head_ref }}
               run: python3 .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
@@ -4185,6 +4336,7 @@ jobs:
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| sdk-major-guard | ${{ needs.sdk-major-guard.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| changes | ${{ needs.changes.result }} |"
                     echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
@@ -4314,6 +4466,7 @@ jobs:
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "SDK major guard" "${{ needs.sdk-major-guard.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   # Upstream jobs whose failure would otherwise only cascade into django
                   # being *skipped*, which this gate reads as success — a green gate with
@@ -4495,13 +4648,16 @@ jobs:
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
-            !cancelled() && github.run_attempt == '1'
+            !cancelled()
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
+              # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
+              # so this guard stays on the step for the Depot copy of this job to run.
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:

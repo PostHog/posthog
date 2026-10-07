@@ -1464,7 +1464,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
             render_template("index.html", request=mock_request, context={})
 
             # Get the context passed to the template
-            return json.loads(mock_template.render.call_args[0][0]["posthog_app_context"])
+            return mock_template.render.call_args[0][0]["posthog_app_context"]
 
     def test_default_lists_all_projects(self):
         assert len(self.client.get("/api/projects").json()["results"]) == 3
@@ -2471,6 +2471,19 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_204_NO_CONTENT, res.content
         assert not AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).exists()
+
+    def test_object_rules_list_hides_rules_on_soft_deleted_objects(self):
+        live = Dashboard.objects.create(team=self.team, name="Live", created_by=self.user)
+        retired = Dashboard.objects.create(team=self.team, name="Retired", created_by=self.user, deleted=True)
+        for dashboard in (live, retired):
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+            )
+
+        res = self.client.get("/api/projects/@current/access_control_default_objects")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [r["resource_id"] for r in res.json()["results"]] == [str(live.id)]
+        assert AccessControl.objects.filter(resource="dashboard", resource_id=str(retired.id)).exists()
 
     # product_tour guards the resources model_to_resource cannot map by model name (ProductTour
     # lowercases to "producttour"): the endpoints must pass the resource explicitly or the

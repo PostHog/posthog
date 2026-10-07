@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'EngineeringAnalytics',
@@ -108,8 +108,13 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
-        engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        engineeringAnalyticsWorkflowRun: (
+            repoOwner: string,
+            repoName: string,
+            runId: number | string,
+            ciEngine?: string | null
+        ): string =>
+            `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
         engineeringAnalyticsAuthor: (handle: string): string =>
@@ -124,7 +129,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',
             iconType: 'health' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-engineering-analytics-light)',
+                'var(--color-product-engineering-analytics-dark)',
+            ],
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             tags: ['alpha'],

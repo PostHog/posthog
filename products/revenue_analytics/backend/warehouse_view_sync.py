@@ -15,9 +15,30 @@ from products.data_modeling.backend.facade.models import DataWarehouseManagedVie
 from products.revenue_analytics.backend.views.orchestrator import SUPPORTED_SOURCES
 from products.warehouse_sources.backend.facade.api import list_revenue_source_settings
 from products.warehouse_sources.backend.facade.hooks import RevenueViewSyncInput
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.sources import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+# Active source loads skip schemas that cannot change revenue views, which avoids per-team advisory lock waits.
+# Deleted sources reconcile after every completed schema so view cleanup can finish.
+_RELEVANT_SCHEMAS: dict[str, frozenset[str]] = {
+    ExternalDataSourceType.STRIPE: frozenset(
+        {
+            STRIPE_CHARGE_RESOURCE_NAME,
+            STRIPE_CUSTOMER_RESOURCE_NAME,
+            STRIPE_INVOICE_RESOURCE_NAME,
+            STRIPE_PRODUCT_RESOURCE_NAME,
+            STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+        }
+    ),
+}
 
 
 def sync_revenue_analytics_views(sync_input: RevenueViewSyncInput) -> None:
@@ -34,7 +55,14 @@ def sync_revenue_analytics_views(sync_input: RevenueViewSyncInput) -> None:
             source_types=[sync_input.source_type],
             source_ids=[sync_input.source_id],
         )
-        if not sources or (not sources[0].deleted and not sources[0].enabled):
+        if not sources:
+            return
+
+        source = sources[0]
+        if not source.deleted and (
+            not source.enabled
+            or sync_input.schema_name not in _RELEVANT_SCHEMAS.get(sync_input.source_type, frozenset())
+        ):
             return
 
         managed_viewset = DataWarehouseManagedViewSet.objects.filter(

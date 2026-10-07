@@ -26,14 +26,24 @@ export const hogFlowTemplatesCreateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(hogFlowTemplatesCreateBodyNameMax),
-        description: zod.string().optional(),
-        image_url: zod.string().max(hogFlowTemplatesCreateBodyImageUrlMax).nullish(),
-        tags: zod.array(zod.string()).optional(),
+        name: zod.string().max(hogFlowTemplatesCreateBodyNameMax).describe('Template name.'),
+        description: zod.string().optional().describe('Template description.'),
+        image_url: zod
+            .string()
+            .max(hogFlowTemplatesCreateBodyImageUrlMax)
+            .nullish()
+            .describe('URL of the image shown on the template card.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for filtering templates.'),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
-        trigger: zod.unknown().optional(),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global')
+            .describe(
+                'Who can use the template: this project only, or every project in the organization.\n\n\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'
+            ),
+        trigger: zod
+            .unknown()
+            .optional()
+            .describe('Trigger config. Set from the config of the trigger action on save.'),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -59,7 +69,7 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                 zod.null(),
             ])
             .optional(),
-        conversion: zod.unknown().optional(),
+        conversion: zod.unknown().optional().describe('Conversion goal config.'),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -67,11 +77,14 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                 'exit_on_trigger_not_matched_or_conversion',
                 'exit_only_at_end',
             ])
-            .optional()
             .describe(
                 '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+            )
+            .optional()
+            .describe(
+                'When a person exits a workflow created from the template.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
-        edges: zod.unknown().optional(),
+        edges: zod.unknown().optional().describe('Connections between the actions.'),
         actions: zod.array(
             zod
                 .object({
@@ -125,7 +138,11 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                     'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
-        abort_action: zod.string().max(hogFlowTemplatesCreateBodyAbortActionMax).nullish(),
+        abort_action: zod
+            .string()
+            .max(hogFlowTemplatesCreateBodyAbortActionMax)
+            .nullish()
+            .describe('ID of the abort action.'),
         variables: zod
             .array(
                 zod
@@ -155,14 +172,24 @@ export const hogFlowTemplatesUpdateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(hogFlowTemplatesUpdateBodyNameMax),
-        description: zod.string().optional(),
-        image_url: zod.string().max(hogFlowTemplatesUpdateBodyImageUrlMax).nullish(),
-        tags: zod.array(zod.string()).optional(),
+        name: zod.string().max(hogFlowTemplatesUpdateBodyNameMax).describe('Template name.'),
+        description: zod.string().optional().describe('Template description.'),
+        image_url: zod
+            .string()
+            .max(hogFlowTemplatesUpdateBodyImageUrlMax)
+            .nullish()
+            .describe('URL of the image shown on the template card.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for filtering templates.'),
         scope: zod
             .enum(['team', 'organization', 'global'])
-            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
-        trigger: zod.unknown().optional(),
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global')
+            .describe(
+                'Who can use the template: this project only, or every project in the organization.\n\n\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'
+            ),
+        trigger: zod
+            .unknown()
+            .optional()
+            .describe('Trigger config. Set from the config of the trigger action on save.'),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -188,7 +215,7 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                 zod.null(),
             ])
             .optional(),
-        conversion: zod.unknown().optional(),
+        conversion: zod.unknown().optional().describe('Conversion goal config.'),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -196,11 +223,14 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                 'exit_on_trigger_not_matched_or_conversion',
                 'exit_only_at_end',
             ])
-            .optional()
             .describe(
                 '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+            )
+            .optional()
+            .describe(
+                'When a person exits a workflow created from the template.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
-        edges: zod.unknown().optional(),
+        edges: zod.unknown().optional().describe('Connections between the actions.'),
         actions: zod.array(
             zod
                 .object({
@@ -254,7 +284,11 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                     'Custom action serializer for templates that skips input validation\n(since templates should have default\/empty values).'
                 )
         ),
-        abort_action: zod.string().max(hogFlowTemplatesUpdateBodyAbortActionMax).nullish(),
+        abort_action: zod
+            .string()
+            .max(hogFlowTemplatesUpdateBodyAbortActionMax)
+            .nullish()
+            .describe('ID of the abort action.'),
         variables: zod
             .array(
                 zod
@@ -284,15 +318,25 @@ export const hogFlowTemplatesPartialUpdateBodyAbortActionMax = 400
 
 export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(hogFlowTemplatesPartialUpdateBodyNameMax).optional(),
-        description: zod.string().optional(),
-        image_url: zod.string().max(hogFlowTemplatesPartialUpdateBodyImageUrlMax).nullish(),
-        tags: zod.array(zod.string()).optional(),
+        name: zod.string().max(hogFlowTemplatesPartialUpdateBodyNameMax).optional().describe('Template name.'),
+        description: zod.string().optional().describe('Template description.'),
+        image_url: zod
+            .string()
+            .max(hogFlowTemplatesPartialUpdateBodyImageUrlMax)
+            .nullish()
+            .describe('URL of the image shown on the template card.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for filtering templates.'),
         scope: zod
             .enum(['team', 'organization', 'global'])
+            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global')
             .optional()
-            .describe('\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'),
-        trigger: zod.unknown().optional(),
+            .describe(
+                'Who can use the template: this project only, or every project in the organization.\n\n\* `team` - Only team\n\* `organization` - Organization\n\* `global` - Global'
+            ),
+        trigger: zod
+            .unknown()
+            .optional()
+            .describe('Trigger config. Set from the config of the trigger action on save.'),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -318,7 +362,7 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                 zod.null(),
             ])
             .optional(),
-        conversion: zod.unknown().optional(),
+        conversion: zod.unknown().optional().describe('Conversion goal config.'),
         exit_condition: zod
             .enum([
                 'exit_on_conversion',
@@ -326,11 +370,14 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                 'exit_on_trigger_not_matched_or_conversion',
                 'exit_only_at_end',
             ])
-            .optional()
             .describe(
                 '\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
+            )
+            .optional()
+            .describe(
+                'When a person exits a workflow created from the template.\n\n\* `exit_on_conversion` - Conversion\n\* `exit_on_trigger_not_matched` - Trigger Not Matched\n\* `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion\n\* `exit_only_at_end` - Only At End'
             ),
-        edges: zod.unknown().optional(),
+        edges: zod.unknown().optional().describe('Connections between the actions.'),
         actions: zod
             .array(
                 zod
@@ -390,7 +437,11 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                     )
             )
             .optional(),
-        abort_action: zod.string().max(hogFlowTemplatesPartialUpdateBodyAbortActionMax).nullish(),
+        abort_action: zod
+            .string()
+            .max(hogFlowTemplatesPartialUpdateBodyAbortActionMax)
+            .nullish()
+            .describe('ID of the abort action.'),
         variables: zod
             .array(
                 zod
@@ -2355,6 +2406,24 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.'
                 ),
+            last_run: zod
+                .union([
+                    zod.object({
+                        task_id: zod.uuid().describe('The task this run belongs to.'),
+                        status: zod
+                            .string()
+                            .describe(
+                                "Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled."
+                            ),
+                        ran_at: zod.iso
+                            .datetime({ offset: true })
+                            .describe('When the run started, or when the task was created if it has no run yet.'),
+                    }),
+                    zod.null(),
+                ])
+                .describe(
+                    'Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -2411,6 +2480,79 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
             .describe('Cancel every in-flight invocation of this workflow, including parked delays and waits.'),
     })
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
+
+/**
+ * Whether PostHog may suggest changes to this workflow.
+ *
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
+ */
+export const HogFlowsOptimizationCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Whether PostHog may suggest changes to this workflow.'),
+})
+
+/**
+ * Agent-authored changes to this workflow, awaiting a human's decision.
+ *
+ * Creating one stages nothing: a proposal only reaches the workflow's draft once a human
+ * approves it, and only reaches the live config once someone publishes that draft.
+ */
+export const hogFlowsProposalsCreateBodyTitleMax = 200
+
+export const hogFlowsProposalsCreateBodyStepIdMax = 200
+
+export const hogFlowsProposalsCreateBodySourceIdMax = 200
+
+export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(hogFlowsProposalsCreateBodyTitleMax).describe('Short summary of the proposed change.'),
+    rationale: zod.string().describe('Why this change is worth making, in prose a human reads.'),
+    content: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            'Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.'
+        ),
+    evidence: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
+    base_version: zod
+        .number()
+        .min(1)
+        .describe(
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
+        ),
+    step_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodyStepIdMax)
+        .nullish()
+        .describe(
+            "The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers."
+        ),
+    source_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodySourceIdMax)
+        .nullish()
+        .describe(
+            'Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.'
+        ),
+})
+
+export const hogFlowsProposalsApproveCreateBodyOverwriteDefault = false
+
+export const HogFlowsProposalsApproveCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsProposalsApproveCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409."
+        ),
+    expected_draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.'
+        ),
+})
 
 export const hogFlowsPublishCreateBodyConfirmDefault = false
 

@@ -4,6 +4,7 @@ import {
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
     formatPropertyLabel,
+    inlineEquivalentPropertyGroups,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -626,5 +627,54 @@ describe('resolvePropertyDefinitionId()', () => {
                 () => null
             )
         ).toBeUndefined()
+    })
+})
+
+describe('inlineEquivalentPropertyGroups()', () => {
+    const browser = { key: '$browser', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const os = { key: '$os', type: PropertyFilterType.Event } as AnyPropertyFilter
+    const cohort = { key: 'id', value: 3, type: PropertyFilterType.Cohort } as AnyPropertyFilter
+
+    it.each([
+        {
+            name: 'leaves a flat list alone',
+            values: [browser, cohort],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort],
+        },
+        {
+            name: 'inlines a nested group that joins its values the same way',
+            values: [browser, { type: FilterLogicalOperator.And, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, cohort, os],
+        },
+        {
+            name: 'inlines a single-value nested group whatever its operator',
+            values: [{ type: FilterLogicalOperator.Or, values: [cohort] }],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+        {
+            name: 'drops an empty nested group',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser],
+        },
+        {
+            name: 'keeps a nested group that joins its values differently',
+            values: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+            operator: FilterLogicalOperator.And,
+            expected: [browser, { type: FilterLogicalOperator.Or, values: [cohort, os] }],
+        },
+        {
+            name: 'inlines through several levels of the same operator',
+            values: [
+                { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [cohort] }] },
+            ],
+            operator: FilterLogicalOperator.And,
+            expected: [cohort],
+        },
+    ])('$name', ({ values, operator, expected }) => {
+        expect(inlineEquivalentPropertyGroups(values, operator)).toEqual(expected)
     })
 })

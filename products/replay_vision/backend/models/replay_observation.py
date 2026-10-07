@@ -220,7 +220,13 @@ def hydrate_for_serialization(
                 queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
             )
         )
-        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+        .annotate(
+            scanner_origin=F("scanner__origin"),
+            scanner_prompt_question=F("scanner__prompt_question"),
+            scanner_prompt_question_source=F("scanner__prompt_question_source"),
+            scanner_prompt_valence=F("scanner__prompt_valence"),
+            viewed=viewed,
+        )
     )
 
 

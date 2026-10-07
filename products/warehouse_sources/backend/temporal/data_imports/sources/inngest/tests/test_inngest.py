@@ -273,6 +273,98 @@ class TestV2ListPagination:
         assert rows == [{"id": "k1", "name": "prod key"}]
 
 
+class TestV2Runs:
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
+    def test_pages_a_pinned_ascending_queued_at_window_and_stages_the_next_cursor(self) -> None:
+        pages = [
+            {"data": [{"id": "r1", "output": {"ok": True}}], "page": {"cursor": "c2", "hasMore": True}},
+            {"data": [{"id": "r2", "output": "done"}], "page": {"cursor": "c3", "hasMore": False}},
+        ]
+        seen: list[tuple[str, dict]] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            seen.append((url, dict(params or {})))
+            return pages[len(seen) - 1]
+
+        rows, manager = _run_rows(
+            "runs",
+            fake_fetch,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-07-10T08:30:00Z",
+        )
+
+        assert [r["id"] for r in rows] == ["r1", "r2"]
+        assert rows[0]["output"] == json.dumps({"ok": True})
+        assert rows[1]["output"] == "done"
+        assert all(url == "https://api.inngest.com/v2/runs" for url, _ in seen)
+        for _, params in seen:
+            # The incremental watermark is a queuedAt value, so the server window and the order
+            # must use queuedAt too; any other field skips or re-reads runs.
+            assert params["from"] == "2026-07-10T08:30:00.000Z"
+            assert params["until"] == "2026-07-14T12:00:00.000Z"
+            assert params["timeField"] == "queuedAt"
+            assert params["order"] == "ASC"
+        assert "cursor" not in seen[0][1]
+        assert seen[1][1]["cursor"] == "c2"
+        assert [(s.cursor, s.received_after, s.received_before) for s in manager.saved] == [
+            ("c2", "2026-07-10T08:30:00.000Z", "2026-07-14T12:00:00.000Z")
+        ]
+
+    def test_resume_continues_the_saved_cursor_and_window(self) -> None:
+        state = InngestResumeConfig(
+            cursor="c2", received_after="2026-07-01T00:00:00.000Z", received_before="2026-07-14T00:00:00.000Z"
+        )
+        seen_params: list[dict] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            seen_params.append(dict(params or {}))
+            return {"data": [{"id": "r2"}], "page": {"hasMore": False}}
+
+        _run_rows("runs", fake_fetch, manager=_FakeResumableManager(state))
+        assert seen_params[0]["cursor"] == "c2"
+        assert seen_params[0]["from"] == "2026-07-01T00:00:00.000Z"
+        assert seen_params[0]["until"] == "2026-07-14T00:00:00.000Z"
+
+
+class TestV2FanOut:
+    def test_functions_are_listed_per_app_with_the_parent_app_id(self) -> None:
+        # `app_id` is part of the primary key; dropping it would collide functions across apps.
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            if url.endswith("/v2/apps"):
+                return {"data": [{"id": "billing"}, {"id": "my app/v2"}], "page": {"hasMore": False}}
+            return {"data": [{"id": f"fn-{url}"}], "page": {"hasMore": False}}
+
+        rows, _ = _run_rows("functions", fake_fetch)
+        assert [(r["app_id"], r["id"]) for r in rows] == [
+            ("billing", "fn-https://api.inngest.com/v2/apps/billing/functions"),
+            # User-defined app IDs are encoded so they can't change the request path.
+            ("my app/v2", "fn-https://api.inngest.com/v2/apps/my%20app%2Fv2/functions"),
+        ]
+
+    @time_machine.travel("2026-07-14T12:00:00Z", tick=False)
+    def test_session_runs_walk_keys_then_sessions_and_carry_both_parents(self) -> None:
+        seen: list[tuple[str, dict]] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict, logger: Any, params: dict | None = None) -> Any:
+            seen.append((url, dict(params or {})))
+            path = url.removeprefix("https://api.inngest.com")
+            if path == "/v2/sessions":
+                return {"data": [{"id": "userId"}], "page": {"hasMore": False}}
+            if path == "/v2/sessions/userId":
+                return {"data": [{"id": "u-1"}, {"id": "u-2"}], "page": {"hasMore": False}}
+            return {"data": [{"id": f"run-{path.split('/')[4]}"}], "page": {"hasMore": False}}
+
+        rows, _ = _run_rows("session_runs", fake_fetch)
+        assert rows == [
+            {"id": "run-u-1", "session_key": "userId", "session_id": "u-1"},
+            {"id": "run-u-2", "session_key": "userId", "session_id": "u-2"},
+        ]
+        # The session lists' default time range is undocumented, so the backfill window is always sent.
+        for url, params in seen[1:]:
+            assert params["from"] == "2026-04-15T12:00:00.000Z", url
+            assert params["until"] == "2026-07-14T12:00:00.000Z", url
+
+
 class TestV1Lists:
     @parameterized.expand(
         [
@@ -387,6 +479,8 @@ class TestSourceResponse:
             # successful job end — the walk's arrival order within the window is unverified.
             ("events", "desc", "received_at"),
             ("function_runs", "desc", "run_started_at"),
+            ("runs", "asc", "queuedAt"),
+            ("session_runs", "asc", "queuedAt"),
             ("cancellations", "asc", None),
             ("environments", "asc", None),
             ("webhooks", "asc", None),

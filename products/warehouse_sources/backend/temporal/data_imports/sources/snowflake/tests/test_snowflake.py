@@ -646,6 +646,9 @@ class TestGetPrimaryKeysForTable:
                 "Table 'DB.PUBLIC.T' does not exist or not authorized.",
                 False,
             ),
+            # Snowflake's backend was briefly unavailable — a self-recovering blip already
+            # classified as retryable elsewhere; not worth reporting as a bug.
+            ("290503: 290503: HTTP 503: Service Unavailable", False),
             # Anything else is unexpected and should still be surfaced.
             ("some other driver failure", True),
         ],
@@ -798,6 +801,7 @@ class TestResumableStreaming:
                 next(iterator)
         # The final batch's checkpoint is never saved, so a post-extraction retry re-reads only it.
         assert manager.save_state.call_count == 2
+        assert response.supports_resume is True
 
     def test_resume_bounds_the_scan_and_skips_the_count(self, impl):
         metadata_cursor = self._metadata_cursor()
@@ -853,6 +857,7 @@ class TestResumableStreaming:
         assert "ORDER BY" not in query
         assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
         manager.save_state.assert_not_called()
+        assert response.supports_resume is False
 
 
 def test_snowflake_source_is_resumable():
@@ -1186,6 +1191,25 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Mid-stream connection-reset error should be classified retryable: {error_msg}"
+
+    def test_service_unavailable_is_retryable(self, source):
+        # The real shape from production: the connector re-raised after exhausting its own
+        # internal `RetryRequest` budget against a briefly-unavailable Snowflake backend.
+        error_msg = "290503: 290503: HTTP 503: Service Unavailable"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Backend service-unavailable error should be classified retryable: {error_msg}"
+
+    def test_client_query_timeout_cancellation_is_retryable(self, source):
+        # The real shape from production: a metadata-listing query (column discovery) ran past the
+        # connector's client-side `network_timeout` timebomb and was cancelled. The query id is volatile.
+        error_msg = (
+            "000604 (57014): 01c77269-0209-c610-0090-351520cb5b97: SQL execution was cancelled by the "
+            "client due to a timeout. Error message received from the server: SQL execution canceled"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Client-side query-timeout cancellation should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
