@@ -15,12 +15,13 @@ from products.workflows.backend.facade.tasks import refresh_pending_email_sender
 class TestEmailSenderVerification(APIBaseTest):
     @parameterized.expand(
         [
-            ("verified", "Success", True, True, "feedback.example.com", False, True),
-            ("dkim_pending", "Pending", True, True, "feedback.example.com", False, False),
-            ("dmarc_missing", "Success", False, True, "feedback.example.com", False, False),
-            ("tenant_missing", "Success", True, False, "feedback.example.com", False, False),
-            ("mail_from_changed", "Success", True, True, "other.example.com", False, False),
-            ("sender_edited_during_check", "Success", True, True, "feedback.example.com", True, False),
+            ("verified", "Success", True, True, "feedback.example.com", False, False, True),
+            ("dkim_pending", "Pending", True, True, "feedback.example.com", False, False, False),
+            ("dmarc_missing", "Success", False, True, "feedback.example.com", False, False, False),
+            ("tenant_missing", "Success", True, False, "feedback.example.com", False, False, False),
+            ("mail_from_changed", "Success", True, True, "other.example.com", False, False, False),
+            ("sender_edited_during_check", "Success", True, True, "feedback.example.com", True, False, False),
+            ("overlapping_sweeps", "Success", True, True, "feedback.example.com", False, True, True),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
@@ -33,6 +34,7 @@ class TestEmailSenderVerification(APIBaseTest):
         has_tenant: bool,
         mail_from_domain: str,
         edit_during_check: bool,
+        reenter_during_check: bool,
         expected_verified: bool,
         mock_boto_client: MagicMock,
         mock_resolver: MagicMock,
@@ -56,6 +58,17 @@ class TestEmailSenderVerification(APIBaseTest):
         ses.get_identity_verification_attributes.return_value = {
             "VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}
         }
+        if reenter_during_check:
+            entered = False
+
+            def reenter_sweep(**kwargs: list[str]) -> dict[str, dict[str, dict[str, str]]]:
+                nonlocal entered
+                if not entered:
+                    entered = True
+                    refresh_pending_email_senders()
+                return {"VerificationAttributes": {"example.com": {"VerificationStatus": "Success"}}}
+
+            ses.get_identity_verification_attributes.side_effect = reenter_sweep
         ses.get_identity_dkim_attributes.return_value = {
             "DkimAttributes": {"example.com": {"DkimVerificationStatus": dkim_status}}
         }
@@ -92,16 +105,29 @@ class TestEmailSenderVerification(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == 200
         assert response.json()["config"]["verified"] is expected_verified
+        ses.get_identity_verification_attributes.assert_called_once_with(Identities=["example.com"])
 
         if expected_verified:
             mock_boto_client.reset_mock()
             refresh_pending_email_senders()
             mock_boto_client.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("provider_failure", False, [False, True], [True, True]),
+            ("budget_exhausted", True, [False, False], [False, True]),
+        ]
+    )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_provider_failure_does_not_block_other_senders_and_recovers_on_next_sweep(
-        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+        self,
+        _name: str,
+        interrupt_sweep: bool,
+        first_sweep_statuses: list[bool],
+        second_sweep_statuses: list[bool],
+        mock_boto_client: MagicMock,
+        mock_resolver: MagicMock,
     ) -> None:
         senders = [
             Integration.objects.create(
@@ -122,10 +148,13 @@ class TestEmailSenderVerification(APIBaseTest):
         identity_attributes = {
             "VerificationAttributes": {sender.config["domain"]: {"VerificationStatus": "Success"} for sender in senders}
         }
-        ses.get_identity_verification_attributes.side_effect = [
-            EndpointConnectionError(endpoint_url="https://ses.example.com"),
-            identity_attributes,
-        ]
+
+        def get_identity_attributes(**kwargs: list[str]) -> dict[str, dict[str, dict[str, str]]]:
+            if kwargs["Identities"] == ["first.example.com"]:
+                raise EndpointConnectionError(endpoint_url="https://ses.example.com")
+            return identity_attributes
+
+        ses.get_identity_verification_attributes.side_effect = get_identity_attributes
         ses.get_identity_dkim_attributes.return_value = {
             "DkimAttributes": {sender.config["domain"]: {"DkimVerificationStatus": "Success"} for sender in senders}
         }
@@ -142,13 +171,23 @@ class TestEmailSenderVerification(APIBaseTest):
         ses.list_resource_tenants.return_value = {"ResourceTenants": [{"TenantName": f"team-{self.team.id}"}]}
         mock_resolver.return_value.resolve.return_value = [SimpleNamespace(strings=[b"v=DMARC1; p=none;"])]
 
-        refresh_pending_email_senders()
+        if interrupt_sweep:
+            with patch(
+                "products.workflows.backend.services.email_sender_verification.monotonic",
+                side_effect=[0.0, 0.0, 241.0],
+            ):
+                refresh_pending_email_senders()
+        else:
+            refresh_pending_email_senders()
 
         urls = [f"/api/projects/{self.team.id}/integrations/{sender.id}/" for sender in senders]
-        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == [False, True]
+        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == first_sweep_statuses
 
         ses.get_identity_verification_attributes.side_effect = None
         ses.get_identity_verification_attributes.return_value = identity_attributes
         refresh_pending_email_senders()
 
+        assert [self.client.get(url).json()["config"]["verified"] for url in urls] == second_sweep_statuses
+
+        refresh_pending_email_senders()
         assert [self.client.get(url).json()["config"]["verified"] for url in urls] == [True, True]

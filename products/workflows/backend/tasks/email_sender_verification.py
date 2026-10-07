@@ -6,7 +6,7 @@ from posthog.tasks.utils import CeleryQueue
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=270)
 @skip_team_scope_audit
 def refresh_pending_email_senders() -> None:
     EmailSenderVerification.refresh_pending()
