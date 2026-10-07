@@ -26,32 +26,52 @@
 
 [PostHog](https://posthog.com/) ingests and stores your analytics, errors, replays, and business data so you and your agents can query and act on it. It gives you every tool you need to build a successful product, and captures the context agents need to diagnose problems, uncover opportunities, and ship fixes:
 
+**Analytics**
+
 - [Product analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior. Analyze your data with visualizations or SQL.
 - [Web analytics](https://posthog.com/web-analytics): Monitor web traffic and user sessions with a GA-like dashboard. Track conversion, web vitals, and revenue.
-- [AI observability](https://posthog.com/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app. Run LLM-as-a-judge evaluations to catch regressions.
-- [MCP analytics](https://posthog.com/docs/mcp-analytics) (beta): See how agents actually use your MCP server.
+- [Group analytics](https://posthog.com/group-analytics): Analyze multi-seat accounts and other groups of users.
+
+**Session replay**
+
 - [Session replay](https://posthog.com/session-replay): Watch real user sessions from your website or mobile app to diagnose issues and understand user behavior.
 - [Replay Vision](https://posthog.com/replay-vision): Let AI watch your recordings for you and turn them into queryable observations.
 - [Heatmaps](https://posthog.com/heatmaps): See where users click, scroll, and move on your site.
-- [Feature flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts.
-- [Experiments](https://posthog.com/experiments): Test changes and measure their statistical impact on goal metrics. Set up experiments with no code, too.
-- [Early access features](https://posthog.com/early-access-features) (beta): Let users opt into betas and register interest in upcoming features.
+
+**Observability**
+
 - [Error tracking](https://posthog.com/error-tracking): Track errors, get alerts, and resolve issues to improve your product.
 - [Logs](https://posthog.com/logs): Ingest, search, and analyze log data alongside the rest of your product data.
 - [Tracing](https://posthog.com/tracing): Follow distributed traces straight to the line of code that broke.
+
+**Ship and iterate**
+
+- [Feature flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts.
+- [Experiments](https://posthog.com/experiments): Test changes and measure their statistical impact on goal metrics. Set up experiments with no code, too.
+- [Early access features](https://posthog.com/early-access-features) (beta): Let users opt into betas and register interest in upcoming features.
+
+**Talk to users**
+
 - [Surveys](https://posthog.com/surveys): Ask anything with our collection of no-code survey templates, or build custom surveys with our survey builder.
 - [Support](https://posthog.com/support): Run customer support with a chat widget and a unified inbox, next to the product data behind each ticket.
-- [Group analytics](https://posthog.com/group-analytics): Analyze multi-seat accounts and other groups of users.
 - [Workflows](https://posthog.com/workflows): Automate actions and messages to your users, triggered by your product data.
+
+**Data**
+
 - [Context warehouse](https://posthog.com/context-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
 - [CDP](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time, or batch export large amounts to your warehouse.
 - [Endpoints](https://posthog.com/endpoints) (beta): Build custom API endpoints powered by your PostHog data.
+
+**AI and agents**
+
+- [AI observability](https://posthog.com/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app. Run LLM-as-a-judge evaluations to catch regressions.
+- [MCP analytics](https://posthog.com/docs/mcp-analytics) (beta): See how agents actually use your MCP server.
 - [PostHog AI](https://posthog.com/ai): Ask your product data anything. PostHog AI builds insights, writes SQL, and finds replays for you.
 - [Self-driving](https://posthog.com/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests, delivered to your Inbox for you to review and merge.
 
 You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Desktop](https://posthog.com/desktop)), or your own editor via [the MCP](https://posthog.com/mcp). If you are an agent, the docs are indexed for you at [posthog.com/llms.txt](https://posthog.com/llms.txt) and the changelog is plain Markdown at [posthog.com/changelog.md](https://posthog.com/changelog.md).
 
-Best of all, all of this is free to use with a [generous monthly free tier](https://posthog.com/pricing) for each tool. Get started by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
+All of this is free to use with a [monthly free tier](https://posthog.com/pricing) for each product. No card is required, and 97% of users pay $0. Join the 500,000+ teams already shipping with PostHog by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
 
 ## Table of Contents
 
@@ -86,7 +106,13 @@ We _do not_ provide customer support or offer guarantees for open source deploym
 
 ## Setting up PostHog
 
-Once you've got a PostHog instance, you can set it up by installing our [JavaScript web snippet](https://posthog.com/docs/getting-started/install?tab=snippet), one of [our SDKs](https://posthog.com/docs/getting-started/install?tab=sdks), or by [using our API](https://posthog.com/docs/getting-started/install?tab=api). You can also connect [the MCP](https://posthog.com/mcp) to bring PostHog into Claude Code, Cursor, or any MCP-compatible agent.
+Once you've got a PostHog instance, the fastest way to set it up is the setup wizard, which installs and configures PostHog in your app for you:
+
+```bash
+npx -y @posthog/wizard@latest
+```
+
+You can also install our [JavaScript web snippet](https://posthog.com/docs/getting-started/install?tab=snippet), one of [our SDKs](https://posthog.com/docs/getting-started/install?tab=sdks), or use [our API](https://posthog.com/docs/getting-started/install?tab=api). You can also connect [the MCP](https://posthog.com/mcp) to bring PostHog into Claude Code, Cursor, or any MCP-compatible agent.
 
 We have SDKs and libraries for popular languages and frameworks like:
 
