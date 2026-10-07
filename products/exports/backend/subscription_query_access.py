@@ -9,7 +9,7 @@ delivery.
 
 from typing import Any
 
-from posthog.api.sharing_publish_gate import blocked_access_for_user
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User

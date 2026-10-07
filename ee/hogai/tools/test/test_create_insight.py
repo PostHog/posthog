@@ -247,7 +247,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 start_date=timezone.now(),
             )
 
-        with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):
+        with patch("posthog.api.query_access_check.blocked_access_for_user", return_value=["restricted table"]):
             with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):
                 await tool._save_insight_query(insight, {"kind": "TrendsQuery", "series": [], "interval": "week"})
 
