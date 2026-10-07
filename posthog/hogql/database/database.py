@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import sys
 import copy
 import time
 import pickle
@@ -21,7 +22,6 @@ from django.db.models import Q, prefetch_related_objects
 import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
-from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -319,6 +319,14 @@ type DatabaseSchemaTable = (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _raise_if_temporal_cancellation(error: Exception) -> None:
+    # Temporal cancels a sync activity by raising its CancelledError (an Exception) in the activity thread.
+    # Swallowing it keeps a cancelled activity running. Read sys.modules to keep temporalio off the startup path.
+    temporal_exceptions = sys.modules.get("temporalio.exceptions")
+    if temporal_exceptions is not None and isinstance(error, temporal_exceptions.CancelledError):
+        raise error
 
 
 def is_reserved_system_name(name: str) -> bool:
@@ -988,9 +996,8 @@ class Database(BaseModel):
                     for view in build_revenue_views_for_handles(self._deferred_revenue_handles):
                         try:
                             views_node.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
-                        except TemporalCancelledError:
-                            raise
                         except Exception as e:
+                            _raise_if_temporal_cancellation(e)
                             capture_exception(e)
                     self._add_views(views_node)
             finally:
@@ -1063,9 +1070,8 @@ class Database(BaseModel):
             candidates.update(self._warehouse_table_names)
             candidates.update(self._warehouse_self_managed_table_names)
             candidates.update(self._view_table_names)
-        except TemporalCancelledError:
-            raise
-        except Exception:
+        except Exception as e:
+            _raise_if_temporal_cancellation(e)
             return []
         # Drop any candidate that matches the input — suggesting `persons` for `persons`
         # is noise, and on a direct connection the same name can exist in the broader
@@ -2037,9 +2043,8 @@ class Database(BaseModel):
                             revenue_source_handles = list_revenue_source_handles(team, timings)
                         else:
                             revenue_views = list(build_all_revenue_analytics_views(team, timings))
-                except TemporalCancelledError:
-                    raise
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         # Materialized views store their backing table under the saved-query-specific S3 path.
@@ -2422,9 +2427,8 @@ class Database(BaseModel):
                                 ),
                                 table_conflict_mode="ignore",
                             )
-                except TemporalCancelledError:
-                    raise
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         with timings.measure("revenue_analytics_views", emit_span=True):
@@ -2454,9 +2458,8 @@ class Database(BaseModel):
                 for view in revenue_views_to_add:
                     try:
                         views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
-                    except TemporalCancelledError:
-                        raise
                     except Exception as e:
+                        _raise_if_temporal_cancellation(e)
                         capture_exception(e)
                         continue
 
@@ -2872,9 +2875,8 @@ class Database(BaseModel):
                                 resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
-                except TemporalCancelledError:
-                    raise
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         # After joins, so a saved expression can never shadow a join field either.
@@ -2904,9 +2906,8 @@ class Database(BaseModel):
                     # foreign keys first); track it so only these fields, not event-modifier mappings, are
                     # overridable when the deferred build runs.
                     database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
-                except TemporalCancelledError:
-                    raise
                 except Exception as e:
+                    _raise_if_temporal_cancellation(e)
                     capture_exception(e)
 
         database.apply_schema_scope()
