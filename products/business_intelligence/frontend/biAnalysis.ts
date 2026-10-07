@@ -69,6 +69,7 @@ export interface BIAnalysisInput {
     where: string
     orderBy: string | null
     resultLimit?: number
+    resultWhere?: string | null
     previousWhere?: string
     previousDimensions?: string[]
 }
@@ -76,6 +77,7 @@ export interface BIAnalysisInput {
 export function hasBIAnalysis(config: BIConfig): boolean {
     return (
         !!config.topN ||
+        !!config.resultFilters?.length ||
         config.values.some((value) => !!value.tableCalculation) ||
         !!(config.totals?.rows || config.totals?.columns || config.totals?.subtotals)
     )
@@ -203,6 +205,12 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
     const periodQuery = (previous: boolean): string =>
         `SELECT ${[...aliases, ...calculations, ...(totals ? ['bi_grouping', ...groupingFlags] : []), ...(input.previousWhere ? [`${escapeHogQLString(previous ? comparisonLabel : 'Current period')} AS bi_period`] : [])].join(', ')} FROM bi_${previous ? 'previous' : 'current'}`
     ctes.push(`bi_calculated AS (${periods.map(periodQuery).join(' UNION ALL ')})`)
+    const results = input.resultWhere ? 'bi_filtered' : 'bi_calculated'
+    if (input.resultWhere) {
+        ctes.push(
+            `bi_filtered AS (SELECT * FROM bi_calculated WHERE ${totals ? 'bi_grouping != 0 OR ' : ''}(${input.resultWhere}))`
+        )
+    }
     const displayedDimension = (dimension: BIAnalysisDimension, index: number): string => {
         let expression = dimension.alias
         if (dimension === topDimension && config.topN?.includeOther) {
@@ -249,7 +257,7 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
     if (totals) {
         // Reserve at least half the result budget for detail cells when summaries alone exceed it.
         ctes.push(
-            `bi_ranked AS (SELECT *, row_number() OVER (PARTITION BY bi_grouping = 0 ORDER BY bi_grouping DESC${order ? `, ${order}` : ''}) AS bi_rank FROM bi_calculated)`
+            `bi_ranked AS (SELECT *, row_number() OVER (PARTITION BY bi_grouping = 0 ORDER BY bi_grouping DESC${order ? `, ${order}` : ''}) AS bi_rank FROM ${results})`
         )
     }
     for (const { alias } of dimensions) {
@@ -258,5 +266,5 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             break
         }
     }
-    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : 'bi_calculated'} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${input.resultLimit ?? config.limit}`
+    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : results} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${input.resultLimit ?? config.limit}`
 }
