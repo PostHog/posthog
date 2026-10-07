@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -39,16 +41,21 @@ const TEMPLATES: Partial<HogFlowTemplateApi>[] = [
 describe('firstRunGalleryLogic', () => {
     let logic: ReturnType<typeof firstRunGalleryLogic.build>
     let requestedEventNames: string[][]
+    let templateRequests: number
     let seenEvents: string[]
     let plannedEvents: string[]
 
     beforeEach(() => {
         requestedEventNames = []
+        templateRequests = 0
         seenEvents = []
         plannedEvents = []
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_flow_templates/': { count: TEMPLATES.length, results: TEMPLATES },
+                '/api/projects/:team_id/hog_flow_templates/': () => {
+                    templateRequests++
+                    return [200, { count: TEMPLATES.length, results: TEMPLATES }]
+                },
                 '/api/projects/:team_id/event_definitions/': ({ request }) => {
                     const names = new URL(request.url).searchParams.get('names')?.split(',') ?? []
                     requestedEventNames.push(names)
@@ -65,13 +72,16 @@ describe('firstRunGalleryLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: true })
     })
 
     async function openGallery(project: {
         seenEvents: string[]
         plannedEvents?: string[]
         ingestedEvent: boolean
+        enabled?: boolean
     }): Promise<void> {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: project.enabled ?? true })
         seenEvents = project.seenEvents
         plannedEvents = project.plannedEvents ?? []
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: project.ingestedEvent })
@@ -159,10 +169,17 @@ describe('firstRunGalleryLogic', () => {
         }
     )
 
-    it('asks for every event the email templates can start on in one request', async () => {
-        await openGallery({ seenEvents: [], ingestedEvent: false })
+    it.each([true, false])('loads template fit only while first run is enabled=%s', async (enabled) => {
+        await openGallery({ seenEvents: [], ingestedEvent: false, enabled })
+        if (!enabled) {
+            logic.actions.loadEmailTemplates()
+            await expectLogic(logic).toFinishAllListeners()
+        }
 
-        expect(requestedEventNames).toEqual([['$pageview', 'trial_started', 'user signed up', 'signed_up', 'sign_up']])
+        expect(templateRequests).toEqual(enabled ? 1 : 0)
+        expect(requestedEventNames).toEqual(
+            enabled ? [['$pageview', 'trial_started', 'user signed up', 'signed_up', 'sign_up']] : []
+        )
     })
 
     it('reports the gallery once its fit is known', async () => {
@@ -176,21 +193,35 @@ describe('firstRunGalleryLogic', () => {
     })
 
     it.each([
-        { pick: 'the recommended starter', templateId: WELCOME, recommended: true, ready: true },
-        { pick: 'another ready template', templateId: 'onboarding', recommended: false, ready: true },
-        { pick: 'a template that is not ready', templateId: 'trial', recommended: false, ready: false },
-    ])('reports picking $pick and opens it', async ({ templateId, recommended, ready }) => {
+        { pick: 'the recommended starter', templateId: WELCOME, recommended: true, ready: true, enabled: true },
+        { pick: 'another ready template', templateId: 'onboarding', recommended: false, ready: true, enabled: true },
+        { pick: 'a template that is not ready', templateId: 'trial', recommended: false, ready: false, enabled: true },
+        {
+            pick: 'a loaded template after disabling first run',
+            templateId: WELCOME,
+            recommended: true,
+            ready: true,
+            enabled: false,
+        },
+    ])('honors the flag when picking $pick', async ({ templateId, recommended, ready, enabled }) => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await openGallery({ seenEvents: ['signed_up', '$pageview'], ingestedEvent: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_FIRST_RUN]: enabled })
+        const originalSearchParams = router.values.searchParams
 
         logic.actions.pickTemplate(templateId)
 
-        expect(capture).toHaveBeenCalledWith('workflows first run template picked', {
-            template_id: templateId,
-            recommended,
-            ready,
-        })
-        expect(router.values.searchParams).toMatchObject({ templateId })
+        if (enabled) {
+            expect(capture).toHaveBeenCalledWith('workflows first run template picked', {
+                template_id: templateId,
+                recommended,
+                ready,
+            })
+            expect(router.values.searchParams).toMatchObject({ templateId })
+        } else {
+            expect(capture).not.toHaveBeenCalledWith('workflows first run template picked', expect.anything())
+            expect(router.values.searchParams).toEqual(originalSearchParams)
+        }
     })
 
     it.each([
