@@ -13,9 +13,9 @@ from .jev_manifest import (
     QuestionManifest,
     QuestionManifestStore,
     QuestionResult,
+    authorize_warehouse_question_subject,
     evaluate_question_manifest,
     freeze_question_inputs,
-    prepare_warehouse_question_inputs,
     warehouse_question_inputs,
 )
 from .jev_question import QuestionChunkEvaluator, QuestionChunkResult, QuestionConfig
@@ -57,7 +57,7 @@ class WarehouseQuestionExecutor:
         self.gateway: QuestionGatewayEvaluator | None = None
 
     def _authorize(self) -> None:
-        prepare_warehouse_question_inputs(self.team, self.user, self.subject, self.config, self.column_name)
+        authorize_warehouse_question_subject(self.team, self.user, self.subject, self.config, self.column_name)
 
     def _evaluate(self, inputs: list[str]) -> list[float]:
         self.reserve_inference_inputs(len(inputs))

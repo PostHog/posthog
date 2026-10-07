@@ -7,6 +7,8 @@ from uuid import uuid4
 import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -193,9 +195,10 @@ async def freeze_question_inputs(
         raise
 
 
-def prepare_warehouse_question_inputs(
+def authorize_warehouse_question_subject(
     team: "Team", user: "User", subject: SubjectRef, config: QuestionConfig, column_name: str
-) -> tuple[str, HogQLContext]:
+) -> tuple[Database, HogQLQueryModifiers]:
+    """Every chunk repeats this, so a grant revoked mid-run stops the rest of the evaluation."""
     if not subject.exists or subject.subject_type != SubjectType.TABLE:
         raise ValueError("The initial question executor supports resolved warehouse tables only.")
     if config.lookback_hours is not None:
@@ -207,6 +210,13 @@ def prepare_warehouse_question_inputs(
     database = Database.create_for(team=team, user=user, modifiers=modifiers)
     if not sql_denial_context(team.id, database).readable.contains(subject.subject_type, subject.subject_uuid):
         raise ValueError("The executing user cannot read the question check's subject.")
+    return database, modifiers
+
+
+def prepare_warehouse_question_inputs(
+    team: "Team", user: "User", subject: SubjectRef, config: QuestionConfig, column_name: str
+) -> tuple[str, HogQLContext]:
+    database, modifiers = authorize_warehouse_question_subject(team, user, subject, config, column_name)
     context = HogQLContext(
         team=team,
         team_id=team.id,

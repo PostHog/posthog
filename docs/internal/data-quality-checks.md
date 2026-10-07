@@ -64,6 +64,7 @@ The default TTL is 30 days and reads do not renew it.
 Malformed or expired entries miss; Redis errors stop evaluation.
 Leases use ownership tokens, bounded renewal that outlasts the inference wait, and atomic publication and release.
 A crash between the model response and cache publication can still cause duplicate billed inference.
+So can a failed gateway batch: the runner waits for every batch in a chunk, so one failure discards the decisions the other batches already returned and the retry pays for them again.
 
 The chunk evaluator reuses `PromptJevRunner` and the billed gateway.
 Chunk limits, an inference input budget, and execution deadlines raise errors with incomplete coverage; they never produce a successful result from fewer rows.
