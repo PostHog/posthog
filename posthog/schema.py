@@ -5743,6 +5743,10 @@ class FileSystemImport(BaseModel):
         alias="_loading",
         description="Used to indicate pending actions, frontend only",
     )
+    alternativeFlags: list[str] | None = Field(
+        default=None,
+        description=("Other flags that also show the item. The item is shown when `flag` or any of these is on."),
+    )
     category: str | None = Field(default=None, description="Category label to place this under")
     created_at: str | None = Field(
         default=None,

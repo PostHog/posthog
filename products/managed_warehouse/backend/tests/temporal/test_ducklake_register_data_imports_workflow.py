@@ -53,25 +53,34 @@ def _cp_no_rows():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("flag_enabled", [True, False])
-async def test_registration_gate_uses_data_warehouse_scene_flag(monkeypatch, ateam, flag_enabled):
-    captured: dict[str, object] = {}
+@pytest.mark.parametrize(
+    "enabled_flags, failing_flags, expected",
+    [
+        ({"data-warehouse-scene"}, set(), True),
+        ({"data-warehouse-scene-trino"}, set(), True),
+        (set(), set(), False),
+        ({"data-warehouse-scene"}, {"data-warehouse-scene-trino"}, True),
+    ],
+)
+async def test_registration_gate_accepts_either_managed_warehouse_flag(
+    monkeypatch, ateam, enabled_flags, failing_flags, expected
+):
+    calls: list[dict[str, object]] = []
 
     def fake_feature_enabled(key, distinct_id, **kwargs):
-        captured.update(key=key, distinct_id=distinct_id, **kwargs)
-        return flag_enabled
+        calls.append({"key": key, "distinct_id": distinct_id, **kwargs})
+        if key in failing_flags:
+            raise RuntimeError("flag evaluation failed")
+        return key in enabled_flags
 
     monkeypatch.setattr(registration_module, "feature_enabled_or_false", fake_feature_enabled)
 
     result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
 
-    assert result is flag_enabled
-    assert captured["key"] == "data-warehouse-scene"
-    assert captured["distinct_id"] == str(ateam.organization_id)
-    assert captured["groups"] == {"organization": str(ateam.organization_id)}
-    assert captured["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
-    assert captured["only_evaluate_locally"] is True
-    assert captured["send_feature_flag_events"] is False
+    assert result is expected
+    assert calls[0]["distinct_id"] == str(ateam.organization_id)
+    assert calls[0]["groups"] == {"organization": str(ateam.organization_id)}
+    assert calls[0]["group_properties"] == {"organization": {"id": str(ateam.organization_id)}}
 
 
 @pytest.mark.asyncio

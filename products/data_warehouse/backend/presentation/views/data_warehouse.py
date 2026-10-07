@@ -55,6 +55,12 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
     serialize_monitoring_series,
     serialize_monitoring_snapshot,
 )
+from products.data_warehouse.backend.presentation.managed_warehouse_trino_monitoring import (
+    ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+    ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+    serialize_trino_monitoring_series,
+    serialize_trino_monitoring_snapshot,
+)
 from products.data_warehouse.backend.presentation.pipeline_stats import (
     CompletedActivityQuerySerializer,
     DataHealthIssuesResponseSerializer,
@@ -91,7 +97,7 @@ _MONITORING_ERROR_RESPONSES = {
     ),
     status.HTTP_404_NOT_FOUND: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
-        description="The organization does not have a managed warehouse.",
+        description="The organization does not have a managed warehouse, or this endpoint does not match its query engine.",
     ),
     status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
@@ -106,6 +112,23 @@ _MONITORING_ERROR_RESPONSES = {
         description="The managed warehouse monitoring service timed out.",
     ),
 }
+
+
+_TRINO_VARIANT_MONITORING_ERROR = (
+    "This warehouse runs on Trino. Use the Trino monitoring endpoints "
+    "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-trino-monitoring-get and managed-warehouse-trino-metric-history-get."
+)
+
+_DUCKDB_VARIANT_MONITORING_ERROR = (
+    "This warehouse doesn't run on Trino. Use the managed warehouse monitoring endpoints "
+    "(managed-warehouse-monitoring and managed-warehouse-monitoring-timeseries) instead. "
+    "The matching MCP tools are managed-warehouse-monitoring-get and managed-warehouse-metric-history-get."
+)
+
+
+def _wrong_monitoring_variant_response(message: str) -> Response:
+    return Response({"error": message}, status=status.HTTP_404_NOT_FOUND)
 
 
 def _managed_warehouse_monitoring_error_response(upstream_response: Response) -> Response:
@@ -249,6 +272,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _readable_team_schema_ids(self) -> list:
         return list(self._readable_schema_ids(list(self._team_schemas())))
+
+    def _managed_warehouse_disabled_response(self) -> Response | None:
+        if managed_warehouse.is_enabled(self.team.organization_id):
+            return None
+        return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
@@ -1308,7 +1336,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "WarehouseConnection",
                         fields={
                             "host": serializers.CharField(
-                                help_text="Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
+                                help_text="Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
                             ),
                             "port": serializers.IntegerField(help_text="Postgres wire-protocol port"),
                             "database": serializers.CharField(help_text="Database to connect to — always 'ducklake'"),
@@ -1316,6 +1344,36 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         },
                         required=False,
                         allow_null=True,
+                        help_text="Postgres connection target. Null for organizations on the Trino Data ops variant.",
+                    ),
+                    "trino": inline_serializer(
+                        "WarehouseTrinoStatus",
+                        fields={
+                            "state": serializers.ChoiceField(
+                                choices=["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"],
+                                help_text="Trino lifecycle state for the organization. `unavailable` means the "
+                                "state could not be read.",
+                            ),
+                            "ready_at": serializers.DateTimeField(
+                                allow_null=True, help_text="When Trino became ready for the organization"
+                            ),
+                            "connection": inline_serializer(
+                                "WarehouseTrinoConnection",
+                                fields={
+                                    "host": serializers.CharField(help_text="Trino host to connect to over HTTPS"),
+                                    "port": serializers.IntegerField(help_text="Trino HTTPS port"),
+                                    "catalog": serializers.CharField(
+                                        help_text="Trino catalog that holds the organization's data"
+                                    ),
+                                    "username": serializers.CharField(help_text="Root username"),
+                                },
+                                allow_null=True,
+                                help_text="Trino connection target. Null until Trino is ready and reachable.",
+                            ),
+                        },
+                        required=False,
+                        allow_null=True,
+                        help_text="Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise.",
                     ),
                     "has_backfill": serializers.BooleanField(
                         help_text="Whether this project already has a warehouse backfill configured. When true, its "
@@ -1351,6 +1409,17 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
             if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
+            if managed_warehouse.data_ops_variant(self.team.organization_id) == "trino":
+                # Users of a Trino organization connect only through Trino.
+                resp.data["connection"] = None
+                # Trino's state only matters once the warehouse is ready, and the scene polls while it is not.
+                resp.data["trino"] = (
+                    managed_warehouse.trino_status_for(self.team.organization_id)
+                    if resp.data.get("state") == "ready"
+                    else None
+                )
+            else:
+                resp.data["trino"] = None
         return resp
 
     @extend_schema(
@@ -1374,6 +1443,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        # Workers still run a Trino organization's internal writes. That data is not for its users.
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
         if upstream_response.status_code != status.HTTP_200_OK:
             return _managed_warehouse_monitoring_error_response(upstream_response)
@@ -1413,6 +1485,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         metric = cast(
             managed_warehouse.ManagedWarehouseMonitoringMetric,
             request.validated_query_data["metric"],
@@ -1440,6 +1514,97 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
         return Response(data)
 
+    @extend_schema(
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseTrinoMonitoringSnapshotResponseSerializer,
+                description="Current organization-scoped Trino query activity.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring snapshot",
+        description="Get tenant-safe live Trino query totals, limits, and in-flight queries for the current organization.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        upstream_response = managed_warehouse.trino_monitoring_snapshot_for(organization_id)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_snapshot(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring snapshot response failed validation",
+                organization_id=organization_id,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
+    @validated_request(
+        query_serializer=ManagedWarehouseTrinoMonitoringSeriesQuerySerializer,
+        responses={
+            status.HTTP_200_OK: OpenApiResponse(
+                response=ManagedWarehouseMonitoringSeriesResponseSerializer,
+                description="One organization-scoped Trino monitoring metric over time.",
+            ),
+            **_MONITORING_ERROR_RESPONSES,
+        },
+        summary="Get managed warehouse Trino monitoring time series",
+        description="Get one allow-listed Trino monitoring metric for the current organization and trailing time window.",
+    )
+    # nosemgrep: api-path-underscore -- sits under the shipped data_warehouse prefix, a rename breaks clients
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="managed-warehouse-trino-monitoring-timeseries",
+        required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
+    )
+    def managed_warehouse_trino_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
+        organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "duckdb":
+            return _wrong_monitoring_variant_response(_DUCKDB_VARIANT_MONITORING_ERROR)
+        metric = cast(
+            managed_warehouse.ManagedWarehouseTrinoMonitoringMetric,
+            request.validated_query_data["metric"],
+        )
+        window = cast(
+            managed_warehouse.ManagedWarehouseMonitoringWindow,
+            request.validated_query_data["window"],
+        )
+        upstream_response = managed_warehouse.trino_monitoring_series_for(organization_id, metric, window)
+        if upstream_response.status_code != status.HTTP_200_OK:
+            return _managed_warehouse_monitoring_error_response(upstream_response)
+
+        try:
+            data = serialize_trino_monitoring_series(
+                upstream_response.data,
+                expected_organization_id=organization_id,
+                expected_metric=metric,
+            )
+        except ManagedWarehouseMonitoringUpstreamError:
+            logger.warning(
+                "Managed warehouse Trino monitoring series response failed validation",
+                organization_id=organization_id,
+                metric=metric,
+            )
+            return _managed_warehouse_monitoring_error_response(Response(status=status.HTTP_502_BAD_GATEWAY))
+        return Response(data)
+
     @extend_schema(responses={200: ManagedWarehouseDataStatusResponseSerializer})
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
@@ -1450,6 +1615,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
         """Get events, persons, and imported source readiness for the managed warehouse."""
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
 
     @validated_request(
@@ -1467,6 +1634,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read", "external_data_source:read"],
     )
     def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         source_id = str(request.validated_query_data["source_id"])
         return Response(
             {
