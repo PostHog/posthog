@@ -47,6 +47,12 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
+from products.autoresearch.backend.training.realized_context import (
+    RealizedContext,
+    RealizedDate,
+    RelatedPipeline,
+    build_realized_context,
+)
 from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
@@ -188,7 +194,8 @@ def _report_notebook_step(pipeline: AutoresearchPipeline, *, training_run_id: st
              score histogram and the realized vs predicted rate by decile. A new model has no
              predictions yet, so these cells must handle an empty result: print a clear message
              such as "No predictions yet. Re-run after the first scoring run." and do not fail.
-           - **How it was built** and **Caveats and recommended use** — prose.
+           - **How it was built** and **Caveats and recommended use** — prose. Include the line
+             from `report.md` on how this run used the realized results.
 
            Rules for every cell:
            - Every number comes from a SQL cell. Do not type metrics into Python or prose tables.
@@ -212,6 +219,7 @@ def build_agent_description(
     training_sample: TrainingSample | None = None,
     report_notebook: bool = False,
     unscorable_champion: UnscorableChampion | None = None,
+    realized_context: RealizedContext | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -236,6 +244,7 @@ def build_agent_description(
 
     sample_clause = _describe_training_sample(training_sample)
     unscorable_clause = _describe_unscorable_champion(unscorable_champion)
+    realized_clause = _describe_realized_context(realized_context)
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -309,7 +318,7 @@ def build_agent_description(
            `model_spec`). Mine all this before you iterate: reuse the features and transforms that
            won, act on a prior `recommended_next` when sensible, and do NOT re-try approaches already
            in `dead_ends`. In each iteration's `agent_description`, cite which prior learning you are
-           building on or deliberately avoiding.
+           building on or deliberately avoiding.{realized_clause}
 
         If no champion exists you are establishing the baseline — aim for AUC > 0.6.{unscorable_clause}
 
@@ -627,7 +636,8 @@ def build_agent_description(
            - **What drives it** — the top features, their direction, and the *intuition* behind
              each, not just a number. Ground this in the importances `train.py` computed (write them
              to its `output.json`), not from memory.
-           - **How it was built** — the winning approach and the notable dead-ends, briefly.
+           - **How it was built** — the winning approach and the notable dead-ends, briefly. Add
+             one line on how the realized results in Step 0 changed what this run tried.
            - **Caveats & recommended use** — when to rely on it and when not to.
 
            Charts: use ```mermaid``` code fences — they render inline and stay portable. Colors are
@@ -714,6 +724,131 @@ def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: in
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
+
+_REALIZED_GUIDANCE = """
+
+4. **Read how the models perform as served.** The backend computed the results below from the
+   validated prediction dates. Realized AUC is the AUC of a served model against the outcomes
+   that happened. Use it to find what kind of problem this pipeline has. It is not a target.
+   - Compare the gap with the interval first. When the holdout AUC is inside the realized
+     interval, the gap is noise.
+   - A steady gap on every date suggests holdout optimism. Prefer simpler models and pooled
+     cross-validation to small holdout gains.
+   - A gap that changes with the weekday or the date suggests drift or seasonality. When related
+     pipelines show the same pattern, the cause is shared.
+   - A gap that starts right after a promotion suggests train/serve skew. Check that each feature
+     computes the same way at scoring as at training.
+   - A mean score far from the base rate while the ranking holds is a base-rate shift, not a
+     ranking problem.
+   - Use the realized results to choose a direction. Then judge each iteration on holdout and
+     cross-validation, as before. Do not try a change and check it against the realized results:
+     the holdout of this run covers the same recent dates, so that tunes against the holdout.
+"""
+
+
+def _describe_realized_context(context: RealizedContext | None) -> str:
+    if context is None:
+        return ""
+    if context.is_empty:
+        body = (
+            "\nNo realized results yet: no prediction date of this pipeline or a related pipeline has been validated."
+        )
+    else:
+        body = "\n" + _wrap_untrusted("\n" + _realized_tables(context) + "\n")
+    # Indented to the brief's level, because the brief is dedented after this text goes in.
+    return textwrap.indent(_REALIZED_GUIDANCE + body, " " * 8)
+
+
+def _realized_tables(context: RealizedContext) -> str:
+    lines = [
+        "### This pipeline",
+        "",
+        "gap = holdout AUC - realized AUC. A positive gap means the model ranks worse as served.",
+    ]
+    for model in context.models:
+        heading = f"**{model.label}**: holdout AUC {_fmt(model.holdout_score)}"
+        if model.promoted_on is not None:
+            heading += f", promoted {model.promoted_on.isoformat()}"
+        lines += ["", heading]
+        if not model.dates:
+            lines.append("No validated dates yet.")
+            continue
+        lines += [
+            "",
+            "| date | weekday | realized AUC (95% interval) | gap | holdout in interval | positives / scored | mean score / base rate |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_auc(d)} | {_fmt_gap(d)}"
+            f" | {_fmt_inside(d)} | {d.n_positive} / {d.n_scored} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
+            for d in model.dates
+        ]
+    if context.related:
+        lines += [
+            "",
+            "### Related pipelines",
+            "",
+            "Their AUCs do not compare with this pipeline, because the horizon or the target differs.",
+            "Read only the shape of the gap and the calibration, for the model that served each date.",
+        ]
+        for related in context.related:
+            lines += ["", _related_heading(related), ""]
+            lines += [
+                "| date | weekday | gap | holdout in interval | mean score / base rate |",
+                "|---|---|---|---|---|",
+            ]
+            lines += [
+                f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_gap(d)}"
+                f" | {_fmt_inside(d)} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
+                for d in related.dates
+            ]
+    return "\n".join(lines)
+
+
+def _related_heading(related: RelatedPipeline) -> str:
+    return (
+        f"**{related.name}** ({related.relation}, target `{related.target_event}`, horizon"
+        f" {related.horizon_days} days, latest realized result {related.latest_date.isoformat()})"
+    )
+
+
+def _fmt(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
+
+
+# Online validation stores rates to 4 decimals. With 3, a rare target's miscalibration reads as 0.000 / 0.000.
+def _fmt_rate(value: float | None) -> str:
+    return "-" if value is None else f"{value:.4f}"
+
+
+def _fmt_auc(d: RealizedDate) -> str:
+    if d.realized_auc is None:
+        return "no AUC (one class)"
+    if d.realized_auc_ci_low is None or d.realized_auc_ci_high is None:
+        return _fmt(d.realized_auc)
+    return f"{_fmt(d.realized_auc)} ({_fmt(d.realized_auc_ci_low)}-{_fmt(d.realized_auc_ci_high)})"
+
+
+def _fmt_gap(d: RealizedDate) -> str:
+    if d.realized_auc is None or d.holdout_score is None:
+        return "-"
+    return f"{d.holdout_score - d.realized_auc:+.3f}"
+
+
+def _fmt_inside(d: RealizedDate) -> str:
+    if d.holdout_score is None or d.realized_auc_ci_low is None or d.realized_auc_ci_high is None:
+        return "-"
+    return "yes" if d.realized_auc_ci_low <= d.holdout_score <= d.realized_auc_ci_high else "no"
+
+
+def _realized_context_for_brief(pipeline: AutoresearchPipeline) -> RealizedContext | None:
+    """A read that fails leaves the realized results out rather than failing the launch."""
+    try:
+        return build_realized_context(pipeline)
+    except Exception:
+        logger.warning("autoresearch_realized_context_unread", pipeline_id=str(pipeline.pk), exc_info=True)
+        return None
 
 
 def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
@@ -824,6 +959,7 @@ def run_training(
             training_sample=_training_sample_for_brief(pipeline),
             report_notebook=report_notebook,
             unscorable_champion=_unscorable_champion_for_brief(pipeline),
+            realized_context=_realized_context_for_brief(pipeline),
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"
