@@ -114610,6 +114610,10 @@ export namespace Schemas {
      */
     all_roles_unassigned?: boolean;
     /**
+     * When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.
+     */
+    inactive_last?: boolean;
+    /**
      * Include churned accounts. Churned accounts are hidden by default.
      */
     include_churned?: boolean;

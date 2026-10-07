@@ -1987,6 +1987,17 @@ class AccountViewSet(
                 enum=["name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"],
                 description="Sort order. Defaults to '-created_at'.",
             ),
+            OpenApiParameter(
+                name="inactive_last",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "When true, active and tracked accounts come before churned or ignored ones, "
+                    "and `ordering` applies within each group. Use with `include_churned` or `include_ignored`."
+                ),
+            ),
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
@@ -2006,6 +2017,7 @@ class AccountViewSet(
                 include_churned=request.query_params.get("include_churned", "").lower() == "true",
                 include_ignored=request.query_params.get("include_ignored", "").lower() == "true",
                 ordering=ordering,
+                inactive_last=request.query_params.get("inactive_last", "").lower() == "true",
             ),
             AccountSerializer,
         )

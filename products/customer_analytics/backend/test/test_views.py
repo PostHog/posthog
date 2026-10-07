@@ -546,6 +546,23 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
 
+    def test_list_inactive_last_puts_churned_and_ignored_accounts_after_active_ones(self) -> None:
+        self._create_account(name="A churned", churned_at=timezone.now())
+        self._create_account(name="B ignored", ignored_at=timezone.now())
+        self._create_account(name="C active")
+        self._create_account(name="D active")
+
+        response = self.client.get(
+            self.endpoint_base,
+            data={"include_churned": "true", "include_ignored": "true", "inactive_last": "true", "ordering": "name"},
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(
+            [account["name"] for account in response.json()["results"]],
+            ["C active", "D active", "A churned", "B ignored"],
+        )
+
     def test_retrieve(self):
         ignored_at = timezone.now()
         account = self._create_account(

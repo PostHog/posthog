@@ -113,6 +113,7 @@ export const AccountsListParams = () => zod.object({
         ),
 })
 
+export const accountsListQueryInactiveLastDefault = false
 export const accountsListQueryIncludeChurnedDefault = false
 export const accountsListQueryIncludeIgnoredDefault = false
 
@@ -121,6 +122,12 @@ export const AccountsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    inactive_last: zod
+        .boolean()
+        .default(accountsListQueryInactiveLastDefault)
+        .describe(
+            'When true, active and tracked accounts come before churned or ignored ones, and `ordering` applies within each group. Use with `include_churned` or `include_ignored`.'
+        ),
     include_churned: zod
         .boolean()
         .default(accountsListQueryIncludeChurnedDefault)

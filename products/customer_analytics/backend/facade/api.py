@@ -37,6 +37,7 @@ from django.db.models import (
     Count,
     DateTimeField,
     Exists,
+    ExpressionWrapper,
     F,
     Field,
     FloatField,
@@ -3701,6 +3702,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
+    inactive_last: bool = False,
 ) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
@@ -3731,7 +3733,15 @@ def list_accounts_for_view(
             .values("account_id")
         )
 
-    queryset = queryset.order_by(ordering) if ordering else queryset.order_by("-created_at")
+    order_fields = [ordering or "-created_at"]
+    if inactive_last:
+        queryset = queryset.annotate(
+            is_inactive=ExpressionWrapper(
+                Q(churned_at__isnull=False) | Q(ignored_at__isnull=False), output_field=BooleanField()
+            )
+        )
+        order_fields.insert(0, "is_inactive")
+    queryset = queryset.order_by(*order_fields)
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])

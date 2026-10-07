@@ -321,6 +321,7 @@ const accountsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 all_roles_unassigned: params.all_roles_unassigned,
+                inactive_last: params.inactive_last,
                 include_churned: params.include_churned,
                 include_ignored: params.include_ignored,
                 limit: params.limit,
