@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import F, Q
 
 import structlog
@@ -67,6 +67,10 @@ class Command(BaseCommand):
         if failed_teams:
             summary = f"{summary}, {failed_teams} team(s) failed"
         self.stdout.write(summary)
+        if failed or failed_teams:
+            # Raised only after every team ran, so one failing team does not stop the others and a job runner
+            # still sees a partial backfill as a failure.
+            raise CommandError(summary)
 
     def _teams(self, team_id: int | None) -> Iterator[Team]:
         """Project root teams only, because an insight always belongs to its project's root team."""
