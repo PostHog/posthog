@@ -7,7 +7,7 @@ use deltalake::{DeltaTable, DeltaTableBuilder};
 
 use crate::errors::{Error, Result};
 use crate::prefetch::{CheckpointCache, CheckpointPrefetchLogStore};
-use crate::store::MultipartLogStore;
+use crate::store::{CommitProbe, MultipartLogStore};
 
 /// How data-file uploads are performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +52,9 @@ impl MultipartConfig {
 /// than a plain load once it is open.
 pub async fn open_table(uri: &str, storage_options: HashMap<String, String>) -> Result<DeltaTable> {
     let (table, prefetch) = open_table_prefetched(uri, storage_options).await?;
+    // Nothing clears the cache after later operations on this table, so it must not
+    // collect the commit files that they read and write.
+    prefetch.stop_caching_commits();
     prefetch.clear();
     Ok(table)
 }
@@ -104,6 +107,28 @@ pub fn wrap_multipart(table: DeltaTable, multipart: MultipartConfig) -> DeltaTab
         multipart.part_size,
     ));
     let mut wrapped_table = DeltaTable::new(wrapped, Default::default());
+    wrapped_table.state = table.state;
+    wrapped_table
+}
+
+/// [`wrap_multipart`] for a handle's view of its table. `commit_probe` lets a commit
+/// through the view skip the LIST before the commit put (see [`CommitProbe`]). Always
+/// wraps; a zero threshold keeps every upload a single put.
+pub(crate) fn wrap_multipart_view(
+    table: DeltaTable,
+    multipart: MultipartConfig,
+    commit_probe: Option<CommitProbe>,
+) -> DeltaTable {
+    let threshold = if multipart.threshold == 0 {
+        usize::MAX
+    } else {
+        multipart.threshold
+    };
+    let mut wrapped = MultipartLogStore::new(table.log_store(), threshold, multipart.part_size);
+    if let Some(probe) = commit_probe {
+        wrapped = wrapped.with_commit_probe(probe);
+    }
+    let mut wrapped_table = DeltaTable::new(Arc::new(wrapped), Default::default());
     wrapped_table.state = table.state;
     wrapped_table
 }

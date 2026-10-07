@@ -121,7 +121,7 @@ export function SearchPerformanceTab(): JSX.Element {
                                                 value: 'conversions',
                                                 label: 'Spend and conversions',
                                                 disabledReason: !hasPaidSources
-                                                    ? 'Organic search does not report spend or conversions'
+                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                                                     : undefined,
                                             },
                                         ]}

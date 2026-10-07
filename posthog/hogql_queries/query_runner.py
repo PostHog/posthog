@@ -194,7 +194,6 @@ from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
-    QUERY_FAILURE_CACHING_FLAG,
     Budget,
     QueryFailureCache,
     QueryFailureRecord,
@@ -2079,7 +2078,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raw_results: Optional[bytes] = None
         # The breaker record is only needed here to gate async dispatch; blocking execution is
         # gated once, inside _execute_and_cache_blocking.
-        include_failure = self._query_failure_caching_enabled and execution_mode in (
+        include_failure = execution_mode in (
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -2209,10 +2208,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # cached raw results (if any) must not leak onto the fresh response.
         self.raw_cached_results_bytes = None
         return None
-
-    @cached_property
-    def _query_failure_caching_enabled(self) -> bool:
-        return self._team_flag_enabled_locally(QUERY_FAILURE_CACHING_FLAG)
 
     @cached_property
     def _query_single_flight_enabled(self) -> bool:
@@ -2487,8 +2482,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # The forced dispatch skips the result cache, but not the breaker: the
                         # enqueued job runs under the async budget, so only failures that cover
                         # that budget forbid it.
-                        if self._query_failure_caching_enabled:
-                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
+                        self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
                         # We should always kick off async calculation and disregard the cache.
                         # cache_hit is left unset on this path because the cache wasn't consulted.
                         slo.tag(execution_path="async_dispatched")
@@ -2591,15 +2585,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _raise_if_breaker_forbids(self, cache_manager: QueryCache, user: Optional[User]) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         self._raise_if_failure_fresh_for(
             cache_manager.open_failure(), budget_for_limit_context(self.limit_context), user
         )
 
     def _record_breaker_failure(self, cache_manager: QueryCache, exc: Exception) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         # Transient error classes classify to None and are never recorded.
         failure_kind = classify_failure(exc, self.team.pk)
         if failure_kind is not None:
@@ -2678,6 +2668,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
             "clickhouse_workload": None,
             "clickhouse_query_count": None,
+            "warehouse_tables_referenced": None,
+            "saved_queries_referenced": None,
+            "direct_connection_source_ids": None,
             **cache_tracking_props,
             **phase_times,
         }
@@ -2908,7 +2901,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
 
-            if not has_error and self._query_failure_caching_enabled:
+            if not has_error:
                 # Deliberately outside the cache-write condition above: a successful export or
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()
@@ -2932,6 +2925,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "clickhouse_duration_ms": round(query_stats.duration_ms),
                 "clickhouse_workload": query_stats.workload(),
                 "clickhouse_query_count": query_stats.query_count,
+                "warehouse_tables_referenced": sorted(query_stats.warehouse_table_ids),
+                "saved_queries_referenced": sorted(query_stats.saved_query_ids),
+                "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **phase_times,

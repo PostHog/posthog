@@ -13,8 +13,8 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 # `sync_type_config` key: {<table prefix>: {"active": str, "active_since": iso, "active_job_id": str,
-# "history_since": iso, "inactive_since": {<folder>: iso}}}, one entry per table under the schema
-# (the snapshot table and a CDC companion have different prefixes).
+# "history_since": iso, "inactive_since": {<folder>: iso}, "non_slot_active_until": iso}}, one entry
+# per table under the schema (the snapshot table and a CDC companion have different prefixes).
 QUERY_FOLDER_STATE_KEY = "query_folder_state"
 
 # The fixed slots a table rotates through under the double-buffer flag. Three rather than two, so the
@@ -56,6 +56,9 @@ class QueryFolderPointerHistory:
     history_since: datetime | None
     # When each folder last stopped being the pointer.
     inactive_since: dict[str, datetime]
+    # When a folder that is not a slot last stopped being the pointer. Such a folder is not reused,
+    # so the publish step deletes it. None when the record saw no such move.
+    non_slot_active_until: datetime | None = None
 
     @classmethod
     def from_config(cls, sync_type_config: Any, table_prefix: str) -> QueryFolderPointerHistory | None:
@@ -80,6 +83,7 @@ class QueryFolderPointerHistory:
             active_job_id=active_job_id if isinstance(active_job_id, str) else None,
             history_since=_parse_instant(state.get("history_since")),
             inactive_since=inactive_since,
+            non_slot_active_until=_parse_instant(state.get("non_slot_active_until")),
         )
 
     def stopped_being_active(self, folder: str) -> datetime | None:
@@ -122,6 +126,9 @@ def advance_query_folder_pointer(
         inactive_since[previous_folder] = at
     inactive_since.pop(queryable_folder, None)
     slot_names = query_folder_slot_names(table_prefix)
+    non_slot_active_until = previous.non_slot_active_until if previous is not None else None
+    if previous_folder is not None and previous_folder != queryable_folder and previous_folder not in slot_names:
+        non_slot_active_until = at
 
     states = sync_type_config.get(QUERY_FOLDER_STATE_KEY)
     if not isinstance(states, dict):
@@ -134,5 +141,6 @@ def advance_query_folder_pointer(
         "inactive_since": {
             folder: instant.isoformat() for folder, instant in inactive_since.items() if folder in slot_names
         },
+        "non_slot_active_until": non_slot_active_until.isoformat() if non_slot_active_until is not None else None,
     }
     sync_type_config[QUERY_FOLDER_STATE_KEY] = states

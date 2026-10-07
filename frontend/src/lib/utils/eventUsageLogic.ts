@@ -99,7 +99,14 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
+export type DashboardFilterChangeType =
+    | 'date'
+    | 'properties'
+    | 'breakdown'
+    | 'variable'
+    | 'interval'
+    | 'test_accounts'
+    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -782,7 +789,6 @@ export function sanitizeQuery(query: Node | null): SanitizedQuery {
             metrics_clause_count: query.clauses.length,
             metrics_has_formula: !!query.formula,
             metrics_interval: query.interval ?? 'auto',
-            metrics_min_interval: query.minInterval,
             metrics_display_type: query.display?.type ?? 'line',
         })
     }

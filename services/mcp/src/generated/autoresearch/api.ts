@@ -419,6 +419,16 @@ export const AutoresearchTrainingRunsCompleteCreateParams = () => zod.object({
         ),
 })
 
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax = 200
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin = 0
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax = 30
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax = 500
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax = 500
+
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 
@@ -436,7 +446,49 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
                 'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
-            .looseObject({})
+            .object({
+                top_features: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax
+                                )
+                                .describe('Feature column name, as returned by the feature SQL.'),
+                            importance: zod
+                                .number()
+                                .min(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin
+                                )
+                                .describe(
+                                    'Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.'
+                                ),
+                            direction: zod
+                                .enum(['positive', 'negative'])
+                                .describe('\* `positive` - Positive\n\* `negative` - Negative')
+                                .describe(
+                                    "'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.\n\n\* `positive` - Positive\n\* `negative` - Negative"
+                                ),
+                        })
+                    )
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax)
+                    .optional()
+                    .describe('At most 30 features, strongest first.'),
+                method: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax)
+                    .optional()
+                    .describe(
+                        "Short description of how the importances were computed, e.g. 'permutation importance on holdout'."
+                    ),
+                note: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax)
+                    .optional()
+                    .describe('Optional caveat shown under the chart.'),
+            })
+            .describe('Global feature importances for the model card.')
             .optional()
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod

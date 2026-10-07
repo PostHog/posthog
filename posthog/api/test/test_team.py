@@ -42,15 +42,18 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -754,6 +757,47 @@ def team_api_test_factory():
                 ]
             )
 
+        def test_retiring_a_legacy_token_deletes_its_migrated_psak_row(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            primary = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            self.team.secret_api_token = primary
+            self.team.secret_api_token_backup = backup
+            self.team.save()
+            for token, label in ((primary, "Migrated legacy secret API key"), (backup, "Migrated legacy key (backup)")):
+                create_project_secret_api_key(team=self.team, label=label, value=token)
+
+            # Rotation drops the old backup; its PSAK row must stop authenticating with it.
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
+            self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+            # Deleting the backup (the rotated-out primary) retires its row too.
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_retiring_a_token_never_touches_another_teams_row(self):
+            # secure_value is globally unique, so when two teams hold the same string the
+            # single row belongs to one of them — retiring the other team's token must
+            # not delete it.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            token = "phs_string_shared_by_two_teams_somehow"
+            self.team.secret_api_token = "phs_this_teams_own_primary_token_value"
+            self.team.secret_api_token_backup = token
+            self.team.save()
+            other_team = Team.objects.create(organization=self.organization, project=self.project, name="other")
+            row, _ = create_project_secret_api_key(team=other_team, label="Twin value", value=token)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
+
         @parameterized.expand(
             [
                 ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
@@ -919,6 +963,60 @@ def team_api_test_factory():
             self.assertEqual(
                 response.json(),
                 self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
+            )
+
+        def test_update_home_tab_dashboard(self):
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+
+            d = Dashboard.objects.create(name="Test", team=self.team)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(response_data["home_tab_dashboard"], d.id)
+            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual(
+                changes,
+                [{"type": "Team", "action": "created", "field": "home_tab_dashboard", "before": None, "after": d.id}],
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "deleted"])
+            self.assertEqual(changes[-1]["before"], d.id)
+            self.assertIsNone(changes[-1]["after"])
+
+        def test_cant_set_home_tab_dashboard_to_another_teams_dashboard(self):
+            team_2 = Team.objects.create(organization=self.organization, name="Default project")
+            d = Dashboard.objects.create(name="Test", team=team_2)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    "Dashboard does not belong to this team.", code="does_not_exist", attr="home_tab_dashboard"
+                ),
             )
 
         def test_is_generating_demo_data(self):
@@ -2990,7 +3088,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             ),
         ]
     )
-    def test_page_load_team_follows_the_usage_tab_switch(self, _name, stored_mode, expected_mode):
+    def test_page_load_team_follows_the_reads_switch(self, _name, stored_mode, expected_mode):
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
@@ -2998,7 +3096,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         request.user = self.user
         request.session = self.client.session
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
             context = get_context_for_template("index.html", request)
 
         self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
