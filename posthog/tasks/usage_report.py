@@ -2035,10 +2035,10 @@ def get_teams_with_signals_credits_used_in_period(
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
     from products.signals.backend.facade.api import (  # noqa: PLC0415 - the signals facade imports ee.billing, which imports this module
-        get_signals_billing_credits_by_team,
+        signals_billing_credits_by_team,
     )
 
-    return get_signals_billing_credits_by_team(begin, end)
+    return [(row.team_id, row.credits) for row in signals_billing_credits_by_team(begin, end)]
 
 
 def get_signals_credited_refund_credits_for_org(
@@ -2067,12 +2067,10 @@ def get_self_driving_credits_used_in_period_for_org(
     module for the same boundary reason as the helper above.
     """
     from products.signals.backend.facade.api import (  # noqa: PLC0415 - the signals facade imports ee.billing, which imports this module
-        get_signals_billing_credits_by_team,
+        signals_billing_credits_by_team,
     )
 
-    return sum(
-        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
-    )
+    return sum(row.credits for row in signals_billing_credits_by_team(begin, end, organization_id=organization_id))
 
 
 @timed_log()

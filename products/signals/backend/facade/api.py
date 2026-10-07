@@ -1495,12 +1495,21 @@ def credited_refund_credits_for_org(organization_id: "str | uuid.UUID", begin: d
     return billing.credited_refund_credits_for_org(organization_id, begin, end)
 
 
-def get_signals_billing_credits_by_team(
+@frozen
+class TeamBillingCredits:
+    team_id: int
+    credits: int
+
+
+def signals_billing_credits_by_team(
     begin: datetime, end: datetime, organization_id: "str | uuid.UUID | None" = None
-) -> list[tuple[int, int]]:
+) -> list[TeamBillingCredits]:
     from products.signals.backend import billing
 
-    return billing.get_signals_billing_credits_by_team(begin, end, organization_id)
+    return [
+        TeamBillingCredits(team_id=team_id, credits=credits)
+        for team_id, credits in billing.get_signals_billing_credits_by_team(begin, end, organization_id)
+    ]
 
 
 def self_driving_quota_gate(team: Team) -> "SelfDrivingQuotaGate":
