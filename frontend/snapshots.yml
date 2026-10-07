@@ -11846,6 +11846,10 @@ snapshots:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.RmzBOXeIfu6YtXX5xWbtQ-LBgX6Vffw7nsiC9tqy6Nk
     scenes-app-logs-sessionerrorsbadge--several-errors--light:
         hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.cBNgS9GhMzI2LlBJ1nlaPLzWNdYY5Xr1P9FhiLoYbFw
+    scenes-app-logs-sparkline--query-failed--dark:
+        hash: v1.k794b7964.9f5c91afc93b1776b4b471d58926c2e4f04265b3ab0680c753033d12d75dd5fe.D-VpA5oDQ51Wf-8ArUCRDz-1swBA8e25ZWUQvipNnDk
+    scenes-app-logs-sparkline--query-failed--light:
+        hash: v1.k794b7964.033213fcc13c3082940bcb43810cab9e0e7021411ac19d53e8ed4bcda2ad8bc3.El1jETgS50w4NInRRc1Ot9KZPvoCyn-7pUA5q63Kr0Y
     scenes-app-logs-sparkline--volume-by-severity--dark:
         hash: v1.k794b7964.0342a42ad3e96fb82282914a3c60aedb873de9f8dfc94c850b22b3f7f17d56a0.c_sYZ1aNex35E-5hGq0aHwwV1MQCROpZBvMfAznRPoY
     scenes-app-logs-sparkline--volume-by-severity--light:
