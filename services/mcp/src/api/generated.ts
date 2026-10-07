@@ -107424,6 +107424,61 @@ export namespace Schemas {
       temperature?: number | null;
     }
 
+    /**
+     * * `offer` - offer
+     * * `answer` - answer
+     */
+    export type TerminalNetplayDescriptionTypeEnum = typeof TerminalNetplayDescriptionTypeEnum[keyof typeof TerminalNetplayDescriptionTypeEnum];
+
+
+    export const TerminalNetplayDescriptionTypeEnum = {
+      Offer: 'offer',
+      Answer: 'answer',
+    } as const;
+
+    export interface TerminalNetplayDescription {
+      /** WebRTC session description type.
+       *
+       * * `offer` - offer
+       * * `answer` - answer */
+      type: TerminalNetplayDescriptionTypeEnum;
+      /**
+         * WebRTC session description with ICE candidates.
+         * @maxLength 16384
+         */
+      sdp: string;
+    }
+
+    export interface TerminalNetplayReceivedSignal {
+      /** Peer that sent the description. */
+      sender: string;
+      description: TerminalNetplayDescription;
+    }
+
+    export interface TerminalNetplayMailbox {
+      /** Descriptions received since the last read. */
+      signals: TerminalNetplayReceivedSignal[];
+    }
+
+    export interface TerminalNetplaySignal {
+      /**
+         * Room code shown by the game host.
+         * @pattern ^[A-Z0-9]{4,12}$
+         */
+      room: string;
+      /**
+         * Peer that sent the description.
+         * @pattern ^[a-z0-9]{1,32}$
+         */
+      sender: string;
+      /**
+         * Peer that receives the description.
+         * @pattern ^[a-z0-9]{1,32}$
+         */
+      recipient: string;
+      description: TerminalNetplayDescription;
+    }
+
     export type TestHogRequestOutputConfigOptionsItem = {
       /**
          * Stable category key.
@@ -125815,6 +125870,21 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type TerminalNetplayMailboxRetrieveParams = {
+    /**
+     * Peer whose mailbox to read. The host reads 'host'.
+     * @minLength 1
+     * @pattern ^[a-z0-9]{1,32}$
+     */
+    peer: string;
+    /**
+     * Room code shown by the game host.
+     * @minLength 1
+     * @pattern ^[A-Z0-9]{4,12}$
+     */
+    room: string;
+    };
 
     export type TodayBriefingRetrieveParams = {
     /**

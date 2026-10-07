@@ -9,6 +9,7 @@ import vgaBiosUrl from './assets/vgabios.bin?url'
 import { NinePServer } from './ninepServer'
 import packageManifest from './terminal-packages.json'
 import { DISPLAY_SCRIPT, TerminalDisplayInput } from './terminalDisplay'
+import { TerminalNetplay } from './terminalNetplay'
 import { TerminalPackages } from './terminalPackages'
 import { TerminalWorkerClient } from './TerminalWorkerClient'
 
@@ -97,7 +98,8 @@ export class TerminalRuntime {
         server: NinePServer,
         signal: AbortSignal,
         onReady: () => void,
-        folder = '/posthog/files'
+        folder = '/posthog/files',
+        netplay?: TerminalNetplay
     ): Promise<void> {
         if (signal.aborted || this.disposed) {
             return
@@ -151,6 +153,10 @@ export class TerminalRuntime {
         const abort = (): void => this.dispose()
         signal.addEventListener('abort', abort, { once: true })
         this.removeAbortListener = () => signal.removeEventListener('abort', abort)
+        if (netplay) {
+            netplay.attach((bytes) => emulator.serial_send_bytes(2, bytes))
+            emulator.add_listener('serial2-output-byte', (byte: number) => netplay.receive(byte))
+        }
         let boot = ''
         let configured = false
         emulator.add_listener('serial1-output-byte', (byte: number) => {
