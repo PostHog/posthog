@@ -465,6 +465,12 @@ This allows you to easily confirm that emails are being sent and formatted corre
 
 Emails sent via SMTP are stored in HTML files in `posthog/templates/*/*.html`. They use Django Template Language (DTL).
 
+Workflow SES tests use the pinned `aws-ses-v2-local` compose service at `http://127.0.0.1:4566`, which also exposes its inbox at `/store`. With the rest of the dev stack running, start this optional service with `docker compose -f docker-compose.dev.yml up ses -d --wait` and run `hogli test nodejs/src/cdp/services/messaging/email.service.ses.test.ts`.
+
+The `LocalSes` test helper gives each test its own HTTP proxy for request capture and persistent SESv2 errors. It reads only the message IDs that proxy delivered, without clearing the shared inbox. Tests use invented AWS credentials and distinguish SDK HTTP attempts from retries of the workflow invocation. The inbox schema and delivery assertions check the fake's contract when its image changes; the fake does not validate AWS tenant or configuration-set provisioning.
+
+The S1 post-send fault cases verify that an email accepted by SES stays sent when its saved copy or engagement-config lookup fails. These failures produce a run-log warning and increment `cdp_email_bookkeeping_failures_total` with a `message_asset` or `engagement_config` stage.
+
 ## Extra: Integrating with slack
 
 You can connect to a real slack workspace in your local development setup by adding the required slack environment variables to your `.env` file.

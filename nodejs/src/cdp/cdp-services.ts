@@ -442,8 +442,8 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailService = new EmailService(
-        {
+    const emailService = new EmailService({
+        sesConfig: {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
@@ -454,17 +454,17 @@ export function createCdpCoreServices(
             teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
         },
-        deps.integrationManager,
+        integrationManager: deps.integrationManager,
         teamWorkflowsConfigService,
-        config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL,
+        encryptionSaltKeys: config.ENCRYPTION_SALT_KEYS,
+        siteUrl: config.SITE_URL,
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
-    )
+        teamEmailRateLimiter,
+    })
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
     const pushNotificationService = new PushNotificationService(

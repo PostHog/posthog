@@ -180,6 +180,7 @@ export class HogExecutorAsyncService {
                         // the current action's metadata so a throttle retry re-queues under this
                         // send's class rather than the previous email action's.
                         if (invocation.queue === 'email') {
+                            nextInvocation.queueMetadata = invocation.queueMetadata
                             nextInvocation.queuePriority =
                                 EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
                         }
