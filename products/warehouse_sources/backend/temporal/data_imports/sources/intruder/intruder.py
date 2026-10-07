@@ -25,7 +25,7 @@ INTRUDER_BASE_URL = "https://api.intruder.io/v1"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class IntruderResumeConfig:
     # Full URL of the next page to fetch for a standard (non-fan-out) endpoint. Intruder returns a
     # ready-to-follow `next` URL on every paginated response. None means "start at the first page".
