@@ -1,14 +1,17 @@
 import './HomeTabChartCard.scss'
 
+import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Query } from '~/queries/Query/Query'
 
+import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultTiles'
 
 interface HomeTabChartCardProps {
@@ -19,6 +22,7 @@ interface HomeTabChartCardProps {
 }
 
 export function HomeTabChartCard({ option, size, control, source }: HomeTabChartCardProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     return (
         <LemonCard hoverEffect={false} className="HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0">
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
@@ -50,7 +54,13 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             <div
                 className={`HomeTabDefaultChart HomeTabChartCard__visualization HomeTabChartCard__visualization--${size}`}
             >
-                <Query query={option.query} readOnly uniqueKey={option.key} />
+                <Query
+                    key={currentTeamId}
+                    query={option.query}
+                    readOnly
+                    uniqueKey={`HomeTab.${currentTeamId}.${option.key}`}
+                    attachTo={homeTabDefaultLogic}
+                />
             </div>
         </LemonCard>
     )

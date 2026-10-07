@@ -7,6 +7,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 
 import { HomeTabExplore } from 'products/product_analytics/frontend/insights/home/HomeTabExplore'
@@ -15,10 +16,12 @@ import { HomeTabChartCard } from './HomeTabChartCard'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
 import { getHomeTabAudienceOptions, getHomeTabBreakdownOptions, getHomeTabChartOptions } from './homeTabDefaultTiles'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
+import { savedInsightsLogic } from './savedInsightsLogic'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
 
 export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
+    useAttachedLogic(homeTabDefaultLogic(), savedInsightsLogic)
     const { dateRange, compare, selectedMetric, selectedContentKey } = useValues(homeTabDefaultLogic)
     const { setDates, setCompare, setSelectedMetric, setSelectedContentKey } = useActions(homeTabDefaultLogic)
 
