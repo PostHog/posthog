@@ -1,7 +1,6 @@
 import './TodayShell.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
 import { Suspense, useEffect, useRef } from 'react'
 
 import { Heading, Skeleton, ToastProvider } from '@posthog/quill'
@@ -11,9 +10,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
@@ -26,7 +23,6 @@ import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodayTabBar } from './TodayTabBar'
-import { visibleWarehouseItems, warehouseItemForLocation } from './todayWarehouseItems'
 import { TodayWarehouseTabsPane } from './TodayWarehouseTabsPane'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
@@ -52,15 +48,9 @@ const PANE_LABELS = {
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden, sidebarInContent } =
         useValues(todayShellLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { location } = useValues(router)
+    const { currentWarehouseItem } = useValues(todayShellLogic)
     const paneTitle =
-        activePane === 'warehouse'
-            ? (warehouseItemForLocation(
-                  removeProjectIdIfPresent(location.pathname),
-                  visibleWarehouseItems(featureFlags)
-              )?.label ?? PANE_LABELS.warehouse)
-            : PANE_LABELS[activePane]
+        activePane === 'warehouse' ? (currentWarehouseItem?.label ?? PANE_LABELS.warehouse) : PANE_LABELS[activePane]
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)

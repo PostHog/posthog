@@ -51,9 +51,12 @@ export function QuillSceneTitleSection({
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const { phoneHeaderShown } = useValues(todayShellLogic)
+    const { phoneHeaderShown, currentWarehouseItem } = useValues(todayShellLogic)
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
+    const nestedPage = !!forceBackTo || breadcrumbs.length > 2
+    // The warehouse header names each top-level warehouse page. A nested page keeps its title, because the header does not show the resource name.
+    const titleInWarehouseHeader = !!currentWarehouseItem && !nestedPage && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
     const releaseStageProduct = useMemo(
         () => releaseStageProductForScene(releaseStageSceneId, name),
@@ -62,6 +65,21 @@ export function QuillSceneTitleSection({
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
         hasDescription && (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader) || forceEdit)
+    const sceneActions = (
+        <>
+            {!hideProductSetupButton && <ProductSetupButton />}
+            {actions}
+            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
+        </>
+    )
+
+    if (titleInWarehouseHeader) {
+        return (
+            <div data-quill className={cn('flex flex-wrap items-center justify-end gap-1 empty:hidden', className)}>
+                {sceneActions}
+            </div>
+        )
+    }
 
     return (
         <>
@@ -73,7 +91,7 @@ export function QuillSceneTitleSection({
                     className
                 )}
                 back={
-                    !titleInPhoneHeader && (forceBackTo || breadcrumbs.length > 2) ? (
+                    !titleInPhoneHeader && nestedPage ? (
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
                     ) : undefined
                 }
@@ -115,13 +133,7 @@ export function QuillSceneTitleSection({
                         />
                     )
                 }
-                actions={
-                    <>
-                        {!hideProductSetupButton && <ProductSetupButton />}
-                        {actions}
-                        <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
-                    </>
-                }
+                actions={sceneActions}
             />
             {descriptionShown && (
                 <div className={cn('[&_svg]:size-6', noPadding && cn('pl-4 pr-2', className))}>

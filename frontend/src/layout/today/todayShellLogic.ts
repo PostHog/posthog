@@ -15,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 import { todaySceneTabsLogic } from './todaySceneTabsLogic'
-import { isWarehousePath } from './todayWarehouseItems'
+import { WarehouseItem, isWarehousePath, visibleWarehouseItems, warehouseItemForLocation } from './todayWarehouseItems'
 
 export type TodayRailPane = 'home' | 'spaces' | 'views' | 'products' | 'warehouse'
 
@@ -121,6 +121,7 @@ export interface todayShellLogicValues {
     sceneTabsMounted: boolean // todaySceneTabsLogic
     activePane: TodayRailPane
     activePaneHasSidebar: boolean
+    currentWarehouseItem: WarehouseItem | null
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
@@ -231,6 +232,15 @@ export interface todayShellLogicMeta {
             mobileSidebarOpen: boolean,
             sidebarOpen: boolean
         ) => boolean
+        currentWarehouseItem: (
+            routePane: TodayRailPane | null,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            },
+            featureFlags: FeatureFlagsSet
+        ) => WarehouseItem | null
         onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
         phoneHeaderHidden: (
             onAiPage: boolean,
@@ -334,7 +344,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (activePane: TodayRailPane, sceneTabsMounted: boolean, phoneLayout: boolean): boolean =>
                 paneHasSidebar(activePane) || (activePane === 'warehouse' && sceneTabsMounted && !phoneLayout),
         ],
-        // On desktop the warehouse sidebar sits under the warehouse header in the content column, not beside the rail.
         sidebarInContent: [
             (s) => [s.activePane, s.mobileLayout, s.phoneLayout],
             (activePane: TodayRailPane, mobileLayout: boolean, phoneLayout: boolean): boolean =>
@@ -394,6 +403,20 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 routePane === 'warehouse' &&
                 !phoneLayout &&
                 (mobileLayout ? mobileSidebarOpen : sidebarOpen),
+        ],
+        currentWarehouseItem: [
+            (s) => [s.routePane, router.selectors.location, s.featureFlags],
+            (
+                routePane: TodayRailPane | null,
+                location: { pathname: string },
+                featureFlags: FeatureFlagsSet
+            ): WarehouseItem | null =>
+                routePane === 'warehouse'
+                    ? warehouseItemForLocation(
+                          removeProjectIdIfPresent(location.pathname),
+                          visibleWarehouseItems(featureFlags)
+                      )
+                    : null,
         ],
         onAiPage: [
             () => [router.selectors.location],

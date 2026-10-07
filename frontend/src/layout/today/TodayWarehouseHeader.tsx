@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
@@ -17,12 +16,12 @@ import {
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { WarehouseItem, visibleWarehouseItems, warehouseItemForLocation } from './todayWarehouseItems'
+import { todayShellLogic } from './todayShellLogic'
+import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
@@ -31,9 +30,8 @@ const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'primary', 'secondary']
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
 export function TodayWarehouseHeader({ className }: { className?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { location } = useValues(router)
+    const { currentWarehouseItem: current } = useValues(todayShellLogic)
     const items = visibleWarehouseItems(featureFlags)
-    const current = warehouseItemForLocation(removeProjectIdIfPresent(location.pathname), items)
     const groups = GROUP_ORDER.map((group) => items.filter((item) => item.group === group)).filter(
         (group) => group.length
     )
