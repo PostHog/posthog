@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.tests.test_resume_checkpoints import (
+    paged_config,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -858,6 +862,11 @@ class _Cursor:
     id: str
 
 
+@dataclass(frozen=True)
+class _PageCursor:
+    page: int
+
+
 def _manager() -> ResumableSourceManager[_Cursor]:
     inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
     return ResumableSourceManager[_Cursor](inputs, _Cursor)
@@ -964,6 +973,50 @@ class TestResumeCursorCommit:
 
         assert cast(AsyncMock, pipeline._process_batch).await_count == 2
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_committed
+
+    @pytest.mark.parametrize("wrapped", [False, True], ids=["rest_resource", "wrapped_rest_resource"])
+    @pytest.mark.asyncio
+    async def test_a_rest_source_handed_off_after_its_first_batch_resumes_without_losing_rows(
+        self, wrapped: bool
+    ) -> None:
+        redis = MagicMock()
+        inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
+        manager = ResumableSourceManager[_PageCursor](inputs, _PageCursor)
+        pages = {"/items": [[{"id": 1}], [{"id": 2}], [{"id": 3}]]}
+
+        def rest_items(state: dict | None):
+            resource = rest_api_resource(
+                paged_config(pages, ["items"]),
+                1,
+                "job-1",
+                None,
+                resume_hook=lambda next_page: manager.save_state(_PageCursor(next_page["page"])) if next_page else None,
+                initial_paginator_state=state,
+            )
+            return (lambda: (page for page in resource)) if wrapped else (lambda: resource)
+
+        pipeline = _runnable_pipeline(cast(ResumableSourceManager[_Cursor], manager), rest_items(None))
+        pipeline._batcher = Batcher(MagicMock(), chunk_size=1, primary_keys=["id"])
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = WorkerShuttingDownError(
+            "id", "type", "queue", 1, "workflow", "workflow_type"
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        written = [
+            row_id
+            for call in cast(AsyncMock, pipeline._process_batch).await_args_list
+            for row_id in call.kwargs["pa_table"]["id"].to_pylist()
+        ]
+        committed = [json.loads(call.args[1]) for call in redis.set.call_args_list]
+        resumed = [row["id"] for page in rest_items(committed[-1] if committed else None)() for row in page]
+
+        assert written == [1]
+        if wrapped:
+            assert set(written + resumed) == {1, 2, 3}
+        else:
+            assert committed == [{"page": 1}]
+            assert written + resumed == [1, 2, 3]
 
     @pytest.mark.asyncio
     async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:
