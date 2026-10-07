@@ -13,7 +13,7 @@ class IntruderEndpointConfig:
     # every sync. `None` means the endpoint has no such field, so the table is left unpartitioned.
     partition_key: str | None = None
     should_sync_default: bool = True
-    # Fan out over every issue, calling `/issues/{issue_id}/occurrences/` per issue. When True,
+    # Fan out over every issue, calling an `/issues/{issue_id}/...` child endpoint per issue. When True,
     # `path` is a template with an `{issue_id}` placeholder and each row is tagged with its parent
     # `issue_id` so the composite primary key stays unique across the whole table.
     fan_out_over_issues: bool = False
@@ -32,6 +32,13 @@ INTRUDER_ENDPOINTS: dict[str, IntruderEndpointConfig] = {
         path="/issues/{issue_id}/occurrences/",
         primary_keys=["issue_id", "id"],
         partition_key="first_seen_at",
+        fan_out_over_issues=True,
+    ),
+    # Target ids are only unique within an issue's list, and the rows carry no timestamp to partition on.
+    "issue_targets": IntruderEndpointConfig(
+        name="issue_targets",
+        path="/issues/{issue_id}/targets/",
+        primary_keys=["issue_id", "id"],
         fan_out_over_issues=True,
     ),
     "fixed_occurrences": IntruderEndpointConfig(

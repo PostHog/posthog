@@ -33,7 +33,7 @@ class IntruderResumeConfig:
     # Legacy field from the hand-rolled fan-out bookmark, kept so state saved by an older build still
     # parses (ResumableSourceManager does dataclass(**saved)). No longer written.
     issue_id: int | None = None
-    # Framework fan-out resume state for the occurrences endpoint:
+    # Framework fan-out resume state for the per-issue fan-out endpoints:
     # {"completed": [child_path, ...], "current": child_path | None, "child_state": {"next_url": ...} | None}.
     fanout_state: dict | None = None
 
@@ -127,7 +127,7 @@ def _list_source(
     return _source_response(endpoint, config, resource)
 
 
-def _occurrences_source(
+def _issue_fan_out_source(
     access_token: str,
     endpoint: str,
     config: IntruderEndpointConfig,
@@ -135,9 +135,9 @@ def _occurrences_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
 ) -> SourceResponse:
-    """Fan out over every issue, materializing its occurrences as rows tagged with `issue_id`.
+    """Fan out over every issue, materializing the child endpoint's rows tagged with `issue_id`.
 
-    Each occurrence row gets the owning `issue_id` injected so the composite primary key
+    Each child row gets the owning `issue_id` injected so the composite primary key
     [issue_id, id] stays unique table-wide. Full refresh only — re-pulled rows on resume are deduped
     by the primary key on merge.
     """
@@ -199,7 +199,7 @@ def intruder_source(
 ) -> SourceResponse:
     config = INTRUDER_ENDPOINTS[endpoint]
     if config.fan_out_over_issues:
-        return _occurrences_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
+        return _issue_fan_out_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
     return _list_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
 
 

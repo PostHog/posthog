@@ -4401,13 +4401,13 @@ Note: Existing 'team' table maps to the teammates endpoint (GET /v1/{page_id}/te
 
 ## Intruder — adequate
 
-Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
+Today (8): `fixed_occurrences`, `issue_targets`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
 
 Diffed against: <https://api.intruder.io/v1/swagger.json>
 
-No material gaps found.
+- [x] `GET /issues/{issue_id}/targets/` — targets affected by each issue (medium)
 
-Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
+Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, issues/{id}/targets, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
 
 ## Invoiced — gaps
 
