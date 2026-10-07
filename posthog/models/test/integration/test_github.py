@@ -297,6 +297,39 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("gateway_error_then_success", [502, 201], "SCOPED_TOKEN", 2),
+            ("persistent_gateway_error", [504, 504, 504], None, 3),
+            ("not_found_is_not_retried", [404], None, 1),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.time.sleep")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_mint_scoped_installation_token_retries_only_gateway_errors(
+        self, _name, statuses, expected_token, expected_calls, mock_client_request, _mock_sleep
+    ):
+        integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
+        responses = []
+        for status in statuses:
+            response = MagicMock(status_code=status, text="")
+            if status == 201:
+                response.json.return_value = {"token": "SCOPED_TOKEN"}
+            else:
+                response.json.side_effect = ValueError("empty body")
+            responses.append(response)
+        mock_client_request.side_effect = responses
+
+        github = GitHubIntegration(integration)
+        if expected_token:
+            assert github.mint_scoped_installation_token({"contents": "read"}) == expected_token
+        else:
+            with pytest.raises(GitHubIntegrationError) as error:
+                github.mint_scoped_installation_token({"contents": "read"})
+            assert error.value.status_code == statuses[-1]
+            assert f"HTTP {statuses[-1]}" in str(error.value)
+        assert mock_client_request.call_count == expected_calls
+
+    @parameterized.expand(
+        [
             # An answer GitHub gave: the account committed, and this is when.
             (
                 "dated_commit",

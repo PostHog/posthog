@@ -154,6 +154,11 @@ def _is_safe_github_repo_path(repo_path: str) -> bool:
     return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
+_SCOPED_MINT_ATTEMPTS = 3
+_SCOPED_MINT_RETRY_BACKOFF_SECONDS = 0.5
+_TRANSIENT_MINT_STATUS_CODES = frozenset({502, 503, 504})
+
+
 class GitHubIntegrationError(Exception):
     """A GitHub API call failed for a non-rate-limit reason (bad response, auth failure, network
     error after retry). Rate limits raise ``GitHubRateLimitError`` from ``posthog.egress.github``
@@ -576,19 +581,33 @@ class GitHubIntegrationBase:
         if repositories:
             body["repositories"] = repositories
 
-        response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        # A repeated mint only issues another short-lived token, so a gateway error is safe to retry.
+        for attempt in range(_SCOPED_MINT_ATTEMPTS):
+            response = self.client_request(
+                f"installations/{installation_id}/access_tokens", method="POST", json_body=body
+            )
+            if response.status_code not in _TRANSIENT_MINT_STATUS_CODES or attempt == _SCOPED_MINT_ATTEMPTS - 1:
+                break
+            logger.info(
+                "GitHubIntegration: retrying transient scoped token mint",
+                installation_id=installation_id,
+                status_code=response.status_code,
+                attempt=attempt + 1,
+            )
+            time.sleep(_SCOPED_MINT_RETRY_BACKOFF_SECONDS * (attempt + 1))
         try:
             data = response.json()
         except ValueError:
             self._mark_if_installation_gone(response)
             raise GitHubIntegrationError(
-                f"Non-JSON response when minting scoped installation token: {response.text[:500]}",
+                f"Non-JSON response (HTTP {response.status_code}) when minting scoped installation token: "
+                f"{response.text[:500]}",
                 status_code=response.status_code,
             ) from None
         if response.status_code != 201 or not data.get("token"):
             self._mark_if_installation_gone(response)
             raise GitHubIntegrationError(
-                f"Failed to mint scoped installation token: {response.text[:500]}",
+                f"Failed to mint scoped installation token (HTTP {response.status_code}): {response.text[:500]}",
                 status_code=response.status_code,
             )
         return data["token"]
