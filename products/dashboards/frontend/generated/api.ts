@@ -38,6 +38,7 @@ import type {
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
+    DashboardsStreamQueryResultsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsSubscribeNudgeCreateParams,
     DashboardsUpdateParams,
@@ -742,6 +743,41 @@ export const dashboardsRunWidgetsRetrieve = async (
     options?: RequestInit
 ): Promise<RunWidgetsResponseApi> => {
     return apiMutator<RunWidgetsResponseApi>(getDashboardsRunWidgetsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardsStreamQueryResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/stream_query_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/stream_query_results/`
+}
+
+/**
+ * Experimentally refresh insight tiles with shared query execution and progressive results.
+ */
+export const dashboardsStreamQueryResultsRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getDashboardsStreamQueryResultsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

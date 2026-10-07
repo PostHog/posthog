@@ -18,7 +18,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, RefreshDashboardItemsAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -2573,6 +2573,93 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
         })
+
+        it.each(['success', 'disconnect', 'rate_limited', 'abort'] as const)(
+            'delivers shared tiles progressively and handles %s independently',
+            async (outcome) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_QUERY_SHARING], {
+                    [FEATURE_FLAGS.HOGQL_QUERY_SHARING]: true,
+                })
+                const tiles = logic.values.insightTiles
+                let release!: () => void
+                let delivered!: () => void
+                const blocked = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                const firstDelivered = new Promise<void>((resolve) => {
+                    delivered = resolve
+                })
+                const individual = jest.spyOn(dashboardUtils, 'getInsightWithRetry')
+                const stream = jest.spyOn(api, 'stream').mockImplementation(async (_url, options) => {
+                    const send = (tile: DashboardTile): void =>
+                        options.onMessage({
+                            id: '',
+                            event: '',
+                            data: JSON.stringify({
+                                type: 'tile',
+                                tile: {
+                                    ...tile,
+                                    insight: {
+                                        ...tile.insight,
+                                        result: [],
+                                        is_cached: true,
+                                        query_status: tile.insight?.query_status?.error
+                                            ? tile.insight.query_status
+                                            : { complete: true },
+                                    },
+                                },
+                            }),
+                        })
+                    send(tiles[0])
+                    delivered()
+                    await blocked
+                    if (outcome === 'disconnect') {
+                        throw new Error('stream disconnected')
+                    }
+                    for (const tile of tiles.slice(1)) {
+                        send(
+                            outcome === 'rate_limited'
+                                ? {
+                                      ...tile,
+                                      insight: {
+                                          ...tile.insight!,
+                                          query_status: {
+                                              id: 'test',
+                                              error: true,
+                                              error_code: 'rate_limited',
+                                          },
+                                      },
+                                  }
+                                : tile
+                        )
+                    }
+                    options.onMessage({ id: '', event: '', data: JSON.stringify({ type: 'complete' }) })
+                })
+                try {
+                    logic.actions.refreshDashboardItems({
+                        action: RefreshDashboardItemsAction.Refresh,
+                        forceRefresh: true,
+                    })
+                    await firstDelivered
+                    expect(logic.values.refreshStatus[tiles[0].insight!.short_id].refreshed).toBe(true)
+                    expect(individual).not.toHaveBeenCalled()
+                    if (outcome === 'abort') {
+                        logic.actions.abortAnyRunningQuery()
+                    }
+                    release()
+                    await expectLogic(logic).toFinishAllListeners()
+                    const retry = outcome === 'disconnect' || outcome === 'rate_limited'
+                    expect(individual).toHaveBeenCalledTimes(retry ? tiles.length - 1 : 0)
+                    if (retry) {
+                        expect(individual.mock.calls.every((call) => call[1].id !== tiles[0].insight!.id)).toBe(true)
+                    }
+                } finally {
+                    release()
+                    stream.mockRestore()
+                    individual.mockRestore()
+                }
+            }
+        )
 
         describe('on load', () => {
             it('mounts other logics', async () => {

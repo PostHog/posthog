@@ -124,6 +124,7 @@ import {
     type DashboardSettingsChange,
     type DashboardFilterChange,
 } from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
+import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -146,6 +147,8 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     AUTO_PREVIEW_TILE_LIMIT,
+    RATE_LIMITED_ERROR_CODE,
+    RATE_LIMIT_ERROR_MESSAGE,
     isEffectiveRefreshStale,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
@@ -4293,37 +4296,73 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const urlVariables = settingsToRefresh.variables
 
-                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
-                    const insight = tile.insight
-                    const queryId = uuid()
-                    const queryStartTime = performance.now()
-                    const dashboardId: number = props.id
-
-                    // Set insight as refreshing
-                    actions.setRefreshStatus(insight.short_id, true, true)
-
+                const streamedTiles = new Set<number>()
+                if (
+                    values.featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true &&
+                    values.placement === DashboardPlacement.Dashboard &&
+                    !isSharedView() &&
+                    currentTeamId &&
+                    sortedTilesToRefresh.length >= 2 &&
+                    sortedTilesToRefresh.length <= 32
+                ) {
+                    const sharingController = cache.abortController
+                    const signal = sharingController.signal
+                    const batchQueryId = uuid()
+                    const startedAt = performance.now()
+                    cache.disposables.add(
+                        () => () => {
+                            if (!signal.aborted) {
+                                sharingController.abort()
+                            }
+                        },
+                        'dashboard-query-sharing',
+                        { pauseOnPageHidden: false }
+                    )
                     try {
-                        const insightRefreshStartTime = performance.now()
-                        const refreshedInsight = await getInsightWithRetry(
+                        await streamDashboardQueryResults(
                             currentTeamId,
-                            insight,
                             dashboardId,
-                            queryId,
-                            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                            methodOptions,
-                            effectiveRefreshFilters,
-                            urlVariables,
-                            tile.filters_overrides
-                        )
-
-                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
-                            const queryError = getInsightQueryError(refreshedInsight)
-                            if (queryError) {
-                                actions.setRefreshError(insight.short_id, queryError)
-                                tilesErroredCount++
-                            } else {
+                            {
+                                tile_ids: sortedTilesToRefresh.map((tile) => tile.id).join(','),
+                                client_query_id: batchQueryId,
+                                refresh: forceRefresh ? 'force_blocking' : 'blocking',
+                                filters_override: JSON.stringify(effectiveRefreshFilters),
+                                variables_override: JSON.stringify(urlVariables),
+                            },
+                            signal,
+                            (result) => {
+                                if (signal.aborted || cache.disposables.isDisposed) {
+                                    return
+                                }
+                                const tile = sortedTilesToRefresh.find((candidate) => candidate.id === result.id)
+                                if (!tile || streamedTiles.has(tile.id)) {
+                                    return
+                                }
+                                if ('error' in result || !result.insight) {
+                                    streamedTiles.add(tile.id)
+                                    actions.setRefreshError(tile.insight.short_id)
+                                    tilesErroredCount++
+                                    return
+                                }
+                                const refreshedInsight = getQueryBasedInsightModel(
+                                    result.insight as unknown as InsightModel
+                                )
+                                if (
+                                    isRefreshRejectionStub(refreshedInsight) ||
+                                    refreshedInsight.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                                    refreshedInsight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+                                ) {
+                                    return
+                                }
+                                streamedTiles.add(tile.id)
+                                const queryError = getInsightQueryError(refreshedInsight)
+                                if (queryError) {
+                                    actions.setRefreshError(tile.insight.short_id, queryError)
+                                    tilesErroredCount++
+                                    return
+                                }
                                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                                actions.setRefreshStatus(insight.short_id)
+                                actions.setRefreshStatus(tile.insight.short_id)
                                 tilesRefreshedCount++
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
@@ -4333,25 +4372,93 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     tile,
                                     urlFilters,
                                     urlVariables,
-                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    Math.floor(performance.now() - startedAt),
                                     false
                                 )
                             }
-                        } else {
-                            actions.setRefreshError(insight.short_id)
-                            tilesErroredCount++
-                        }
-                    } catch (e: any) {
-                        if (shouldCancelQuery(e)) {
-                            console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
-                            tilesAbortedCount++
-                        } else {
-                            actions.setRefreshError(insight.short_id, e)
-                            tilesErroredCount++
+                        )
+                    } catch {
+                        if (!signal.aborted) {
+                            posthog.capture('dashboard query sharing transport failed', { dashboard_id: dashboardId })
                         }
                     }
-                })
+                    if (signal.aborted) {
+                        return
+                    }
+                    breakpoint()
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
+                }
+
+                const fetchSyncInsightFunctions = sortedTilesToRefresh
+                    .filter((tile) => !streamedTiles.has(tile.id))
+                    .map((tile) => async () => {
+                        const insight = tile.insight
+                        const queryId = uuid()
+                        const queryStartTime = performance.now()
+                        const dashboardId: number = props.id
+
+                        // Set insight as refreshing
+                        actions.setRefreshStatus(insight.short_id, true, true)
+
+                        try {
+                            const insightRefreshStartTime = performance.now()
+                            const refreshedInsight = await getInsightWithRetry(
+                                currentTeamId,
+                                insight,
+                                dashboardId,
+                                queryId,
+                                forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+                                methodOptions,
+                                effectiveRefreshFilters,
+                                urlVariables,
+                                tile.filters_overrides
+                            )
+
+                            if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
+                                const queryError = getInsightQueryError(refreshedInsight)
+                                if (queryError) {
+                                    actions.setRefreshError(insight.short_id, queryError)
+                                    tilesErroredCount++
+                                } else {
+                                    dashboardsModel.actions.updateDashboardInsight(
+                                        refreshedInsight,
+                                        undefined,
+                                        dashboardId
+                                    )
+                                    actions.setRefreshStatus(insight.short_id)
+                                    tilesRefreshedCount++
+                                    if (refreshedInsight.is_cached) {
+                                        tilesRefreshedCachedCount++
+                                    }
+                                    reportDashboardTileRefreshed(
+                                        dashboardId,
+                                        tile,
+                                        urlFilters,
+                                        urlVariables,
+                                        Math.floor(performance.now() - insightRefreshStartTime),
+                                        false
+                                    )
+                                }
+                            } else {
+                                actions.setRefreshError(insight.short_id)
+                                tilesErroredCount++
+                            }
+                        } catch (e: any) {
+                            if (shouldCancelQuery(e)) {
+                                console.warn(
+                                    `Insight refresh cancelled for ${insight.short_id} due to abort signal:`,
+                                    e
+                                )
+                                actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
+                                tilesAbortedCount++
+                            } else {
+                                actions.setRefreshError(insight.short_id, e)
+                                tilesErroredCount++
+                            }
+                        }
+                    })
 
                 // Execute the fetches with concurrency limit of 4
                 await runWithLimit(fetchSyncInsightFunctions, 4)

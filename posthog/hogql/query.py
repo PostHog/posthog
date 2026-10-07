@@ -1,4 +1,6 @@
 import dataclasses
+from collections.abc import Callable
+from contextvars import ContextVar
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
@@ -1121,5 +1123,12 @@ class HogQLQueryExecutor:
         ]
 
 
+hogql_execution_override: ContextVar[Callable[[HogQLQueryExecutor], HogQLQueryResponse] | None] = ContextVar(
+    "hogql_execution_override", default=None
+)
+
+
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
-    return HogQLQueryExecutor(*args, **kwargs).execute()
+    executor = HogQLQueryExecutor(*args, **kwargs)
+    override = hogql_execution_override.get()
+    return override(executor) if override is not None else executor.execute()

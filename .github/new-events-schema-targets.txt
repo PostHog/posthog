@@ -69,4 +69,5 @@ posthog/tasks/test/test_stop_surveys_reached_target.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
+products/dashboards/backend/api/test/test_query_sharing.py
 products/web_analytics/backend/test/test_heatmaps_api.py

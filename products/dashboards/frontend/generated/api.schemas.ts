@@ -11038,6 +11038,52 @@ export const DashboardsRunWidgetsRetrieveFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsStreamQueryResultsRetrieveParams = {
+    /**
+     * Cancellation ID for this dashboard refresh batch.
+     */
+    client_query_id: string
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
+    format?: DashboardsStreamQueryResultsRetrieveFormat
+    /**
+     * Use fresh cached results (blocking), or recalculate (force_blocking).
+     *
+     * * `blocking` - Use fresh cached results
+     * * `force_blocking` - Recalculate
+     * @minLength 1
+     */
+    refresh: DashboardsStreamQueryResultsRetrieveRefresh
+    /**
+     * Comma-separated insight tile IDs, at most 32.
+     * @minLength 1
+     * @maxLength 512
+     */
+    tile_ids: string
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
+}
+
+export type DashboardsStreamQueryResultsRetrieveFormat =
+    (typeof DashboardsStreamQueryResultsRetrieveFormat)[keyof typeof DashboardsStreamQueryResultsRetrieveFormat]
+
+export const DashboardsStreamQueryResultsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsStreamQueryResultsRetrieveRefresh =
+    (typeof DashboardsStreamQueryResultsRetrieveRefresh)[keyof typeof DashboardsStreamQueryResultsRetrieveRefresh]
+
+export const DashboardsStreamQueryResultsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
+} as const
+
 export type DashboardsStreamTilesRetrieveParams = {
     /**
      * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
