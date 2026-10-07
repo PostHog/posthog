@@ -56,20 +56,9 @@ type AgentPromptButtonSize = Exclude<NonNullable<QuillButtonProps['size']>, 'ico
 
 export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
-    /**
-     * Namespace for the remembered action.
-     * Pass a unique value per call-site to give that surface its own memory.
-     * When omitted, defaults to a key derived from the sorted action keys, so
-     * surfaces with the same action set share state and surfaces with different
-     * actions stay isolated. The remembered agent is shared across all surfaces.
-     */
-    storageKey?: string
-    /** Content selected when nothing is stored yet. Falls back to the first action. */
-    defaultActionKey?: string
-    /** Agent on the main button when the user has not picked one yet. Falls back to the first agent. */
-    defaultAgentKey?: AgentPromptDestination
     /** Agent always shown on the main button, in place of the one the user last picked. */
     pinnedAgentKey?: AgentPromptDestination
+    /** Agents offered, in menu order. The first one is the default until the user picks one. */
     agentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
@@ -266,9 +255,6 @@ const AGENTS: AgentDef[] = [
 
 export function AgentPromptButton({
     actions,
-    storageKey,
-    defaultActionKey,
-    defaultAgentKey,
     pinnedAgentKey,
     agentKeys,
     labelMode = 'action',
@@ -281,40 +267,33 @@ export function AgentPromptButton({
     repository,
     'data-attr': dataAttr,
 }: AgentPromptButtonProps): JSX.Element | null {
-    const resolvedStorageKey =
-        storageKey ??
-        `agent-prompt-button:${actions
-            .map((a) => a.key)
-            .sort()
-            .join(',')}`
+    const actionSetKey = actions
+        .map((a) => a.key)
+        .sort()
+        .join(',')
     const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
     const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const availableAgents = AGENTS.filter(
-        (agent) => (!agentKeys || agentKeys.includes(agent.key)) && !(todayRailEnabled && agent.key === 'posthog-ai')
-    )
+    const availableAgents = (
+        agentKeys ? agentKeys.flatMap((key) => AGENTS.filter((agent) => agent.key === key)) : AGENTS
+    ).filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
     }
 
-    const activeAction =
-        actions.find((a) => a.key === rememberedActionKeys[resolvedStorageKey]) ??
-        actions.find((a) => a.key === defaultActionKey) ??
-        actions[0]
+    const activeAction = actions.find((a) => a.key === rememberedActionKeys[actionSetKey]) ?? actions[0]
     const activeAgent =
-        availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ??
-        availableAgents.find((a) => a.key === defaultAgentKey) ??
-        availableAgents[0]
+        availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ?? availableAgents[0]
     const buttonLabel =
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
 
     const selectAction = (actionKey: string): void => {
-        rememberAction(resolvedStorageKey, actionKey)
+        rememberAction(actionSetKey, actionKey)
     }
 
     const runCombo = (actionKey: string, agentKey: string): void => {

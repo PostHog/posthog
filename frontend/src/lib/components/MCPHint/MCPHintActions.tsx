@@ -56,7 +56,6 @@ export function MCPHintActions({
             <div className="flex items-center gap-2">
                 <span className="text-xs text-muted">or</span>
                 <AgentPromptButton
-                    storageKey="mcp-hint"
                     actions={[
                         {
                             key: 'prompt',
@@ -65,7 +64,6 @@ export function MCPHintActions({
                         },
                     ]}
                     agentKeys={MCP_AGENT_KEYS}
-                    defaultAgentKey="claude-code"
                     labelMode="destination"
                     size="sm"
                     variant="outline"
