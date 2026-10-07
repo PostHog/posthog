@@ -2304,6 +2304,94 @@ class TestClaimWindow:
 
         assert [(b.schema_id, b.batch_index) for b in claimed] == [("s-open", 0), ("s-open", 1), ("s-open", 2)]
 
+    @pytest.mark.parametrize(
+        "round_cap,expected",
+        [
+            pytest.param(5, ["s-open"], id="each_round_reads_past_the_runs_found_held"),
+            pytest.param(2, [], id="held_runs_deeper_than_the_round_cap_hide_the_team"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_several_held_runs_take_one_scan_round_each(self, conn, round_cap, expected):
+        for run in ("run-a", "run-b", "run-c"):
+            failed = await _insert_batch(conn, schema_id="s-held", run_uuid=run, batch_index=0)
+            await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+            for i in (1, 2):
+                await _insert_batch(conn, schema_id="s-held", run_uuid=run, batch_index=i)
+        await _insert_batch(conn, schema_id="s-open", run_uuid="run-open")
+
+        with (
+            patch(f"{_JOBS_DB}.CLAIM_WINDOW_TEAM_DEPTH", 2),
+            patch(f"{_JOBS_DB}.CLAIM_WINDOW_GATE_ROUNDS", round_cap),
+        ):
+            claimed = await _claim(conn, limit=1)
+
+        assert [b.schema_id for b in claimed] == expected
+
+    @pytest.mark.asyncio
+    async def test_scan_rounds_keep_the_batches_ahead_of_a_blocker_in_their_own_run(self, conn):
+        await _bulk_insert_batches(conn, team_id=1, per_team=81, schema_id="s-run", run_uuid="run-long")
+        cur = await conn.execute(f"SELECT id::text FROM {BATCH_TABLE} WHERE run_uuid = 'run-long' AND batch_index = 5")
+        row = await cur.fetchone()
+        assert row is not None
+        await BatchQueue.update_status(conn, batch_id=row[0], job_state="waiting_retry", attempt=1)
+
+        claimed = await _claim(conn, limit=50, retry_backoff_base_seconds=3600)
+
+        assert [b.batch_index for b in claimed] == [0, 1, 2, 3, 4]
+
+    @pytest.mark.asyncio
+    async def test_per_team_scan_stops_at_the_depth_on_a_partition_one_team_fills(self, conn):
+        # The shared test tables are not partitioned, and the plan under test only exists
+        # with partitions: one team fills a daily partition, so the planner expects every
+        # team to hold that many rows there.
+        table = "sourcebatch_skew_test"
+        deep_rows, small_teams = 5000, 40
+        await conn.execute(f"DROP TABLE IF EXISTS {table}")
+        await conn.execute(
+            f"CREATE TABLE {table} (LIKE {BATCH_TABLE} INCLUDING DEFAULTS) PARTITION BY RANGE (created_at)"
+        )
+        try:
+            await conn.execute(
+                f"CREATE INDEX ON {table} (team_id, created_at, batch_index) "
+                "WHERE latest_state IN ('pending', 'waiting_retry')"
+            )
+            await conn.execute(
+                f"CREATE INDEX ON {table} (run_uuid, latest_state, batch_index) "
+                "WHERE latest_state IN ('executing', 'waiting_retry', 'failed')"
+            )
+            await conn.execute(f"CREATE INDEX ON {table} (team_id, schema_id) WHERE latest_state = 'executing'")
+            for name, start, end in (("deep", 2, 1), ("recent", 1, -1)):
+                await conn.execute(
+                    f"CREATE TABLE {table}_{name} PARTITION OF {table} FOR VALUES "
+                    f"FROM (current_date - {start}) TO (current_date - {end})"
+                )
+            columns = [k for k in _BATCH_DEFAULTS if k not in ("team_id", "batch_index", "run_uuid", "metadata")]
+            insert = (
+                f"INSERT INTO {table} (team_id, batch_index, run_uuid, created_at, {', '.join(columns)}) "
+                f"SELECT {{select}}, {', '.join(f'%({k})s' for k in columns)} FROM generate_series(1, %(rows)s) g"
+            )
+            await conn.execute(
+                insert.format(select="1, g, 'run-deep', (current_date - 2)::timestamptz + g * interval '1 second'"),
+                {**_BATCH_DEFAULTS, "rows": deep_rows},
+            )
+            await conn.execute(
+                insert.format(select="1 + g, 0, 'run-' || g, now() - interval '1 hour'"),
+                {**_BATCH_DEFAULTS, "rows": small_teams},
+            )
+            await conn.execute(f"ANALYZE {table}")
+
+            with patch(f"{_JOBS_DB}.BATCH_TABLE", table):
+                plan = await _explain_claim_window(conn, limit=50)
+        finally:
+            await conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+        deep_scans = [n for n in _plan_nodes(plan) if n.get("Relation Name") == f"{table}_deep"]
+        assert deep_scans
+        assert {n["Node Type"] for n in deep_scans} <= {"Index Scan", "Index Only Scan"}
+        # A scan and sort of the partition for each team reads deep_rows x (small_teams + 1).
+        assert sum(n["Actual Rows"] * n["Actual Loops"] for n in deep_scans) <= 2 * 50 + small_teams + 1
+
     @pytest.mark.asyncio
     async def test_claim_reads_only_the_closed_groups_of_its_window(self, conn):
         # Past a few thousand rows a hashed sub-plan over every closed group stops fitting in

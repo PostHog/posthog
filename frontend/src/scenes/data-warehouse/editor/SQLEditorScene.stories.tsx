@@ -1058,3 +1058,56 @@ export const BIConnections: Story = {
         await waitFor(() => expect(canvas.getByText('annual_revenue')).toBeVisible())
     },
 }
+
+const BI_ANALYSIS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    values: [
+        { field: biEventsField('revenue', 'float'), aggregation: 'sum', tableCalculation: { type: 'running_total' } },
+        { field: biEventsField('revenue', 'float'), aggregation: 'average' },
+    ],
+    topN: { fieldId: biEventsField('event', 'string').id, count: 5, measureIndex: 0, includeOther: true },
+    totals: { rows: true, subtotals: true },
+}
+
+export const BITableAnalysis: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligence()}#${new URLSearchParams({
+            q: buildBIQuery(BI_ANALYSIS_CONFIG)!.query,
+            mode: 'bi',
+            bi: JSON.stringify(BI_ANALYSIS_CONFIG),
+        })}`,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue', 'average_revenue_2'],
+                        types: [
+                            ['bi_row_timestamp', 'String'],
+                            ['bi_column_event', 'String'],
+                            ['sum_revenue', 'Nullable(Float64)'],
+                            ['average_revenue_2', 'Float64'],
+                        ],
+                        results: [
+                            ['Total', 'Total', null, 14.2],
+                            ['2026-06-01', 'purchase', 120, 12],
+                            ['2026-06-02', 'purchase', 300, 15],
+                            ['2026-06-01', 'Other', 40, 10],
+                        ],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible())
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getAllByText('Total').length).toBeGreaterThan(0))
+    },
+}

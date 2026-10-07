@@ -38,11 +38,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     clean_customer_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+    GOOGLE_ADS_CALL_TIMEOUT_SECONDS,
     GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS,
+    GoogleAdsCallDeadlineExceeded,
     GoogleAdsColumn,
     GoogleAdsSearchService,
     GoogleAdsTable,
     _get_integration,
+    _is_deadline_exceeded_error,
     _is_permission_denied_error,
     _is_rejected_page_token_error,
     _is_stale_page_token_error,
@@ -51,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _load_client_with_transient_retry,
     _resolve_protobuf_message_type_url,
     _search_as_arrow_tables,
+    _search_by_campaign,
     _search_fields_with_transient_retry,
     get_schemas,
     google_ads_source,
@@ -637,7 +641,7 @@ class _FakeService:
         self.error_on_token = error_on_token or _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
         self.calls: list[str] = []
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         self.calls.append(request["page_token"])
         if request["page_token"]:
             raise self.error_on_token
@@ -780,7 +784,7 @@ class TestSearchPageTokenResumption:
             calls=[],
         )
 
-        def _always_raise(request: dict):
+        def _always_raise(request: dict, timeout: float | None = None):
             always_failing.calls.append(request["page_token"])
             raise _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
 
@@ -1011,7 +1015,7 @@ class _FlakyService:
         self.fail_times = fail_times
         self.calls = 0
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.error
@@ -1133,7 +1137,7 @@ class _FakeSearchService:
         # The header is baked in when the service is built, as the real SDK does.
         self._login_customer_id = login_customer_id
 
-    def search(self, request: dict):
+    def search(self, request: dict, timeout: float | None = None):
         customer_id = request["customer_id"]
         self._client.searches.append((customer_id, self._login_customer_id))
 
@@ -1165,7 +1169,7 @@ class _FakeGoogleAdsClient:
     def get_service(self, name: str, version: str | None = None, interceptors: object = None):
         if name == "CustomerService":
             return SimpleNamespace(
-                list_accessible_customers=lambda: SimpleNamespace(
+                list_accessible_customers=lambda timeout=None: SimpleNamespace(
                     resource_names=[f"customers/{customer_id}" for customer_id in self.accessible]
                 )
             )
@@ -1255,7 +1259,7 @@ class _FlakyFieldService:
         self.fail_times = fail_times
         self.calls = 0
 
-    def search_google_ads_fields(self, query: str):
+    def search_google_ads_fields(self, query: str, timeout: float | None = None):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.error
@@ -2137,3 +2141,180 @@ class TestBreakdownStatsDefaultOff:
 @pytest.mark.parametrize("alias", ["keyword", "keyword_stats", "landing_page_stats"])
 def test_search_performance_tables_are_preselected(alias: str) -> None:
     assert RESOURCE_SCHEMAS[alias].get("should_sync_default", True) is True
+
+
+class TestGrpcKeepalive:
+    def test_channel_options_enable_keepalive_once(self):
+        from google.ads.googleads import client as google_ads_client_module
+
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
+            _ensure_grpc_receive_limit,
+        )
+
+        _ensure_grpc_receive_limit()
+        _ensure_grpc_receive_limit()
+
+        keys = [key for key, _ in google_ads_client_module._GRPC_CHANNEL_OPTIONS]
+        options = dict(google_ads_client_module._GRPC_CHANNEL_OPTIONS)
+        for key in ("grpc.keepalive_time_ms", "grpc.keepalive_timeout_ms", "grpc.keepalive_permit_without_calls"):
+            assert keys.count(key) == 1
+        assert options["grpc.keepalive_time_ms"] > options["grpc.keepalive_timeout_ms"] > 0
+
+
+class TestCallDeadline:
+    @pytest.mark.parametrize(
+        "error, expected",
+        [
+            (google_api_exceptions.DeadlineExceeded("504 Deadline Exceeded"), True),
+            (_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED), True),
+            (_google_ads_exception_wrapping(_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED)), True),
+            (_grpc_unavailable_error(), False),
+            (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_deadline_exceeded_error(self, error, expected):
+        assert _is_deadline_exceeded_error(error) is expected
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.DeadlineExceeded("504 Deadline Exceeded"),
+            _google_ads_exception_wrapping(_StatusCodeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED)),
+        ],
+    )
+    def test_deadline_is_raised_without_in_process_retry(self, error):
+        service = _FlakyService(_single_page(), error=error, fail_times=10)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+        ) as sleep:
+            with pytest.raises(GoogleAdsCallDeadlineExceeded):
+                list(
+                    _search_as_arrow_tables(
+                        service=service,  # type: ignore[arg-type]
+                        customer_id="1234567890",
+                        query="SELECT campaign.name FROM campaign",
+                        table=_single_row_table(),
+                        resumable_source_manager=manager,  # type: ignore[arg-type]
+                    )
+                )
+
+        assert service.calls == 1
+        sleep.assert_not_called()
+
+    def test_every_search_call_carries_the_deadline(self):
+        timeouts: list[float | None] = []
+
+        class _Recorder:
+            def search(self, request: dict, timeout: float | None = None):
+                timeouts.append(timeout)
+                return SimpleNamespace(pages=iter([_single_page()]))
+
+        list(
+            _search_as_arrow_tables(
+                service=_Recorder(),  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=_FakeResumableManager(saved_token=None),  # type: ignore[arg-type]
+            )
+        )
+
+        assert timeouts == [GOOGLE_ADS_CALL_TIMEOUT_SECONDS]
+
+
+class _ShardedManager:
+    def __init__(self, saved: GoogleAdsResumeConfig | None = None):
+        self._saved = saved
+        self.saved_states: list[tuple[str, str | None]] = []
+
+    def can_resume(self) -> bool:
+        return self._saved is not None
+
+    def load_state(self) -> GoogleAdsResumeConfig | None:
+        return self._saved
+
+    def save_state(self, data: GoogleAdsResumeConfig) -> None:
+        self.saved_states.append((data.page_token, data.campaign_id))
+
+
+class _ShardedService:
+    """Serves a campaign id list, then one one-row page per campaign-filtered query."""
+
+    def __init__(self, campaign_ids: list[str]):
+        self.campaign_ids = campaign_ids
+        self.queries: list[tuple[str, str]] = []
+
+    def search(self, request: dict, timeout: float | None = None):
+        query = request["query"]
+        self.queries.append((query, request["page_token"]))
+        if query.startswith("SELECT campaign.id FROM campaign"):
+            results = [SimpleNamespace(campaign=SimpleNamespace(id=int(i))) for i in self.campaign_ids]
+            page = SimpleNamespace(results=results, next_page_token="")
+        else:
+            campaign_id = query.rsplit("campaign.id = ", 1)[1]
+            page = SimpleNamespace(
+                field_mask=SimpleNamespace(paths=["campaign.name"]),
+                results=[SimpleNamespace(campaign=SimpleNamespace(name=f"c{campaign_id}"))],
+                next_page_token="",
+            )
+        return SimpleNamespace(pages=iter([page]))
+
+
+class TestCampaignShardedSearch:
+    def _compose(self, lower, upper, extra=None) -> str:
+        return (
+            f"SELECT campaign.name FROM keyword_view WHERE {extra}"
+            if extra
+            else "SELECT campaign.name FROM keyword_view"
+        )
+
+    def _run(self, service: _ShardedService, manager: _ShardedManager) -> list[str]:
+        tables = _search_by_campaign(
+            service,  # type: ignore[arg-type]
+            "1234567890",
+            self._compose,
+            _single_row_table(),
+            manager,  # type: ignore[arg-type]
+        )
+        return [row["campaign_name"] for t in tables for row in t.to_pylist()]
+
+    @pytest.mark.parametrize(
+        "saved, expected_names",
+        [
+            (None, ["c1", "c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="", campaign_id="2"), ["c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="", campaign_id="3"), ["c3"]),
+            # State from before sharding, or naming a deleted campaign, restarts the whole resource.
+            (GoogleAdsResumeConfig(page_token="TOKEN"), ["c1", "c2", "c3"]),
+            (GoogleAdsResumeConfig(page_token="TOKEN", campaign_id="99"), ["c1", "c2", "c3"]),
+        ],
+    )
+    def test_resumes_at_saved_campaign(self, saved, expected_names):
+        service = _ShardedService(["1", "2", "3"])
+
+        assert self._run(service, _ShardedManager(saved)) == expected_names
+
+    def test_checkpoints_next_campaign_and_filters_each_query(self):
+        service = _ShardedService(["1", "2", "3"])
+        manager = _ShardedManager()
+
+        self._run(service, manager)
+
+        assert manager.saved_states == [("", "2"), ("", "3")]
+        shard_queries = [q for q, _ in service.queries if "keyword_view" in q]
+        assert shard_queries == [self._compose(None, None, f"campaign.id = {i}") for i in (1, 2, 3)]
+
+    def test_saved_page_token_is_only_sent_for_its_own_campaign(self):
+        service = _ShardedService(["1", "2"])
+        manager = _ShardedManager(GoogleAdsResumeConfig(page_token="TOKEN", campaign_id="1"))
+
+        self._run(service, manager)
+
+        shard_calls = [(q.rsplit("= ", 1)[1], token) for q, token in service.queries if "keyword_view" in q]
+        assert shard_calls == [("1", "TOKEN"), ("2", "")]
+
+    def test_no_campaigns_yields_nothing(self):
+        assert self._run(_ShardedService([]), _ShardedManager()) == []
