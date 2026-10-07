@@ -36,7 +36,7 @@ class TestSavedQueryWriteFields(APIBaseTest):
     def test_create_frequency_failure_rolls_back_the_view(self) -> None:
         with patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError):
             response = self._create_view(sync_frequency="6hour")
-        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.status_code, 500, response.content)
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists())
 
     @parameterized.expand([("supplied", True, 400), ("omitted", False, 201)])
@@ -56,7 +56,8 @@ class TestSavedQueryWriteFields(APIBaseTest):
 
     def test_create_applies_the_requested_dag_and_cadence(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Other")
-        response = self._create_view(dag_id=str(dag.id), sync_frequency="6hour")
+        with patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value={str(dag.id)}):
+            response = self._create_view(dag_id=str(dag.id), sync_frequency="6hour")
         self.assertEqual(response.status_code, 201, response.content)
         node = Node.objects.get(saved_query_id=response.json()["id"])
         self.assertEqual(node.dag_id, dag.id)

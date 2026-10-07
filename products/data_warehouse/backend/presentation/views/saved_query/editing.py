@@ -48,7 +48,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 )
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import incremental_config, sync_cadence, view_description, view_state
+from . import incremental_config, lifecycle, sync_cadence, view_description, view_state
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -146,8 +146,12 @@ class DataWarehouseSavedQuerySerializer(
         help_text=(
             "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
-            "cadence available. Null means no scheduled materialization. Read back after a write, this "
-            "reflects the cadence stored on the view's DAG node."
+            "cadence available. Null means no scheduled materialization. When a create makes a new view, any "
+            "cadence other than 'never' materializes it at that cadence and starts its first run, and a cadence "
+            "the view's lineage cannot support fails the request with a 400 and creates nothing. On an update, "
+            "including a create that matches an existing view by name, it only changes the cadence: use the "
+            "materialize action to materialize an existing view. Read back after a write, this reflects the "
+            "cadence stored on the view's DAG node."
         ),
     )
     sync_frequency_bounds = serializers.SerializerMethodField(
@@ -432,15 +436,17 @@ class DataWarehouseSavedQuerySerializer(
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 if dag_given:
                     raise serializers.ValidationError({"dag_id": "Could not place this view in the requested DAG."})
-            if sync_frequency is not None:
-                if sync_frequency != "never":
-                    assert_user_can_read_query(
-                        view.query,
-                        view.team_id,
-                        cast(User, self.context["request"].user),
-                        database=self.context.get("database"),
-                    )
-                _apply_frequency_target(view, sync_frequency, self.user_access_control)
+            if sync_frequency not in (None, "never"):
+                # Inside the transaction, so a cadence the lineage refuses also discards the view.
+                lifecycle.enable_materialization(
+                    view,
+                    user=cast(User, self.context["request"].user),
+                    sync_frequency=sync_frequency,
+                    user_access_control=self.user_access_control,
+                    was_impersonated=is_impersonated(self.context["request"]),
+                )
+                # The facade loads and saves its own copy of the row, so reload this one for the response.
+                view.refresh_from_db()
 
         self._report_view_action(
             "view created",

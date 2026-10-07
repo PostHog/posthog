@@ -40,8 +40,8 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 
 class TestSavedQuery(APIBaseTest):
@@ -1323,23 +1323,89 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         return response.json()
 
-    def test_create_applies_the_requested_sync_frequency(self) -> None:
-        from products.data_modeling.backend.facade.api import get_declared_target
-
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+    @parameterized.expand(
+        [
+            ("scheduled", {"sync_frequency": "6hour"}, timedelta(hours=6)),
+            ("never", {"sync_frequency": "never"}, None),
+            ("absent", {}, None),
+        ]
+    )
+    def test_create_with_a_sync_frequency_materializes_the_view(
+        self, _name: str, fields: dict[str, str], expected_interval: timedelta | None
+    ) -> None:
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
                     "name": "event_view",
                     "query": {"kind": "HogQLQuery", "query": "select event from events LIMIT 100"},
-                    "sync_frequency": "6hour",
+                    **fields,
                 },
             )
+
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        materialized = expected_interval is not None
+        self.assertEqual(response.json()["is_materialized"], materialized)
+        self.assertEqual(response.json()["sync_frequency"], fields.get("sync_frequency") if materialized else None)
+        saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
+        self.assertEqual(saved_query.is_materialized, materialized)
+        self.assertEqual(saved_query.sync_frequency_interval, expected_interval)
+        if materialized:
+            schedule_materialization.assert_called_once_with(trigger_immediate_run=True, triggered_by_id=self.user.pk)
+        else:
+            schedule_materialization.assert_not_called()
         self.assertEqual(
-            get_declared_target(Node.objects.get(saved_query_id=response.json()["id"])), timedelta(hours=6)
+            ActivityLog.objects.filter(item_id=saved_query.id, activity="materialization_enabled").exists(),
+            materialized,
         )
+
+    def test_create_refuses_a_cadence_the_lineage_forbids_and_keeps_no_view(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="posthog_test_",
+        )
+        table = DataWarehouseTable.objects.create(name="stripe_charges", team=self.team, external_data_source=source)
+        ExternalDataSchema.objects.create(
+            name="stripe_charges",
+            team=self.team,
+            source=source,
+            table=table,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+        upstream = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "upstream_view", "query": {"kind": "HogQLQuery", "query": "select 1 as event"}},
+        )
+        self.assertEqual(upstream.status_code, 201, upstream.content)
+        upstream_node = Node.objects.get(saved_query_id=upstream.json()["id"])
+        source_node = Node.objects.create(
+            team=self.team,
+            dag=upstream_node.dag,
+            name="stripe_charges",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+        )
+        Edge.objects.create(team=self.team, dag=upstream_node.dag, source=source_node, target=upstream_node)
+
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "downstream_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event from upstream_view"},
+                    "sync_frequency": "15min",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("stripe_charges", response.json()["detail"])
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="downstream_view").exists())
+        self.assertFalse(Node.objects.filter(team=self.team, name="downstream_view").exists())
+        schedule_materialization.assert_not_called()
 
     def test_explicit_null_sync_frequency_clears_the_target(self) -> None:
         from products.data_modeling.backend.facade.api import get_declared_target

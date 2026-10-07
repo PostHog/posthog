@@ -27,15 +27,7 @@ from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThr
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.data_modeling.backend.facade.api import (
-    MaterializationFailedError,
-    MaterializationForbiddenError,
-    MaterializationRefusedError,
-    SavedQueryNotFoundError,
-    enable_saved_query_materialization,
-)
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
 
@@ -435,27 +427,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         params = SavedQueryMaterializeSerializer(data=request.data)
         params.is_valid(raise_exception=True)
 
-        try:
-            enable_saved_query_materialization(
-                self.team_id,
-                saved_query.id,
-                user=cast(User, request.user),
-                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(
-                    params.validated_data["sync_frequency"]
-                ),
-                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
-                    bounds, self.user_access_control, team_id=self.team_id
-                ),
-                was_impersonated=is_impersonated(request),
-            )
-        except SavedQueryNotFoundError:
-            raise exceptions.NotFound()
-        except MaterializationForbiddenError as e:
-            raise exceptions.PermissionDenied(str(e))
-        except MaterializationRefusedError as e:
-            raise serializers.ValidationError(str(e))
-        except MaterializationFailedError as e:
-            return response.Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        lifecycle.enable_materialization(
+            saved_query,
+            user=cast(User, request.user),
+            sync_frequency=params.validated_data["sync_frequency"],
+            user_access_control=self.user_access_control,
+            was_impersonated=is_impersonated(request),
+        )
 
         return response.Response(status=status.HTTP_200_OK)
 

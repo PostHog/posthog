@@ -1,4 +1,4 @@
-"""Deleting a saved query: its DAG node, its joins, and its materialized table."""
+"""Materializing a saved query, and deleting one: its DAG node, its joins, and its materialized table."""
 
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -6,19 +6,66 @@ from typing import TYPE_CHECKING
 from django.db.models import Q
 
 import structlog
-from rest_framework import serializers
+from rest_framework import exceptions, serializers
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade.api import (
+    MaterializationFailedError,
+    MaterializationForbiddenError,
+    MaterializationRefusedError,
+    SavedQueryNotFoundError,
+    enable_saved_query_materialization,
+)
 from products.data_modeling.backend.facade.contracts import Dependent
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
+
+from . import sync_cadence
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.facade.api import HasDependentsError
 
 logger = structlog.get_logger(__name__)
+
+
+def enable_materialization(
+    saved_query: DataWarehouseSavedQuery,
+    *,
+    user: User,
+    sync_frequency: str,
+    user_access_control: UserAccessControl | None,
+    was_impersonated: bool,
+) -> None:
+    """Materialize a saved query at `sync_frequency` and start its first run.
+
+    Every refusal raises a DRF error: 400 for a cadence the lineage forbids, 403 without edit access
+    to the view or read access to its tables, and 500 when scheduling fails. The `materialize` action
+    and a create that asks for a cadence both call this, so a view created with a cadence gets the
+    same checks, schedule and activity entry as one materialized afterwards.
+    """
+    try:
+        enable_saved_query_materialization(
+            saved_query.team_id,
+            saved_query.id,
+            user=user,
+            sync_frequency_interval=sync_frequency_to_sync_frequency_interval(sync_frequency),
+            visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                bounds, user_access_control, team_id=saved_query.team_id
+            ),
+            was_impersonated=was_impersonated,
+        )
+    except SavedQueryNotFoundError:
+        raise exceptions.NotFound()
+    except MaterializationForbiddenError as e:
+        raise exceptions.PermissionDenied(str(e))
+    except MaterializationRefusedError as e:
+        raise serializers.ValidationError(str(e))
+    except MaterializationFailedError as e:
+        raise exceptions.APIException(str(e))
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
