@@ -487,6 +487,25 @@ _PROPOSED_LINK = "[Activation](https://example.com/project/1/data-catalog/metric
             "\U0001f4dd **Proposed definition in your data catalog**: Activation",
             0.0,
         ),
+        (
+            "ran_with_badge_and_bare_path",
+            "completed",
+            "\U0001f4dd **Proposed definition in your data catalog**: /data-catalog/metrics/activation_rate",
+            0.0,
+        ),
+        (
+            "ran_with_badge_linking_a_prefix_metric",
+            "completed",
+            "\U0001f4dd **Proposed definition in your data catalog**: "
+            "[Activation v2](https://example.com/project/1/data-catalog/metrics/activation_rate_v2)",
+            0.0,
+        ),
+        (
+            "ran_with_link_outside_the_badge",
+            "completed",
+            f"\U0001f4dd **Proposed definition in your data catalog**: Activation\n\nSee {_PROPOSED_LINK}.",
+            0.0,
+        ),
         ("run_failed_so_not_used", "failed", "Activation is 31%.", None),
     ]
 )

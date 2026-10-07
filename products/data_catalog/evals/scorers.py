@@ -950,8 +950,12 @@ class ProposedBadgeShown(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
 
         answer = (output or {}).get("last_message") or ""
-        has_badge = PROPOSED_BADGE_ICON in answer
-        has_link = f"/data-catalog/metrics/{metric_name}" in answer
+        badge_lines = [line for line in answer.splitlines() if PROPOSED_BADGE_ICON in line]
+        # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
+        # name only starts the same way does not count.
+        link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
+        has_badge = bool(badge_lines)
+        has_link = any(link.search(line) for line in badge_lines)
         return Score(
             name=self._name(),
             score=1.0 if has_badge and has_link else 0.0,
