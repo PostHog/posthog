@@ -91,13 +91,16 @@ def test_resume_stages_after_yield_and_replays_only_uncommitted_pages(
     http_send.side_effect = send
     pages = iter(pipeline("contacts").items())
     assert next(pages) == [{"id": "0"}]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(pages) == [{"id": "1"}]
+    manager.confirm()
     manager.commit()
     saved = manager.load_state()
     assert saved is not None and saved.paginator_state == {"offset": 1}
     pages.close()
     assert list(pipeline("contacts").items()) == [[{"id": "1"}], [{"id": "2"}]]
+    manager.confirm()
     manager.commit()
     assert list(pipeline("contacts").items()) == []
 
@@ -109,6 +112,7 @@ def test_jobs_split_before_offset_cap_without_duplicate_boundary_rows(
     response: Callable[..., Response],
 ) -> None:
     manager.save_state(AcculynxResumeConfig(windows=[["2025-01-01", "2025-01-02"]]))
+    manager.confirm()
     manager.commit()
     attempts = 0
 
@@ -141,6 +145,7 @@ def test_unsplittable_job_day_fails_instead_of_truncating(
     response: Callable[..., Response],
 ) -> None:
     manager.save_state(AcculynxResumeConfig(windows=[["2025-01-01", "2025-01-01"]]))
+    manager.confirm()
     manager.commit()
     http_send.side_effect = lambda request, **_: response(
         request,
@@ -267,6 +272,7 @@ def test_fanout_resume_skips_completed_parents_and_keeps_the_current_parent(
     pages = iter(pipeline("estimates").items())
     assert next(pages)[0]["id"] == "estimate-0"
     assert next(pages)[0]["id"] == "estimate-1"
+    manager.confirm()
     manager.commit()
     pages.close()
     child_paths.clear()

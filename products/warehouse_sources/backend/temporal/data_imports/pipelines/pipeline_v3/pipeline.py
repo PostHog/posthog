@@ -448,6 +448,15 @@ class PipelineV3(Generic[ResumableData]):
             self._release_held_batches()
         await asyncio.to_thread(self._resumable_source_manager.commit)
 
+    def _confirm_resume_state(self) -> None:
+        """Make the cursors the source saved so far ready to commit.
+
+        Call it only while the source cannot hold a row that those cursors skip: it is suspended at
+        the `yield` of an item, or it has ended.
+        """
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.confirm()
+
     async def _stage_handoff_resume_value(self, *, force: bool = False) -> None:
         """Persist the checkpoint's value. Call it only when every observed batch has its queue row.
 
@@ -610,7 +619,7 @@ class PipelineV3(Generic[ResumableData]):
                         get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                     chunk_index += 1
-                # Every yielded row is staged now, so whatever the source staged last is safe.
+                # Every yielded row is staged now, so the cursor confirmed last is safe.
                 await self._commit_resume_state()
 
             if self._attempt > 1:
@@ -634,6 +643,7 @@ class PipelineV3(Generic[ResumableData]):
                         schema_name=self._schema.name,
                     )
 
+                    self._confirm_resume_state()
                     self._batcher.batch(item)
 
                     # A single batched table may be split into several when a string/binary/list
@@ -674,9 +684,12 @@ class PipelineV3(Generic[ResumableData]):
                         self._shutdown_monitor.raise_if_is_worker_shutdown()
                     awaiting_source = True
             except Exception:
-                # A resumable source that ends its own attempt (a page or time budget) has staged a
-                # cursor for rows the batcher still holds. Staging them lets that cursor commit, so the
-                # next attempt continues from it instead of restarting the sweep.
+                # The source raised, so a cursor it saved after its last yield is not confirmed: it can
+                # skip rows that the source fetched and did not hand on. The cursor confirmed at that
+                # yield covers rows the batcher still holds. Staging them lets that cursor commit, so
+                # the next attempt continues from it instead of restarting the sweep. A source that
+                # ends its own attempt (a page or time budget) reaches a safe point first to keep its
+                # last cursor.
                 if awaiting_source and source_is_resumable:
                     try:
                         await stage_remaining_rows()
@@ -686,6 +699,8 @@ class PipelineV3(Generic[ResumableData]):
             finally:
                 safe_point_scope.close()
 
+            # The source ended, so it holds no rows and its last cursor is safe.
+            self._confirm_resume_state()
             await stage_remaining_rows()
             await self._finalize(row_count=row_count)
 
