@@ -400,10 +400,12 @@ function classifyOwnersWithPinned(footprints, pinnedOwners, config = CONFIG) {
     return { requested: [...requested, ...pinned.values()], demoted }
 }
 
-// The comment names only the owners of a sensitive path that the footprint rules and
-// the team cap would not request. The others are in the sidebar for their changes.
-function sensitiveOwnersToExplain(sensitiveOwners, footprints, config = CONFIG) {
-    const requestedAnyway = new Set(classifyOwners(footprints, config).requested.map((f) => f.owner))
+// The comment names only the owners of a sensitive path that the assignment without
+// sensitivity would not request. The others are in the sidebar for their changes.
+function sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners, config = CONFIG) {
+    const requestedAnyway = new Set(
+        classifyOwnersWithPinned(footprints, additionOwners, config).requested.map((f) => f.owner)
+    )
     return sensitiveOwners.filter((entry) => !requestedAnyway.has(entry.owner))
 }
 
@@ -733,7 +735,7 @@ async function main() {
             requested,
             demoted,
             additionOwners,
-            sensitiveOwnersToExplain(sensitiveOwners, footprints)
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, additionOwners)
         )
         if (commentBody) {
             await upsertReviewerComment(commentBody)

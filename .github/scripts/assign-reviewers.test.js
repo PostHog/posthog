@@ -355,17 +355,26 @@ test('computeSensitiveOwners: collects owners of sensitive paths, including gene
     )
 })
 
-test('sensitiveOwnersToExplain: leaves out an owner that its footprint alone would request', () => {
-    const sensitiveOwners = [
-        { owner: '@PostHog/team-devex', paths: ['ci/allowlist.txt'] },
-        { owner: '@PostHog/team-guard', paths: ['guard/list.txt'] },
+test('sensitiveOwnersToExplain: names only the owners that the assignment without sensitivity leaves out', () => {
+    const sensitiveOwners = [{ owner: '@PostHog/team-guard', paths: ['guard/list.txt'] }]
+    const additionOwners = [{ owner: '@PostHog/team-arch', type: 'team', name: 'team-arch', paths: ['products/new'] }]
+    const cases = [
+        // The size rules request a substantive owner anyway.
+        [[fp('@PostHog/team-guard', CONFIG.substantiveLines)], [], []],
+        // Next to a larger owner, a minor owner is demoted.
+        [[fp('@PostHog/team-guard', 1), fp('@PostHog/team-big', 50)], [], ['@PostHog/team-guard']],
+        // Alone, a minor owner is requested anyway.
+        [[fp('@PostHog/team-guard', 1)], [], []],
+        // Next to an owner of additions, the same minor owner is demoted.
+        [[fp('@PostHog/team-guard', 1)], additionOwners, ['@PostHog/team-guard']],
     ]
-    const footprints = [fp('@PostHog/team-devex', CONFIG.substantiveLines), fp('@PostHog/team-guard', 1)]
 
-    assert.deepEqual(
-        sensitiveOwnersToExplain(sensitiveOwners, footprints).map((entry) => entry.owner),
-        ['@PostHog/team-guard']
-    )
+    for (const [footprints, pinned, expected] of cases) {
+        assert.deepEqual(
+            sensitiveOwnersToExplain(sensitiveOwners, footprints, pinned).map((entry) => entry.owner),
+            expected
+        )
+    }
 })
 
 test('classifyOwnersWithPinned: a pinned owner leaves a lone minor owner demoted', () => {
