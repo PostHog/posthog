@@ -3,6 +3,8 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
+import type { MetricsSceneActiveTab } from './frontend/metricsSceneLogic'
+
 export const manifest: ProductManifest = {
     name: 'Metrics',
     scenes: {
@@ -22,7 +24,8 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
-        metrics: (): string => '/metrics',
+        metrics: (activeTab?: MetricsSceneActiveTab): string =>
+            activeTab ? `/metrics?activeTab=${activeTab}` : '/metrics',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -37,6 +40,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-metrics-dark)',
             ] as FileSystemIconColor,
             href: urls.metrics(),
+            searchKeywords: ['time series', 'counters', 'gauges'],
+            searchTabs: [
+                { name: 'Explore', href: urls.metrics('explore') },
+                { name: 'SQL', href: urls.metrics('sql') },
+            ],
             // Open alpha: the nav item is visible to everyone; the scene gate offers the
             // feature preview toggle to visitors who have not enrolled yet.
             tags: ['alpha'],

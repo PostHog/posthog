@@ -5,6 +5,7 @@
  */
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -78,6 +79,19 @@ export const manifest: ProductManifest = {
             iconType: 'mcp_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
             href: urls.mcpAnalytics(),
+            searchKeywords: ['tool calls', 'model context protocol', 'plugins', 'connectors'],
+            searchTabs: [
+                { name: 'Activity', href: urls.mcpAnalyticsActivity() },
+                { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+                { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
+                { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
+                { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },
+                {
+                    name: 'Intent clustering',
+                    href: urls.mcpAnalyticsIntentClustering(),
+                    flag: FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING,
+                },
+            ],
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },

@@ -53,7 +53,7 @@ import type { Noun } from '../../../models/groupsModel'
 import type { FileSystemImport } from '../../../queries/schema/schema-general'
 import type { GroupType, IntegrationType, UserType } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { filterSearchItems, shouldSearchTickets } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
@@ -139,7 +139,7 @@ const toSearchTabItems = (
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${displayNameOf(parent)} ${tab.name}`,
                 displayName: tab.name,
-                category: parent.category,
+                category: SEARCH_TAB_CATEGORY,
                 parentName: displayNameOf(parent),
                 href: tab.href,
                 itemType: parent.itemType,
@@ -1703,10 +1703,11 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const filterCatalogBySearch = (items: SearchItem[]): SearchItem[] =>
-                    hasSearch ? filterSearchItems(items, search) : items.filter((item) => !item.parentName)
-                const filteredProducts = filterCatalogBySearch(productsItems)
-                const filteredDataManagement = filterCatalogBySearch(dataManagementItems)
+                const isSearchTab = (item: SearchItem): boolean => item.category === SEARCH_TAB_CATEGORY
+                const withoutSearchTabs = (items: SearchItem[]): SearchItem[] =>
+                    items.filter((item) => !isSearchTab(item))
+                const filteredProducts = filterBySearch(withoutSearchTabs(productsItems))
+                const filteredDataManagement = filterBySearch(withoutSearchTabs(dataManagementItems))
 
                 // Show products if not searching or has matching results
                 if (!hasSearch || filteredProducts.length > 0) {
@@ -1733,6 +1734,17 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'people',
                         items: filteredPeople,
                         isLoading: false,
+                    })
+                }
+
+                const filteredSearchTabs = filterBySearch(
+                    [...productsItems, ...dataManagementItems].filter(isSearchTab)
+                )
+                if (hasSearch && filteredSearchTabs.length > 0) {
+                    categories.push({
+                        key: SEARCH_TAB_CATEGORY,
+                        items: isProductsLoading ? [] : filteredSearchTabs,
+                        isLoading: isProductsLoading,
                     })
                 }
 

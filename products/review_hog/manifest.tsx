@@ -30,6 +30,7 @@ export const manifest: ProductManifest = {
             iconType: 'code_review' as FileSystemIconType,
             iconColor: ['var(--color-product-code-review-light)', 'var(--color-product-code-review-dark)'],
             href: urls.codeReview(),
+            searchKeywords: ['pr review', 'review agent', 'reviewhog'],
             flag: FEATURE_FLAGS.REVIEW_HOG,
             tags: ['alpha'],
             sceneKey: 'CodeReview',

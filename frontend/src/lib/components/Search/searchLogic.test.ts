@@ -7,10 +7,11 @@ import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
 
 import { searchLogic } from './searchLogic'
-import { filterSearchItems } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems } from './utils'
 
 /** Poll until a condition holds. The searches settle in no fixed order, so an ordered
  *  `toDispatchActions` list would wait on an action that had already gone past. */
@@ -41,11 +42,17 @@ describe('searchLogic', () => {
         })
     }
 
+    const searchOnceProductsLoad = async (search: string): Promise<void> => {
+        await expectLogic(recentItemsModel).toDispatchActions(['loadSceneLogViewsSuccess'])
+        logic.actions.setSearch(search)
+    }
+
     beforeEach(() => {
         useMocks({
             get: {
                 '/api/environments/:team_id/search/': { results: [], counts: {} },
                 '/api/projects/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/log_view/': [],
                 '/api/projects/:team_id/conversations/tickets/': { results: [], count: 0 },
             },
         })
@@ -174,7 +181,7 @@ describe('searchLogic', () => {
 
     it.each([
         ['materialized views', 'dataManagementItems', 'Models'],
-        ['batch exports', 'dataManagementItems', 'Destinations'],
+        ['batch exports', 'dataManagementItems', 'Destinations Batch exports'],
         ['insights', 'productsItems', 'Product analytics'],
         ['semantic layer', 'productsItems', 'Data catalog'],
         ['Semantic Layer', 'productsItems', 'Data catalog'],
@@ -194,15 +201,73 @@ describe('searchLogic', () => {
         ['models data quality', true, true],
         ['data quality', false, false],
         ['', true, false],
-    ])('lists the Models data quality tab for search %j with the flag on=%s: %s', (search, flagEnabled, listed) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
-        logic.actions.setSearch(search)
+    ])(
+        'lists the Models data quality tab for search %j with the flag on=%s: %s',
+        async (search, flagEnabled, listed) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
+            await searchOnceProductsLoad(search)
 
-        const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
-        const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
-        expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
-            listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
-        )
+            const rows = logic.values.allCategories.flatMap((category) =>
+                category.items.filter((item) => item.href === urls.models('data-quality'))
+            )
+            expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
+                listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
+            )
+        }
+    )
+
+    it.each([
+        ['batch exports', [], '/data-management/destinations?tab=batch'],
+        ['metrics sql', [], '/metrics?activeTab=sql'],
+        ['dashboards cross-project', [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS], '/dashboard?tab=cross-project'],
+        ['tracing sql', [FEATURE_FLAGS.TRACING, FEATURE_FLAGS.TRACING_SCENE_TABS], '/tracing?tab=sql'],
+        ['reusable widgets', [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS], '/notebooks?tab=widgets'],
+        ['replay vision usage', [], '/replay-vision?tab=usage'],
+    ])('links the tab row found by %j with flags %j to %s', async (search, flags, href) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(flags.map((flag) => [flag, true])))
+        await searchOnceProductsLoad(search)
+
+        const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
+        expect(tabs?.items.map((item) => item.href)).toContain(href)
+    })
+
+    it('does not list every tab row for "ab", which only resembles the group name', async () => {
+        await searchOnceProductsLoad('ab')
+
+        const rows = logic.values.allCategories.flatMap((category) => category.items)
+        expect(rows.some((item) => item.category === SEARCH_TAB_CATEGORY)).toBe(true)
+        expect(rows.map((item) => item.href)).not.toContain('/metrics?activeTab=sql')
+    })
+
+    it('lists Error tracking first in Products for "errors"', async () => {
+        await searchOnceProductsLoad('errors')
+
+        const products = logic.values.allCategories.find((category) => category.key === 'tools')
+        expect(products?.items[0]?.name).toBe('Error tracking')
+    })
+
+    it('lists the Tabs group above Settings', async () => {
+        logic.actions.setSettingsSections([
+            {
+                id: 'environment-web-analytics',
+                level: 'environment',
+                titleString: 'Web vitals',
+                settings: [
+                    {
+                        id: 'web-vitals-autocapture',
+                        hasTitle: true,
+                        titleString: 'Web vitals',
+                        descriptionString: null,
+                    },
+                ],
+            },
+        ])
+        await searchOnceProductsLoad('web vitals')
+
+        const keys = logic.values.allCategories.map((category) => category.key)
+        expect(keys).toContain('settings')
+        expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(-1)
+        expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeLessThan(keys.indexOf('settings'))
     })
 
     it.each([

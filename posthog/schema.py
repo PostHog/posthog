@@ -5771,11 +5771,13 @@ class FileSystemImport(BaseModel):
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
     searchKeywords: list[str] | None = Field(
         default=None,
-        description=("Other terms that find this item in search, for example the names of its tabs or common synonyms"),
+        description=(
+            "Synonyms that find this item in search; a word that names a tab belongs on that tab's row instead"
+        ),
     )
     searchTabs: list[FileSystemSearchTab] | None = Field(
         default=None,
-        description="Tabs of this item that search lists as their own results",
+        description=("Tabs with their own URL that search lists as separate rows, below products and people"),
     )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
