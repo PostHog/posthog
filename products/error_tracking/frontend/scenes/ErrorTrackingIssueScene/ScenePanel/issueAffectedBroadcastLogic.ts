@@ -181,7 +181,6 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                 return
             }
             actions.closeModal()
-            captureMessageAudienceClicked(SOURCE, 'broadcast')
             router.actions.push(
                 messageAudienceUrl(
                     {
@@ -192,6 +191,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                     'broadcast'
                 )
             )
+            captureMessageAudienceClicked(SOURCE, 'broadcast')
         },
         createAudienceFailure: () => {
             lemonToast.error("Couldn't save the people affected. Try again.")
