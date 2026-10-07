@@ -681,6 +681,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         sessionId: values.sessionId,
                         customColumns: sentCustomColumns,
                     }
+                    // nosemgrep: prefer-codegen-api-namespaced-logs -- the generated client types filterGroup as the flat MCP list, but this caller sends a PropertyGroupFilter.
                     const response = await retryOnFastFailure(() => api.logs.query({ query, signal }), { signal })
                     actions.setLogsAbortController(null)
                     // A 2xx response with an empty body legitimately resolves to null (see
@@ -767,6 +768,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         personId: values.personId,
                         sessionId: values.sessionId,
                     }
+                    // nosemgrep: prefer-codegen-api-namespaced-logs -- the generated client types the response as { results }, but the endpoint returns a bare array.
                     const response = await retryOnFastFailure(() => api.logs.sparkline({ query, signal }), {
                         signal,
                     })
