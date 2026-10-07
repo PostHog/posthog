@@ -4814,10 +4814,10 @@ Today (1): `api_requests`
 
 Diffed against: <https://raw.githubusercontent.com/Kong/developer.konghq.com/main/api-specs/konnect/analytics-requests/v2/openapi.yaml>
 
-- [ ] `/control-planes (Control Planes API v2)` — lookup that resolves the control_plane_id dimension carried on every api_requests row (high)
-- [ ] `/control-planes/{id}/core-entities/services` — lookup resolving the service_id on api_requests to a named gateway service (high)
-- [ ] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
-- [ ] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
+- [x] `/control-planes (Control Planes API v2)` — lookup that resolves the control_plane_id dimension carried on every api_requests row (high)
+- [x] `/control-planes/{id}/core-entities/services` — lookup resolving the service_id on api_requests to a named gateway service (high)
+- [x] `/control-planes/{id}/core-entities/routes` — lookup resolving route_id on api_requests to a path/method (high)
+- [x] `/control-planes/{id}/core-entities/consumers` — lookup resolving consumer_id on api_requests to a named API consumer (high)
 - [ ] `/api-products (API Products v2)` — lookup for the api_product / api_product_version dimensions filterable on api_requests (high)
 - [ ] `/metrics (Analytics Metrics v2)` — vendor's aggregated traffic, latency and error-rate metrics without re-aggregating raw request rows (medium)
 - [ ] `/control-planes/{id}/core-entities/plugins` — which rate-limit/auth plugins were active on a service or route when traffic was served (medium)
