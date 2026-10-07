@@ -41,18 +41,14 @@ export function switchMetricsQueryLanguage(
     LemonDialog.open({
         title: `Switch to ${label}?`,
         description: (
-            <div className="flex flex-col gap-2">
-                <p>Some parts of this query do not convert exactly:</p>
-                <ul className="list-disc pl-5 flex flex-col gap-1">
-                    {issues.map((issue) => (
-                        <li key={issue}>{issue}</li>
-                    ))}
-                </ul>
-                <p>Switching back does not bring these parts back.</p>
-            </div>
+            <ul className="list-disc pl-5 mt-2 flex flex-col gap-1">
+                {issues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                ))}
+            </ul>
         ),
         primaryButton: {
-            children: `Switch to ${label}`,
+            children: 'Switch',
             onClick: () => {
                 track(true)
                 apply(converted)

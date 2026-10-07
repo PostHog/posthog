@@ -151,9 +151,7 @@ function substituteFormula(
                     labels: rhs.labels,
                 }
             }
-            issues.push(
-                'The formula combines series grouped by different labels. PromQL only matches series with the same labels.'
-            )
+            issues.push('The formula mixes series with different group-by labels.')
             return { expr: binary, labels: lhs.labels }
         }
         default:

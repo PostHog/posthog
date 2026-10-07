@@ -35,8 +35,8 @@ interface MetricsQueryNodeProps {
  * saved insights, dashboard tiles, notebooks. */
 const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
     builder: 'Pick a metric to see its time series.',
-    promql: 'Write a PromQL query and run it to see its time series.',
-    sql: 'Write a SQL query and run it to see its time series.',
+    promql: 'Run a query to see results.',
+    sql: 'Run a query to see results.',
 }
 
 const queryText = (query: MetricsQuery): string =>
@@ -91,8 +91,9 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
                         />
                     )}
                     <LemonBanner type="info" className="w-full">
-                        This insight uses settings that the builder cannot show, so the builder is off for this insight.
-                        {onSwitchLanguage ? ' Switch to PromQL or SQL to edit it.' : ''}
+                        {onSwitchLanguage
+                            ? 'The builder cannot show this query. Switch to PromQL or SQL to edit it.'
+                            : 'This insight uses settings that the builder cannot show, so the builder is off for this insight.'}
                     </LemonBanner>
                 </div>
             )}

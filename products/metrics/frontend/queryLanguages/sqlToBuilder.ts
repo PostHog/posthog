@@ -660,7 +660,7 @@ export function sqlToBuilder(sql: string): ConversionResult<BuilderQuery> {
     const issues: string[] = []
     const tooCustom = (): ConversionResult<BuilderQuery> => ({
         value: null,
-        issues: [...issues, 'This SQL is too custom to convert; the builder will start empty.'],
+        issues: [...issues, 'This SQL cannot be converted.'],
     })
     try {
         const tokens = tokenize(sql.trim().replace(/;\s*$/, ''))

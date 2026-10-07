@@ -14,7 +14,32 @@ export const queryLanguage = (query: Pick<MetricsQuery, 'language'>): MetricsQue
     query.language ?? 'builder'
 
 /** Shown when a round trip finds a change that no converter reported. */
-export const GENERIC_LOSS_ISSUE = 'Some parts of the query cannot be converted exactly and will change.'
+export const GENERIC_LOSS_ISSUE = 'Parts of the query will change.'
+
+// The aggregations the builder's clause rows can show (see isBuilderCompatibleQuery in metricsViewerLogic).
+const BUILDER_EDITOR_AGGREGATIONS = new Set(['sum', 'avg', 'count', 'min', 'max', 'rate', 'increase'])
+
+/** Parts of a builder query that the builder can chart but not show in its clause rows. */
+function builderEditorLimits(query: BuilderQuery): string[] {
+    const limits: string[] = []
+    for (const clause of query.clauses) {
+        if (clause.aggregation === 'histogram_quantile') {
+            limits.push(`series ${clause.name} uses a histogram quantile`)
+        } else if (
+            !BUILDER_EDITOR_AGGREGATIONS.has(clause.aggregation) &&
+            !(clause.aggregation === 'quantile' && clause.quantile === 0.95)
+        ) {
+            limits.push(`series ${clause.name} uses ${clause.aggregation}`)
+        }
+        const scoped = [...(clause.filters ?? []), ...(clause.groupBy ?? [])].find(
+            (item) => item.scope && item.scope !== 'auto'
+        )
+        if (scoped) {
+            limits.push(`series ${clause.name} limits "${scoped.key}" to ${scoped.scope} attributes`)
+        }
+    }
+    return limits
+}
 
 /** The builder form of a query in any language. */
 export function toBuilderQuery(query: MetricsQuery): ConversionResult<BuilderQuery> {
@@ -152,6 +177,10 @@ export function convertMetricsQuery(query: MetricsQuery, to: MetricsQueryLanguag
 
     if (to === 'builder') {
         const clauses = builder?.clauses ?? []
+        const limits = builder ? builderEditorLimits(builder) : []
+        if (limits.length) {
+            issues.push(`The builder cannot edit this query: ${limits.join('; ')}.`)
+        }
         if (from !== 'builder' && builder && !issues.length && !textSurvives(sourceText(query, from), builder, from)) {
             issues.push(GENERIC_LOSS_ISSUE)
         }
