@@ -9251,9 +9251,13 @@ snapshots:
     scenes-app-customer-analytics-dashboard--b-2-c-mode--light:
         hash: v1.k794b7964.ff25e11868464e00df352180254dbe0a1017cd1d8c7c4f4c7d6995068e80e2dc.m0XFOZVPCdSaCLaPQ6XTePvkZJ1I11QI2KARZi9QpWs
     scenes-app-customer-analytics-dashboard--customer-tasks--dark:
-        hash: v1.k794b7964.bf4411a8550fe620b82da8dbf7db11efbe3915634ecdcf3baa8b2bffc0aad593.frezJ_q91GKzahZb8GfRbUeRbERSv-ReB2HIBNJN6Ow
+        hash: v1.k794b7964.08e8cd42e255347bc8144b25b3592a4103483ebd5587cb14e9013786f000023b.duE7w5P1SNIj600LVcMaVEe9UWEqi-oGOprjEEeJaIE
     scenes-app-customer-analytics-dashboard--customer-tasks--light:
-        hash: v1.k794b7964.acedcb03c7c39d27c2b9f0ed3f1b1ac44fe3fdc58f68a0ed0d0b9e475e70ca96.nKLpWDvqLrHFG2HwFEAexR8rc63-OmxYQogH_Utdg9I
+        hash: v1.k794b7964.d936025c0bd0ec7e3886085746a8160e92c0f5e36b64ca46eea3dbf44839ea4a.9Lx5kC0EJ_EHO-lvAOH6xGgv_BkbefqSM-HpKmuzusM
+    scenes-app-customer-analytics-dashboard--customer-tasks-assignee-roles--dark:
+        hash: v1.k794b7964.ff1e2d80d015ed8d85aa11b81e21fbe6651f3f10f08184c5dacdbf297db0ffd2.EfU11y8W9FRIQhKcqwM67uop3eSNdNwPsp5Uv6Z09yU
+    scenes-app-customer-analytics-dashboard--customer-tasks-assignee-roles--light:
+        hash: v1.k794b7964.1eed6cafb7b3199131a277eba2e0afa88d1ef9359d122bc7c509d97300399c22.IHVs3nKi8DZlyCOFHz1f1kw9BXUnYdpBWK3Q4pgY4LA
     scenes-app-customer-analytics-dashboard--feature-request-details--dark:
         hash: v1.k794b7964.d87f1abf2d12f5814dd652ba1c760a15d00f6fa2f6927f9aaa662dacbd91a83c.8qn3xLm6N1ZugTMoofH8kEhupFhydr4UcG0Wlko4SLY
     scenes-app-customer-analytics-dashboard--feature-request-details--light:
