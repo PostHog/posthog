@@ -938,6 +938,9 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    // Optional so cached team objects from before these fields shipped still typecheck.
+    email_utm_tags_enabled?: boolean
+    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
 }
 
 export interface FeatureFlagPolicyConfig {

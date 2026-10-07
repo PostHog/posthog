@@ -11,7 +11,9 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.workflows.backend.facade.contracts import (
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    FlowUtmUpdate,
     RecentWorkflow,
+    TeamUtmDefaults,
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
@@ -20,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -318,3 +321,32 @@ def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccou
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()
+
+
+def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
+    return email_utm_defaults.load_team_utm_defaults(team_id)
+
+
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
+def seed_new_email_steps_with_utm_defaults(
+    actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
+) -> None:
+    email_utm_defaults.seed_new_email_actions(actions, existing_action_ids, defaults)
+
+
+def release_edited_email_utm_keys(
+    actions: list[dict[str, Any]],
+    stored_actions: list[Any],
+    stored_draft: dict[str, Any] | None,
+    defaults: TeamUtmDefaults,
+) -> None:
+    email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults)
+
+
+def plan_flow_utm_update(
+    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
+) -> FlowUtmUpdate | None:
+    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)

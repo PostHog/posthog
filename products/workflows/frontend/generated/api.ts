@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
+    ApplyUtmDefaultsRequestApi,
+    ApplyUtmDefaultsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
     EmailSendingSuspensionStatusApi,
@@ -1190,6 +1192,23 @@ export const hogFlowsSchedulesDestroy = async (
     return apiMutator<void>(getHogFlowsSchedulesDestroyUrl(projectId, id, scheduleId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsApplyUtmDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/apply_utm_defaults/`
+}
+
+export const hogFlowsApplyUtmDefaultsCreate = async (
+    projectId: string,
+    applyUtmDefaultsRequestApi?: ApplyUtmDefaultsRequestApi,
+    options?: RequestInit
+): Promise<ApplyUtmDefaultsResponseApi> => {
+    return apiMutator<ApplyUtmDefaultsResponseApi>(getHogFlowsApplyUtmDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyUtmDefaultsRequestApi),
     })
 }
 

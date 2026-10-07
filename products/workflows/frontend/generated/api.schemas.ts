@@ -1724,6 +1724,30 @@ export interface PatchedHogFlowScheduleApi {
     readonly updated_at?: string
 }
 
+export interface ApplyUtmDefaultsRequestApi {
+    /** When true, only count the emails the change would update. Nothing is saved. */
+    dry_run?: boolean
+    /** Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links. */
+    enable_where_off?: boolean
+}
+
+export interface ApplyUtmDefaultsResponseApi {
+    /** Email steps that get (or would get) the team defaults. */
+    emails_updated: number
+    /** Workflows and broadcasts that contain those email steps. */
+    workflows_updated: number
+    /** Of those, the ones that are live, so their next send uses the new values. */
+    active_workflows_updated: number
+    /** Email steps where UTM tags get (or would get) turned on. */
+    emails_turned_on: number
+    /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
+    emails_off: number
+    /** Workflows with emails to update that you can't edit. They keep their old values. */
+    workflows_without_access: number
+    /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
+    workflows_failed: number
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */

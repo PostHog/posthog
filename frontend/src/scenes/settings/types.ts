@@ -319,6 +319,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-ai-task-limits'
     | 'workflows-email-tracking-consent'
+    | 'workflows-utm-defaults'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 

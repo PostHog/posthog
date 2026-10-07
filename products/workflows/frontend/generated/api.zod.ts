@@ -2727,6 +2727,22 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+export const hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault = true
+export const hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault = false
+
+export const HogFlowsApplyUtmDefaultsCreateBody = /* @__PURE__ */ zod.object({
+    dry_run: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyDryRunDefault)
+        .describe('When true, only count the emails the change would update. Nothing is saved.'),
+    enable_where_off: zod
+        .boolean()
+        .default(hogFlowsApplyUtmDefaultsCreateBodyEnableWhereOffDefault)
+        .describe(
+            'Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links.'
+        ),
+})
+
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``

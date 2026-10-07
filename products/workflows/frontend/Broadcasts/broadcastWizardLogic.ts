@@ -47,7 +47,8 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
-import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
+import { getTeamUtmDefaults, newEmailUtmConfig } from '../Workflows/hogflows/steps/components/utmDefaults'
+import type { UtmTagKey, UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
     AUDIENCE_PREFILL_PARAM,
@@ -131,6 +132,8 @@ export interface BroadcastEmailSettings {
     trackingEnabled: boolean
     utmTagsEnabled: boolean
     utmParams: UtmTagValues
+    /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
+    utmParamsFromDefault?: UtmTagKey[]
 }
 
 export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
@@ -152,6 +155,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
         utmParams: config.utm_params ?? {},
+        utmParamsFromDefault: config.utm_params_from_default,
     }
 }
 
@@ -165,6 +169,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
         utm_params: settings.utmParams,
+        utm_params_from_default: settings.utmParamsFromDefault,
     }
 }
 
@@ -260,6 +265,13 @@ export interface broadcastWizardLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | null
+        payload?: any
+    } // teamLogic
     applyExternalEdit: (
         broadcast: HogFlowApi,
         base: HogFlowApi | null
@@ -383,6 +395,11 @@ export interface broadcastWizardLogicActions {
     }
     saveName: () => {
         value: true
+    }
+    seedTeamUtmDefaults: (
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
+    ) => {
+        settings: Pick<BroadcastEmailSettings, 'utmParams' | 'utmParamsFromDefault' | 'utmTagsEnabled'>
     }
     sendToEveryoneAfterRejectedLink: () => {
         value: true
@@ -538,7 +555,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             integrationsLogic,
             ['integrations', 'integrationsLoading'],
         ],
-        actions: [resourceEditedLogic, ['resourceEdited']],
+        actions: [resourceEditedLogic, ['resourceEdited'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
 
     actions({
@@ -557,6 +574,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
+        seedTeamUtmDefaults: (
+            settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
+        ) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
@@ -748,6 +768,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL_SETTINGS,
             {
                 setEmailSettings: (state, { settings }) => ({ ...state, ...settings }),
+                // Not setEmailSettings: that one autosaves, and opening /broadcasts/new must not create a draft.
+                seedTeamUtmDefaults: (state, { settings }) => ({ ...state, ...settings }),
                 hydrateFromBroadcast: (state, { broadcast }) => readEmailSettings(broadcast) ?? state,
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, readEmailSettings)
@@ -1124,6 +1146,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     }),
 
     listeners(({ actions, values, props, cache }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            // A new broadcast that mounted before the team loaded still shows the built-in settings.
+            // Anything the user changed since replaced that object, so it is left alone.
+            if (props.id === 'new' && currentTeam && values.emailSettings === DEFAULT_BROADCAST_EMAIL_SETTINGS) {
+                seedTeamUtmDefaults(actions, currentTeam)
+            }
+        },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
         },
@@ -1735,10 +1764,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
         if (props.id !== 'new') {
             actions.loadBroadcast()
             return
+        }
+        if (values.currentTeam) {
+            seedTeamUtmDefaults(actions, values.currentTeam)
         }
         const {
             [AUDIENCE_PREFILL_PARAM]: audience,
@@ -1772,6 +1804,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         actions.loadBlastRadius()
     }),
 ])
+
+function seedTeamUtmDefaults(
+    actions: broadcastWizardLogicType['actions'],
+    currentTeam: TeamPublicType | TeamType
+): void {
+    const utm = newEmailUtmConfig(getTeamUtmDefaults(currentTeam.workflows_config))
+    actions.seedTeamUtmDefaults({
+        utmTagsEnabled: utm.utm_tags_enabled,
+        utmParams: utm.utm_params,
+        utmParamsFromDefault: utm.utm_params_from_default,
+    })
+}
 
 function captureLaunchFailed(
     broadcastId: string | null | undefined,

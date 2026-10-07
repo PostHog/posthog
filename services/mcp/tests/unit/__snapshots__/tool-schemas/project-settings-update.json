@@ -4289,6 +4289,36 @@
                     "enum": ["off", "opt_out", "opt_in"],
                     "type": "string"
                 },
+                "email_utm_params": {
+                    "description": "Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.",
+                    "properties": {
+                        "utm_campaign": {
+                            "description": "Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_content": {
+                            "description": "Default utm_content. Empty uses the email step name. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_medium": {
+                            "description": "Default utm_medium. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_source": {
+                            "description": "Default utm_source. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "email_utm_tags_enabled": {
+                    "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.",
+                    "type": "boolean"
+                },
                 "workflow_task_rate_limit_per_day": {
                     "anyOf": [
                         {
