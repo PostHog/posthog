@@ -19,6 +19,7 @@ The other half is `../inference/`, which consumes what this package produces and
   The brief's cost guidance is advice only. Cost does not enter champion selection, so the brief does not tell the agent to trade AUC for a cheaper query.
   For a person column that events do not carry, the brief recommends `raw_persons` in a subquery filtered with `id IN (SELECT person_id FROM {anchors})`, never `LEFT JOIN persons`, because the persons table dedupes every person of the team before any filter applies.
   `feature_sql_hints()` in `recipe_validation.py` returns a non-blocking hint when a query reads `persons` or `raw_persons` in a SELECT whose `WHERE` does not refer to `{anchors}`. The `materialize-features` response carries the hints, with the `elapsed_s` and `rows_read` of the materialization.
+  Step 0 of the brief carries the realized results that `realized_context.py` computes, wrapped as untrusted data, with guidance on how to read the gap between holdout and realized AUC. The brief presents realized AUC as evidence for a direction, never as a target: the next run's holdout covers the same recent dates, so tuning against realized results tunes against the holdout. A pipeline with no validated dates gets one line instead of tables. `report.md` asks for one line on how the run used these results.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
@@ -50,6 +51,10 @@ The other half is `../inference/`, which consumes what this package produces and
   It holds the champion, the previous champion (the newest archived bundle-backed row with `promoted_at` set), and up to `SHADOW_CHALLENGER_LIMIT` (3) fitted bundle-backed challengers. No two members share a `recipe_hash`.
   A challenger younger than `horizon_days + SHADOW_MIN_MATURED_DATES` days keeps its place, so a new challenger cannot displace it. Past that age, a newer challenger displaces it. A challenger that does not enter at completion is never fitted, so it cannot enter later.
   The models API exposes membership as `in_shadow_set`. Every live scoring cadence scores the set (see `../inference/AGENTS.md`). Nothing promotes from the set yet.
+- `realized_context.py`
+  `build_realized_context(pipeline)` reads the validation history through `latest_validation_runs()` in `../evaluation/history.py`, the same read as the `online_performance` API.
+  For each shadow-set member (champion, previous champion, shadow challengers) it keeps at most `REALIZED_DATES_PER_MODEL` (14) dates: realized AUC with its interval, positives, mean score against base rate, and the gap to holdout.
+  It also picks at most `RELATED_PIPELINES_LIMIT` (5) pipelines of the same team with a realized result: the same target at another horizon first, then the same training population with another target, nearest horizon first. For those the brief shows only the gap and calibration of the model that served each date, because AUCs at another horizon or for another target do not compare. A population that `ever_performed_target` or `active_not_performed_target` defines resolves against each pipeline's own target, so it never counts as the same population.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
