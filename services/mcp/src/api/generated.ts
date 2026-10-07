@@ -10746,6 +10746,14 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type MissingDates = typeof MissingDates[keyof typeof MissingDates];
+
+
+    export const MissingDates = {
+      Gap: 'gap',
+      Zero: 'zero',
+    } as const;
+
     export type Operator1 = typeof Operator1[keyof typeof Operator1];
 
 
@@ -10841,6 +10849,8 @@ export namespace Schemas {
     export interface BITableCalculation {
       /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
       computeUsing?: string | null;
+      /** Require a complete window of non-null values before displaying a moving average. */
+      requireFullWindow?: boolean | null;
       type: BITableCalculationType;
       /** Number of points, including the current point, in a trailing moving average. */
       window?: number | null;
@@ -10865,6 +10875,8 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+      missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -69484,12 +69496,14 @@ export namespace Schemas {
 
     /**
      * * `logs` - Logs
+     * * `insight` - Insight
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
 
     export const PlatformAlertConfigurationSourceKindEnum = {
       Logs: 'logs',
+      Insight: 'insight',
     } as const;
 
     export interface PlatformAlert {
@@ -69523,7 +69537,7 @@ export namespace Schemas {
     }
 
     /**
-     * Source-specific query settings. The shape depends on source_kind.
+     * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
      */
     export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
 
@@ -69536,16 +69550,11 @@ export namespace Schemas {
       readonly enabled: boolean;
       /** Product whose data the alert evaluates.
        *
-       * * `logs` - Logs */
+       * * `logs` - Logs
+       * * `insight` - Insight */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
-      /** Source-specific query settings. The shape depends on source_kind. */
+      /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
-      /** Count the evaluated value is compared against. */
-      readonly threshold_count: number;
-      /** Comparison operator applied between the value and threshold_count. */
-      readonly threshold_operator: string;
-      /** Length of the evaluated time window, in minutes. */
-      readonly window_minutes: number;
       /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
       readonly check_interval_minutes: number;
       /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.
