@@ -37,6 +37,9 @@ const MULTIVARIATE_FILTERS: FeatureFlagType['filters']['multivariate'] = {
     ],
 }
 
+/** The banner's sentence also lives in the live region beside it, so banner queries skip that node. */
+const IGNORE_LIVE_REGION = { ignore: '[aria-live]' }
+
 const PERSON_FILTER: AnyPropertyFilter = {
     key: 'email',
     value: 'a',
@@ -270,7 +273,7 @@ describe('FeatureFlagSchedule', () => {
                 scheduleConditionAdd(scheduledRollout, scheduledGroupTypeIndex)
             })
 
-            const warning = screen.queryByText(/^This flag (already serves|is disabled)/)
+            const warning = screen.queryByText(/^This flag (already serves|is disabled)/, IGNORE_LIVE_REGION)
             expect(!!warning).toEqual(expectWarning)
         }
     )
@@ -308,10 +311,30 @@ describe('FeatureFlagSchedule', () => {
             })
 
             expect(
-                screen.getByText(/^This flag (already serves|is disabled)/).closest('.LemonBanner')
+                screen.getByText(/^This flag (already serves|is disabled)/, IGNORE_LIVE_REGION).closest('.LemonBanner')
             ).toHaveTextContent(expectedText)
+            // The live region carries its own copy of the sentence, so assert it says the same thing.
+            // A reader who never sees the banner gets this instead.
+            const announced = document.querySelector('[aria-live="polite"]')
+            expect(announced).toHaveTextContent(expectedText)
+            expect(announced).toHaveTextContent('A condition at 25% will not change who sees the flag.')
         }
     )
+
+    it('leaves the live region mounted and empty when the warning does not apply', () => {
+        // A region that appears already populated is not announced, so it cannot mount with the banner.
+        renderSchedule(
+            buildFeatureFlag({ active: true, rolloutPercentage: 40 }),
+            ScheduledChangeOperationType.AddReleaseCondition
+        )
+
+        act(() => {
+            scheduleConditionAdd(60)
+        })
+
+        expect(screen.queryByText(/This flag already serves/, IGNORE_LIVE_REGION)).not.toBeInTheDocument()
+        expect(document.querySelector('[aria-live="polite"]')).toBeEmptyDOMElement()
+    })
 
     // useMocks trips the hooks naming lint inside named helpers, so each test registers
     // its own mock before calling this.

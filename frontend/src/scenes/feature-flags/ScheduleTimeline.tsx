@@ -17,17 +17,20 @@ const TIME_LABEL_MIN_GAP = 40
 const TOP_LABEL_MIN_GAP = 40
 /** How far the second lane sits above the first. Tuned against the 9px label size. */
 const TOP_LABEL_LANE_OFFSET = 10
-/**
- * Half the widest label either builder can produce, plus headroom for a wider fallback font. Both
- * builders top out at 27 characters: "still 100% (needs approval)" from stepLabel, and "3 variants
- * (needs approval)" from markerLabel. That measures about 120 viewBox units at the 9px size. Inside
- * this distance from an edge, a centered label leaves the plot. Lengthen either builder's longest
- * string and this has to grow with it.
- */
-const LABEL_EDGE_PAD = 65
 const LABEL_FONT_SIZE = 9
-/** Average width of one label character at the 9px size, taken from the 120-unit measure above. */
+/** Average width of one label character at the 9px size, measured in a browser. */
 const LABEL_CHAR_WIDTH = 4.5
+/**
+ * The longest string either builder can produce. stepLabel and markerLabel tie at 27 characters, the
+ * other being "3 variants (needs approval)".
+ */
+const WIDEST_LABEL = 'still 100% (needs approval)'
+/**
+ * Inside this distance from an edge, a centered label leaves the plot. Half the widest label, plus
+ * headroom for a wider fallback font. Derived rather than written down, so lengthening either
+ * builder's longest string carries through here on its own.
+ */
+const LABEL_EDGE_PAD = (WIDEST_LABEL.length * LABEL_CHAR_WIDTH) / 2 + 5
 
 type LabelAnchor = 'start' | 'middle' | 'end'
 

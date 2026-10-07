@@ -499,7 +499,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         schedulePayload.filters?.groups,
         aggregationGroupTypeIndex
     )
-    const servedToEveryone = maxUntargetedRolloutPercentage(
+    const servedOnSharedTarget = maxUntargetedRolloutPercentage(
         featureFlag.filters.groups,
         aggregationGroupTypeIndex,
         scheduledAggregationTarget
@@ -507,11 +507,19 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
     const conditionReachesNobodyNew =
         scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
-        servedToEveryone !== null &&
+        servedOnSharedTarget !== null &&
         scheduledConditionRollout !== null &&
         // An untouched form starts at 0%, where nobody has said what they want yet.
         scheduledConditionRollout > 0 &&
-        scheduledConditionRollout <= servedToEveryone
+        scheduledConditionRollout <= servedOnSharedTarget
+    // The banner splits these across elements to survive a page translator, so it cannot also be the
+    // announced string. Both read these three parts, so the wording cannot drift between them.
+    const coveredLead = featureFlag.active
+        ? 'This flag already serves'
+        : 'This flag is disabled, but it is already set to serve'
+    const coveredTarget = aggregationLabel(scheduledAggregationTarget, true).plural
+    const coveredTail =
+        'will not change who sees the flag. To stage a rollout, lower the existing condition first, then schedule the increases.'
 
     const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
         featureFlag,
@@ -988,21 +996,23 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             </div>
                         )}
 
+                    {/* The banner mounts and unmounts as the rollout field changes, and a live region that
+                        appears already populated is not announced. This one stays mounted and only its text
+                        changes, so each change is a mutation a screen reader reads out. sr-only takes it out
+                        of flow, so the empty case adds no gap to the column. */}
+                    <span aria-live="polite" aria-atomic="true" className="sr-only">
+                        {conditionReachesNobodyNew
+                            ? `${coveredLead} ${servedOnSharedTarget}% of all ${coveredTarget}, and release conditions are combined with OR. A condition at ${scheduledConditionRollout}% ${coveredTail}`
+                            : ''}
+                    </span>
                     {conditionReachesNobodyNew && (
                         <LemonBanner type="warning">
                             {/* These values move while the banner stays up. Each one is therefore its own element
                                 rather than a bare text node among siblings. A page-translation extension swaps such a
                                 node for a <font>. React then writes the new value to the detached node. */}
-                            <span>
-                                {featureFlag.active
-                                    ? 'This flag already serves'
-                                    : 'This flag is disabled, but it is already set to serve'}
-                            </span>{' '}
-                            <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
-                            <span>{aggregationLabel(scheduledAggregationTarget, true).plural}</span>, and release
-                            conditions are combined with OR. A condition at{' '}
-                            <span translate="no">{`${scheduledConditionRollout}%`}</span> will not change who sees the
-                            flag. To stage a rollout, lower the existing condition first, then schedule the increases.
+                            <span>{coveredLead}</span> <span translate="no">{`${servedOnSharedTarget}%`}</span> of all{' '}
+                            <span>{coveredTarget}</span>, and release conditions are combined with OR. A condition at{' '}
+                            <span translate="no">{`${scheduledConditionRollout}%`}</span> {coveredTail}
                         </LemonBanner>
                     )}
 
