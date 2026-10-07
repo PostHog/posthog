@@ -88,8 +88,8 @@ const HTML_DOC_TYPE_ID = 2
 const HTML_ELEMENT_ID = 3
 const HEAD_ID = 4
 const BODY_ID = 5
-const NAVIGATION_BAR_PARENT_ID = 7
-const KEYBOARD_PARENT_ID = 9
+export const NAVIGATION_BAR_PARENT_ID = 7
+export const KEYBOARD_PARENT_ID = 9
 export const STATUS_BAR_PARENT_ID = 11
 // icons are <img> too, so extractImgNodeFromMobileIncremental keys off this instead of tag or size
 export const SCREENSHOT_ATTRIBUTE = 'data-posthog-screenshot'
