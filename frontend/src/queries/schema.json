@@ -6205,6 +6205,11 @@
                 "limit": {
                     "$ref": "#/definitions/BIQueryLimit"
                 },
+                "missingDates": {
+                    "description": "Fill missing date buckets before table calculations. Unset preserves observed points only.",
+                    "enum": ["gap", "zero"],
+                    "type": "string"
+                },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
                 },
@@ -6413,6 +6418,10 @@
                 "computeUsing": {
                     "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
                     "type": "string"
+                },
+                "requireFullWindow": {
+                    "description": "Require a complete window of non-null values before displaying a moving average.",
+                    "type": "boolean"
                 },
                 "type": {
                     "$ref": "#/definitions/BITableCalculationType"
