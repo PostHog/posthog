@@ -16,8 +16,8 @@ from products.data_warehouse.backend.s3 import (
 )
 
 
-def _client_error(code: str) -> ClientError:
-    return ClientError({"Error": {"Code": code}}, "operation")
+def _client_error(code: str, message: str = "") -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": message}}, "operation")
 
 
 class TestAgetS3Client(SimpleTestCase):
@@ -133,19 +133,31 @@ class TestEnsureBucketExists(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("owned_by_us", "BucketAlreadyOwnedByYou", False),
-            ("owned_by_someone_else", "BucketAlreadyExists", True),
-            ("access_denied", "AccessDenied", True),
+            ("owned_by_us", "BucketAlreadyOwnedByYou", "", False),
+            ("owned_by_someone_else", "BucketAlreadyExists", "", True),
+            (
+                "seaweedfs_shared_namespace_race",
+                "BucketAlreadyExists",
+                "The bucket name can not be an existing collection, and the bucket namespace is "
+                "shared by all users of the system. Please select a different name and try again.",
+                False,
+            ),
+            ("access_denied", "AccessDenied", "", True),
         ]
     )
     @patch("products.data_warehouse.backend.s3.boto3.client")
-    def test_create_bucket_race_after_a_404(self, _name, create_error_code, should_raise, mock_boto3_client) -> None:
+    def test_create_bucket_race_after_a_404(
+        self, _name, create_error_code, create_error_message, should_raise, mock_boto3_client
+    ) -> None:
         # A concurrent caller can create the bucket between our head_bucket 404 and our own
         # create_bucket call. BucketAlreadyOwnedByYou means we lost that race but still own the
-        # bucket, so it must not surface as a failure; any other create_bucket error is real.
+        # bucket, so it must not surface as a failure. SeaweedFS (the backend behind local/self-hosted
+        # setups) has no per-account ownership check, so it reports the identical race as a bare
+        # BucketAlreadyExists with its own fixed message instead — that must not raise either. A
+        # BucketAlreadyExists with any other message is a real, unrelated name collision.
         s3_client = MagicMock()
         s3_client.head_bucket.side_effect = _client_error("404")
-        s3_client.create_bucket.side_effect = _client_error(create_error_code)
+        s3_client.create_bucket.side_effect = _client_error(create_error_code, create_error_message)
         mock_boto3_client.return_value = s3_client
 
         if should_raise:
