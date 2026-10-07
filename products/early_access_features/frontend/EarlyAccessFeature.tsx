@@ -177,10 +177,13 @@ function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): Mes
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
                             },
+                            // posthog-js sends a boolean here. Exact compiles to a string compare until the project
+                            // has a Boolean definition for this property, so it would never match. Contains
+                            // compares the stringified value, which works with or without that definition.
                             {
                                 key: '$feature_enrollment',
-                                value: ['true'],
-                                operator: PropertyOperator.Exact,
+                                value: 'true',
+                                operator: PropertyOperator.IContains,
                                 type: PropertyFilterType.Event,
                             },
                         ],
