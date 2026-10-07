@@ -237,6 +237,7 @@ class TestChangeRequestIntentIsJsonSafe(APIBaseTest):
         action_class.key = "feature_flag.update"
         action_class.version = 1
         action_class.resource_type = "feature_flag"
+        action_class.derive_owner_kind.return_value = None
 
         return _create_change_request(
             action_class=action_class,
