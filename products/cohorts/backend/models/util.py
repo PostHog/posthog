@@ -1195,7 +1195,7 @@ def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int, finalize_state: bool = True) -> None:
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1227,8 +1227,44 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
     # raise_on_error hands a partial sync to the caller instead of reporting success, which is
     # what lets the population tasks retry it.
     cohort._insert_users_list_with_batching(
-        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True
+        batch_iterator,
+        insert_in_clickhouse=False,
+        team_id=team_id,
+        raise_on_error=True,
+        finalize_state=finalize_state,
     )
+
+
+def count_static_cohort_members_in_ch(cohort: Cohort, *, team_id: int) -> int:
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+    rows = sync_execute(
+        f"SELECT count(DISTINCT person_id) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+        {"cohort_id": cohort.pk, "team_id": team_id},
+    )
+    return int(rows[0][0]) if rows else 0
+
+
+def sync_static_cohort_pg_from_ch(cohort: Cohort, *, team_id: int, finalize_state: bool = True) -> bool:
+    """Copy ClickHouse static cohort members that Postgres lacks into Postgres.
+
+    The cohort page reads ClickHouse, but feature flags and `cohort.count` read Postgres. A write
+    that reached ClickHouse and then failed in Postgres leaves the two stores split, and flags then
+    miss those members. Returns True when a sync ran.
+    """
+    ch_count = count_static_cohort_members_in_ch(cohort, team_id=team_id)
+    pg_count = count_cohort_members(team_id, cohort.pk, consistency="strong")
+    if pg_count >= ch_count:
+        return False
+    logger.warning(
+        "static_cohort_pg_behind_ch",
+        cohort_id=cohort.pk,
+        team_id=team_id,
+        ch_count=ch_count,
+        pg_count=pg_count,
+    )
+    insert_cohort_people_into_pg(cohort, team_id=team_id, finalize_state=finalize_state)
+    return True
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────
