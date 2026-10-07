@@ -1,14 +1,15 @@
 import clsx from 'clsx'
 import { useCallback } from 'react'
 
-import { DefaultTooltip, TimeSeriesLineChart, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
+import { TimeSeriesLineChart, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
 
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
-import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
+import { SqlChartTooltip } from './SqlChartTooltip'
+import { SqlLineSeriesMeta, buildLineChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-line-chart')
@@ -35,27 +36,19 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
     // avoid duplicating the per-column formatting logic.
     const renderTooltip = useCallback(
         (ctx: TooltipContext<SqlLineSeriesMeta>) => {
-            if (!model) {
+            if (!model || !onPointClickProp) {
                 return null
             }
-            const { valueFormatter, labelFormatter, showTotal, totalFormatter } = model.config.tooltip ?? {}
             return (
-                <DefaultTooltip
-                    {...ctx}
-                    valueFormatter={
-                        valueFormatter ??
-                        ((value, entry) =>
-                            formatSqlSeriesValue(value, (entry.series.meta as SqlLineSeriesMeta | undefined)?.settings))
-                    }
-                    labelFormatter={labelFormatter}
-                    showTotal={showTotal}
-                    totalFormatter={totalFormatter}
-                    sortedByValue
-                    footer="Click to inspect persons"
+                <SqlChartTooltip
+                    context={ctx}
+                    config={model.config.tooltip}
+                    onPointClick={onPointClickProp}
+                    hint={props.pointClickHint ?? 'Click to inspect persons'}
                 />
             )
         },
-        [model]
+        [model, onPointClickProp, props.pointClickHint]
     )
 
     return (

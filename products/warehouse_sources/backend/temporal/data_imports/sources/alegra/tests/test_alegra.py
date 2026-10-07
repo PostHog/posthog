@@ -80,9 +80,11 @@ def test_offset_pagination_and_checkpoint_resume(
     response = source.source_for_pipeline(config, manager, inputs)
     pages = iter(cast(Iterable[list[dict[str, Any]]], response.items()))
     assert next(pages) == first_page
+    manager.confirm()
     assert not manager.has_staged_state()
     assert list(pages) == ([terminal_rows] if terminal_rows else [])
     assert [parse_qs(urlsplit(request.url or "").query)["start"] for request in sent] == [["0"], ["30"]]
+    manager.confirm()
     manager.commit()
     assert [json.loads(value) for value in redis_boundary.values()] == [{"offset": 30}]
 

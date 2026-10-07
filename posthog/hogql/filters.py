@@ -263,36 +263,15 @@ class ReplaceFilters(CloningVisitor):
 
         if node.chain == ["filters"]:
             return self._replace_native_filters()
-        if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
+        if node.chain in (["filters", "dateRange", "from"], ["filters", "dateRange", "to"]):
+            bound = node.chain[-1]
+            value = None if no_filters else self._resolve_date_from() if bound == "from" else self._resolve_date_to()[0]
+            if value is not None:
+                return ast.Constant(value=value)
+            if self.compare_operations:
+                self.compare_operations[-1].skip = True
                 return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            date_from = self._resolve_date_from()
-            if date_from is not None:
-                return ast.Constant(value=date_from)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-        if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            date_to, _date_to_inclusive = self._resolve_date_to()
-            if date_to is not None:
-                return ast.Constant(value=date_to)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+            raise QueryError(f"Select a bounded date range to use {{filters.dateRange.{bound}}} as a value")
 
         if node.chain == ["filters", "interval"]:
             return self._replace_interval([])

@@ -225,6 +225,7 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -2109,6 +2110,7 @@ export function createExecTool(
                                 forceUiDataToMeta: true,
                                 includeAppData,
                                 distinctId,
+                                mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
                             })

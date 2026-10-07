@@ -89,6 +89,18 @@ class SourceEvaluationInputs:
     batch_key: AlertBatchKey
 
 
+# Where a source keeps its bound inside `source_config`. Each source gives it its own shape and
+# the platform interprets none of it: the history row snapshots it, so a reader sees the bound a
+# check was evaluated against.
+SOURCE_CONDITION_KEY: Final = "condition"
+
+
+def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
+    """A source's bound, or an empty one when the stored value is missing or not an object."""
+    condition = source_config.get(SOURCE_CONDITION_KEY)
+    return condition if isinstance(condition, dict) else {}
+
+
 @frozen
 class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
@@ -101,9 +113,6 @@ class PlatformAlertCheckInput:
     team_id: int
     name: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -122,6 +131,10 @@ class PlatformAlertCheckInput:
         """Satisfies the logs query layer, which names this field `filters`."""
         return self.source_config
 
+    @property
+    def condition(self) -> dict[str, Any]:
+        return source_condition(self.source_config)
+
 
 @frozen
 class PlatformAlertUpsert:
@@ -133,9 +146,6 @@ class PlatformAlertUpsert:
     enabled: bool
     source_kind: SourceKind
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     evaluation_periods: int
     datapoints_to_alarm: int
@@ -156,6 +166,12 @@ class SkipReason(StrEnum):
 
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # The source's own stack runs no query for this check, so the source does not either: a
+    # snooze or a schedule restriction where that stack gates evaluation, or data not ready yet.
+    SOURCE_RULE = "source_rule"
+    # ClickHouse refused the query for load, not because of the alert. The check leaves the alert's
+    # state alone, so a comparison can set it aside instead of reading load as a disagreement.
+    CAPACITY = "capacity"
 
 
 class MuteReason(StrEnum):
@@ -378,9 +394,6 @@ class PlatformAlertConfigurationView:
     enabled: bool
     source_kind: str
     source_config: dict[str, Any]
-    threshold_count: int
-    threshold_operator: str
-    window_minutes: int
     check_interval_minutes: int
     recurrence_unit: str | None
     anchor_time: str | None

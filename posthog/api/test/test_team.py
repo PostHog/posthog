@@ -48,11 +48,13 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 from posthog.utils import get_context_for_template, get_instance_realm
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.team_home_tab_dashboard_config import TeamHomeTabDashboardConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -441,6 +443,45 @@ def team_api_test_factory():
                 response_data["test_account_filters"],
                 [{"key": "$current_url", "value": "test"}],
             )
+
+        @parameterized.expand(
+            [
+                # The filter that does not compile must neither break the save nor hide the denial.
+                ("flat", lambda denied: [{"type": "hogql", "key": ""}, denied]),
+                (
+                    "nested_in_behavioral",
+                    lambda _denied: [
+                        {
+                            "type": "behavioral",
+                            "value": "performed_event",
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                            "event_filters": [{"type": "hogql", "key": "person.denied_join.id = 'internal'"}],
+                        }
+                    ],
+                ),
+            ]
+        )
+        @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True)
+        @patch("posthog.hogql.property.posthoganalytics.feature_enabled", return_value=True)
+        def test_update_rejects_a_test_account_filter_through_a_denied_warehouse_table(
+            self, _name, filters_for, _behavioral_flag, _flag
+        ):
+            denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
+            filters_before = self.team.test_account_filters
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": filters_for(denied_filter)},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "test_account_filters"
+            assert "denied_warehouse_table" in response.json()["detail"]
+            self.team.refresh_from_db()
+            assert self.team.test_account_filters == filters_before
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
@@ -962,6 +1003,60 @@ def team_api_test_factory():
             self.assertEqual(
                 response.json(),
                 self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
+            )
+
+        def test_update_home_tab_dashboard(self):
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertFalse(TeamHomeTabDashboardConfig.objects.for_team(self.team.id).exists())
+
+            d = Dashboard.objects.create(name="Test", team=self.team)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(response_data["home_tab_dashboard"], d.id)
+            self.assertEqual(Team.objects.get(pk=self.team.pk).home_tab_dashboard.id, d.id)
+
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual(
+                changes,
+                [{"type": "Team", "action": "created", "field": "home_tab_dashboard", "before": None, "after": d.id}],
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": None})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertIsNone(response.json()["home_tab_dashboard"])
+            self.assertIsNone(Team.objects.get(pk=self.team.pk).home_tab_dashboard)
+            changes = [
+                change
+                for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Team").order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] == "home_tab_dashboard"
+            ]
+            self.assertEqual([change["action"] for change in changes], ["created", "deleted"])
+            self.assertEqual(changes[-1]["before"], d.id)
+            self.assertIsNone(changes[-1]["after"])
+
+        def test_cant_set_home_tab_dashboard_to_another_teams_dashboard(self):
+            team_2 = Team.objects.create(organization=self.organization, name="Default project")
+            d = Dashboard.objects.create(name="Test", team=team_2)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    "Dashboard does not belong to this team.", code="does_not_exist", attr="home_tab_dashboard"
+                ),
             )
 
         def test_is_generating_demo_data(self):

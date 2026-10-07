@@ -415,6 +415,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             signals_count: 0,
         },
         prompt_question: null,
+        prompt_valence: null,
         triggered_by: 'schedule',
         triggered_by_user: null,
         distinct_id: 'user_8f3k2j',
@@ -558,6 +559,7 @@ const observationDetail = observation({
 // keep the one-paragraph reasoning most scans produce.
 const monitorObservationDetail = observation({
     prompt_question: 'Did the user struggle to complete checkout?',
+    prompt_valence: 'bad',
     id: '00000000-0000-0000-0000-0000000000d2',
     session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
     recording_subject_email: 'bob@example.com',
@@ -1478,21 +1480,24 @@ const classifierObservationDetail = observationDetailFor(
     'Which friction patterns appear in this session?'
 )
 
-const scorerObservationDetail = observationDetailFor(
-    {
-        ...scorerOverviewScanner,
-        scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
-    },
-    '00000000-0000-0000-0000-0000000000d5',
-    {
-        score: 8.5,
-        label: 'buying intent',
-        confidence: 0.41,
-        reasoning:
-            'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
-    },
-    'How strong is the buying intent in this session?'
-)
+const scorerObservationDetail: ReplayObservationApi = {
+    ...observationDetailFor(
+        {
+            ...scorerOverviewScanner,
+            scanner_config: { prompt: SCORER_DETAIL_PROMPT, scale: { min: 0, max: 10, label: 'buying intent' } },
+        },
+        '00000000-0000-0000-0000-0000000000d5',
+        {
+            score: 8.5,
+            label: 'buying intent',
+            confidence: 0.41,
+            reasoning:
+                'The user spent about two minutes on the pricing page comparing the Growth and Enterprise plans, then opened the Billing tab and started to add a card before closing the form. Right after that they invited two teammates from the Members page. Looking at billing and then inviting a team puts this in the high band of the prompt, but not at the top, because the payment details were never saved and the rest of the session was spent back in the product.',
+        },
+        'How strong is the buying intent in this session?'
+    ),
+    prompt_valence: 'good',
+}
 
 const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
     parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
@@ -2148,6 +2153,33 @@ export const ExperimentVariantsFirstRunPending: StoryObj = {
     },
     decorators: [
         variantsDecorator(withoutAnalysis(variantsReadout({ analysis: { ...readyAnalysis, recorded_at: null } }))),
+    ],
+}
+
+// Before the first observation: each variant shows where its themes and observations will go.
+export const ExperimentVariantsWaitingForObservations: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [
+        variantsDecorator(
+            withoutAnalysis(
+                variantsReadout({
+                    analysis: { ...readyAnalysis, recorded_at: null },
+                    window: { total_observations: 0, first_observation_at: null, last_observation_at: null },
+                    unattributed_count: 0,
+                    variants: variantsReadout().variants.map((variant) => ({
+                        ...variant,
+                        observations: 0,
+                        distinct_people: 0,
+                        median_session_duration_s: null,
+                        sampling_rate: null,
+                        latest_observations: [],
+                    })),
+                })
+            )
+        ),
     ],
 }
 

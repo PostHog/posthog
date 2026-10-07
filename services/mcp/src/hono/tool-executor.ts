@@ -56,7 +56,7 @@ import {
     type ToolCallAnalyticsMeta,
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { getEffectiveMCPClientContext, resolveSessionKey } from './mcp-context'
+import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -438,6 +438,8 @@ export class ToolExecutor {
                         renderUiEnabled: state.renderUiEnabled,
                     }),
                     distinctId,
+                    mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
+                        .mcpClientName,
                 })
             }
 
@@ -814,6 +816,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()
@@ -842,7 +845,11 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        const renderUiTool = createRenderUiTool(
+            state.allTools,
+            state.context,
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+        )
         if (!renderUiTool) {
             return {
                 content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
@@ -942,7 +949,8 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
     if (error instanceof MCPToolResultError) {
-        return { errorType: error.errorType }
+        const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
+        return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
     }
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return { errorType: 'missing_context' }

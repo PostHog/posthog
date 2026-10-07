@@ -264,6 +264,21 @@ DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE = _set_temporal_task_queue("data-warehous
 # Post-sync table metadata (semantic enrichment + column statistics) runs on its own worker so this
 # best-effort work can't starve the import pipeline.
 DATA_WAREHOUSE_METADATA_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-metadata-task-queue")
+# A data import that leaves a worker which is shutting down runs again without using a retry
+# attempt. Turn this on only when every worker on the queue has the code that reads the hand-off
+# fields of the import activity: an older worker ignores them and reuses the first attempt's run id.
+DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED", False, type_cast=str_to_bool
+)
+# An incremental import that was interrupted continues after the last batch it queued, instead of
+# after the watermark the job started with.
+DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
+)
+# Restore unfinished append runs only after all extract and load workers have this implementation.
+DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
+)
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
@@ -308,6 +323,15 @@ ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-tas
 ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = "alerts-platform-shared-orchestration-task-queue"
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = "alerts-platform-evaluation-task-queue"
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = "alerts-platform-delivery-task-queue"
+# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
+# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
