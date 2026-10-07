@@ -6,9 +6,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.facade.api import sync_saved_query_to_dag
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Edge, Node
 from products.product_analytics.backend.facade.api import insight_references
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.insight_lineage import insight_table_names, warehouse_dependency_names
