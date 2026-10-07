@@ -148,6 +148,10 @@ See `references/materializing.md` for the full decision tree. Short version:
 If unsure, create unmaterialised and add `is_materialized: true` later once usage stabilises.
 That avoids paying for materialisation on a query nobody ends up calling.
 
+This step is a decision only. `endpoints-materialization-preview` finds the endpoint by name, so
+it works only after the endpoint exists. A preview for a new name returns `404 Not Found`. The
+workflow below shows the correct order.
+
 ## Workflow
 
 1. Confirm the use case (step 1 above). If it's not actually a fit for an endpoint, recommend
@@ -157,10 +161,14 @@ That avoids paying for materialisation on a query nobody ends up calling.
 4. Identify what should be a variable. Show the user the variable declaration syntax.
 5. Pick `data_freshness_seconds` based on the user's freshness requirement (ask if not clear) —
    remembering it also sets the materialisation refresh cadence.
-6. Make the materialisation call. If on the fence, ship without and revisit later.
-7. Call `endpoint-create` with the agreed config.
+6. Decide on day-one materialisation (step 6 above). If on the fence, ship without and revisit
+   later.
+7. Call `endpoint-create` with the agreed config. Leave out `is_materialized`.
 8. Confirm by calling `endpoint-run` with a sample payload to verify the response shape.
-9. Hand off to `consuming-endpoints-from-client-code` if the user is about to wire it up.
+9. If the user wants materialisation, call `endpoints-materialization-preview` with the endpoint
+   name. If it reports a rejection reason, tell the user and keep the endpoint unmaterialised.
+10. If the query is eligible, call `endpoint-update` with `is_materialized: true`.
+11. Hand off to `consuming-endpoints-from-client-code` if the user is about to wire it up.
 
 ## Example interaction
 
@@ -209,9 +217,9 @@ Agent:
   materialisation recommendation with a note to the user about which variables become required.
   (Optional/partial variables on materialised endpoints are a known limitation the PostHog team
   plans to lift — if it's blocking the user, nudge them via the `agent-feedback` tool.)
-- **Don't enable materialisation on a query that isn't eligible.** Use
-  `endpoints-materialization-preview` first to confirm eligibility and see the rejection reason
-  if any.
+- **Don't enable materialisation on a query that isn't eligible.** Create the endpoint first, then
+  use `endpoints-materialization-preview` to confirm eligibility and see the rejection reason if
+  any. Enable materialisation with `endpoint-update` only after the preview passes.
 - **Endpoints are not stable forever.** When the user changes the query, a new version is created
   automatically (the old version stays accessible via `?version=N`). `data_freshness_seconds` and
   materialisation are per-version. Adjust as the endpoint evolves.
