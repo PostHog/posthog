@@ -10,11 +10,12 @@ from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.customer_analytics.backend.logic import customer_tasks
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.presentation.views.customer_tasks import (
@@ -62,6 +63,17 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             return
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["assigned_to"] == expected
+
+    def test_assigned_role_filter_cannot_be_combined_with_assigned_to(self) -> None:
+        role_id = "00000000-0000-4000-8000-000000000001"
+
+        combined = CustomerTaskListQuerySerializer(data={"assigned_to": "me", "assigned_role": role_id})
+        assert not combined.is_valid()
+        assert "assigned_role" in combined.errors
+
+        role_only = CustomerTaskListQuerySerializer(data={"assigned_role": role_id})
+        assert role_only.is_valid(), role_only.errors
+        assert str(role_only.validated_data["assigned_role"]) == role_id
 
     @parameterized.expand(
         [
@@ -578,6 +590,33 @@ class CustomerTaskAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(expected_names)
         assert {task["name"] for task in response.json()["results"]} == set(expected_names)
+
+    def test_list_role_filter_matches_current_role_members(self) -> None:
+        _, other_assignee = self._create_filtering_dataset()
+        role = Role.objects.create(name="Onboarding", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=other_assignee)
+
+        response = self.client.get(self.url, {"assigned_role": str(role.id)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {task["name"] for task in response.json()["results"]} == {"Bravo", "Delta"}
+
+        RoleMembership.objects.create(role=role, user=self.user)
+
+        response = self.client.get(self.url, {"assigned_role": str(role.id)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {task["name"] for task in response.json()["results"]} == {"Alpha", "Bravo", "Delta"}
+
+    def test_list_role_filter_rejects_a_role_from_another_organization(self) -> None:
+        self._create_filtering_dataset()
+        other_organization = Organization.objects.create(name="Other organization")
+        foreign_role = Role.objects.create(name="Onboarding", organization=other_organization)
+
+        response = self.client.get(self.url, {"assigned_role": str(foreign_role.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "assigned_role" in response.json()
 
     @parameterized.expand(
         [

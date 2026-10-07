@@ -4989,6 +4989,10 @@ export type CustomerTasksListParams = {
      */
     archive_state?: CustomerTasksListArchiveState
     /**
+     * Filter by organization role UUID. Returns tasks assigned to any current member of the role. Cannot be combined with assigned_to.
+     */
+    assigned_role?: string
+    /**
      * Filter by me, unassigned, or one user ID.
      * @minLength 1
      */

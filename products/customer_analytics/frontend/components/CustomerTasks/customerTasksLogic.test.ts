@@ -44,6 +44,7 @@ const mockAccount = accountsRetrieve as jest.MockedFunction<typeof accountsRetri
 
 const URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e95'
 const SECOND_URL_ACCOUNT_ID = '0199ed4a-5c03-0000-3220-df21df612e96'
+const DELETED_ROLE_ID = '0199ed4a-5c03-0000-3220-df21df612e97'
 
 function task(canEdit = true): CustomerTaskApi {
     return {
@@ -307,6 +308,27 @@ describe('customerTasksLogic', () => {
         expect(mockList).toHaveBeenLastCalledWith(
             expect.any(String),
             expect.objectContaining({ assigned_to: 'me', statuses: 'open,in_progress', due_before: expect.any(String) })
+        )
+    })
+
+    test('falls back to the default assignee when a linked role no longer exists', async () => {
+        mockList.mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, { assigned_role: 'Select a role in this organization.' })
+        )
+        router.actions.push(urls.customerAnalyticsTasks(), { assignee: `role:${DELETED_ROLE_ID}` })
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ assigned_role: DELETED_ROLE_ID })
+        )
+        expect(logic.values.filters.assignee).toBe('me')
+        expect(router.values.searchParams.assignee).toBeUndefined()
+        expect(mockList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ assigned_to: 'me', assigned_role: undefined })
         )
     })
 

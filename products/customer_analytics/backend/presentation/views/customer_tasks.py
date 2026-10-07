@@ -189,6 +189,10 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, allow_blank=True, help_text="Search task name and description.")
     account_id = serializers.UUIDField(required=False, help_text="Filter by account UUID.")
     assigned_to = serializers.CharField(required=False, help_text="Filter by me, unassigned, or one user ID.")
+    assigned_role = serializers.UUIDField(
+        required=False,
+        help_text="Filter by organization role UUID. Returns tasks assigned to any current member of the role. Cannot be combined with assigned_to.",
+    )
     statuses = serializers.CharField(required=False, help_text="Comma-separated task statuses.")
     archive_state = serializers.ChoiceField(
         required=False,
@@ -226,6 +230,11 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
         if not values or any(part not in dict(api.CUSTOMER_TASK_STATUS_CHOICES) for part in values):
             raise serializers.ValidationError("statuses must contain only open, in_progress, completed, or canceled.")
         return values
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "assigned_to" in attrs and "assigned_role" in attrs:
+            raise serializers.ValidationError({"assigned_role": "Use either assigned_to or assigned_role, not both."})
+        return attrs
 
 
 class CustomerTaskActivityQuerySerializer(serializers.Serializer):
@@ -330,6 +339,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 search=data.get("search", "").strip() or None,
                 account_id=data.get("account_id"),
                 assigned_to=data.get("assigned_to"),
+                assigned_role_id=data.get("assigned_role"),
                 statuses=data.get("statuses", ()),
                 archive_state=data["archive_state"],
                 due_after=data.get("due_after"),
@@ -460,6 +470,10 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             )
             return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(exc, contracts.CustomerTaskRoleNotFound):
+            return Response(
+                {"assigned_role": "Select a role in this organization."}, status=status.HTTP_400_BAD_REQUEST
+            )
         if isinstance(exc, contracts.CustomerTaskInvalidTransition):
             return Response(
                 {"status": "This task can" + chr(39) + f"t move from {exc.current} to {exc.requested}."},

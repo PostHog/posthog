@@ -971,6 +971,12 @@ export const CustomerTasksListQueryParams = () => zod.object({
         .enum(['active', 'archived', 'all'])
         .default(customerTasksListQueryArchiveStateDefault)
         .describe('Which archive state to include.\n\n\* `active` - active\n\* `archived` - archived\n\* `all` - all'),
+    assigned_role: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by organization role UUID. Returns tasks assigned to any current member of the role. Cannot be combined with assigned_to.'
+        ),
     assigned_to: zod.string().min(1).optional().describe('Filter by me, unassigned, or one user ID.'),
     due_after: zod.iso.datetime({ offset: true }).optional().describe('Inclusive lower deadline bound.'),
     due_before: zod.iso.datetime({ offset: true }).optional().describe('Exclusive upper deadline bound.'),

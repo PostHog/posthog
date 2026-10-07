@@ -12,11 +12,33 @@ import type {
 
 export type CustomerTasksContext = 'account' | 'inbox'
 export type CustomerTaskStatusFilter = 'open' | 'completed' | 'canceled' | 'all'
-export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number
+export type CustomerTaskRoleAssigneeFilter = { roleId: string }
+export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number | CustomerTaskRoleAssigneeFilter
+export type CustomerTaskAssigneeMode = 'any' | 'me' | 'unassigned' | 'member' | 'role'
 export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | 'no_due_date'
 export type CustomerTaskAccountFilter = { id: string; name: string }
 
 const MAX_CUSTOMER_TASK_ASSIGNEE_ID = 2_147_483_647
+// pinned: URL value prefix for role filters, so shared links keep working
+const ROLE_ASSIGNEE_URL_PREFIX = 'role:'
+
+export function isRoleAssigneeFilter(value: CustomerTaskAssigneeFilter): value is CustomerTaskRoleAssigneeFilter {
+    return typeof value === 'object'
+}
+
+export function customerTaskAssigneeMode(value: CustomerTaskAssigneeFilter): CustomerTaskAssigneeMode {
+    if (isRoleAssigneeFilter(value)) {
+        return 'role'
+    }
+    return typeof value === 'number' ? 'member' : value
+}
+
+function assignedToParam(value: CustomerTaskAssigneeFilter): CustomerTasksListParams['assigned_to'] {
+    if (value === 'any' || isRoleAssigneeFilter(value)) {
+        return undefined
+    }
+    return String(value)
+}
 export const CUSTOMER_TASK_ORDERINGS = [
     'name',
     '-name',
@@ -174,19 +196,12 @@ export function customerTasksQuery(
     canViewAll = true,
     ordering: CustomerTaskOrdering = DEFAULT_CUSTOMER_TASK_ORDERING
 ): CustomerTasksListParams {
+    const assignee: CustomerTaskAssigneeFilter = !canViewAll && context === 'inbox' ? 'me' : filters.assignee
     const query: CustomerTasksListParams = {
         search: filters.search || undefined,
         account_id: accountId ?? filters.account?.id,
-        assigned_to:
-            !canViewAll && context === 'inbox'
-                ? 'me'
-                : filters.assignee === 'any'
-                  ? undefined
-                  : filters.assignee === 'me'
-                    ? 'me'
-                    : filters.assignee === 'unassigned'
-                      ? 'unassigned'
-                      : String(filters.assignee),
+        assigned_to: assignedToParam(assignee),
+        assigned_role: isRoleAssigneeFilter(assignee) ? assignee.roleId : undefined,
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,
@@ -210,6 +225,7 @@ export const CUSTOMER_TASK_URL_KEYS = [...CUSTOMER_TASK_FILTER_URL_KEYS, 'sort',
 // Event names are consumed by product analytics, so changing one splits its historical data.
 export const CustomerTaskEvents = {
     InboxViewed: 'customer analytics tasks inbox viewed',
+    AssigneeFilterChanged: 'customer analytics tasks assignee filter changed',
 } as const
 
 export type CustomerTaskUrlState = {
@@ -229,7 +245,9 @@ export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<st
     if (state.filters.status !== defaults.status) {
         params.status = state.filters.status
     }
-    if (state.filters.assignee !== defaults.assignee) {
+    if (isRoleAssigneeFilter(state.filters.assignee)) {
+        params.assignee = ROLE_ASSIGNEE_URL_PREFIX + state.filters.assignee.roleId
+    } else if (state.filters.assignee !== defaults.assignee) {
         params.assignee = String(state.filters.assignee)
     }
     if (state.filters.archiveState !== defaults.archiveState) {
@@ -253,6 +271,10 @@ export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<st
 function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
     if (value === 'any' || value === 'me' || value === 'unassigned') {
         return value
+    }
+    if (typeof value === 'string' && value.startsWith(ROLE_ASSIGNEE_URL_PREFIX)) {
+        const roleId = value.slice(ROLE_ASSIGNEE_URL_PREFIX.length)
+        return isUUIDLike(roleId) ? { roleId } : null
     }
     const memberId = Number(value)
     return Number.isInteger(memberId) && memberId > 0 && memberId <= MAX_CUSTOMER_TASK_ASSIGNEE_ID ? memberId : null

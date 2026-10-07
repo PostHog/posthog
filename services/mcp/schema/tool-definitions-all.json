@@ -3304,7 +3304,7 @@
         "feature_flag": "customer-analytics-customer-tasks"
     },
     "customer-tasks-list": {
-        "description": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, or user ID), comma-separated statuses, deadline, or archive state. Active tasks are returned by default.",
+        "description": "List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, or user ID), organization role UUID (tasks assigned to any current role member), comma-separated statuses, deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List customer tasks",
