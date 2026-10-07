@@ -62,7 +62,7 @@ _PERSON_COLUMNS = (
 
 def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
     error = grpc.RpcError()
-    error.code = MagicMock(return_value=code)  # type: ignore[attr-defined]
+    error.code = MagicMock(return_value=code)
     return error
 
 
