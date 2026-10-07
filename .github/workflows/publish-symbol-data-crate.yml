@@ -126,6 +126,7 @@ jobs:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   sampo release
+                  git restore ../../Cargo.lock
                   new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
                   cargo update --manifest-path ../../Cargo.toml -p posthog-symbol-data --precise "$new_version"
                   cargo metadata --manifest-path ../../Cargo.toml --format-version 1 --no-deps > /dev/null
