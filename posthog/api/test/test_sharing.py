@@ -2383,10 +2383,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("direct", "this insight is publicly shared"),
             ("dashboard", "this insight is publicly shared"),
             ("notebook", "this insight is publicly shared"),
-            ("subscription", "a subscription delivers this insight"),
-            ("dashboard_subscription", "a subscription delivers this insight"),
+            ("subscription", "delivered by a subscription"),
+            ("dashboard_subscription", "delivered by a subscription"),
             # Restoring the dashboard resumes delivery without a subscription write.
-            ("deleted_dashboard_subscription", "a subscription delivers this insight"),
+            ("deleted_dashboard_subscription", "delivered by a subscription"),
         ]
     )
     def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):

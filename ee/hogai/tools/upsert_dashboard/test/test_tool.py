@@ -256,7 +256,7 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(len(insight_created_events), 0 if source == "saved" else 1)
 
     @parameterized.expand([("saved", True), ("restored", True), ("generated", True), ("saved", False)])
-    @patch("posthog.api.shared_or_subscribed_edit_gate.blocked_access_for_user", return_value=["restricted_table"])
+    @patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted_table"])
     async def test_add_insights_enforces_shared_dashboard_access(
         self, source: str, shared: bool, _mock_blocked: MagicMock
     ) -> None:

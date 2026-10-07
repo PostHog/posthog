@@ -20,7 +20,7 @@ from django.utils.timezone import now
 from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
-from posthog.api.shared_or_subscribed_edit_gate import check_can_add_insight_to_shared_or_subscribed_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
@@ -28,6 +28,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.subscription_query_access import check_can_add_insight_to_subscribed_dashboard
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -236,7 +237,8 @@ def plan_insight_tile_placement(
         if dashboard.team_id != team_id:
             raise DashboardNotFound
         # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_or_subscribed_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_subscribed_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -286,7 +288,8 @@ def update_insight_dashboard_membership(
             raise DashboardNotFound
 
         # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_or_subscribed_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        check_can_add_insight_to_subscribed_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:

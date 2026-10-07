@@ -45,7 +45,7 @@ from posthog.api.openapi_parameters import make_filters_override_param, make_var
 from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.shared_or_subscribed_edit_gate import reason_edit_needs_access_check
+from posthog.api.sharing_publish_gate import is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -162,7 +162,7 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
-from products.exports.backend.facade.api import delete_insight_subscriptions
+from products.exports.backend.facade.api import delete_insight_subscriptions, subscription_delivers
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
@@ -884,13 +884,14 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and (reason := reason_edit_needs_access_check(instance))
+            and (is_publicly_shared(instance) or subscription_delivers(instance.team_id, insight_id=instance.id))
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, and {reason}."
+                    f"Can't save this query: you don't have access to {blocked_list}, and this insight is "
+                    "publicly shared or delivered by a subscription."
                 )
 
         with transaction.atomic():
