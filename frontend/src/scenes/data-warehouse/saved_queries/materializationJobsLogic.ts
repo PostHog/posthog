@@ -106,8 +106,16 @@ export interface materializationJobsLogicActions {
     updateDataWarehouseSavedQuery: (
         view: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     ) => import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
-    updateDataWarehouseSavedQueryFailed: (viewId: string) => {
+    updateDataWarehouseSavedQueryFailed: (
+        viewId: string,
+        error?: unknown,
+        request?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => {
         viewId: string
+        error: unknown
+        request:
+            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+            | undefined
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],

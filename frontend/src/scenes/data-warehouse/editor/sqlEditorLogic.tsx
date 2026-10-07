@@ -736,6 +736,15 @@ export interface sqlEditorLogicActions {
     updateDataWarehouseSavedQuery: (
         view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQueryFailed: (
+        viewId: string,
+        error?: unknown,
+        request?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => {
+        viewId: string
+        error: unknown
+        request: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+    } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1291,6 +1300,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'materializeDataWarehouseSavedQuery',
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
+                'updateDataWarehouseSavedQueryFailed',
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
@@ -3326,48 +3336,63 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     latestView?.latest_history_id != null &&
                     baselineQuery != null &&
                     latestView.query?.query !== baselineQuery
-                const saveOrReviewConflict = async (editedHistoryId: string | undefined): Promise<void> => {
-                    // The loader swallows its error, so the failure listener below records it here.
-                    cache.viewUpdateError = null
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        ...view,
-                        edited_history_id: editedHistoryId,
-                    })
-                    const error = cache.viewUpdateError
-                    cache.viewUpdateError = null
+                const saveOrReviewConflict = async (request: UpdateViewPayload): Promise<void> => {
+                    // The loader swallows its error, so the failure listener below records it per request.
+                    cache.viewUpdateErrors ??= new WeakMap<object, unknown>()
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(request)
+                    const failed = cache.viewUpdateErrors.has(request)
+                    const error = cache.viewUpdateErrors.get(request)
+                    cache.viewUpdateErrors.delete(request)
                     if (isQueryConflictError(error)) {
                         // Someone saved between the read above and this write. The view logic already
                         // toasts the conflict, so only open the review diff.
-                        reviewConflict(await api.dataWarehouseSavedQueries.get(view.id))
-                    } else if (!error) {
-                        actions.updateViewSuccess(view, draftId, biEditorState)
+                        const currentView = await warehouseSavedQueriesRetrieve(
+                            String(teamLogic.values.currentTeamId),
+                            view.id
+                        )
+                        reviewConflict(currentView.query?.query as string | undefined, currentView.latest_history_id)
+                    } else if (!failed) {
+                        actions.updateViewSuccess(request, draftId, biEditorState)
                     }
                 }
-                const reviewConflict = (currentView: typeof latestView): void => {
+                const reviewConflict = (
+                    currentQuery: string | undefined,
+                    currentHistoryId: string | null | undefined
+                ): void => {
+                    const reviewedQuery = values.queryInput ?? ''
                     actions._setSuggestionPayload({
-                        suggestedValue: values.queryInput!,
-                        originalValue: currentView?.query?.query,
+                        suggestedValue: reviewedQuery,
+                        originalValue: currentQuery,
                         acceptText: 'Confirm changes',
                         rejectText: 'Cancel',
                         diffShowRunButton: false,
                         onAccept: async () => {
-                            actions.setQueryInput(view.query?.query ?? '')
-                            await saveOrReviewConflict(currentView?.latest_history_id)
+                            actions.setQueryInput(reviewedQuery)
+                            await saveOrReviewConflict({
+                                ...view,
+                                query: { kind: NodeKind.HogQLQuery, ...view.query, query: reviewedQuery },
+                                edited_history_id: currentHistoryId ?? undefined,
+                            })
                         },
                         onReject: () => {},
                     })
                 }
                 if (foreignEdit) {
-                    reviewConflict(latestView)
+                    reviewConflict(latestView?.query?.query, latestView?.latest_history_id)
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    await saveOrReviewConflict(latestView?.latest_history_id ?? view.edited_history_id)
+                    await saveOrReviewConflict({
+                        ...view,
+                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                    })
                 }
             },
-            updateDataWarehouseSavedQueryFailure: ({ errorObject }) => {
-                cache.viewUpdateError = errorObject
+            updateDataWarehouseSavedQueryFailed: ({ error, request }) => {
+                if (request) {
+                    cache.viewUpdateErrors?.set(request, error)
+                }
             },
             updateViewSuccess: async ({ view, draftId, biEditorState }) => {
                 captureBIEditorQuerySaved(biEditorState, 'view', 'update')

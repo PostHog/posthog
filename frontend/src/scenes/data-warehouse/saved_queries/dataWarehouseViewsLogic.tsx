@@ -277,8 +277,14 @@ export interface dataWarehouseViewsLogicActions {
         viewId: string
     }
     updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate
-    updateDataWarehouseSavedQueryFailed: (viewId: string) => {
+    updateDataWarehouseSavedQueryFailed: (
+        viewId: string,
+        error?: unknown,
+        request?: DataWarehouseSavedQueryUpdate
+    ) => {
         viewId: string
+        error: unknown
+        request: DataWarehouseSavedQueryUpdate | undefined
     }
     updateDataWarehouseSavedQueryFailure: (
         error: string,
@@ -395,7 +401,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
-        updateDataWarehouseSavedQueryFailed: (viewId: string) => ({ viewId }),
+        // `request` is the payload object itself, so a caller can match a failure to its own save.
+        updateDataWarehouseSavedQueryFailed: (
+            viewId: string,
+            error?: unknown,
+            request?: DataWarehouseSavedQueryUpdate
+        ) => ({ viewId, error, request }),
         materializationChanged: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuerySuccess: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
@@ -527,7 +538,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                             return savedQuery
                         })
                     } catch (error) {
-                        actions.updateDataWarehouseSavedQueryFailed(view.id)
+                        actions.updateDataWarehouseSavedQueryFailed(view.id, error, view)
                         throw error
                     }
                 },

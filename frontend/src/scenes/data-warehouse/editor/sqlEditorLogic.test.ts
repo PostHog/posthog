@@ -2039,10 +2039,16 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.suggestionPayload).toBe(null)
         })
 
-        it('opens the conflict review when someone saves between the pre-save read and the write', async () => {
+        it('reviews a write-time conflict and retries the query text the review showed', async () => {
+            const patchBodies: Record<string, any>[] = []
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        if (patchBodies.length > 1) {
+                            return [200, { ...MOCK_VIEW, query: body.query, latest_history_id: 'next-head' }]
+                        }
                         serverViewQuery = 'SELECT 9'
                         serverViewHistoryId = 'their-head'
                         return [
@@ -2073,13 +2079,24 @@ describe('sqlEditorLogic', () => {
                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
                 types: [],
             })
+            // An edit made while the save is in flight.
+            logic.actions.setQueryInput('SELECT 3')
             await expectLogic(logic)
                 .toDispatchActions(['updateView', '_setSuggestionPayload'])
                 .toNotHaveDispatchedActions(['updateViewSuccess'])
                 .toFinishAllListeners()
 
             expect(logic.values.suggestionPayload?.originalValue).toBe('SELECT 9')
-            expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 2')
+            expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 3')
+
+            logic.actions.onAcceptSuggestedQueryInput()
+            await expectLogic(logic).toDispatchActions(['updateViewSuccess']).toFinishAllListeners()
+
+            expect(patchBodies[1]).toMatchObject({
+                query: { query: 'SELECT 3' },
+                edited_history_id: 'their-head',
+            })
+            expect(logic.values.queryInput).toBe('SELECT 3')
         })
 
         it.each([
