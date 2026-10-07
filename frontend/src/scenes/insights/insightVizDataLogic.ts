@@ -268,7 +268,6 @@ export interface insightVizDataLogicValues {
     samplingFactor: number | null | undefined
     series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined
     shouldShowSessionAnalysisWarning: boolean
-    showsFlagCallsRetentionNotice: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
     showLabelOnSeries: boolean | null | undefined
@@ -277,6 +276,7 @@ export interface insightVizDataLogicValues {
     showPercentStackView: boolean | null | undefined
     showPercentagesOnSeries: boolean | null | undefined
     showValuesOnSeries: boolean | null | undefined
+    showsFlagCallsRetentionNotice: boolean
     slowQueryPossibilities: SlowQueryPossibilities[]
     stickinessFilter: StickinessFilter | null | undefined
     supportsBarValueStacking: boolean
@@ -1170,7 +1170,17 @@ export interface insightVizDataLogicMeta {
             query: Node<Record<string, any>> | null
         ) => boolean
         showsFlagCallsRetentionNotice: (
-            querySource: InsightQueryNode | null,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null,
             dateRange: DateRange | null | undefined,
             compareFilter: CompareFilter | null | undefined,
             insightData: Record<string, any>
