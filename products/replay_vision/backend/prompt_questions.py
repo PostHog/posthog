@@ -321,7 +321,9 @@ def backfill_prompt_questions(
                 scanner_config=scanner.scanner_config,
                 metered=False,
             )
-            condensed[key] = question
+            # A failed call has no valence; the next scanner with this prompt tries the model again.
+            if question.valence:
+                condensed[key] = question
         fields = question.as_fields()
         # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
         unchanged = ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config)

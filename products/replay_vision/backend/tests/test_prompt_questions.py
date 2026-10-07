@@ -273,18 +273,22 @@ class TestPromptQuestions(APIBaseTest):
         unjudged.refresh_from_db()
         assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "bad")
 
-    def test_backfill_leaves_a_current_question_alone_when_the_model_gives_no_valence(self) -> None:
+    def test_backfill_retries_the_model_for_each_scanner_after_a_failed_call(self) -> None:
         unjudged = self._scanner(name="unjudged")
-        ReplayScanner.objects.filter(pk=unjudged.pk).update(
+        retried = self._scanner(name="retried")
+        ReplayScanner.objects.filter(pk__in=[unjudged.pk, retried.pk]).update(
             prompt_question="Judged before valence?", prompt_question_source=prompt_fingerprint(PROMPT)
         )
-        self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
+        reply = MagicMock(text=json.dumps({"question": "Did the user struggle at checkout?", "valence": "bad"}))
+        self.client_mock.return_value.models.generate_content.side_effect = [RuntimeError("provider down"), reply]
 
         result = backfill_prompt_questions(team_id=self.team.id)
 
-        assert result.written == 0
+        assert result.written == 1
         unjudged.refresh_from_db()
+        retried.refresh_from_db()
         assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "")
+        assert (retried.prompt_question, retried.prompt_valence) == ("Judged before valence?", "bad")
 
     def test_inline_scanners_only_ever_get_a_template_question(self) -> None:
         self.client_mock.return_value.models.generate_content.reset_mock()
