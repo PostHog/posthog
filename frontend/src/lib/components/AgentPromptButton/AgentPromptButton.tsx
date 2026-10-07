@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -295,8 +296,12 @@ export function AgentPromptButton({
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
     const availableAgents = AGENTS.filter(
-        (agent) => (!agentKeys || agentKeys.includes(agent.key)) && !(todayRailEnabled && agent.key === 'posthog-ai')
+        (agent) =>
+            (!agentKeys || agentKeys.includes(agent.key)) &&
+            !(todayRailEnabled && agent.key === 'posthog-ai') &&
+            !(!showDesktopEntryPoints && agent.key === 'posthog-code')
     )
 
     if (actions.length === 0 || availableAgents.length === 0) {

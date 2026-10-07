@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { IconExternal, IconLogomark } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useInterval } from 'lib/hooks/useInterval'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -50,6 +51,8 @@ const ROTATE_INTERVAL_MS = 3000
 export function AgentBadgeRotator(): JSX.Element {
     // Pin to "PostHog Desktop" inside Storybook so visual snapshots don't flake on rotation.
     const isStorybook = inStorybook() || inStorybookTestRunner()
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
+    const agents = showDesktopEntryPoints ? AGENTS : AGENTS.filter((agent) => agent.url !== POSTHOG_CODE_URL)
 
     const [index, setIndex] = useState(() => (isStorybook ? 0 : Math.floor(Math.random() * AGENTS.length)))
 
@@ -58,10 +61,10 @@ export function AgentBadgeRotator(): JSX.Element {
             return
         }
 
-        setIndex((current) => (current + 1) % AGENTS.length)
+        setIndex((current) => (current + 1) % agents.length)
     }, ROTATE_INTERVAL_MS)
 
-    const agent = AGENTS[index]
+    const agent = agents[index % agents.length]
 
     const wrapperClassname = 'inline-flex items-center gap-1'
     const textClassname = cn('font-semibold rainbow-text-fading', {

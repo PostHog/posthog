@@ -1,6 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { useAgentTaskUrl } from 'scenes/code-canvas/useAgentTaskUrl'
 import { urls } from 'scenes/urls'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
@@ -19,6 +20,20 @@ const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
 const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
 const TASK_REGEX = /\[Task:([a-zA-Z0-9-]+)\|([a-zA-Z0-9-]*)\]/
+
+function WorkflowTaskLink({ taskId }: { taskId: string }): JSX.Element {
+    const agentTaskUrl = useAgentTaskUrl()
+    return (
+        <Link
+            className="rounded p-1 -m-1 bg-border text-bg-primary"
+            to={agentTaskUrl(taskId)}
+            target="_blank"
+            targetBlankIcon
+        >
+            View task
+        </Link>
+    )
+}
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link
@@ -91,17 +106,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
         if (matchesTaskRegex) {
             const taskId = matchesTaskRegex[1]
 
-            elements.push(
-                <Link
-                    key={part}
-                    className="rounded p-1 -m-1 bg-border text-bg-primary"
-                    to={urls.codeTaskLink(taskId)}
-                    target="_blank"
-                    targetBlankIcon
-                >
-                    View task
-                </Link>
-            )
+            elements.push(<WorkflowTaskLink key={part} taskId={taskId} />)
             continue
         }
 

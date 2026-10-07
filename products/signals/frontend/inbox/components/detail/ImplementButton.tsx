@@ -5,6 +5,7 @@ import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -29,6 +30,10 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
     )
     const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
+    const implementationAgents = IMPLEMENTATION_AGENTS.filter(
+        (agent) => showDesktopEntryPoints || agent.key !== 'posthog-code'
+    )
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -140,7 +145,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                             placement: 'bottom-start',
                                             overlay: (
                                                 <LemonMenuOverlay
-                                                    items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                    items={implementationAgents.map((agent) => ({
                                                         key: agent.key,
                                                         label: agent.name,
                                                         icon: agent.icon,

@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -47,8 +48,12 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
             return ['function_email', 'function_sms', 'function_push'].includes(action.type)
         })
     }, [workflow.actions])
+    const showDesktopEntryPoints = useFeatureFlag('POSTHOG_DESKTOP_ENTRY_POINTS')
 
     if (workflow.origin_product === 'loops') {
+        if (!showDesktopEntryPoints) {
+            return <LemonTag type="highlight">Loop</LemonTag>
+        }
         return (
             <Link to={urls.codeLoopLink(workflow.id)}>
                 <LemonTag type="highlight">Loop</LemonTag>

@@ -14,7 +14,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { urls } from 'scenes/urls'
+import { useAgentTaskUrl } from 'scenes/code-canvas/useAgentTaskUrl'
 
 import { sandboxChange } from './sandboxChange'
 
@@ -190,6 +190,7 @@ export function AuditLogTable({ logItems, pagination, teamsById }: AuditLogTable
 function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const unprocessed = logItem.unprocessed
     const agent = parseAgentAttribution(logItem)
+    const agentTaskUrl = useAgentTaskUrl()
 
     if (!unprocessed) {
         return <div className="p-4 text-muted">No additional details available</div>
@@ -237,7 +238,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                                 Agent task
                             </div>
                             <div className="text-[13px]">
-                                <Link to={urls.codeTaskLink(agent.taskId)} target="_blank" targetBlankIcon>
+                                <Link to={agentTaskUrl(agent.taskId)} target="_blank" targetBlankIcon>
                                     {agent.taskId}
                                 </Link>
                             </div>
