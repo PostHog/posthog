@@ -287,6 +287,39 @@ class TestRefreshHogFunctions(BaseTest):
         assert "Inputs skipped: 1" in out.getvalue()
         assert f"Inputs unstamped: {unstamped}" in out.getvalue()
 
+    @parameterized.expand([("encrypted_input",), ("mapping_input",)])
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_drops_the_stamp_from_a_refused_input_in_every_store(self, store, mock_reload):
+        # The encrypted store and each mapping's inputs are written back apart from the plain store.
+        refused = {"value": "{nosuch.thing}", "bytecode": ["_H", 1, 32, "thing", 32, "nosuch", 1, 2]}
+        stamped = {**refused, "bytecode_contract": RUNTIME_CONTRACT}
+        if store == "encrypted_input":
+            fn = self._unstamped(
+                inputs={},
+                inputs_schema=[{"key": "bad", "type": "string", "secret": True}],
+                encrypted_inputs={"bad": stamped},
+            )
+        else:
+            fn = self._unstamped(
+                inputs={},
+                inputs_schema=[],
+                mappings=[
+                    {"name": "Refused", "inputs_schema": [{"key": "bad", "type": "string"}], "inputs": {"bad": stamped}}
+                ],
+            )
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
+
+        fn.refresh_from_db()
+        if store == "encrypted_input":
+            stored = (fn.encrypted_inputs or {})["bad"]
+            assert "bad" not in (fn.inputs or {})
+        else:
+            stored = (fn.mappings or [])[0]["inputs"]["bad"]
+        assert stored == refused
+        assert "Inputs unstamped: 1" in out.getvalue()
+
     @parameterized.expand([("dry_run", True), ("real_run", False)])
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_reports_filters_that_no_longer_compile(self, _name, dry_run, mock_reload):
