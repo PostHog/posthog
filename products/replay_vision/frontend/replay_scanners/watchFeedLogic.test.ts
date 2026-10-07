@@ -52,11 +52,8 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
-        // The response names the ranker, which picks the card layout. The jev arm's tiles only come as a
-        // grid, so a saved list choice is ignored.
+        // The response names the ranker, which picks the card layout.
         expect(logic.values.feedRanker).toBe('jev')
-        expect(logic.values.view).toBe('list')
-        expect(logic.values.displayView).toBe('grid')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
@@ -142,8 +139,11 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.clearFeedFilters()
         })
-            .toMatchValues({ view: 'grid' })
+            .toMatchValues({ view: 'grid', displayView: 'grid' })
             .toFinishAllListeners()
+        // The jev arm's rows only come as a list, so it ignores the saved grid choice.
+        logic.actions.setFeedRanker('jev')
+        expect(logic.values.displayView).toBe('list')
     })
 
     it('names the empty reason only once the fleet and budget have answered', async () => {
