@@ -1,5 +1,8 @@
 <p align="center">
-  <img alt="posthoglogo" src="https://user-images.githubusercontent.com/65415371/205059737-c8a4f836-4889-4654-902e-f302b187b6a0.png">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/posthog-logo-dark.svg">
+    <img alt="PostHog logo" src=".github/posthog-logo-light.svg" width="440">
+  </picture>
 </p>
 <p align="center">
   <a href='https://github.com/PostHog/posthog/graphs/contributors'><img alt="GitHub contributors" src="https://img.shields.io/github/contributors/posthog/posthog"/></a>
@@ -19,23 +22,32 @@
   </a>
 </p>
 
-## PostHog is the open source platform for building self-driving products
+## PostHog is your product's context layer
 
-[PostHog](https://posthog.com/) provides every tool you need to build a successful product, and captures all the context agents need to proactively diagnose problems, uncover opportunities, and ship fixes:
+[PostHog](https://posthog.com/) ingests and stores your analytics, errors, replays, and business data so you and your agents can query and act on it. It gives you every tool you need to build a successful product, and captures the context agents need to diagnose problems, uncover opportunities, and ship fixes:
 
-- [Self-driving mode](https://posthog.com/docs/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests you review and merge.
-- [Product analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior and analyze data with visualization or SQL.
-- [Web analytics](https://posthog.com/web-analytics): Monitor web traffic and user sessions with a GA-like dashboard. Easily monitor conversion, web vitals, and revenue.
-- [Session replays](https://posthog.com/session-replay): Watch real user sessions of interactions with your website or mobile app to diagnose issues and understand user behavior.
-- [Feature flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts with feature flags.
-- [Experiments](https://posthog.com/experiments): Test changes and measure their statistical impact on goal metrics. Set up experiments with no-code too.
+- [Product analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior. Analyze your data with visualizations or SQL.
+- [Web analytics](https://posthog.com/web-analytics): Monitor web traffic and user sessions with a GA-like dashboard. Track conversion, web vitals, and revenue.
+- [AI observability](https://posthog.com/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app. Run LLM-as-a-judge evaluations to catch regressions.
+- [MCP analytics](https://posthog.com/docs/mcp-analytics) (beta): See how agents actually use your MCP server.
+- [Session replay](https://posthog.com/session-replay): Watch real user sessions from your website or mobile app to diagnose issues and understand user behavior.
+- [Replay Vision](https://posthog.com/replay-vision): Let AI watch your recordings for you and turn them into queryable observations.
+- [Heatmaps](https://posthog.com/heatmaps): See where users click, scroll, and move on your site.
+- [Feature flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts.
+- [Experiments](https://posthog.com/experiments): Test changes and measure their statistical impact on goal metrics. Set up experiments with no code, too.
+- [Early access features](https://posthog.com/early-access-features) (beta): Let users opt into betas and register interest in upcoming features.
 - [Error tracking](https://posthog.com/error-tracking): Track errors, get alerts, and resolve issues to improve your product.
 - [Logs](https://posthog.com/logs): Ingest, search, and analyze log data alongside the rest of your product data.
+- [Tracing](https://posthog.com/tracing): Follow distributed traces straight to the line of code that broke.
 - [Surveys](https://posthog.com/surveys): Ask anything with our collection of no-code survey templates, or build custom surveys with our survey builder.
-- [Data warehouse](https://posthog.com/data-warehouse): Sync data from external tools like Stripe, Hubspot, your data warehouse, and more. Query it alongside your product data.
-- [Data pipelines](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time or batch export large amounts to your warehouse.
-- [AI observability](https://posthog.com/docs/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app.
-- [Workflows](https://posthog.com/docs/workflows): Create workflows that automate actions or send messages to your users.
+- [Support](https://posthog.com/support): Run customer support with a chat widget and a unified inbox, next to the product data behind each ticket.
+- [Group analytics](https://posthog.com/group-analytics): Analyze multi-seat accounts and other groups of users.
+- [Workflows](https://posthog.com/workflows): Automate actions and messages to your users, triggered by your product data.
+- [Context warehouse](https://posthog.com/context-warehouse): Collect, store, transform, and query all the context behind your product. Includes a managed warehouse, 120+ sources, and a SQL editor with BI and data visualization.
+- [CDP](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time, or batch export large amounts to your warehouse.
+- [Endpoints](https://posthog.com/endpoints) (beta): Build custom API endpoints powered by your PostHog data.
+- [PostHog AI](https://posthog.com/ai): Ask your product data anything. PostHog AI builds insights, writes SQL, and finds replays for you.
+- [Self-driving](https://posthog.com/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests you review and merge.
 
 You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Desktop](https://posthog.com/desktop)), or your own editor via [the MCP](https://posthog.com/mcp).
 
@@ -43,7 +55,7 @@ Best of all, all of this is free to use with a [generous monthly free tier](http
 
 ## Table of Contents
 
-- [PostHog is the open source platform for building self-driving products](#posthog-is-the-open-source-platform-for-building-self-driving-products)
+- [PostHog is your product's context layer](#posthog-is-your-products-context-layer)
 - [Table of Contents](#table-of-contents)
 - [Getting started with PostHog](#getting-started-with-posthog)
   - [PostHog Cloud (Recommended)](#posthog-cloud-recommended)
@@ -87,7 +99,7 @@ We have SDKs and libraries for popular languages and frameworks like:
 
 Beyond this, we have docs and guides for [Go](https://posthog.com/docs/libraries/go), [.NET/C#](https://posthog.com/docs/libraries/dotnet), [Django](https://posthog.com/docs/libraries/django), [Angular](https://posthog.com/docs/libraries/angular), [WordPress](https://posthog.com/docs/libraries/wordpress), [Webflow](https://posthog.com/docs/libraries/webflow), and more.
 
-Once you've installed PostHog, see our [product docs](https://posthog.com/docs/product-os) for more information on how to set up [product analytics](https://posthog.com/docs/product-analytics/capture-events), [web analytics](https://posthog.com/docs/web-analytics/getting-started), [session replays](https://posthog.com/docs/session-replay/how-to-watch-recordings), [feature flags](https://posthog.com/docs/feature-flags/creating-feature-flags), [experiments](https://posthog.com/docs/experiments/creating-an-experiment), [error tracking](https://posthog.com/docs/error-tracking/installation#setting-up-exception-autocapture), [surveys](https://posthog.com/docs/surveys/installation), [data warehouse](https://posthog.com/docs/cdp/sources), and more.
+Once you've installed PostHog, see our [product docs](https://posthog.com/docs/product-os) for more information on how to set up [product analytics](https://posthog.com/docs/product-analytics/capture-events), [web analytics](https://posthog.com/docs/web-analytics/getting-started), [session replays](https://posthog.com/docs/session-replay/how-to-watch-recordings), [feature flags](https://posthog.com/docs/feature-flags/creating-feature-flags), [experiments](https://posthog.com/docs/experiments/creating-an-experiment), [error tracking](https://posthog.com/docs/error-tracking/installation#setting-up-exception-autocapture), [surveys](https://posthog.com/docs/surveys/installation), [data sources](https://posthog.com/docs/cdp/sources), and more.
 
 ## Learning more about PostHog
 
@@ -115,7 +127,7 @@ The pricing for our paid plan is completely transparent and available on [our pr
 
 ## We're hiring!
 
-<img src="https://res.cloudinary.com/dmukukwp6/image/upload/v1/posthog.com/src/components/Home/images/mission-control-hog" alt="Hedgehog working on a Mission Control Center" width="350px"/>
+<img src="https://raw.githubusercontent.com/PostHog/brand/main/assets/hoggies/png/coding-group.png" alt="A group of hedgehogs writing code together" width="350px"/>
 
 Hey! If you're reading this, you've proven yourself as a dedicated README reader.
 
