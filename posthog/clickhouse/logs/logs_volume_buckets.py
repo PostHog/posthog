@@ -31,6 +31,11 @@ TABLE_NAME = "logs_volume_buckets"
 
 
 def LOGS_VOLUME_BUCKETS_TABLE_SQL():
+    # No TTL in tests: fixture timestamps are fixed calendar dates that age past 42 days against
+    # the real clock, and this clause is a custom shape (a per-row column, not a fixed interval)
+    # that ttl_period() (posthog/clickhouse/kafka_engine.py) doesn't cover, so its guard is inlined
+    # here instead of reused.
+    ttl_clause = "" if settings.TEST else "TTL time_bucket + toIntervalDay(greatest(42, retention_days))"
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
@@ -46,7 +51,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
 ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
-TTL time_bucket + toIntervalDay(greatest(42, retention_days))
+{ttl_clause}
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """
 

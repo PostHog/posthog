@@ -10,27 +10,27 @@ Counts are cross-filtered: every active filter is applied _except the faceted fi
 
 # When to use
 
-- To find how log volume is distributed across severity or service under a filter — e.g. "of the logs matching 'timeout', which services emit them?" Facet `service_name` with `searchTerm: "timeout"`.
 - As the drill-down loop for an investigation: facet `service_name` filtered to `severity=error` → find the hot service → add it to `serviceNames` → facet a resource attribute like `k8s.pod.name` → find the bad pod. Each call is one cheap aggregation that narrows the search space before you pull raw rows with `query-logs`.
 - To confirm the severity mix in a window before committing to a query: facet `severity_text`.
+- To find how log volume is distributed across severity or service for one person's or session's logs — e.g. "which services logged for this session?" Facet `service_name` with `sessionId` set; unlike the general case this honors every active filter, including `searchTerm`.
 
 ## Pick the right tool
 
 - Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.
 - Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.
-- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by the full query (severity + body `searchTerm` + `filterGroup`) — the one thing the tools above can't do.
+- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by severity, service, and `filterGroup` — the one thing the tools above can't do. For body-search-filtered service/severity counts, scope to `personId`/`sessionId` (see below) or use `query-logs` directly.
 
 # Parameters
 
 ## query.facetField
 
-Top-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts are grouped on the raw logs table with all _other_ filters applied — so this path honors `severityLevels`, `serviceNames`, `searchTerm`, and `filterGroup`.
+Top-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts come from a pre-aggregated rollup, so this path honors `severityLevels`, `serviceNames`, and this field's own-filter exclusion, but not `searchTerm`, log-attribute filters, or resource-attribute filters. When `personId` or `sessionId` is set, counts come from the logs table directly instead, honoring every filter exactly.
 
 ## query.facetResourceAttribute
 
 Resource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.
 
-**Limitation:** this path is served from a pre-aggregated rollup that has no severity or body dimension. It honors only `serviceNames` and other resource-attribute filters — `severityLevels`, `searchTerm`, and log-attribute filters are **ignored**. If you need those applied, facet a column instead, or narrow with `logs-attribute-values-list`.
+**Limitation:** this path is served from a pre-aggregated rollup that has no body dimension. It honors `severityLevels`, `serviceNames`, and other resource-attribute filters — `searchTerm` and log-attribute filters are **ignored**. If you need those applied, narrow with `logs-attribute-values-list`.
 
 ## query.facetSearch
 
@@ -45,7 +45,7 @@ Date range for the counts. Defaults to the last hour (`-1h`).
 
 ## query.severityLevels
 
-Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded) and when faceting a resource attribute (rollup has no severity dimension).
+Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded).
 
 ## query.serviceNames
 
@@ -53,7 +53,7 @@ Filter by service names. Ignored when faceting on `service_name` (that field's o
 
 ## query.searchTerm
 
-Full-text search across log bodies. Ignored when faceting a resource attribute.
+Full-text search across log bodies. Ignored when faceting a resource attribute, and ignored when faceting a column (`severity_text`/`service_name`) unless `personId` or `sessionId` is set.
 
 ## query.filterGroup
 
@@ -96,12 +96,13 @@ Property filters to narrow results. Same format as `query-logs` filters.
 }
 ```
 
-## Which services emit a specific error message
+## Which services logged for a specific session
 
 ```json
 {
   "query": {
     "facetField": "service_name",
+    "sessionId": "0198f6c2-9a3b-7c9e-9e2e-6a1e8e6a9b3f",
     "searchTerm": "connection reset",
     "dateRange": { "date_from": "-1d" }
   }
