@@ -27,23 +27,16 @@ no extra setting.
 personal token, and the project key is already public-facing, so a long unattended run never holds
 the operator's own credential.
 
-Log in to the same project that `POSTHOG_PROJECT_API_KEY` belongs to. The retention and historical
-import checks below read the logged-in project, so the import stops before sending anything when
-the two projects differ.
+Log in to the same project that `POSTHOG_PROJECT_API_KEY` belongs to. The retention check below
+reads the logged-in project, so the import stops before sending anything when the two projects
+differ.
+
+PostHog keeps backdated logs only for teams with historical imports turned on. For any other team,
+intake drops them after answering 200, so contact PostHog support before the first import.
 
 Always run `--dry-run` first. It sizes the job and reports how many sampled records each extraction
 rule actually matched. A rule that matches nothing reports `NOT FOUND`, which is the only warning
 you get before a run that would otherwise take hours and produce unusable data.
-
-## Historical imports must be turned on
-
-PostHog accepts backdated logs only from projects that have historical imports turned on.
-Intake drops everything else without an error, so the import checks first and stops before sending anything when the project can't import.
-`--dry-run` reports the same result.
-Contact PostHog support to turn it on for a project.
-
-The check needs the `logs:read` scope on the API key from `posthog-cli login`.
-Without it, the import warns that it couldn't check and goes ahead.
 
 ## Internal certificates
 

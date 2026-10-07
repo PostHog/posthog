@@ -13,10 +13,10 @@ pub fn login_project_token() -> Option<String> {
     Some(project.api_token)
 }
 
-/// The retention and backfill checks read the project from `posthog-cli login`, but the import writes
-/// to the project that owns the write key. When they differ, both checks answer for the wrong project.
-/// A missing value skips the comparison: the checks already warn when they cannot read the project,
-/// and a real run fails later without a write key.
+/// The retention check reads the project from `posthog-cli login`, but the import writes to the project
+/// that owns the write key. When they differ, the check answers for the wrong project. A missing value
+/// skips the comparison: the check already warns when it cannot read the project, and a real run fails
+/// later without a write key.
 pub fn check_login_matches_target(
     login_token: Option<&str>,
     target_token: Option<&str>,
@@ -24,7 +24,7 @@ pub fn check_login_matches_target(
     match (login_token, target_token) {
         (Some(login), Some(target)) if login != target => bail!(
             "POSTHOG_PROJECT_API_KEY belongs to a different project than the one you're logged in to, \
-             so the retention and historical import checks would describe the wrong project. Nothing \
+             so the retention check would describe the wrong project. Nothing \
              was sent. Run posthog-cli login and choose the project you're importing into."
         ),
         _ => Ok(()),

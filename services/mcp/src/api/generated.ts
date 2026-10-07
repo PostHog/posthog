@@ -109833,11 +109833,6 @@ export namespace Schemas {
       count: number;
     }
 
-    export interface _LogsBackfillStatusResponse {
-      /** Whether this project may send logs with backdated timestamps through `backfill_days`. Intake drops backdated logs from a project that may not. */
-      enabled: boolean;
-    }
-
     export interface _LogsCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
