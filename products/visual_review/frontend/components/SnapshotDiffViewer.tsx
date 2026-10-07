@@ -226,6 +226,8 @@ export function SnapshotDiffViewer({
     // Accepting writes this picture into the baseline for every branch. On a pull request that does
     // not touch the story, the picture is usually the flake the quarantine is hiding.
     const openAcceptQuarantinedDialog = (): void => {
+        // The dialog stays clickable during its close transition, so a double click would approve twice.
+        let submitted = false
         LemonDialog.open({
             title: 'Accept a change to a quarantined snapshot?',
             description: (
@@ -240,7 +242,12 @@ export function SnapshotDiffViewer({
             ),
             primaryButton: {
                 children: 'Accept change',
-                onClick: onApprove,
+                onClick: () => {
+                    if (!submitted) {
+                        submitted = true
+                        onApprove?.()
+                    }
+                },
                 'data-attr': 'visual-review-snapshot-accept-quarantined-confirm',
             },
             secondaryButton: { children: 'Cancel' },
