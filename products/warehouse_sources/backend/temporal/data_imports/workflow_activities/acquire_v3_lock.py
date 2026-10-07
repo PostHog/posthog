@@ -19,9 +19,6 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import scheduled_sync_consumes_buffer
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -32,10 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_v3_pipeline_lock_meta,
     release_v3_pipeline_lock,
     write_v3_pipeline_lock_meta,
-)
-from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
-from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
-    is_pipeline_v3_enabled,
 )
 from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
@@ -83,30 +76,10 @@ class ReleaseV3LockActivityInputs:
 
 
 @activity.defn
-@with_internal_db_retries
 def check_pipeline_version_activity(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
-    bind_contextvars(team_id=inputs.team_id)
-    close_old_connections()
-
-    # Buffered CDC consumption requires the v3 loader, whose position resolution proves buffer
-    # files consumed, so it overrides the rollout flag: the same V3 the CDC extraction hardcodes
-    # for the jobs it creates.
-    if inputs.schema_id is not None:
-        schema = (
-            ExternalDataSchema.objects.filter(id=inputs.schema_id, team_id=inputs.team_id)
-            .select_related("source")
-            .first()
-        )
-        if schema is not None and scheduled_sync_consumes_buffer(schema):
-            return CheckPipelineVersionActivityOutputs(is_v3=True)
-
-    try:
-        source = ExternalDataSource.objects.get(id=inputs.source_id)
-    except ExternalDataSource.DoesNotExist:
-        return CheckPipelineVersionActivityOutputs(is_v3=False)
-
-    is_v3 = is_pipeline_v3_enabled(inputs.team_id, source.source_type)
-    return CheckPipelineVersionActivityOutputs(is_v3=is_v3)
+    # Only a workflow history recorded before the "data-imports-v3-only-2026-10" patch schedules
+    # this activity. Every run is V3 now, so the answer is fixed.
+    return CheckPipelineVersionActivityOutputs(is_v3=True)
 
 
 @activity.defn

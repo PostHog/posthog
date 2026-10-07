@@ -184,6 +184,12 @@ class TestExecuteWithConflictRetry:
             ),
             # s3fs translates an explicit S3 AccessDenied response code into PermissionError.
             ("s3fs_access_denied", PermissionError("Access Denied")),
+            # s3fs collapses InvalidAccessKeyId (the worker's own access key no longer exists) into
+            # the same PermissionError type, with AWS's own fixed message instead of "Access Denied".
+            (
+                "s3fs_invalid_access_key_id",
+                PermissionError("The AWS Access Key Id you provided does not exist in our records."),
+            ),
         ]
     )
     @pytest.mark.asyncio

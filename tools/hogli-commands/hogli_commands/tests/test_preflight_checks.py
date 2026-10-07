@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+from hogli.telemetry import _CI_ENV_VARS
 from hogli_commands.preflight_checks import (
     Finding,
     Scope,
@@ -241,6 +242,60 @@ class TestSemgrepDevex:
 
         assert status == "pass"
         assert detail == "no new findings"
+
+    @pytest.mark.parametrize(
+        "cached,environment,expected_downloads,expected_fragment",
+        [
+            (False, {}, 1, "started in the background"),
+            (False, {"CI": "true"}, 0, "--prepare-semgrep"),
+            (False, {"POSTHOG_TASK_RUN_ID": "run"}, 0, "--prepare-semgrep"),
+            (True, {}, 0, "CI will run the check"),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/tool")
+    def test_a_tool_missing_from_the_cache_downloads_once_in_the_background(
+        self,
+        mock_which: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cached: bool,
+        environment: dict[str, str],
+        expected_downloads: int,
+        expected_fragment: str,
+    ) -> None:
+        (tmp_path / ".github/workflows").mkdir(parents=True)
+        (tmp_path / ".github/workflows/ci-security.yaml").write_text(
+            "SEMGREP_IMAGE: semgrep/semgrep:1.175.0@sha256:test\n"
+        )
+        (tmp_path / "posthog").mkdir()
+        (tmp_path / "posthog/a.py").write_text("value = 1\n")
+        for name in (*_CI_ENV_VARS, "POSTHOG_TASK_RUN_ID"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in environment.items():
+            monkeypatch.setenv(name, value)
+
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[object]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=b"download-marker\n", stderr=b"")
+            if cached and "--version" in command:
+                return subprocess.CompletedProcess(command, 0, stdout="1.175.0", stderr="")
+            return subprocess.CompletedProcess(command, 1, stdout="", stderr="error: not found in the cache")
+
+        scope = Scope(files=["posthog/a.py"], changed=["posthog/a.py"], merge_base="abc123", committed_only=False)
+        with (
+            patch("hogli_commands.preflight_checks.REPO_ROOT", tmp_path),
+            patch("hogli_commands.preflight_checks.subprocess.run", side_effect=run),
+            patch("hogli_commands.preflight_checks.subprocess.Popen") as mock_popen,
+        ):
+            status, detail = check_semgrep_devex(scope)
+            repeat_status, _ = check_semgrep_devex(scope)
+
+        assert (status, repeat_status) == ("skipped", "skipped")
+        assert expected_fragment in detail
+        assert mock_popen.call_count == expected_downloads
+        if expected_downloads:
+            assert mock_popen.call_args.args[0] == ["/usr/bin/tool", "ci:preflight", "--prepare-semgrep"]
+            assert mock_popen.call_args.kwargs["start_new_session"] is True
 
 
 WORKFLOW = ".github/workflows/ci-backend.yml"

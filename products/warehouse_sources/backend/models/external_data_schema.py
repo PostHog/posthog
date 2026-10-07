@@ -183,6 +183,17 @@ def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]
 # import activity gets. The trim keeps the newest entries, and a live run's entries are the newest.
 STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 
+# The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
+# run can resume after. It differs from the staged `last_value`, which the loader promotes only
+# when the whole run completes.
+STAGED_RESUME_VALUE_KEY = "resume_value"
+
+# The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
+# An attempt that only inherits the value from an earlier attempt, without queuing a batch of its
+# own yet, is not that run: finalizing a later zero-batch continuation must target the run that
+# holds the rows, not whichever attempt most recently restated the same value.
+STAGED_RESUME_OWNER_KEY = "resume_owner_run_uuid"
+
 
 class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
     def update(self, **kwargs: Any) -> int:
@@ -896,9 +907,52 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config["repartition_swap"] = swap
         self._save_sync_type_config()
 
-    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
-        self.sync_type_config["repartition_claim"] = claim
-        self._save_sync_type_config()
+    def set_repartition_claim(self, claim: dict[str, Any]) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        # A timed-out activity may still be running when its retry stakes a newer claim. Merge under
+        # the row lock so the older activity's stale model copy cannot overwrite that newer token (or
+        # any unrelated config written while it was running) and accidentally reclaim the table.
+        def _write(config: dict[str, Any]) -> None:
+            current = config.get("repartition_claim")
+            if isinstance(current, dict):
+                current_claimed_at = current.get("claimed_at")
+                claimed_at = claim.get("claimed_at")
+                if isinstance(current_claimed_at, str) and isinstance(claimed_at, str):
+                    if current_claimed_at > claimed_at:
+                        return
+            config["repartition_claim"] = claim
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        return self.sync_type_config.get("repartition_claim") == claim
+
+    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        def _write(config: dict[str, Any]) -> None:
+            claim = config.get("repartition_claim")
+            if not (isinstance(claim, dict) and claim.get("token") == claim_token):
+                return
+            if config.get("repartition_swap") is not None:
+                return
+            for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
+                config.pop(key, None)
+            config["last_repartition_at"] = timezone.now().isoformat()
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        claim = self.sync_type_config.get("repartition_claim")
+        return (
+            isinstance(claim, dict)
+            and claim.get("token") == claim_token
+            and not any(
+                key in self.sync_type_config
+                for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
+            )
+        )
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -986,6 +1040,25 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             if value is not None
         }
         self._stage_cursor_values(run_uuid, values)
+
+    def stage_handoff_resume_value(self, run_uuid: str, resume_value: Any, owner_run_uuid: str | None = None) -> None:
+        """Record the incremental value a later attempt of this workflow run can resume after.
+
+        Stage only a value whose rows already have their queue rows, because the next attempt reads
+        the source strictly above it. None records that this attempt has no such value, which stops
+        the next attempt from using the value of an older attempt.
+
+        `owner_run_uuid` is the run whose queue rows the value describes, for finalizing a later
+        zero-batch continuation. It defaults to `run_uuid`, the common case of an attempt that just
+        queued the batch the value describes.
+        """
+        self._stage_cursor_values(
+            run_uuid,
+            {
+                STAGED_RESUME_VALUE_KEY: self._serialize_incremental_value(resume_value),
+                STAGED_RESUME_OWNER_KEY: owner_run_uuid if owner_run_uuid is not None else run_uuid,
+            },
+        )
 
     def stage_source_cursor(self, run_uuid: str, payload: dict[str, Any]) -> None:
         """Hold a run's source cursor in `incremental_staged`, which the load side promotes with the watermark."""
@@ -1310,7 +1383,8 @@ def _align_epoch_cursor(value: Any, partner: Any) -> Any:
 def _park_displaced_staged_cursor(config: dict[str, Any], staged: dict[str, Any]) -> None:
     """A run is live or parked, never both: only another run's staging parks it, and its own
     staging moves it back. Both happen under the row lock."""
-    if not staged.get("run_uuid") or not ({"last_value", "earliest_value", SOURCE_CURSOR_KEY} & staged.keys()):
+    cursor_keys = {"last_value", "earliest_value", SOURCE_CURSOR_KEY, STAGED_RESUME_VALUE_KEY}
+    if not staged.get("run_uuid") or not (cursor_keys & staged.keys()):
         return
     pending = [*config.get("incremental_staged_pending", []), staged]
     config["incremental_staged_pending"] = pending[-STAGED_CURSOR_PENDING_LIMIT:]
@@ -1328,6 +1402,45 @@ def _drop_parked_staged_cursor(config: dict[str, Any], run_uuid: str) -> dict[st
     else:
         config.pop("incremental_staged_pending", None)
     return dropped
+
+
+def staged_handoff_resume_point(config: dict[str, Any], workflow_run_id: str | None) -> tuple[str, Any] | None:
+    """The run that owns the queued rows, and the value, recorded by the newest attempt of
+    `workflow_run_id`.
+
+    The returned run is `STAGED_RESUME_OWNER_KEY`, not necessarily the attempt that most recently
+    staged the entry: an attempt that only inherited the value, without queuing a batch of its own
+    yet, stages it under its own `run_uuid` for parking purposes but records the earlier run as the
+    owner. A caller that finalizes a zero-batch continuation needs the owner, since that is the run
+    whose queue rows still need the final marker.
+    """
+    if not workflow_run_id:
+        return None
+    prefix = f"{workflow_run_id}-a"
+    newest: dict[str, Any] | None = None
+    newest_attempt = 0
+    for staged in (config.get("incremental_staged") or {}, *config.get("incremental_staged_pending", [])):
+        run_uuid = staged.get("run_uuid")
+        if not isinstance(run_uuid, str) or not run_uuid.startswith(prefix):
+            continue
+        attempt = run_uuid.removeprefix(prefix)
+        if attempt.isdigit() and int(attempt) > newest_attempt:
+            newest, newest_attempt = staged, int(attempt)
+    if newest is None:
+        return None
+    owner_run_uuid = newest.get(STAGED_RESUME_OWNER_KEY) or newest["run_uuid"]
+    return owner_run_uuid, newest.get(STAGED_RESUME_VALUE_KEY)
+
+
+def staged_handoff_resume_value(config: dict[str, Any], workflow_run_id: str | None) -> Any:
+    """The value the newest attempt of `workflow_run_id` recorded with `stage_handoff_resume_value`.
+
+    Only the newest attempt counts. An attempt that restarted from the stored watermark can replace
+    the queue rows of the attempts before it, so their values no longer describe what the loader
+    will load.
+    """
+    point = staged_handoff_resume_point(config, workflow_run_id)
+    return None if point is None else point[1]
 
 
 def _advance_promoted_cursor(
@@ -1672,6 +1785,58 @@ def finalize_repartition_scheme(
     return wrote
 
 
+def stage_partition_scheme_for_full_refresh(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    claim_token: str | None = None,
+) -> bool:
+    """Pin a new partition scheme for the next full refresh to write, and retire the repartition markers.
+
+    A full-refresh sync deletes the table and writes it again, so it can lay out the new scheme with
+    no rewrite at all. The scheme goes in as the `*_override` keys because the reset at the start of
+    that sync removes the plain partition settings, and the overrides are the keys it keeps for the
+    sync to consume (see `update_sync_type_config_for_reset_pipeline` and `set_partitioning_enabled`).
+    `partition_format` survives the reset on its own.
+    """
+    overrides: dict[str, Any] = {
+        "partitioning_keys_override": partitioning_keys or None,
+        "partition_count_override": partition_count,
+        "partition_size_override": partition_size,
+        "partition_mode_override": partition_mode,
+    }
+
+    wrote = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
+        if config.get("repartition_swap") is not None:
+            return
+        for key, value in overrides.items():
+            if value is None:
+                config.pop(key, None)
+            else:
+                config[key] = value
+        if partition_format is not None:
+            config["partition_format"] = partition_format
+        # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
+        config["last_repartition_at"] = timezone.now().isoformat()
+        for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
+            config.pop(key, None)
+        wrote = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
+
+
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
     """Paint a schema Running at the start of a run, unless a CDC halt marker holds.
 
@@ -1691,7 +1856,7 @@ def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
 
 
 def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None:
-    """Mark a schema's first successful sync complete. Shared by the V2 pipelines and the V3 loader.
+    """Mark a schema's first successful sync complete. Called by the V3 loader's post-load.
 
     On the False→True transition, a CDC schema still in snapshot mode moves to
     ``cdc_mode="streaming"`` in the same row lock. Callers must only invoke this once the

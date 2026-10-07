@@ -672,7 +672,7 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         captured: dict = {}
 
-        def _capture_helper(*, resource_name, job, logger):
+        def _capture_helper(*, resource_name, job, logger, **_kwargs):
             captured["job"] = job
             return self._mock_delta(add_actions)
 

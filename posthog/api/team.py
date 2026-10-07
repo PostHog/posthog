@@ -42,6 +42,7 @@ from posthog.schema import (
 )
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
@@ -130,8 +131,9 @@ from products.customer_analytics.backend.facade.account_property_pins import (
 from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
 from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -628,6 +630,7 @@ TEAM_CONFIG_FIELDS = (
     "survey_config",
     "week_start_day",
     "primary_dashboard",
+    "home_tab_dashboard",
     "live_events_columns",
     "recording_domains",
     "cookieless_server_hash_mode",
@@ -672,6 +675,7 @@ TEAM_CONFIG_MEMBER_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "surveys_opt_in",
     "primary_dashboard",
+    "home_tab_dashboard",
 )
 TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
 
@@ -1442,6 +1446,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         allow_null=True,
         help_text="Settings for Conversations. Must be a JSON object or null.",
     )
+    home_tab_dashboard = TeamScopedPrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "Dashboard does not belong to this team."},
+        help_text=(
+            "ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view."
+        ),
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1507,6 +1520,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "available_setup_task_ids",
         )
 
+    def get_fields(self) -> dict[str, serializers.Field]:
+        if isinstance(self.instance, Team):
+            self.context["team_id"] = self.instance.pk
+        return super().get_fields()
+
     def to_representation(self, instance):
         with tracer.start_as_current_span("team_serializer.default_fields"):
             representation = super().to_representation(instance)
@@ -1570,7 +1588,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
+        return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -2289,6 +2307,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Captured before the locked block pops the keys, so the refresh/re-cache step
         # below still knows this request touched the team row.
         conversations_lock_applied = patch_conversations_settings or "conversations_enabled" in validated_data
+        if "home_tab_dashboard" in validated_data:
+            dashboard = instance.home_tab_dashboard
+            before_update["home_tab_dashboard"] = dashboard.id if dashboard else None
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
@@ -2305,6 +2326,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             self._update_feature_flag_policy_config(instance, config_data)
+
+        # Lives on a Team extension, not a Team column, so it can't flow through the generic
+        # save(update_fields=...) loop below.
+        if "home_tab_dashboard" in validated_data:
+            dashboard = validated_data.pop("home_tab_dashboard")
+            instance.home_tab_dashboard = dashboard
+            home_tab_dashboard_id = dashboard.id if dashboard else None
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -2400,6 +2428,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()
+        if "home_tab_dashboard" in before_update:
+            after_update["home_tab_dashboard"] = home_tab_dashboard_id
         if other_team_fields or conversations_lock_applied:
             # The in-memory instance may hold stale values for fields a concurrent request
             # changed, and the post-save receiver has already cached that snapshot. Reload
@@ -3405,6 +3435,14 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+    if "home_tab_dashboard" in attrs:
+        if not instance:
+            raise exceptions.ValidationError(
+                {"home_tab_dashboard": "Home tab dashboard cannot be set on project creation."}
+            )
+        if attrs["home_tab_dashboard"] and attrs["home_tab_dashboard"].team_id != instance.id:
+            raise exceptions.ValidationError({"home_tab_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

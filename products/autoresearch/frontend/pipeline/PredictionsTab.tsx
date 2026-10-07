@@ -96,7 +96,7 @@ export function PredictionsTab(): JSX.Element {
 
             <LemonCollapse
                 multiple
-                defaultActiveKeys={['distribution', 'highest']}
+                defaultActiveKeys={['distribution', 'people']}
                 panels={[
                     {
                         key: 'distribution',
@@ -104,14 +104,9 @@ export function PredictionsTab(): JSX.Element {
                         content: <ProbabilityDistributionPanel />,
                     },
                     {
-                        key: 'highest',
-                        header: 'Highest-probability users (latest scoring run)',
-                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="DESC" />,
-                    },
-                    {
-                        key: 'lowest',
-                        header: 'Lowest-probability users (latest scoring run)',
-                        content: <ProbabilityUsersTable pipelineId={pipeline.id} direction="ASC" />,
+                        key: 'people',
+                        header: 'People (latest scoring run)',
+                        content: <ProbabilityUsersTable pipelineId={pipeline.id} />,
                     },
                     {
                         key: 'volume',

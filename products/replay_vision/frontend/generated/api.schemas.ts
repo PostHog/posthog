@@ -688,6 +688,14 @@ export interface ScannerResultApi {
     session_duration_s?: number | null
 }
 
+export type PromptValenceEnumApi = (typeof PromptValenceEnumApi)[keyof typeof PromptValenceEnumApi]
+
+export const PromptValenceEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+    Neutral: 'neutral',
+} as const
+
 /**
  * * `schedule` - Schedule
  * * `on_demand` - On demand
@@ -792,6 +800,8 @@ export interface ReplayObservationApi {
      * @nullable
      */
     readonly prompt_question: string | null
+    /** For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned. */
+    readonly prompt_valence: PromptValenceEnumApi | null
     /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
      *
      * * `schedule` - Schedule
@@ -2420,6 +2430,21 @@ export interface DraftScannerResponseApi {
     estimated_monthly_observations: number | null
 }
 
+export interface EstimateExperimentScopeApi {
+    /**
+     * The experiment an experiment scanner watches.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * The variant keys it watches. Null or omitted means every variant.
+     * @minItems 1
+     * @nullable
+     * @items.maxLength 400
+     */
+    variants?: string[] | null
+}
+
 /**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
@@ -2451,6 +2476,8 @@ export interface EstimateRequestApi {
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`. */
+    experiment?: EstimateExperimentScopeApi | null
 }
 
 /**

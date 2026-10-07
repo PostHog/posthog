@@ -37,6 +37,13 @@ class ExperimentScanner(SummarizerScanner, frozen=True):
         default=True,
         description="Sample each watched variant about evenly instead of proportionally to rollout.",
     )
+    # Lifecycle intent, not scan config, so model dumps leave it out. The launch receiver clears
+    # it from the stored config before the first scan.
+    start_on_launch: bool = Field(
+        default=False,
+        exclude=True,
+        description="Saved disabled on a draft experiment; turned on when the experiment launches.",
+    )
     # Scan-time context rather than persisted config, injected per scan by the apply workflow
     # (like the classifier's `known_freeform_tags`). `exclude=True` keeps both out of dumps, so
     # they can never leak into a stored scanner_config or snapshot.

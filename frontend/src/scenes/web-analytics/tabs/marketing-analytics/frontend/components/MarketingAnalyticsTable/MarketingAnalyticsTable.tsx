@@ -1,12 +1,14 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useId, useMemo, useState } from 'react'
+import { Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -28,7 +30,6 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
-import { ConversionRecordingsModal } from 'products/marketing_analytics/frontend/ConversionRecordingsModal'
 import {
     conversionRecordingsRequest,
     conversionRecordingsTableQuery,
@@ -46,6 +47,13 @@ import {
 } from '../MarketingAnalyticsValidationWarningBanner'
 import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+
+// The modal pulls in the recordings playlist and player, so keep it off the dashboard and events eager paths.
+const ConversionRecordingsModal = lazyWithRetry(() =>
+    import('products/marketing_analytics/frontend/ConversionRecordingsModal').then((module) => ({
+        default: module.ConversionRecordingsModal,
+    }))
+)
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -190,7 +198,11 @@ export const MarketingAnalyticsTable = ({
 
     return (
         <div className="bg-surface-primary">
-            {recordings && <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />}
+            {recordings && (
+                <Suspense fallback={<DashboardModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
+                    <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
+                </Suspense>
+            )}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
@@ -295,7 +307,7 @@ export const MarketingAnalyticsTable = ({
                     <MarketingAnalyticsNotReady />
                 </div>
             ) : (
-                <div className="relative marketing-analytics-table-container">
+                <div className="relative marketing-analytics-table-container max-h-[36rem] overflow-auto">
                     <Query
                         attachTo={attachTo}
                         query={tableQuery}

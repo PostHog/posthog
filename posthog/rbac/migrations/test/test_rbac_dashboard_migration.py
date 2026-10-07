@@ -1,13 +1,17 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.dashboard_privilege import DashboardPrivilege
@@ -190,49 +194,139 @@ class TestRBACDashboardMigration(BaseTest):
         orphaned_privilege_count = DashboardPrivilege.objects.filter(user=orphaned_user).count()
         self.assertEqual(orphaned_privilege_count, 1)  # Should still exist
 
-    def test_migration_skips_dashboards_with_existing_access_control(self):
-        """Test that migration skips dashboards that already have access control entries"""
-        # Create a dashboard with restriction level 37
+    def test_migration_completes_when_access_control_already_exists(self):
         dashboard = Dashboard.objects.create(
             team=self.team,
             name="Dashboard with Existing Access Control",
             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
-
-        # Create existing access control
         existing_ac = AccessControl.objects.create(
             team_id=self.team.id,
-            access_level="admin",
+            access_level="manager",
             resource="dashboard",
             resource_id=str(dashboard.id),
             organization_member=self.user1_membership,
         )
-
-        # Create a dashboard privilege that should not be migrated
+        default_ac = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="invalid",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+        )
+        member_ac = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="invalid",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            organization_member=self.user2_membership,
+        )
         DashboardPrivilege.objects.create(
             dashboard=dashboard,
             user=self.user2,
             level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
-        # Run migration
         rbac_dashboard_access_control_migration(self.organization.id)
 
-        # Reload dashboard from database
         dashboard.refresh_from_db()
+        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).count(), 3)
+        default_ac.refresh_from_db()
+        self.assertEqual(default_ac.access_level, "viewer")
+        member_ac.refresh_from_db()
+        self.assertEqual(member_ac.access_level, "editor")
+        self.assertTrue(AccessControl.objects.filter(id=existing_ac.id).exists())
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
 
-        # Verify dashboard restriction level was NOT updated
-        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
+        rbac_dashboard_access_control_migration(self.organization.id)
 
-        # Verify only the existing access control remains
-        access_controls = AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id))
-        self.assertEqual(access_controls.count(), 1)
-        remaining_ac = access_controls.first()
-        assert remaining_ac is not None
-        self.assertEqual(remaining_ac.id, existing_ac.id)
+        self.assertEqual(AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).count(), 3)
 
-        # Verify dashboard privilege was not deleted
-        self.assertEqual(DashboardPrivilege.objects.filter(dashboard=dashboard).count(), 1)
+    def test_migration_preserves_existing_access_control_denials_and_viewers(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with existing restrictions",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        default_access = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="none",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+        )
+        member_access = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="viewer",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            organization_member=self.user2_membership,
+        )
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard,
+            user=self.user2,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
+        )
+
+        rbac_dashboard_access_control_migration(self.organization.id)
+
+        dashboard.refresh_from_db()
+        default_access.refresh_from_db()
+        member_access.refresh_from_db()
+        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(default_access.access_level, "none")
+        self.assertEqual(member_access.access_level, "viewer")
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
+
+    @parameterized.expand([("viewer",), ("none",)])
+    def test_migration_preserves_role_based_dashboard_access(self, role_access_level: str) -> None:
+        self.organization.available_product_features = (self.organization.available_product_features or []) + [
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+        ]
+        self.organization.save()
+        role = Role.objects.create(name="Dashboard viewers", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user2,
+            organization_member=self.user2_membership,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with role access",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level=role_access_level,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            role=role,
+        )
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard,
+            user=self.user2,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
+        )
+
+        rbac_dashboard_access_control_migration(self.organization.id)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertFalse(
+            AccessControl.objects.filter(
+                team_id=self.team.id,
+                resource="dashboard",
+                resource_id=str(dashboard.id),
+                organization_member=self.user2_membership,
+                role=None,
+            ).exists()
+        )
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
+        user_access = UserAccessControl(user=self.user2, team=self.team)
+        self.assertFalse(user_access.check_access_level_for_object(dashboard, "editor"))
+        self.assertEqual(
+            user_access.check_access_level_for_object(dashboard, "viewer"),
+            role_access_level == "viewer",
+        )
 
     def test_migration_handles_multiple_teams_in_organization(self):
         """Test that migration works correctly with multiple teams in the organization"""

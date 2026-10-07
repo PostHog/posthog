@@ -715,6 +715,7 @@ depends_on = [
     # two sides share one definition. The skills product has no facade, so this matches how
     # review_hog, signals and tasks reach it.
     "products.skills",
+    "products.signals",
     "products.tasks",
 ]
 layer = "modules"
@@ -1143,7 +1144,6 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
     "backend\\.hogql_queries.*",
@@ -1639,4 +1639,37 @@ expose = [
 ]
 from = [
     "products.webmcp",
+]
+
+[[modules]]
+path = "products.cross_project_dashboards"
+depends_on = ["posthog", "products.access_control", "products.product_analytics"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.cross_project_dashboards",
+]
+
+[[modules]]
+path = "products.warehouse_suggestions"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.warehouse_suggestions",
 ]

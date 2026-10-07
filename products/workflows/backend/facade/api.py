@@ -327,6 +327,10 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     return email_utm_defaults.load_team_utm_defaults(team_id)
 
 
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
 def seed_new_email_steps_with_utm_defaults(
     actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
 ) -> None:

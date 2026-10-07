@@ -1,9 +1,11 @@
 from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.contracts import FlowUtmUpdate, TeamUtmDefaults
+from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_content")
@@ -20,6 +22,15 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     if row is None:
         return TeamUtmDefaults(enabled=False, params={})
     return TeamUtmDefaults(enabled=row["email_utm_tags_enabled"], params=clean_utm_params(row["email_utm_params"]))
+
+
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    # next_run_at can be empty while the scheduler recalculates it, so an active schedule is enough.
+    return set(
+        HogFlowSchedule.objects.filter(team_id=team_id, status=HogFlowSchedule.Status.ACTIVE).values_list(
+            "hog_flow_id", flat=True
+        )
+    )
 
 
 def clean_utm_params(params: Any) -> dict[str, str]:

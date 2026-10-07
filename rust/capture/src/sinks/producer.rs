@@ -4,6 +4,7 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tracing::error;
@@ -14,7 +15,7 @@ use crate::prometheus::report_dropped_events;
 /// A record to be produced to Kafka
 #[derive(Debug, Clone)]
 pub struct ProduceRecord {
-    pub topic: String,
+    pub topic: Arc<str>,
     pub key: Option<String>,
     pub payload: Vec<u8>,
     pub headers: CapturedEventHeaders,
@@ -45,7 +46,7 @@ pub trait KafkaProducer: Send + Sync {
 pub struct DeliveryAckFuture {
     inner: DeliveryFuture,
     started: Instant,
-    topic: String,
+    topic: Arc<str>,
     recorded: bool,
 }
 
@@ -133,7 +134,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
 
     fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError> {
         let headers: rdkafka::message::OwnedHeaders = record.headers.into();
-        let topic = record.topic.clone();
+        let topic = Arc::clone(&record.topic);
 
         match self.producer.send_result(FutureRecord {
             topic: &record.topic,
