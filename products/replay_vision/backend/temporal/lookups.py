@@ -82,6 +82,9 @@ def run_lookups(plan: LookupPlan, *, events_index: EventsIndex, network_index: N
         elif network_index.has_requests():
             found = get_network_around(network_index, lookup.vid_t, lookup.window_s)
             result.update(found, requests=_unseen(found["requests"], seen))
+        elif network_index.state() == "clean":
+            result["requests"] = []
+            result["note"] = "Every network request in this recording succeeded quickly."
         else:
             result["requests"] = []
             result["note"] = "This session has no network requests to look up, so this says nothing about the network."
