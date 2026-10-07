@@ -319,6 +319,7 @@ describe('scoutTrialsLogic', () => {
                 ...trialFixtureResult,
                 status: 'not_started',
                 task_status: null,
+                error: 'The scout trial has not started. Retry the launch with the same ID.',
             })
             logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
             await expectLogic(logic, () => {
@@ -326,7 +327,25 @@ describe('scoutTrialsLogic', () => {
             }).toFinishAllListeners()
             await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
             expect(logic.values.comparisonRows.every((row) => row.status === 'not_started')).toBe(true)
+            expect(logic.values.comparisonRows.every((row) => row.error === null)).toBe(true)
+            const launchId = logic.values.comparisonRows[0].launchId
+            logic.actions.selectResult(launchId)
+            expect(logic.values.selectedResult?.error).toBeNull()
+            expect(logic.values.results[launchId].error).toContain('has not started')
+            logic.actions.setResults({}, { [launchId]: 'Status unavailable.' })
+            expect(logic.values.comparisonRows[0].error).toBe('Status unavailable.')
+            logic.actions.setResults({ [launchId]: logic.values.results[launchId] }, {})
             const saved = logic.values.comparisonState.value!
+            jest.mocked(signalsScoutConfigTrialComparisonHistory).mockResolvedValue({
+                results: [{ ...saved, status: 'not_started' }],
+                has_more: false,
+            })
+            await expectLogic(logic, () =>
+                logic.actions.loadComparisonHistory(trialFixtureConfig.id)
+            ).toFinishAllListeners()
+            expect(logic.values.comparisonState.value?.status).toBe(saved.status)
+            expect(logic.values.selectedResult?.error).toBeNull()
+
             jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({ ...saved, status: 'judging' })
             jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({
                 ...trialFixtureResult,
@@ -361,6 +380,50 @@ describe('scoutTrialsLogic', () => {
             visibility.mockRestore()
             jest.useRealTimers()
         }
+    })
+
+    test.each(['not_started', 'failed', 'unknown'] as const)(
+        'keeps launch errors actionable when the trial itself is %s',
+        async (status) => {
+            jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, params) => ({
+                ...trialFixtureResult,
+                launch_id: params.launch_id,
+                status: 'not_started',
+                task_status: null,
+                error: 'The scout trial has not started. Retry the launch with the same ID.',
+            }))
+            await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+            const comparison = logic.values.comparisonState.value!
+            const launchId = logic.values.comparisonRows[0].launchId
+            logic.actions.selectResult(launchId)
+            expect(logic.values.selectedResult?.error).toBeNull()
+
+            jest.mocked(signalsScoutConfigTrialComparisonRetrieve).mockResolvedValue({ ...comparison, status })
+            await expectLogic(logic, () =>
+                logic.actions.loadComparison(comparison.comparison_id)
+            ).toFinishAllListeners()
+
+            expect(logic.values.comparisonRows[0].error).toContain('has not started')
+            expect(logic.values.selectedResult?.error).toContain('has not started')
+        }
+    )
+
+    test.each([
+        ['failed', true],
+        ['not_started', false],
+    ] as const)('keeps run errors for status=%s and owned by an active trial=%s', async (status, owned) => {
+        await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+        const launchId = owned ? logic.values.comparisonRows[0].launchId : 'unrelated-launch'
+        const result = { ...trialFixtureResult, launch_id: launchId, status, error: 'Run needs attention.' }
+        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId }])
+        logic.actions.setResults({ [launchId]: result }, {})
+        logic.actions.selectResult(launchId)
+
+        expect(logic.values.rows.find((row) => row.launchId === launchId)?.error).toBe(result.error)
+        expect(logic.values.selectedResult?.error).toBe(result.error)
+
+        logic.actions.untrackLaunches([launchId])
+        expect(logic.values.selectedResult?.error).toBe(result.error)
     })
 
     it('reuses completed results during background refresh and reloads them on explicit refresh', async () => {

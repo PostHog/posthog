@@ -397,6 +397,7 @@ export interface scoutTrialsLogicMeta {
         hasUnaccepted: (batch: ScoutTrialBatch | null) => boolean
         selectedResult: (
             selectedLaunchId: string | null,
+            rows: ScoutTrialRow[],
             results: Record<string, ScoutTrialResultApi>
         ) => ScoutTrialResultApi | null
         rows: (
@@ -807,9 +808,13 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             (batch: ScoutTrialBatch | null): boolean => !!batch?.submissions.some((submission) => !submission.accepted),
         ],
         selectedResult: [
-            (s) => [s.selectedLaunchId, s.results],
-            (launchId: string | null, results: Record<string, ScoutTrialResultApi>): ScoutTrialResultApi | null =>
-                launchId ? (results[launchId] ?? null) : null,
+            (s) => [s.selectedLaunchId, s.rows, s.results],
+            (
+                launchId: string | null,
+                rows: ScoutTrialRow[],
+                results: Record<string, ScoutTrialResultApi>
+            ): ScoutTrialResultApi | null =>
+                launchId ? (rows.find((row) => row.launchId === launchId)?.result ?? results[launchId] ?? null) : null,
         ],
         rows: [
             (s) => [
@@ -844,12 +849,18 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                     ]),
                 ]
                 return ids.map((launchId) => {
-                    const result = results[launchId] ?? null
+                    const savedResult = results[launchId] ?? null
                     const saved = relevantHistory.find((entry) => entry.launch_id === launchId)
                     const submission = batch?.submissions.find((entry) => entry.request.launch_id === launchId)
-                    const variant = Object.values(comparisonStates)
-                        .flatMap((state) => state.value?.variants ?? [])
-                        .find((variant) => variant.launch_ids.includes(launchId))
+                    const comparison = Object.values(comparisonStates).find((state) =>
+                        state.value?.variants.some((variant) => variant.launch_ids.includes(launchId))
+                    )?.value
+                    const variant = comparison?.variants.find((variant) => variant.launch_ids.includes(launchId))
+                    // An active trial can still be dispatching this run's workflow.
+                    const result =
+                        savedResult?.status === 'not_started' && comparison && comparisonIsActive(comparison.status)
+                            ? { ...savedResult, error: null }
+                            : savedResult
                     const repeat = variant ? variant.launch_ids.indexOf(launchId) + 1 : null
                     const status = result?.status || saved?.status || (submission?.accepted ? 'pending' : 'unknown')
                     // The row's Stop run button is the retry, so the failure only shows while that button does.
@@ -916,6 +927,11 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 return
             }
             for (const comparison of [...comparisonHistory.results].reverse()) {
+                // History can be read before the running workflow writes its first progress update.
+                const current = values.comparisonStates[comparison.comparison_id]?.value
+                if (comparison.status === 'not_started' && current && current.status !== 'not_started') {
+                    continue
+                }
                 actions.registerServerComparison(comparison)
             }
         },
@@ -1395,7 +1411,10 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             }
         },
         downloadResults: () => {
-            const results = values.rows.flatMap((row) => (row.result ? [{ variant: row.variant, ...row.result }] : []))
+            const results = values.rows.flatMap((row) => {
+                const result = values.results[row.launchId]
+                return result ? [{ variant: row.variant, ...result }] : []
+            })
             downloadFile(
                 new File(
                     [JSON.stringify({ config_id: values.selectedConfigId, results }, null, 2)],
