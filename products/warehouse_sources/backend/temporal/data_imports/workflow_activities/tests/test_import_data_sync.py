@@ -1343,7 +1343,7 @@ async def test_probe_uncertainty_runs_the_full_sync(probe: Any):
     [
         pytest.param({"fast_return_eligible": False}, None, id="not_eligible"),
         pytest.param({"reset_pipeline": True}, None, id="reset_requested"),
-        pytest.param({}, 250, id="append_retry_resumes"),
+        pytest.param({"prior_attempts": 3}, 250, id="append_retry_resumes"),
     ],
 )
 async def test_probe_never_runs_when_not_eligible_or_resetting(
@@ -1355,11 +1355,12 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(
 
     with (
         _probe_ctx(source, model),
-        mock.patch.object(module, "settle_append_retry", return_value=retry_loaded_rows),
+        mock.patch.object(module, "settle_append_retry", return_value=retry_loaded_rows) as settle,
     ):
         result = await import_data_activity_sync(_probe_inputs(**overrides))
 
     assert result is _FULL_SYNC_RESULT
+    assert settle.call_args.kwargs["attempt"] == overrides.get("prior_attempts", 0) + 1
     source.probe_new_data.assert_not_called()
     source.source_for_pipeline.assert_called_once()
 

@@ -513,7 +513,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 source_id=str(inputs.source_id),
                 job_id=str(model.id),
                 workflow_run_id=model.workflow_run_id,
-                attempt=current_activity_attempt(),
+                attempt=attempt,
                 rows_ordered_by_cursor=rows_ordered_by_cursor,
             )
             if retry_loaded_rows is not None:
