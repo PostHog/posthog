@@ -4,6 +4,15 @@ Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHo
 
 Do not assume that data exists. Use `read-data-schema` to verify events and properties. For SQL tables, use `system.information_schema` as described below. Schema discovery does not determine which tool should run the analysis.
 
+#### Contents
+
+- [Search types](#search-types)
+- [Data Groups](#data-groups)
+- [Schema discovery (information_schema)](#schema-discovery-information_schema)
+- [Querying guidelines](#querying-guidelines)
+- [HogQL Differences from Standard SQL](#hogql-differences-from-standard-sql)
+- [Examples](#examples)
+
 #### Search types
 
 Proactively use different search types depending on a task:
