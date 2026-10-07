@@ -498,6 +498,27 @@ class TestValidateSchemaAndUpdateTable:
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
 
+    def test_stores_a_row_count_above_the_32_bit_limit(self, team):
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="s3://bucket/orders_v1")
+        row_count = 2**31 + 1
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=row_count),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=row_count,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="s3://bucket/orders_v2",
+            )
+
+        table.refresh_from_db()
+        assert table.row_count == row_count
+
     @pytest.mark.parametrize(
         "previous_size_mib,live_size_mib,expected_size_mib,expected_delta_mib",
         [
