@@ -48,8 +48,8 @@ export function ModelCardMenu({ pipeline }: { pipeline: AutoresearchPipelineApi 
                         disabledReason={
                             mutating
                                 ? 'Another change is still saving'
-                                : pipeline.status === 'bootstrapping'
-                                  ? 'Wait for the first training run to finish'
+                                : pipeline.live_training_run || pipeline.status === 'bootstrapping'
+                                  ? 'Wait for the training run to finish'
                                   : undefined
                         }
                         onClick={() => {
