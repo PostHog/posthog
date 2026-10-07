@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from threading import Event
 
@@ -36,11 +37,17 @@ async def test_report_judge_runs_on_the_safety_model() -> None:
     cache_flags: list[bool] = []
 
     async def fake_call_llm(
-        *, model: str | None = None, cache_system_prompt: bool = False, **_kwargs: object
+        *,
+        validate: Callable[[str], SafetyJudgeResponse],
+        json_response: bool,
+        model: str | None = None,
+        cache_system_prompt: bool = False,
+        **_kwargs: object,
     ) -> SafetyJudgeResponse:
         captured["model"] = model
         cache_flags.append(cache_system_prompt)
-        return SafetyJudgeResponse(choice=True)
+        assert json_response is True
+        return validate('{"choice": true}')
 
     signal = SignalData(
         signal_id="signal-1",

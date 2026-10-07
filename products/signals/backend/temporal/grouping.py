@@ -14,7 +14,7 @@ import numpy as np
 import structlog
 import temporalio
 import posthoganalytics
-from pydantic import BaseModel, Field
+from pydantic import Field, JsonValue
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
@@ -44,6 +44,8 @@ from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import (
     MAX_QUERY_TOKENS,
+    LLMJsonResponse,
+    LLMResponseValidationError,
     call_llm,
     parse_json_object,
     truncate_query_to_token_limit,
@@ -129,7 +131,7 @@ async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbed
 MAX_SEARCH_QUERIES = 3
 
 
-class QueryGenerationResponse(BaseModel):
+class QueryGenerationResponse(LLMJsonResponse):
     # No upper bound: Claude 5 models return four or five queries however the prompt bounds the
     # count, and a schema rejection costs a full retry. The caller keeps the first MAX_SEARCH_QUERIES.
     queries: list[str] = Field(min_length=1)
@@ -152,7 +154,7 @@ Given a new signal, generate 1-3 search queries that would help find related sig
 
 Keep queries concise but descriptive - they have a maximum length of {max_query_tokens} tokens. Each query will be embedded and used for semantic similarity search.
 
-Respond with a JSON object containing a "queries" array with 1-3 query strings. Return ONLY valid JSON, no other text."""
+Respond with exactly one complete JSON object containing a "queries" array with 1-3 query strings. Do not include prose, Markdown fences, or additional JSON values."""
 
 
 def _build_query_generation_system_prompt(signal_type_examples: list[SignalTypeExample]) -> str:
@@ -206,6 +208,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         validate=validate,
+        json_response=True,
         temperature=0.7,
         stage="query_generation",
         ai_product="signals_grouping",
@@ -240,14 +243,14 @@ async def generate_search_queries_activity(input: GenerateSearchQueriesInput) ->
         raise
 
 
-class MatchFound(BaseModel):
+class MatchFound(LLMJsonResponse):
     reason: str
     match_type: Literal["existing"]
     signal_id: str
     query_index: int
 
 
-class NewGroup(BaseModel):
+class NewGroup(LLMJsonResponse):
     reason: str
     match_type: Literal["new"]
     title: str
@@ -257,7 +260,7 @@ class NewGroup(BaseModel):
 MatchResponse = MatchFound | NewGroup
 
 
-def _parse_match_response(data: dict) -> MatchResponse:
+def _parse_match_response(data: dict[str, JsonValue]) -> MatchResponse:
     """Parse and validate match response using discriminated union."""
     match_type = data.get("match_type")
     if match_type == "existing":
@@ -265,7 +268,7 @@ def _parse_match_response(data: dict) -> MatchResponse:
     elif match_type == "new":
         return NewGroup.model_validate(data)
     else:
-        raise ValueError(f"Invalid match_type: {match_type}")
+        raise LLMResponseValidationError("match_type must be existing or new")
 
 
 MATCHING_SYSTEM_PROMPT = """You are a signal grouping assistant. Your job is to determine if a new signal is related to an existing group of signals,
@@ -310,7 +313,7 @@ If no candidate is related (or all queries returned no results), respond with:
 
 IMPORTANT: The "reason" field MUST be the first key in your JSON response. Write your reasoning BEFORE making the match decision.
 
-You must respond with valid JSON only, no other text."""
+Return exactly one complete JSON object matching ONE of the two alternatives above. Do not include prose, Markdown fences, or additional JSON values."""
 
 
 SPECIFICITY_CHECK_SYSTEM_PROMPT = """You are a senior engineer reviewing whether a group of signals belongs in a single pull request.
@@ -341,11 +344,11 @@ None of these are reasons to split:
 
 When you are unsure, name the single change, or the single feature whose logic every signal lives in, that would resolve the group. If you can name it, they belong in one PR. Split only when the signals belong to different features or products, or when the new signal is too vague to tie to the group's fix.
 
-Respond with valid JSON only:
+Return exactly one complete JSON object in this format, without prose, Markdown fences, or additional JSON values:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
 
 
-class SpecificityResult(BaseModel):
+class SpecificityResult(LLMJsonResponse):
     pr_title: str
     specific_enough: bool
     reason: str
@@ -472,9 +475,13 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         if isinstance(result, MatchFound):
             matched = candidates_by_id.get(result.signal_id)
             if matched is None:
-                raise ValueError(f"signal_id {result.signal_id} not found in candidates")
+                raise LLMResponseValidationError("signal_id must identify one of the provided candidates")
             if result.query_index < 0 or result.query_index >= len(input.queries):
-                raise ValueError(f"query_index {result.query_index} out of range (0-{len(input.queries) - 1})")
+                raise LLMResponseValidationError("query_index must identify one of the provided queries")
+            if result.query_index >= len(input.query_results) or not any(
+                candidate.signal_id == result.signal_id for candidate in input.query_results[result.query_index]
+            ):
+                raise LLMResponseValidationError("signal_id must appear in the results of the selected query_index")
             return ExistingReportMatch(
                 report_id=matched.report_id,
                 match_metadata=MatchedMetadata(
@@ -498,6 +505,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         system_prompt=MATCHING_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         validate=validate,
+        json_response=True,
         temperature=0.2,
         stage="match",
         cache_system_prompt=True,
@@ -619,7 +627,8 @@ async def verify_match_specificity(
         team_id=team_id,
         system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
         user_prompt=specificity_prompt,
-        validate=lambda text: SpecificityResult.model_validate_json(text),
+        validate=lambda text: SpecificityResult.model_validate(parse_json_object(text)),
+        json_response=True,
         temperature=0.2,
         stage="specificity",
         cache_system_prompt=True,

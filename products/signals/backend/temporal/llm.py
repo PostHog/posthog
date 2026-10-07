@@ -1,12 +1,14 @@
 import os
 import json
+import math
 from collections.abc import Callable, Mapping
-from typing import Any, Final, Literal, Optional, TypedDict, TypeVar
+from typing import Final, Literal, NoReturn, Optional, TypedDict, TypeVar, cast
 
 from django.conf import settings
 
 import structlog
 from anthropic.types import Message, MessageParam, OutputConfigParam, TextBlockParam
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -111,15 +113,27 @@ class EmptyLLMResponseError(Exception):
     pass
 
 
+class LLMResponseValidationError(ValueError):
+    pass
+
+
+class LLMRefusalError(Exception):
+    pass
+
+
+class LLMJsonResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
 def _extract_text_content(response: Message) -> str:
     """Extract text content from Anthropic response."""
     if not isinstance(response, Message):
         raise TypeError(f"Expected Anthropic Message response, got {type(response).__name__}")
 
-    for block in reversed(response.content):
-        if block.type == "text":
-            return block.text
-    raise EmptyLLMResponseError("No text content in response")
+    text = "".join(block.text for block in response.content if block.type == "text")
+    if not text:
+        raise EmptyLLMResponseError("No text content in response")
+    return text
 
 
 # I could not for the life of me get thinking claude to stop outputting markdown.
@@ -133,38 +147,53 @@ def _strip_markdown_json_fences(text: str) -> str:
     return text
 
 
-def parse_json_object(text: str) -> dict[str, Any]:
-    """Decode the first JSON object in the reply and ignore any text around it."""
-    decoder = json.JSONDecoder()
-    first_error: json.JSONDecodeError | None = None
-    # Only top-level braces are candidates. A nested object inside a malformed reply can match the
-    # schema on its own, and accepting it would skip the retry.
-    depth = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(text):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"' and depth > 0:
-            in_string = True
-        elif char == "{":
-            if depth == 0:
-                try:
-                    data, _ = decoder.raw_decode(text, index)
-                except json.JSONDecodeError as e:
-                    first_error = first_error or e
-                else:
-                    if isinstance(data, dict):
-                        return data
-            depth += 1
-        elif char == "}" and depth > 0:
-            depth -= 1
-    raise first_error or json.JSONDecodeError("No JSON object found", text, 0)
+def _unique_json_object(pairs: list[tuple[str, JsonValue]]) -> dict[str, JsonValue]:
+    result: dict[str, JsonValue] = {}
+    for key, value in pairs:
+        if key in result:
+            raise LLMResponseValidationError("Duplicate JSON keys are not allowed")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    raise LLMResponseValidationError("Non-finite JSON numbers are not allowed")
+
+
+def _finite_json_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise LLMResponseValidationError("Non-finite JSON numbers are not allowed")
+    return result
+
+
+def parse_json_object(text: str) -> dict[str, JsonValue]:
+    try:
+        data = json.loads(
+            text,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+            parse_float=_finite_json_float,
+        )
+    except json.JSONDecodeError as error:
+        raise LLMResponseValidationError(f"Invalid JSON: {error.msg}") from None
+    if not isinstance(data, dict):
+        raise LLMResponseValidationError("Response must be exactly one JSON object")
+    return cast(dict[str, JsonValue], data)
+
+
+def _validation_feedback(error: Exception) -> str:
+    if isinstance(error, LLMResponseValidationError):
+        return str(error)
+    if isinstance(error, ValidationError):
+        failures = error.errors(include_input=False, include_context=False, include_url=False)
+        return "; ".join(
+            f"{failure['type']} at {'.'.join(str(part) for part in failure['loc']) or 'response'}"
+            if failure["type"] != "extra_forbidden"
+            else "extra_forbidden"
+            for failure in failures[:5]
+        )
+    return "Response failed validation"
 
 
 T = TypeVar("T")
@@ -186,6 +215,7 @@ async def call_llm(
     cache_system_prompt: bool = False,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
+    json_response: bool = False,
 ) -> T:
     model = model or MATCHING_MODEL
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
@@ -210,6 +240,8 @@ async def call_llm(
     else:
         client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
 
+    if json_response:
+        user_prompt += "\n\nReturn exactly one complete JSON object matching the requested response format. Do not include prose, Markdown fences, or additional JSON values."
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
     ]
@@ -264,19 +296,30 @@ async def call_llm(
         # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
         try:
             response = await client.messages.create(**create_kwargs)
-            text_content = _extract_text_content(response)
+            if json_response and isinstance(response, Message) and response.stop_reason == "refusal":
+                raise LLMRefusalError("LLM refused to produce a JSON response")
+            truncated = (
+                json_response
+                and isinstance(response, Message)
+                and response.stop_reason in ("max_tokens", "model_context_window_exceeded")
+            )
+            text_content = "" if truncated else _extract_text_content(response)
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
-        text_content = _strip_markdown_json_fences(text_content)
+        if not json_response:
+            text_content = _strip_markdown_json_fences(text_content)
         if prefill:
             # Prepend the `{` we pre-filled
             text_content = "{" + text_content
         try:
+            if truncated:
+                raise LLMResponseValidationError("Response was truncated; return a shorter complete JSON object")
             result = validate(text_content)
         except Exception as e:
+            feedback = _validation_feedback(e)
             logger.warning(
-                f"LLM call failed (attempt {attempt + 1}/{retries}): {e}",
+                f"LLM call failed (attempt {attempt + 1}/{retries}): {feedback}",
                 attempt=attempt + 1,
                 retries=retries,
             )
@@ -290,7 +333,7 @@ async def call_llm(
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Your previous response failed validation. Error: {e}\n\nPlease try again with a valid JSON response.",
+                    "content": f"Your previous response failed validation. Error: {feedback}\n\nReturn one complete replacement JSON object matching the requested response format, without prose, Markdown fences, or additional JSON values.",
                 }
             )
             # Re-add assistant pre-fill for non-thinking calls so the LLM

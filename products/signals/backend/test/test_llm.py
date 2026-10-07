@@ -1,6 +1,5 @@
 import os
-import json
-import importlib
+import runpy
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,7 +9,14 @@ from django.test import override_settings
 from anthropic.types import Message, TextBlock, Usage
 
 from products.signals.backend.temporal import llm
-from products.signals.backend.temporal.llm import call_llm, parse_json_object
+from products.signals.backend.temporal.llm import (
+    EmptyLLMResponseError,
+    LLMRefusalError,
+    LLMResponseValidationError,
+    call_llm,
+    parse_json_object,
+)
+from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeResponse
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
@@ -195,22 +201,199 @@ async def test_request_shape_follows_model_capabilities(
     "text,expected",
     [
         ('{"match": true}', {"match": True}),
-        ('{"match": true}\n\nThe signal matches the report.', {"match": True}),
-        ('Here is my answer:\n{"match": false, "reason": "a {b}"}\nDone.', {"match": False, "reason": "a {b}"}),
-        ('Use {braces} as notation.\n{"match": true}', {"match": True}),
+        (' \n{"match": false, "reason": "a {b}"}\t', {"match": False, "reason": "a {b}"}),
     ],
 )
-def test_parse_json_object_ignores_surrounding_text(text: str, expected: dict[str, object]) -> None:
+def test_parse_json_object_accepts_one_complete_object(text: str, expected: dict[str, object]) -> None:
     assert parse_json_object(text) == expected
 
 
 @pytest.mark.parametrize(
     "text",
-    ["no json here", '{"match": true,, "x": 1}', '{"result": {"safe": true}, broken}'],
+    [
+        "no json here",
+        '{"match": true,, "x": 1}',
+        '{"result": {"safe": true}, broken}',
+        '{"safe": true} trailing prose',
+        'Here is the result: {"safe": true}',
+        '```json\n{"safe": true}\n```',
+        '{"safe": true} {"safe": false}',
+        '{"safe": true} null',
+        '[{"safe": true}]',
+        "true",
+        "null",
+        '{"safe": true, "safe": false}',
+        '{"result": {"safe": true, "safe": false}}',
+        '{"score": NaN}',
+        '{"score": Infinity}',
+        '{"score": -Infinity}',
+        '{"score": 1e999}',
+    ],
 )
 def test_parse_json_object_rejects_invalid_json(text: str) -> None:
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(LLMResponseValidationError):
         parse_json_object(text)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("json_response", [False, True])
+async def test_json_response_mode_controls_fence_handling(json_response: bool) -> None:
+    client = _mock_anthropic_client()
+    client.messages.create.side_effect = [
+        _text_response('```json\n{"safe": true}\n```'),
+        _text_response('{"safe": true}'),
+    ]
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        result = await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=parse_json_object,
+            ai_product="signals_grouping",
+            model="claude-sonnet-5-5",
+            json_response=json_response,
+        )
+
+    assert result == {"safe": True}
+    assert client.messages.create.await_count == (2 if json_response else 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["claude-sonnet-4-5", "claude-sonnet-5-5"])
+async def test_json_response_combines_text_blocks_and_reconstructs_prefill(model: str) -> None:
+    client = _mock_anthropic_client()
+    client.messages.create.return_value = Message.model_validate(
+        {
+            **_text_response("").model_dump(),
+            "content": [
+                {"type": "thinking", "thinking": "Internal reasoning", "signature": "test"},
+                {"type": "text", "text": '"safe":' if model == "claude-sonnet-4-5" else '{"safe":'},
+                {"type": "text", "text": "true}"},
+            ],
+        }
+    )
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        result = await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=parse_json_object,
+            ai_product="signals_grouping",
+            model=model,
+            json_response=True,
+        )
+
+    assert result == {"safe": True}
+    kwargs = client.messages.create.call_args.kwargs
+    assert "exactly one complete JSON object" in kwargs["messages"][0]["content"]
+    assert (kwargs["messages"][-1]["role"] == "assistant") == (model == "claude-sonnet-4-5")
+    assert "format" not in kwargs.get("output_config", {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "model_context_window_exceeded"])
+async def test_truncated_json_response_retries_even_when_text_is_valid(stop_reason: str) -> None:
+    client = _mock_anthropic_client()
+    client.messages.create.side_effect = [
+        _text_response('{"safe": false}').model_copy(update={"stop_reason": stop_reason}),
+        _text_response('{"safe": true}'),
+    ]
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        result = await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=parse_json_object,
+            ai_product="signals_grouping",
+            model="claude-sonnet-5-5",
+            json_response=True,
+        )
+
+    assert result == {"safe": True}
+    assert client.messages.create.await_count == 2
+    assert "truncated" in client.messages.create.call_args.kwargs["messages"][2]["content"]
+
+
+@pytest.mark.asyncio
+@override_settings(DEBUG=False)
+async def test_validation_feedback_omits_response_values_and_extra_field_names() -> None:
+    client = _mock_anthropic_client()
+    client.messages.create.side_effect = [
+        _text_response('{"safe": "fake-secret-value", "fake-secret-key": true}'),
+        _text_response('{"safe": true}'),
+    ]
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        patch(f"{MODULE_PATH}.logger") as logger,
+    ):
+        result = await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: SafetyFilterJudgeResponse.model_validate(parse_json_object(text)),
+            ai_product="signals_safety",
+            model="claude-sonnet-5-5",
+            json_response=True,
+        )
+
+    assert result.safe is True
+    feedback = client.messages.create.call_args.kwargs["messages"][2]["content"]
+    assert "bool_type at safe" in feedback
+    assert "extra_forbidden" in feedback
+    assert "fake-secret" not in feedback
+    assert "fake-secret" not in str(logger.warning.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_json_validation_exhaustion_propagates_without_a_verdict() -> None:
+    client = _mock_anthropic_client()
+    client.messages.create.return_value = _text_response('{"safe": true} {"safe": false}')
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        pytest.raises(LLMResponseValidationError),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=parse_json_object,
+            ai_product="signals_safety",
+            model="claude-sonnet-5-5",
+            json_response=True,
+        )
+    assert client.messages.create.await_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["refusal", "empty", "transport"])
+async def test_json_response_terminal_failures_do_not_retry(failure: str) -> None:
+    client = _mock_anthropic_client()
+    expected_error: type[Exception]
+    if failure == "transport":
+        client.messages.create.side_effect = RuntimeError("transport failed")
+        expected_error = RuntimeError
+    elif failure == "empty":
+        client.messages.create.return_value = _text_response("")
+        expected_error = EmptyLLMResponseError
+    else:
+        client.messages.create.return_value = _text_response('{"safe": true}').model_copy(
+            update={"stop_reason": "refusal"}
+        )
+        expected_error = LLMRefusalError
+    with (
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        pytest.raises(expected_error),
+    ):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=parse_json_object,
+            ai_product="signals_safety",
+            model="claude-sonnet-5-5",
+            json_response=True,
+        )
+    assert client.messages.create.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -237,18 +420,13 @@ async def test_explicit_model_overrides_the_matching_model() -> None:
     assert "temperature" not in kwargs
 
 
-def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
-    # Both constants resolve at import, so the environment has to change around a reload. The
-    # second reload puts the module back on the real environment for the rest of the session.
-    try:
-        with patch.dict(os.environ, env):
-            for key in ("SIGNAL_MATCHING_LLM_MODEL", "SIGNAL_SAFETY_LLM_MODEL"):
-                if key not in env:
-                    os.environ.pop(key, None)
-            importlib.reload(llm)
-            return llm.MATCHING_MODEL, llm.SAFETY_MODEL
-    finally:
-        importlib.reload(llm)
+def _model_constants_in_environment(env: dict[str, str]) -> tuple[str, str]:
+    with patch.dict(os.environ, env):
+        for key in ("SIGNAL_MATCHING_LLM_MODEL", "SIGNAL_SAFETY_LLM_MODEL"):
+            if key not in env:
+                os.environ.pop(key, None)
+        constants = runpy.run_path(llm.__file__)
+        return constants["MATCHING_MODEL"], constants["SAFETY_MODEL"]
 
 
 @pytest.mark.parametrize(
@@ -266,7 +444,7 @@ def _reload_model_constants(env: dict[str, str]) -> tuple[str, str]:
 def test_safety_model_does_not_follow_the_matching_model(
     env: dict[str, str], expected_matching: str, expected_safety: str
 ) -> None:
-    matching, safety = _reload_model_constants(env)
+    matching, safety = _model_constants_in_environment(env)
 
     assert matching == expected_matching
     assert safety == expected_safety
