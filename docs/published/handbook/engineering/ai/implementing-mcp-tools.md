@@ -68,6 +68,11 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
+Preserve API errors with `throw result.error` or `wrapError(message, result.error)` from `@/lib/errors`.
+Copying only the message loses the HTTP status and retry guidance.
+For HTTP 503 responses, the shared client passes a numeric `Retry-After` value to the agent as a minimum wait.
+It does not retry these requests automatically.
+
 ## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface
