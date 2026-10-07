@@ -3566,6 +3566,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         // we rely on the segmentation to travel smoothly through the recording
                         actions.setCurrentTimestamp(Math.max(newTimestamp, nextSegment.startTimestamp))
                         actions.setCurrentSegment(nextSegment)
+                    } else if (!values.sessionPlayerData.fullyLoaded || !values.allSourcesLoaded) {
+                        // Until loading settles, `end` can be only the last loaded snapshot, so a false end here would auto-advance to the next recording.
+                        values.player?.replayer?.pause()
+                        actions.startBuffer()
+                        actions.loadNextSnapshotSource()
                     } else {
                         // At the end of the recording. Pause the player and set fully to the end
                         actions.setEndReached()
@@ -3944,6 +3949,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (hasSnapshotChanges) {
                 actions.syncSnapshotsWithPlayer()
+            } else if (value?.fullyLoaded && !oldValue?.fullyLoaded) {
+                // Resumes a playhead that buffered at a provisional end, so it can reach the real end.
+                actions.syncPlayerState()
+            }
+        },
+        allSourcesLoaded: (value, oldValue) => {
+            if (value && !oldValue) {
+                actions.syncPlayerState()
             }
         },
         timestampChangeTracking: (value) => {
