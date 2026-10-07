@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError as DjangoOperationalError
 from django.test import override_settings
@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GROUP_TABLE_HANDLES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -441,6 +445,9 @@ class TestProcessGroup:
         consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
 
         batches = [_make_batch()]
+        GROUP_TABLE_HANDLES.retain(
+            ExportSignalMessage.from_dict(batches[0].to_export_signal()), MagicMock(), last_batch_index=0
+        )
 
         with (
             patch(
@@ -462,6 +469,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), batches)
 
         mock_unlock.assert_called_once()
+        assert len(GROUP_TABLE_HANDLES) == 0
 
     @pytest.mark.asyncio
     async def test_halts_group_when_batch_does_not_succeed(self):
@@ -3961,6 +3969,10 @@ class TestIsRetryableError:
             ("Primary key required for incremental syncs", False),
             ("ExternalDataSchema matching query does not exist.", False),
             ("ExternalDataJob matching query does not exist.", False),
+            (
+                "Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.",
+                False,
+            ),
             ("connection reset by peer", True),
         ],
     )

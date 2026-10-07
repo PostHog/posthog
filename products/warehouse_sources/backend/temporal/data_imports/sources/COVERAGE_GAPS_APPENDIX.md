@@ -4429,13 +4429,13 @@ The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--
 
 ## Intruder — adequate
 
-Today (7): `fixed_occurrences`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
+Today (8): `fixed_occurrences`, `issue_targets`, `issues`, `occurrences`, `scan_schedules`, `scans`, `tags`, `targets`
 
 Diffed against: <https://api.intruder.io/v1/swagger.json>
 
-No material gaps found.
+- [x] `GET /issues/{issue_id}/targets/` — targets affected by each issue (medium)
 
-Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
+Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked from the ReadMe docs). Every GET-able analytical collection is already synced: issues, issues/{id}/occurrences, issues/{id}/targets, occurrences/fixed, scans, scans/schedules, tags, targets. The only remaining GETs are /health/, /licenses/ (seat/billing), per-occurrence comments and scanner_output (large free-text blobs), and target authentications/api_schemas (scan configuration) — all config or plumbing.
 
 ## Invoiced — gaps
 
@@ -5306,7 +5306,7 @@ Note: Coverage is close to complete — the spec has ~20 listable GET collection
 
 ## Luma — gaps
 
-Today (4): `events`, `guests`, `people`, `person_tags`
+Today (5): `event_blasts`, `events`, `guests`, `people`, `person_tags`
 
 Diffed against: <https://docs.luma.com/llms.txt>
 
@@ -5320,8 +5320,9 @@ Diffed against: <https://docs.luma.com/llms.txt>
 - [ ] `GET /v1/organizations/events/list` — org-wide event list spanning all calendars, broader than the single-calendar events table (medium)
 - [ ] `GET /v1/calendars/get` — the calendar record itself (name, timezone, settings) as a dimension (low)
 - [ ] `GET /v1/organizations/admins/list` — organization admin roster (low)
+- [x] `GET /v1/events/blasts/list` — per-event email blasts with recipient and open counts, synced as `event_blasts` (medium)
 
-Note: Luma's docs are ReadMe-hosted with no downloadable OpenAPI; llms.txt is the vendor's own complete operation index and was used as the reference. Source is static (luma/source.py enumerates four schemas, all full-refresh because Luma has no updated-since filter).
+Note: Luma's docs are ReadMe-hosted with no downloadable OpenAPI; llms.txt is the vendor's own complete operation index and was used as the reference. Source is static (luma/source.py enumerates five schemas, all full-refresh because Luma has no updated-since filter).
 
 ## MailerLite — gaps
 
