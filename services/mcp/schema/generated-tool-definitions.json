@@ -12555,7 +12555,7 @@
         }
     },
     "subscriptions-list": {
-        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title` and `prompt` text.",
+        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title` and `prompt` text. Results are paginated (default 20 per page). Use `limit` and `offset` to page through them. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscriptions",
