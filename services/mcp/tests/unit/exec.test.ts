@@ -759,6 +759,15 @@ describe('exec tool', () => {
             ).rejects.toThrow(/Invalid JSON input:/)
         })
 
+        it.each(['--json', '--confirm'])('names the correct placement when %s follows the JSON body', async (flag) => {
+            const exec = createExec()
+            await expect(
+                exec.handler(mockContext, {
+                    command: `call mock-tool {"name":"foo"} ${flag}`,
+                })
+            ).rejects.toThrow(`Put "${flag}" before the tool name: "call ${flag} mock-tool <json_input>"`)
+        })
+
         it.each([
             {
                 case: 'a missing required parameter, naming the field',

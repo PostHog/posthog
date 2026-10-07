@@ -1952,6 +1952,13 @@ export function createExecTool(
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
                         } catch (err) {
+                            const trailingFlag = jsonBody.match(/\s(--json|--confirm)\s*$/)?.[1]
+                            if (trailingFlag) {
+                                throw new ExecCommandError(
+                                    `Put "${trailingFlag}" before the tool name: "call ${trailingFlag} ${toolName} <json_input>". ${CALL_USAGE}`,
+                                    'invalid_json'
+                                )
+                            }
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
                         }
