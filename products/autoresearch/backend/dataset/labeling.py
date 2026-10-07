@@ -806,15 +806,16 @@ def _build_labeled_users_cte(
     # ifNull on the label: a property-filtered action predicate is NULL on rows that lack
     # the property, and a user whose every in-horizon row is NULL must label 0, not NULL.
     # T0 is the UTC midnight at a fixed fraction (hash / 2^31) of the midnights from the first
-    # one at or after first_ts up to cutoff_ts, which is a midnight too. A `hash % span`
+    # one after first_ts up to cutoff_ts, which is a midnight too. A `hash % span`
     # remainder would change every time cutoff_ts moved, handing the same person a different
     # T0, features, and label on each run. With a member predicate, first_ts is the user's
-    # first population event, else their first event of any kind.
+    # first population event, else their first event of any kind. A first event exactly at
+    # midnight must not become T0, because the person would then have no event before T0.
     cte = f"""
         WITH user_window AS (
             SELECT
                 m.person_id AS person_id,
-                intDiv(m.first_ts + 86399, 86400) AS first_day,
+                intDiv(m.first_ts, 86400) + 1 AS first_day,
                 intDiv(m.cutoff_ts, 86400) AS cutoff_day,
                 p.created_ts AS person_created_ts
             FROM (

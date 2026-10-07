@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import (
@@ -619,6 +619,7 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
     ) -> None:
         now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
         day_start = utc_day_start(int(now.timestamp()))
+        label_cutoff = day_start - 86400 - horizon_days * 86400
         first_event_ts: dict[str, int] = {}
         for i in range(20):
             distinct_id = f"user_{i}"
@@ -627,6 +628,16 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
                 timestamp = now - timedelta(days=days_ago, hours=5, minutes=i)
                 _create_event(team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp)
             first_event_ts[str(person.uuid)] = int((now - timedelta(days=40 - i, hours=5, minutes=i)).timestamp())
+        for i in range(20):
+            distinct_id = f"midnight_user_{i}"
+            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
+            first_event_ts[str(person.uuid)] = label_cutoff - 86400
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=datetime.fromtimestamp(label_cutoff - 86400, tz=UTC),
+            )
         flush_persons_and_events()
 
         def t0s(anchor_ts: int) -> dict[str, int]:
@@ -654,9 +665,8 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
         morning = t0s(day_start - 86400 + 2 * 3600)
         afternoon = t0s(day_start - 86400 + 17 * 3600)
 
-        assert len(morning) == 20
+        assert len(morning) == 40
         assert afternoon == morning
-        label_cutoff = day_start - 86400 - horizon_days * 86400
         for person_id, t0_ts in morning.items():
             assert t0_ts % 86400 == 0
             assert first_event_ts[person_id] < t0_ts <= label_cutoff
