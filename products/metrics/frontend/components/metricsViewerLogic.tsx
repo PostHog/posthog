@@ -339,6 +339,16 @@ const FILTER_OP_TO_OPERATOR: Record<MetricsQueryFilter['op'], PropertyOperator> 
     not_regex: PropertyOperator.NotRegex,
 }
 
+/** Saved label matchers as filter bar chips. A multi-value chip comes back as one regex chip. */
+export const filterGroupFromMetricFilters = (filters: MetricsQueryFilter[]): UniversalFiltersGroup =>
+    metricsFilterGroup(
+        filters.map((filter) => ({
+            key: filter.key,
+            value: [filter.value],
+            operator: FILTER_OP_TO_OPERATOR[filter.op],
+        }))
+    )
+
 const isAutoScope = (scope: MetricsAttributeScope | undefined): boolean => !scope || scope === 'auto'
 
 /** Whether the builder can show every part of a saved node, so an edit does not drop settings it cannot show. */
@@ -360,13 +370,7 @@ const viewerClauseFromNode = (clause: MetricsQueryClause): MetricsViewerClause =
         aggregation: isMetricAggregation(aggregation) ? aggregation : DEFAULT_AGGREGATION,
         // A saved aggregation is a choice, so the type backfill must not replace it.
         aggregationExplicitlySet: true,
-        filterGroup: metricsFilterGroup(
-            (clause.filters ?? []).map((filter) => ({
-                key: filter.key,
-                value: [filter.value],
-                operator: FILTER_OP_TO_OPERATOR[filter.op],
-            }))
-        ),
+        filterGroup: filterGroupFromMetricFilters(clause.filters ?? []),
         groupByKeys: (clause.groupBy ?? []).map((groupBy) => groupBy.key),
     }
 }
@@ -445,7 +449,6 @@ export interface metricsViewerLogicValues {
     metricName: string
     metricsDisplay: MetricsDisplaySettings | undefined
     metricsQueryNode: MetricsQuery | null
-    minInterval: string | null
     namedClauses: MetricsViewerClause[]
     pendingAddToDashboard: boolean
     pendingAlert: boolean
@@ -663,9 +666,6 @@ export interface metricsViewerLogicActions {
     setMetricName: (metricName: string) => {
         metricName: string
     }
-    setMinInterval: (minInterval: string | null) => {
-        minInterval: string | null
-    }
     setQueryAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
@@ -727,8 +727,7 @@ export interface metricsViewerLogicMeta {
             dateFrom: string | null,
             dateTo: string | null,
             metricsDisplay: MetricsDisplaySettings | undefined,
-            interval: string | null,
-            minInterval: string | null
+            interval: string | null
         ) => MetricsQuery | null
         heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
         histogramQueryNode: (
@@ -803,7 +802,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setDateTo: (dateTo: string | null) => ({ dateTo }),
         // Null means auto: the backend picks a step from the range.
         setInterval: (interval: string | null) => ({ interval }),
-        setMinInterval: (minInterval: string | null) => ({ minInterval }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
@@ -957,10 +955,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         interval: [
             (props.initialQuery?.interval ?? null) as string | null,
             { setInterval: (_, { interval }) => interval },
-        ],
-        minInterval: [
-            (props.initialQuery?.minInterval ?? null) as string | null,
-            { setMinInterval: (_, { minInterval }) => minInterval },
         ],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Free-text search backing the group-by attribute-key autocomplete.
@@ -1516,15 +1510,14 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         metricsQueryNode: [
-            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay, s.interval, s.minInterval],
+            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay, s.interval],
             (
                 namedClauses: MetricsViewerClause[],
                 formula: string,
                 dateFrom: string | null,
                 dateTo: string | null,
                 metricsDisplay: MetricsDisplaySettings | undefined,
-                interval: string | null,
-                minInterval: string | null
+                interval: string | null
             ): MetricsQuery | null => {
                 if (!namedClauses.length) {
                     return null
@@ -1538,7 +1531,6 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         ...(dateTo ? { date_to: dateTo } : {}),
                     },
                     ...(interval ? { interval } : {}),
-                    ...(minInterval ? { minInterval } : {}),
                     ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
             },

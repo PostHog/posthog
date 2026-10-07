@@ -16,6 +16,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -224,6 +225,7 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -2006,12 +2008,16 @@ export function createExecTool(
                             describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2104,6 +2110,7 @@ export function createExecTool(
                                 forceUiDataToMeta: true,
                                 includeAppData,
                                 distinctId,
+                                mcpClientName: options.mcpClientName,
                                 includeUiResponseMeta: isInlineUiAppHost,
                                 includeRenderNote: isInlineUiAppHost,
                             })

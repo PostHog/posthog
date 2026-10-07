@@ -11,7 +11,7 @@ from typing import Annotated, Any, TypeGuard
 
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from opentelemetry import trace
 from pydantic import (
     Field as PydanticField,
@@ -26,6 +26,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentApiExposureCriteria,
     ExperimentApiMetric,
+    ExperimentMetric,
     ExperimentParameters,
     ExperimentRunningTimeCalculation,
     MultipleVariantHandling,
@@ -43,7 +44,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
+from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, resolve_saved_metric_definition
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -170,6 +171,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
 
 @extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
 class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(ExperimentMetric)  # type: ignore[arg-type]
+class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
@@ -366,6 +372,28 @@ def _dedupe_metric_ordering(value: list[str] | None) -> list[str] | None:
     return list(dict.fromkeys(value))
 
 
+@extend_schema_serializer(component_name="ExperimentToSavedMetric")
+class ExperimentSavedMetricLinkSerializer(ExperimentToSavedMetricSerializer):
+    """A shared metric's link to one experiment, as the experiment API returns it."""
+
+    # The link model has no such attribute, so this serializer renders it as null.
+    # ExperimentSerializer.to_representation sets the value from the served query.
+    effective_query = ExperimentMetricDefinitionField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The metric this experiment calculates for this shared metric: `query` with the per-experiment "
+            "overrides from `metadata` applied (breakdowns, breakdown_limit, and funnel breakdown attribution). "
+            "Results, fingerprints and queries for this metric use this definition, not `query`. "
+            "Null when `query` is not an ExperimentMetric, such as a legacy shared metric "
+            "(kind ExperimentTrendsQuery or ExperimentFunnelsQuery), which takes no overrides."
+        ),
+    )
+
+    class Meta(ExperimentToSavedMetricSerializer.Meta):
+        fields = [*ExperimentToSavedMetricSerializer.Meta.fields, "effective_query"]
+
+
 class ExperimentSerializer(ExperimentBaseSerializer):
     """Full experiment representation for the detail, create, and update endpoints.
 
@@ -382,7 +410,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         allow_null=True,
         help_text="ID of a holdout group to exclude from the experiment.",
     )
-    saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
+    saved_metrics = ExperimentSavedMetricLinkSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
     saved_metrics_ids = serializers.ListField(
         child=serializers.JSONField(),
         required=False,
@@ -663,6 +691,19 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         only_count_matured_users=instance.only_count_matured_users,
                         excluded_variants=instance.excluded_variants or [],
                     )
+
+                    # Derived from the served query after the fingerprint is stamped, so that the effective
+                    # definition carries the same fingerprint and refreshed action names. Clients send it to
+                    # /query as is. The schema types it as the ExperimentMetric union, so a query outside the
+                    # union (a legacy kind, or a row without a known metric_type) keeps the null default.
+                    served_query = saved_metric["query"]
+                    if (
+                        served_query.get("kind") == "ExperimentMetric"
+                        and served_query.get("metric_type") in METRIC_BUILDERS
+                    ):
+                        saved_metric["effective_query"] = resolve_saved_metric_definition(
+                            served_query, saved_metric.get("metadata")
+                        )
 
         return data
 

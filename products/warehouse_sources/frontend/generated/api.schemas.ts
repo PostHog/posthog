@@ -1876,6 +1876,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
  * * `WhoGho` - WhoGho
  * * `Whop` - Whop
+ * * `Wistia` - Wistia
  * * `Wiz` - Wiz
  * * `Wompi` - Wompi
  * * `Workiz` - Workiz
@@ -1990,6 +1991,21 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
  * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
+ * * `ChargebackStop` - ChargebackStop
+ * * `Chargeflow` - Chargeflow
+ * * `Dreamdata` - Dreamdata
+ * * `GoogleBusinessProfile` - GoogleBusinessProfile
+ * * `Ledyer` - Ledyer
+ * * `Supermetrics` - Supermetrics
+ * * `SQLite` - SQLite
+ * * `Modal` - Modal
+ * * `Vimeo` - Vimeo
+ * * `Scrunch` - Scrunch
+ * * `Loom` - Loom
+ * * `Arcade` - Arcade
+ * * `Neo4j` - Neo4j
+ * * `TestDino` - TestDino
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3236,6 +3252,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WhatsappBusinessManagement: 'WhatsappBusinessManagement',
     WhoGho: 'WhoGho',
     Whop: 'Whop',
+    Wistia: 'Wistia',
     Wiz: 'Wiz',
     Wompi: 'Wompi',
     Workiz: 'Workiz',
@@ -3350,6 +3367,21 @@ export const ExternalDataSourceTypeEnumApi = {
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
     GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
+    ChargebackStop: 'ChargebackStop',
+    Chargeflow: 'Chargeflow',
+    Dreamdata: 'Dreamdata',
+    GoogleBusinessProfile: 'GoogleBusinessProfile',
+    Ledyer: 'Ledyer',
+    Supermetrics: 'Supermetrics',
+    SQLite: 'SQLite',
+    Modal: 'Modal',
+    Vimeo: 'Vimeo',
+    Scrunch: 'Scrunch',
+    Loom: 'Loom',
+    Arcade: 'Arcade',
+    Neo4j: 'Neo4j',
+    TestDino: 'TestDino',
 } as const
 
 /**
@@ -4743,6 +4775,7 @@ export interface ExternalDataSourceCreateApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -4856,7 +4889,22 @@ export interface ExternalDataSourceCreateApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -6614,6 +6662,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -6727,7 +6776,22 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -8054,6 +8118,7 @@ export interface DatabaseSchemaRequestApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -8167,7 +8232,22 @@ export interface DatabaseSchemaRequestApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9418,6 +9498,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -9531,7 +9612,22 @@ export interface DirectConnectionSourceOptionApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10836,6 +10932,7 @@ export interface SourcePreviewRequestApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -10949,7 +11046,22 @@ export interface SourcePreviewRequestApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12235,6 +12347,7 @@ export interface SourceSetupApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -12348,7 +12461,22 @@ export interface SourceSetupApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13641,6 +13769,7 @@ export interface SourceCredentialCreateApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -13754,7 +13883,22 @@ export interface SourceCredentialCreateApi {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
-     * * `GrafanaIRM` - GrafanaIRM */
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
+     * * `Vimeo` - Vimeo
+     * * `Scrunch` - Scrunch
+     * * `Loom` - Loom
+     * * `Arcade` - Arcade
+     * * `Neo4j` - Neo4j
+     * * `TestDino` - TestDino */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -13865,6 +14009,8 @@ export interface SourceFieldCredentialAccountSelectConfigApi {
     caption?: string | null
     /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
     credentialFields: string[]
+    /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+    integrationField?: string | null
     label: string
     name: string
     placeholder?: string | null

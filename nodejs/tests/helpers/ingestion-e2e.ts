@@ -424,6 +424,9 @@ export async function createIngestionTestInfra(
         ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
+        // The suites here assert the rolled-out behavior.
+        PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: '*',
         ...configOverrides,
     }
 
@@ -450,6 +453,7 @@ export async function createIngestionTestInfra(
     const postgresPersonRepository = new PostgresPersonRepository(postgres, {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
         personMergeTombstoneTeamAllowlist: serverConfig.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+        personBatchWritePerKeyTeamAllowlist: serverConfig.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
     })
     const personRepository = buildPersonRepository(
         personhogClient,

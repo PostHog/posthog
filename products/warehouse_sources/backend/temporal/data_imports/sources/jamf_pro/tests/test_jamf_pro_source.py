@@ -32,9 +32,11 @@ class TestJamfProSource:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_schema_sync_modes(self, endpoint):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        # Only computer inventory documents a server-side RSQL timestamp filter; everything else
-        # is full-refresh. Inventory records mutate in place, so append mode is never offered.
-        assert schemas[endpoint].supports_incremental is (endpoint == "computers")
+        # Only these endpoints document a server-side RSQL timestamp filter; everything else is
+        # full-refresh. Their records mutate in place, so append mode is never offered.
+        assert schemas[endpoint].supports_incremental is (
+            endpoint in {"computers", "mdm_commands", "managed_software_update_statuses"}
+        )
         assert schemas[endpoint].supports_append is False
 
     def test_get_schemas_filtered_by_names(self):

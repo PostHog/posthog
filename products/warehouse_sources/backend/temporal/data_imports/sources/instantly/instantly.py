@@ -3,7 +3,7 @@ import hashlib
 import secrets
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import orjson
@@ -11,6 +11,8 @@ import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -53,6 +55,9 @@ SYNC_REQUEST_TIMEOUT_SECONDS = (10, 120)
 # Bounded walk of the webhook list when reconciling ours by URL — a workspace won't have
 # thousands of webhooks, so this is a defensive cap, not an expected limit.
 MAX_WEBHOOK_LIST_PAGES = 10
+
+# Instantly limits daily analytics requests to 31 days.
+DATE_WINDOW_SIZE_DAYS = 31
 
 WEBHOOK_NAME = "PostHog data warehouse"
 # Instantly deliveries are unsigned, but webhooks accept static custom headers — we attach a
@@ -319,17 +324,36 @@ def _campaign_fanout_pages(client: RESTClient, config: InstantlyEndpointConfig) 
                     yield page
 
 
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+@frozen
+class DateWindow:
+    start: str
+    end: str
+
+
+def _date_windows(start_date: str, end: date) -> Iterator[DateWindow]:
+    current = datetime.strptime(start_date, "%Y-%m-%d").date()
+    while current <= end:
+        window_end = min(current + timedelta(days=DATE_WINDOW_SIZE_DAYS - 1), end)
+        yield DateWindow(start=current.isoformat(), end=window_end.isoformat())
+        current = window_end + timedelta(days=1)
+
+
 def _date_windowed_pages(
     client: RESTClient, config: InstantlyEndpointConfig, start_date: str
 ) -> Iterator[list[dict[str, Any]]]:
-    for page in client.paginate(
-        path=f"/api/v2{config.path}",
-        params={**config.params, "start_date": start_date},
-        paginator=SinglePagePaginator(),
-        data_selector=config.data_selector,
-    ):
-        # Row order is undocumented; sort so the asc watermark never passes an unwritten date.
-        yield sorted(page, key=lambda row: str(row.get("date") or ""))
+    for window in _date_windows(start_date, _today()):
+        for page in client.paginate(
+            path=f"/api/v2{config.path}",
+            params={**config.params, "start_date": window.start, "end_date": window.end},
+            paginator=SinglePagePaginator(),
+            data_selector=config.data_selector,
+        ):
+            # Row order is undocumented; sort so the asc watermark never passes an unwritten date.
+            yield sorted(page, key=lambda row: str(row.get("date") or ""))
 
 
 def _webhook_events_source(webhook_source_manager: Optional[WebhookSourceManager]) -> SourceResponse:

@@ -382,6 +382,9 @@ export function HogFunctionFilters({
                                                   : 'Add event matcher'
                                         }
                                         excludedProperties={excludedProperties}
+                                        // Transformations run before ingestion stops writing $feature_flag_called
+                                        // to `events`, so they receive the event at every flag evaluations mode.
+                                        includeHiddenEvents={isTransformation}
                                         allowNonCapturedEvents
                                     />
                                     {selectedFullRefreshView ? (

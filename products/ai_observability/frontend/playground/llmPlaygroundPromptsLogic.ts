@@ -23,6 +23,7 @@ import { llmPromptLogic } from '../prompts/llmPromptLogic'
 import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { isOTelPartsMessage, normalizeRole, safeStringify } from '../utils'
+import { isMessageSendable } from './playgroundMessageMapping'
 import { isTraceLikeSelection } from './playgroundModelMatching'
 import { type PlaygroundModelConfig, parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPromptConfig'
 
@@ -37,12 +38,25 @@ export function cleanSourceSearchParams(searchParams: Record<string, any>): Reco
     return clean
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | null
+
+export interface MessageToolCall {
+    id: string
+    name: string
+    /** JSON string, the shape providers stream. Parsed into an object at request time. */
+    arguments: string
+}
 
 export interface Message {
     role: MessageRole
     content: string
+    /** Assistant messages only. */
+    toolCalls?: MessageToolCall[]
+    /** Tool messages only: id of the tool call this result answers. */
+    toolCallId?: string
+    /** Tool messages only. */
+    toolName?: string
 }
 
 export interface PromptConfig {
@@ -512,10 +526,12 @@ export interface llmPlaygroundPromptsLogicActions {
     }
     addResultToConversation: (
         response: string,
+        toolCalls?: MessageToolCall[],
         promptId?: string
     ) => {
         promptId: string | undefined
         response: string
+        toolCalls: MessageToolCall[] | undefined
     }
     applySavedModelSelection: (selection: { model: string; provider: string | null; providerKeyId: string | null }) => {
         selection: {
@@ -777,7 +793,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
-        addResultToConversation: (response: string, promptId?: string) => ({ response, promptId }),
+        addResultToConversation: (response: string, toolCalls?: MessageToolCall[], promptId?: string) => ({
+            response,
+            toolCalls,
+            promptId,
+        }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: true,
         setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
@@ -900,17 +920,35 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     }),
                 addResultToConversation: (
                     state: PromptConfig[],
-                    { response, promptId }: { response: string; promptId?: string }
+                    {
+                        response,
+                        toolCalls,
+                        promptId,
+                    }: { response: string; toolCalls?: MessageToolCall[]; promptId?: string }
                 ) => {
-                    if (!response.trim()) {
+                    if (!response.trim() && !toolCalls?.length) {
                         return state
                     }
+                    // A result with tool calls continues with empty tool results to fill in and
+                    // run again (the mock loop); a plain response continues with a user turn.
+                    const nextTurns: Message[] = toolCalls?.length
+                        ? toolCalls.map((toolCall) => ({
+                              role: 'tool',
+                              content: '',
+                              toolCallId: toolCall.id,
+                              toolName: toolCall.name,
+                          }))
+                        : [{ role: 'user', content: '' }]
                     return updatePromptConfigs(state, promptId, (prompt) => ({
                         ...prompt,
                         messages: [
                             ...prompt.messages,
-                            { role: 'assistant', content: response },
-                            { role: 'user', content: '' },
+                            {
+                                role: 'assistant',
+                                content: response,
+                                ...(toolCalls?.length ? { toolCalls } : {}),
+                            },
+                            ...nextTurns,
                         ],
                     }))
                 },
@@ -1189,7 +1227,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         hasRunnablePrompts: [
             (s) => [s.promptConfigs],
             (promptConfigs: PromptConfig[]): boolean =>
-                promptConfigs.some((prompt) => prompt.messages.some((message) => message.content.trim().length > 0)),
+                promptConfigs.some((prompt) => prompt.messages.some(isMessageSendable)),
         ],
     }),
 
@@ -1221,14 +1259,21 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             }
         },
 
-        addMessage: () => {
+        addMessage: ({ message }) => {
             posthog.capture('llma playground message added', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
+                role: message?.role ?? 'user',
             })
         },
         deleteMessage: () => {
             posthog.capture('llma playground message removed', {
                 message_count: values.activePromptConfig?.messages.length ?? 0,
+            })
+        },
+        addResultToConversation: ({ toolCalls }) => {
+            posthog.capture('llma playground result added to conversation', {
+                has_tool_calls: !!toolCalls?.length,
+                tool_call_count: toolCalls?.length ?? 0,
             })
         },
         setTools: ({ tools }) => {

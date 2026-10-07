@@ -181,7 +181,7 @@ impl KeyTable {
                     .revoked_while_outstanding
                     .iter()
                     .any(|(topic, partition)| {
-                        *topic == message.topic && *partition == message.partition
+                        *topic == *message.topic && *partition == message.partition
                     })
             });
         }
@@ -316,8 +316,7 @@ impl KeyTable {
             }
             let before = state.queue.len();
             state.queue.retain(|queued| {
-                let keep =
-                    !revoked.contains(&(queued.message.topic.as_str(), queued.message.partition));
+                let keep = !revoked.contains(&(&*queued.message.topic, queued.message.partition));
                 if !keep {
                     purged_bytes += queued.message.payload_bytes();
                 }
@@ -614,7 +613,7 @@ mod tests {
 
     fn msg(key: &str, offset: i64) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset,
             timestamp: 0,
@@ -1138,7 +1137,7 @@ mod tests {
         let mixed_run = || {
             let mut mixed = run("t:a", &[1, 2, 3, 4]);
             mixed.messages[1].partition = 1;
-            mixed.messages[2].topic = "other".to_string();
+            mixed.messages[2].topic = "other".into();
             mixed.messages[3].partition = 2;
             mixed
         };
