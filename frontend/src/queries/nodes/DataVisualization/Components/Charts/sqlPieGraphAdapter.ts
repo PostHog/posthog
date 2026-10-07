@@ -91,12 +91,18 @@ export const buildPieSlices = (
 /** One quill `Series` per slice, with the slice's resolved color pinned so per-breakdown
  *  `resultCustomizations` survive the move off chart.js. */
 export const buildPieSeries = (slices: PieSlice[]): Series[] => {
-    return slices.map((slice, index) => ({
-        key: `${slice.label}-${index}`,
-        label: slice.label,
-        color: slice.color,
-        data: [slice.value],
-    }))
+    // Keyed by label, not position, so a part hidden in the legend stays hidden when the results reorder.
+    const seen = new Map<string, number>()
+    return slices.map((slice) => {
+        const count = (seen.get(slice.label) ?? 0) + 1
+        seen.set(slice.label, count)
+        return {
+            key: count === 1 ? slice.label : `${slice.label}-${count}`,
+            label: slice.label,
+            color: slice.color,
+            data: [slice.value],
+        }
+    })
 }
 
 /** Pie charts can consume breakdown series totals directly, even when there isn't a matching

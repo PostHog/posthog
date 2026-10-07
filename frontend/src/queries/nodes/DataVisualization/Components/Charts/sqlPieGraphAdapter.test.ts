@@ -187,9 +187,26 @@ describe('sqlPieGraphAdapter', () => {
                     { label: 'beta', value: 3, color: '#222222' },
                 ])
             ).toEqual([
-                { key: 'alpha-0', label: 'alpha', color: '#111111', data: [7] },
-                { key: 'beta-1', label: 'beta', color: '#222222', data: [3] },
+                { key: 'alpha', label: 'alpha', color: '#111111', data: [7] },
+                { key: 'beta', label: 'beta', color: '#222222', data: [3] },
             ])
+        })
+
+        it.each([
+            {
+                name: 'keys a part by its label, so a reorder keeps the key',
+                labels: ['beta', 'alpha'],
+                keys: ['beta', 'alpha'],
+            },
+            {
+                name: 'numbers a repeated label',
+                labels: ['alpha', 'alpha', 'beta'],
+                keys: ['alpha', 'alpha-2', 'beta'],
+            },
+        ])('$name', ({ labels, keys }) => {
+            const slices = labels.map((label) => ({ label, value: 1, color: '#111111' }))
+
+            expect(buildPieSeries(slices).map((series) => series.key)).toEqual(keys)
         })
 
         it('returns an empty array when there are no slices', () => {

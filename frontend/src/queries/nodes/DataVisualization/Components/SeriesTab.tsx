@@ -154,7 +154,14 @@ export const SeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={xData !== null ? xData.column.name : 'None'}
                     options={options}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={
+                        responseLoading
+                            ? 'Query loading...'
+                            : yData.length > 1
+                              ? 'A label splits one value column. Remove the other values to use it.'
+                              : undefined
+                    }
+                    data-attr="part-of-whole-label-column"
                     onChange={(value) => {
                         const column = columns.find((n) => n.name === value)
                         if (column) {

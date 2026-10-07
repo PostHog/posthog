@@ -25,13 +25,15 @@ describe('SeriesTab', () => {
             xAxis: undefined,
             valueColumns: ['signups', 'logins'],
             listsEveryValueColumn: true,
+            labelDisabled: true,
         },
         {
-            name: 'lists every value column when several value columns ignore the label column',
+            name: 'lists every value column and disables the label when several value columns ignore it',
             display: ChartDisplayType.ActionsProportionBar,
             xAxis: { column: 'day' },
             valueColumns: ['signups', 'logins'],
             listsEveryValueColumn: true,
+            labelDisabled: true,
         },
         {
             name: 'picks one value column for a proportion bar grouped by a label column',
@@ -39,6 +41,7 @@ describe('SeriesTab', () => {
             xAxis: { column: 'day' },
             valueColumns: ['signups'],
             listsEveryValueColumn: false,
+            labelDisabled: false,
         },
         {
             name: 'picks one value column for a pie grouped by a label column',
@@ -46,8 +49,9 @@ describe('SeriesTab', () => {
             xAxis: { column: 'day' },
             valueColumns: ['signups'],
             listsEveryValueColumn: false,
+            labelDisabled: false,
         },
-    ])('$name', ({ display, xAxis, valueColumns, listsEveryValueColumn }) => {
+    ])('$name', ({ display, xAxis, valueColumns, listsEveryValueColumn, labelDisabled }) => {
         initKeaTests()
         const cachedResults: HogQLQueryResponse = {
             results: [['Mon', 3, 5]],
@@ -79,13 +83,16 @@ describe('SeriesTab', () => {
         }).mount()
         dataVisualizationLogic(props).mount()
 
-        render(
+        const { container } = render(
             <BindLogic logic={dataVisualizationLogic} props={props}>
                 <SeriesTab />
             </BindLogic>
         )
 
         expect(screen.queryAllByText('Values').length > 0).toBe(listsEveryValueColumn)
+        expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
+            String(labelDisabled)
+        )
     })
 
     it('persists table column formatting changes immediately', async () => {
