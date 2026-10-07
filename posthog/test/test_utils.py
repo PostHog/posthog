@@ -1411,8 +1411,8 @@ class TestBuildFlagProvider(TestCase):
 
 class TestInitializeSelfCaptureHost(SimpleTestCase):
     def setUp(self):
-        saved = {name: getattr(posthoganalytics, name) for name in ("disabled", "api_key", "host")}
-        self.addCleanup(lambda: [setattr(posthoganalytics, name, value) for name, value in saved.items()])
+        for name in ("disabled", "api_key", "host"):
+            self.addCleanup(setattr, posthoganalytics, name, getattr(posthoganalytics, name))
         for target, value in (
             ("posthog.utils.resolve_self_capture_team", Team(api_token="phc_self_capture_test")),
             ("posthog.utils._build_flag_provider", None),
