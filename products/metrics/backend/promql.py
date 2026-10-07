@@ -4,6 +4,7 @@ The range and step come from the same interval ladder as the builder engine, so 
 and a builder insight over the same window chart the same buckets.
 """
 
+import re
 import math
 import datetime as dt
 from typing import Any
@@ -19,6 +20,9 @@ from products.metrics.backend.series import rank_and_fill_series
 
 # The label that builderToPromql adds to keep the series of a multi-series query apart.
 CLAUSE_LABEL = "clause"
+# builderToPromql sets the label with `label_replace(<series>, "clause", "<alias>", "", "")`. Without
+# that call, a `clause` label belongs to the user's data.
+_SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.DOTALL)
 
 
 class PromQLQueryError(ValueError):
@@ -82,16 +86,17 @@ def run_promql_range(
     results = data.get("result") or []
     if result_type == "scalar":
         # A constant expression: one value for the whole range.
-        results = [{"metric": {}, "values": [results]}]
+        results = [{"metric": {}, "values": [results]}] if results else []
     elif result_type != "matrix":
         raise PromQLQueryError(f"A PromQL range query cannot return a {result_type} result.")
 
     tzinfo = team.timezone_info
+    marks_clauses = bool(_SETS_CLAUSE_LABEL.search(expr))
     rows: list[tuple[dict[str, str], str | None, str | None, list[MetricPoint]]] = []
     for result in results:
         labels = {str(key): str(value) for key, value in (result.get("metric") or {}).items()}
         metric_name = labels.pop("__name__", None)
-        clause = labels.pop(CLAUSE_LABEL, None)
+        clause = labels.pop(CLAUSE_LABEL, None) if marks_clauses else None
         points = [
             MetricPoint(
                 time=dt.datetime.fromtimestamp(float(timestamp), tz=tzinfo).isoformat(),

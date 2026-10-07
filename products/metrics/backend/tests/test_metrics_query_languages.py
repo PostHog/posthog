@@ -2,7 +2,7 @@ import json
 import math
 import datetime as dt
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -19,9 +19,14 @@ from posthog.schema import DateRange, HogQLQuery, MetricsQuery, MetricsQueryClau
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.models import User
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.metrics.backend.facade.contracts import MetricPoint
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
+from products.metrics.backend.series import rank_and_fill_series
 from products.metrics.backend.tests._seeder import seed_metric
 
 FIXTURES: dict[str, dict[str, Any]] = json.loads(
@@ -139,11 +144,44 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
                 "SELECT now() AS time, count() AS value FROM posthog.metrics WHERE metric_name IN (SELECT event FROM events)",
                 "can only read the metrics tables",
             ),
+            (
+                "other_table_in_hogqlx_tag",
+                "SELECT 1 AS time, 1 AS value FROM <HogQLQuery query='SELECT event FROM events' />",
+                "can only read the metrics tables",
+            ),
+            (
+                "cte_name_from_another_scope",
+                "SELECT now() AS time, 1 AS value FROM posthog.metrics "
+                "WHERE 1 IN (WITH events AS (SELECT 1 AS x) SELECT x FROM events) "
+                "UNION ALL SELECT timestamp AS time, 1 AS value FROM events",
+                "can only read the metrics tables",
+            ),
+            (
+                "cte_that_reads_another_table",
+                "WITH events AS (SELECT * FROM events) SELECT timestamp AS time, 1 AS value FROM events",
+                "can only read the metrics tables",
+            ),
         ]
     )
     def test_rejects_sql_outside_the_contract(self, _name: str, sql: str, message: str) -> None:
         with pytest.raises(ExposedHogQLError, match=message):
             self._run(clauses=[], language="sql", sql=sql)
+
+    @parameterized.expand(
+        [
+            (
+                "cte",
+                "WITH samples AS (SELECT * FROM posthog.metrics) SELECT now() AS time, count() AS value FROM samples AS s",
+            ),
+            (
+                "subquery_join",
+                "SELECT now() AS time, count() AS value FROM (SELECT metric_name FROM posthog.metrics) AS m "
+                "JOIN posthog.metric_names AS n ON m.metric_name = n.metric_name",
+            ),
+        ]
+    )
+    def test_accepts_ctes_and_subqueries_over_metrics_tables(self, _name: str, sql: str) -> None:
+        self._run(clauses=[], language="sql", sql=sql)
 
     def test_date_placeholders_follow_the_date_range(self) -> None:
         seed_metric(
@@ -223,8 +261,40 @@ class TestMetricsPromQLMode(APIBaseTest):
         by_job = {series.labels["job"]: series for series in results}
         assert [point.value for point in by_job["worker"].points] == [None, 4.0]
         assert [point.value for point in by_job["api"].points] == [1.5, None]
-        assert by_job["api"].clause == "a"
         assert by_job["worker"].metricName == "up"
+
+    @parameterized.expand(
+        [
+            # (name, promql, the series' clause, its labels)
+            (
+                "builder_series_marker",
+                'label_replace(sum by (job) (rate(x)), "clause", "a", "", "")',
+                "a",
+                {"job": "api"},
+            ),
+            ("label_from_the_data", "sum by (job, clause) (rate(x))", None, {"job": "api", "clause": "a"}),
+        ]
+    )
+    def test_clause_label_marks_a_series_only_when_the_query_sets_it(
+        self, _name: str, promql: str, clause: str | None, labels: dict[str, str]
+    ) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [{"metric": {"job": "api", "clause": "a"}, "values": [[start, "1"]]}],
+            },
+        }
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            [series] = self._runner(promql).calculate().results
+
+        assert (series.clause, series.labels) == (clause, labels)
+
+    def test_empty_scalar_result_has_no_series(self) -> None:
+        payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            assert self._runner("1").calculate().results == []
 
     @parameterized.expand(
         [
@@ -251,10 +321,31 @@ class TestMetricsPromQLMode(APIBaseTest):
             with pytest.raises(ExposedHogQLError, match="timed out"):
                 self._runner().calculate()
 
-    def test_needs_the_snuffle_flag(self) -> None:
+    @parameterized.expand([("request_user",), ("shared_link_viewer",), ("userless_refresh",)])
+    def test_needs_the_snuffle_flag(self, viewer: str) -> None:
         def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
             return flag != "logs-metrics-snuffle-api"
 
         with patch("posthoganalytics.feature_enabled", side_effect=flag_enabled):
             with pytest.raises(UserAccessControlError):
-                self._runner().validate_query_runner_access(self.user)
+                if viewer == "request_user":
+                    self._runner().validate_query_runner_access(self.user)
+                else:
+                    # Shared links and scheduled refreshes skip validate_query_runner_access.
+                    user = (
+                        cast(User, SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True)))
+                        if viewer == "shared_link_viewer"
+                        else None
+                    )
+                    MetricsQueryRunner(query=self._runner().query, team=self.team, user=user).calculate()
+
+
+def test_series_cap_applies_per_clause() -> None:
+    def row(clause: str, job: str, value: float) -> tuple[dict[str, str], None, str, list[MetricPoint]]:
+        return ({"job": job}, None, clause, [MetricPoint(time="2026-09-19T11:00:00+00:00", value=value)])
+
+    rows = [row("a", "big", 100.0), row("a", "huge", 900.0), row("b", "small", 1.0)]
+    with patch("products.metrics.backend.series.MAX_SERIES_PER_CLAUSE", 1):
+        series = rank_and_fill_series(rows)
+
+    assert [(item.clause, item.labels["job"]) for item in series] == [("a", "huge"), ("b", "small")]

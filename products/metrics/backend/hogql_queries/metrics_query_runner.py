@@ -78,19 +78,28 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             raise UserAccessControlError("metrics", "viewer")
         return True
 
-    def _enforce_alpha_gate_for_anonymous_viewers(self) -> None:
-        # Shared-link renders execute with an anonymous SharedLinkUser, which skips
-        # validate_query_runner_access (the share link is its authorization) — so the
-        # alpha flag gate must also hold here. Userless runs (scheduled refreshes,
-        # cache warming) stay allowed: they only ever refresh flagged teams' insights.
+    def _enforce_alpha_gates_without_a_request_user(self) -> None:
+        # Shared-link renders execute with an anonymous SharedLinkUser, and userless runs (scheduled
+        # refreshes, cache warming) have no user. Both skip validate_query_runner_access (the share
+        # link is the authorization), so the alpha flag gates must also hold here.
         # user is typed Optional[User] but runtime also passes SharedLinkUser (shared
         # renders); broaden for is_anonymous.
         user = cast("Optional[User | SharedLinkUser]", self.user)
-        if user is None or not user.is_anonymous:
+        if user is not None and not user.is_anonymous:
             return
-        if not posthog_feature_flag_enabled(
+        distinct_id = str(getattr(user, "distinct_id", None) or f"shared-viewer-{self.team.pk}")
+        # Userless runs pass the metrics gate: they only ever refresh insights of teams with the flag.
+        if user is not None and not posthog_feature_flag_enabled(
             METRICS_FEATURE_FLAG,
-            str(getattr(user, "distinct_id", None) or f"shared-viewer-{self.team.pk}"),
+            distinct_id,
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise UserAccessControlError("metrics", "viewer")
+        # A team can have metrics without Snuffle, so a PromQL insight checks the Snuffle flag on every run.
+        if self.query.language == MetricsQueryLanguage.PROMQL and not posthog_feature_flag_enabled(
+            SNUFFLE_API_FEATURE_FLAG,
+            distinct_id,
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
@@ -167,7 +176,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         return run(self.team, text, date_range.date_from(), date_range.date_to(), self.query.interval)
 
     def _calculate(self) -> MetricsQueryResponse:
-        self._enforce_alpha_gate_for_anonymous_viewers()
+        self._enforce_alpha_gates_without_a_request_user()
         try:
             series = self._run()
         except ValueError as exc:

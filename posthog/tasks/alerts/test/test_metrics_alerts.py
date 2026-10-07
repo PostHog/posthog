@@ -191,6 +191,38 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         assert alert_check.calculated_value == 0
         assert alert_check.error is None
 
+    def test_sql_insight_alert_counts_an_empty_bucket_as_zero(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The builder fills empty buckets with 0; a SQL insight leaves them empty. Series b stops
+        # reporting after 06:30, so the 07:30 anchor bucket is empty and must breach a lower bound.
+        stopped_metric = f"{self.metric_name}.stopped"
+        self.seed_gauge({6: 5.0, 7: 5.0, 8: 5.0})
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name=stopped_metric,
+            metric_type="gauge",
+            points=[(dt.datetime(2026, 9, 19, 6, 30, tzinfo=dt.UTC), 5.0)],
+        )
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, metric_name AS clause, avg(value) AS value "
+            f"FROM posthog.metrics WHERE metric_name IN ('{self.metric_name}', '{stopped_metric}') "
+            "AND timestamp >= {date_from} AND timestamp < {date_to} GROUP BY time, clause"
+        )
+        insight = self.dashboard_api.create_insight(
+            data={
+                "name": "metrics insight",
+                "query": {"kind": "MetricsQuery", "clauses": [], "language": "sql", "sql": sql},
+            }
+        )[1]
+        alert = self.create_alert(insight, lower=1.0)
+
+        run_alert_check(alert["id"])
+
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        breach_messages = mock_send_breaches.call_args.args[1]
+        assert any(stopped_metric in message for message in breach_messages), breach_messages
+
     def test_group_by_fires_on_any_breaching_series(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
     ) -> None:
