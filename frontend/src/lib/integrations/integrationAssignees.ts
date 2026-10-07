@@ -11,7 +11,8 @@ import type {
 
 export type IntegrationAssigneeKind = 'linear' | 'github' | 'gitlab' | 'jira'
 export type IntegrationAssignee = IntegrationAssigneeApi
-export type IntegrationAssignees = IntegrationAssigneesResponseApi
+// An interface, not an alias, so kea-typegen keeps this name instead of importing the generated type into callers.
+export interface IntegrationAssignees extends IntegrationAssigneesResponseApi {}
 
 export interface IntegrationAssigneesQuery {
     integrationId: number
