@@ -20,6 +20,8 @@ logger = structlog.get_logger(__name__)
 class Refresh:
     stamped: int
     skipped: int
+    # Skipped items that carried a stamp from an earlier run and lost it.
+    unstamped: int
 
 
 def _compilable_value(value: Any, item_type: str | None) -> Any:
@@ -57,6 +59,7 @@ def _refresh_store(
 ) -> Refresh:
     stamped = 0
     skipped = 0
+    unstamped = 0
     for key, item in store.items():
         if not isinstance(item, dict) or item.get("templating", "hog") != "hog" or "bytecode" not in item:
             continue
@@ -70,6 +73,10 @@ def _refresh_store(
             )
         except Exception as e:
             skipped += 1
+            # A stamp from a run under an older guard says the compiler accepted this template. The
+            # runtime would then class the owner's broken template as our bug and park its events.
+            if item.pop("bytecode_contract", None) is not None:
+                unstamped += 1
             logger.warning(
                 "hog_function_input_template_no_longer_compiles",
                 hog_function_id=str(hog_function.id),
@@ -83,7 +90,7 @@ def _refresh_store(
         item["bytecode"] = json.loads(json.dumps(bytecode))
         item["bytecode_contract"] = RUNTIME_CONTRACT
         stamped += 1
-    return Refresh(stamped=stamped, skipped=skipped)
+    return Refresh(stamped=stamped, skipped=skipped, unstamped=unstamped)
 
 
 def refresh_input_templates(hog_function: HogFunction) -> Refresh:
@@ -92,7 +99,7 @@ def refresh_input_templates(hog_function: HogFunction) -> Refresh:
     and stamp it with the runtime it was checked against. The model's save only recompiles filters.
     This includes the inputs of each mapping, which the runtime merges into the invocation.
 
-    An input the current guard refuses keeps its stored bytecode and gets no stamp: it fails at
+    An input the current guard refuses keeps its stored bytecode and loses any stamp: it fails at
     run time exactly as before, and an unstamped failure is classified as the owner's to fix.
     """
     is_dwh_source = (hog_function.filters or {}).get("source") in DATA_WAREHOUSE_SOURCES
@@ -101,7 +108,7 @@ def refresh_input_templates(hog_function: HogFunction) -> Refresh:
     for store_name in ("inputs", "encrypted_inputs"):
         store: dict[str, Any] = getattr(hog_function, store_name) or {}
         result = _refresh_store(hog_function, store, item_types, is_dwh_source, mapping_index=None)
-        if result.stamped:
+        if result.stamped or result.unstamped:
             setattr(hog_function, store_name, store)
         results.append(result)
     for index, mapping in enumerate(_mappings(hog_function)):
@@ -115,7 +122,11 @@ def refresh_input_templates(hog_function: HogFunction) -> Refresh:
                     mapping_index=index,
                 )
             )
-    return Refresh(stamped=sum(r.stamped for r in results), skipped=sum(r.skipped for r in results))
+    return Refresh(
+        stamped=sum(r.stamped for r in results),
+        skipped=sum(r.skipped for r in results),
+        unstamped=sum(r.unstamped for r in results),
+    )
 
 
 def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
@@ -123,10 +134,11 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
     Recompile the filters of each mapping, the way a save through the API does. The model's save only
     recompiles the top-level filters, and on a mapped destination the event filters live in the mappings.
 
-    Filters that no longer compile keep their stored bytecode and get no stamp, the same as inputs.
+    Filters that no longer compile keep their stored bytecode and lose any stamp, the same as inputs.
     """
     stamped = 0
     skipped = 0
+    unstamped = 0
     for index, mapping in enumerate(_mappings(hog_function)):
         filters = mapping.get("filters")
         if not isinstance(filters, dict) or "bytecode" not in filters:
@@ -135,6 +147,8 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
         compiled = compile_filters_bytecode({**filters}, hog_function.team)
         if compiled.get("bytecode_error"):
             skipped += 1
+            if filters.pop("bytecode_contract", None) is not None:
+                unstamped += 1
             logger.warning(
                 "hog_function_mapping_filters_no_longer_compile",
                 hog_function_id=str(hog_function.id),
@@ -145,7 +159,7 @@ def refresh_mapping_filters(hog_function: HogFunction) -> Refresh:
             continue
         mapping["filters"] = compiled
         stamped += 1
-    return Refresh(stamped=stamped, skipped=skipped)
+    return Refresh(stamped=stamped, skipped=skipped, unstamped=unstamped)
 
 
 def filters_error(hog_function: HogFunction) -> str | None:
@@ -187,10 +201,12 @@ class Command(BaseCommand):
         error_count = 0
         inputs_stamped = 0
         inputs_skipped = 0
+        inputs_unstamped = 0
         filters_stamped = 0
         filters_skipped = 0
         mapping_filters_stamped = 0
         mapping_filters_skipped = 0
+        mapping_filters_unstamped = 0
 
         team_id = options.get("team_id")
         hog_function_id = options.get("hog_function_id")
@@ -260,8 +276,10 @@ class Command(BaseCommand):
                         filters_stamped += 1
                     inputs_stamped += refreshed.stamped
                     inputs_skipped += refreshed.skipped
+                    inputs_unstamped += refreshed.unstamped
                     mapping_filters_stamped += refreshed_mapping_filters.stamped
                     mapping_filters_skipped += refreshed_mapping_filters.skipped
+                    mapping_filters_unstamped += refreshed_mapping_filters.unstamped
                 except Exception as e:
                     error_count += 1
                     logger.error(
@@ -282,8 +300,10 @@ class Command(BaseCommand):
                 f"Filters skipped: {filters_skipped}, "
                 f"Inputs stamped: {inputs_stamped}, "
                 f"Inputs skipped: {inputs_skipped}, "
+                f"Inputs unstamped: {inputs_unstamped}, "
                 f"Mapping filters stamped: {mapping_filters_stamped}, "
                 f"Mapping filters skipped: {mapping_filters_skipped}, "
+                f"Mapping filters unstamped: {mapping_filters_unstamped}, "
                 f"Errors: {error_count}"
             )
         )
