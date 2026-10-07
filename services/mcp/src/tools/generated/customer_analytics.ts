@@ -210,6 +210,9 @@ const accountsCreate = (): ToolBase<ReturnType<typeof AccountsCreateSchema>, Sch
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
         }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
@@ -511,6 +514,9 @@ const accountsPartialUpdate = (): ToolBase<ReturnType<typeof AccountsPartialUpda
         }
         if (params.churned_at !== undefined) {
             body['churned_at'] = params.churned_at
+        }
+        if (params.ignored_at !== undefined) {
+            body['ignored_at'] = params.ignored_at
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

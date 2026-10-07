@@ -355,6 +355,29 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             })
         })
 
+        it('sends only status dates that changed, including cleared ones', async () => {
+            const datedAccount = {
+                ...account,
+                churned_at: '2026-05-01T10:00:00Z',
+                ignored_at: '2026-05-15T10:00:00Z',
+                properties: {},
+            }
+            logic.actions.loadAccountSuccess(datedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(datedAccount)
+            mockAccountsPartialUpdate.mockResolvedValue({ ...datedAccount, ignored_at: null })
+
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValues({ churned_at: '2026-05-01T10:00:00.000Z', ignored_at: null })
+            logic.actions.submitAccountForm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                ignored_at: null,
+                properties: {},
+            })
+            expect(logic.values.account?.ignored_at).toBeNull()
+        })
+
         it('keeps the draft open when the save fails', async () => {
             mockAccountsPartialUpdate.mockRejectedValue(new ApiError('Unavailable', 500))
             jest.spyOn(posthog, 'captureException').mockImplementation()

@@ -3786,6 +3786,7 @@ def update_account(
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
     churned_at: "datetime | None | _Unset" = _UNSET,
+    ignored_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -3818,6 +3819,9 @@ def update_account(
     if not isinstance(churned_at, _Unset):
         account.churned_at = churned_at
         update_fields.append("churned_at")
+    if not isinstance(ignored_at, _Unset):
+        account.ignored_at = ignored_at
+        update_fields.append("ignored_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
@@ -3837,6 +3841,7 @@ def create_account(
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
     churned_at: datetime | None = None,
+    ignored_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -3855,6 +3860,7 @@ def create_account(
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
                 churned_at=churned_at,
+                ignored_at=ignored_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -3891,6 +3897,7 @@ def create_account_for_view(
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
         churned_at=input.churned_at,
+        ignored_at=input.ignored_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_details(account)
@@ -3923,6 +3930,8 @@ def update_account_for_view(
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
     if input.churned_at_provided:
         update_kwargs["churned_at"] = input.churned_at
+    if input.ignored_at_provided:
+        update_kwargs["ignored_at"] = input.ignored_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:

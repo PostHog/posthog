@@ -780,10 +780,10 @@ export interface AccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at: string | null
+    ignored_at?: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -993,10 +993,10 @@ export interface PatchedAccountApi {
      */
     churned_at?: string | null
     /**
-     * When Track Rules ignored the account. Null means the account is tracked.
+     * When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.
      * @nullable
      */
-    readonly ignored_at?: string | null
+    ignored_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null

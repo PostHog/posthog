@@ -216,6 +216,12 @@ export const AccountsCreateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -434,6 +440,12 @@ export const AccountsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('When the account churned. Null means the account has not churned.'),
+        ignored_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                'When the account was ignored, set by Track Rules or by hand. Null means the account is tracked.'
+            ),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
