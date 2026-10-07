@@ -7,6 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
+import { citedTextToPlainText } from '../../utils/citations'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchReasonCopy } from './WatchFeedCard'
@@ -60,7 +61,9 @@ export function WatchPickRow({ item, position, surface, isActive, rank }: WatchP
                             className="whitespace-nowrap"
                         />
                     </span>
-                    <span className="truncate text-xs font-normal text-secondary">{watchReasonCopy(reason)}</span>
+                    <span className="truncate text-xs font-normal text-secondary">
+                        {citedTextToPlainText(watchReasonCopy(reason), undefined)}
+                    </span>
                 </span>
             </span>
         </LemonButton>

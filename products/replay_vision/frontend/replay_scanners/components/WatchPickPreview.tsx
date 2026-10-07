@@ -4,6 +4,7 @@ import { cn } from 'lib/utils/css-classes'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
+import { citedTextToPlainText } from '../../utils/citations'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchReasonCopy } from './WatchFeedCard'
 
@@ -21,7 +22,7 @@ export function WatchPickPreview({ item, className }: { item: WatchFeedItemApi; 
                 <span>·</span>
                 <TZLabel time={observation.created_at} showPopover={false} noStyles className="whitespace-nowrap" />
             </span>
-            <span className="text-xs leading-snug">{watchReasonCopy(reason)}</span>
+            <span className="text-xs leading-snug">{citedTextToPlainText(watchReasonCopy(reason), undefined)}</span>
         </div>
     )
 }
