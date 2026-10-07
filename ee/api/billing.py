@@ -1020,6 +1020,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"detail": "Either 'code' or 'campaign_slug' is required."})
         if code and campaign_slug:
             raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
+        if campaign_slug is not None and not isinstance(campaign_slug, str):
+            raise ValidationError({"detail": "'campaign_slug' must be a string."})
 
         authorizer_actor: Optional[User] = None
         if not HasBillingAccess().has_permission(request, self):

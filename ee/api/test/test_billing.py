@@ -1212,14 +1212,22 @@ class TestCouponClaimBillingAPI(APILicensedTest):
             self.organization, {"campaign_slug": "hesoyam"}, authorizer_actor=owner
         )
 
+    @parameterized.expand(
+        [
+            ("non_allowlisted", "definitely-not-allowlisted", status.HTTP_403_FORBIDDEN),
+            ("not_a_string", {"nested": "object"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
-    def test_claim_coupon_non_allowlisted_campaign_slug_as_member_denied(self, mock_claim_coupon):
+    def test_claim_coupon_campaign_slug_as_member_refused(
+        self, _name, campaign_slug, expected_status, mock_claim_coupon
+    ):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        response = self.client.post(self.url, {"campaign_slug": "definitely-not-allowlisted"})
+        response = self.client.post(self.url, {"campaign_slug": campaign_slug})
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, expected_status)
         mock_claim_coupon.assert_not_called()
 
     @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
