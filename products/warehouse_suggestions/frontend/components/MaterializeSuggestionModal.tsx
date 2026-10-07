@@ -50,7 +50,8 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         >
             <div className="flex flex-col gap-3">
                 <p className="m-0 text-sm">
-                    Stores the result and refreshes it on this schedule. Reads of this view use the stored rows.
+                    Stores the result and refreshes it on this schedule. Reads of this view use the stored rows. Pick a
+                    longer schedule if the data doesn't need to be this fresh.
                 </p>
                 <SyncFrequencySelect value={materializeInterval} onChange={setMaterializeInterval} loading={inFlight} />
                 {materializeError && <LemonBanner type="error">{materializeError} Pick another schedule.</LemonBanner>}

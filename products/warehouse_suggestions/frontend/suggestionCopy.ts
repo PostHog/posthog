@@ -49,7 +49,7 @@ export function savingPhrase(payload: WarehouseSuggestionMaterializePayloadApi):
 export function freshnessSentence(payload: WarehouseSuggestionMaterializePayloadApi): string {
     const interval = spokenDuration(payload.refresh_interval_seconds, 1)
     const after = spokenDuration(payload.freshness_after_seconds, MAX_SPOKEN_UNITS)
-    return `Refreshes every ${interval}, so data can be up to ${after} old.`
+    return `Refreshes every ${interval}, so data can be up to ${after} old. That's the most often it can refresh and still save more than it costs. You can pick a longer schedule.`
 }
 
 export function surfaceBreakdown(evidence: WarehouseSuggestionApiEvidence): string {
