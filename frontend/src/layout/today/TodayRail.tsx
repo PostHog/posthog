@@ -47,7 +47,8 @@ const RailUtility = forwardRef<
 })
 
 export function TodayRail(): JSX.Element {
-    const { activePane, activePaneHasSidebar, sidebarVisible, todayWarehouseEnabled } = useValues(todayShellLogic)
+    const { activePane, activePaneHasSidebar, sidebarVisible, sidebarInContent, todayWarehouseEnabled } =
+        useValues(todayShellLogic)
     const { pickPane, toggleSidebar } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -79,7 +80,8 @@ export function TodayRail(): JSX.Element {
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
-                {!sidebarVisible && (
+                {/* The account menu lives in the sidebar footer, so the rail carries it whenever that sidebar is not beside it. */}
+                {(!sidebarVisible || sidebarInContent) && (
                     <NewAccountMenu
                         side="right"
                         align="end"

@@ -50,7 +50,7 @@ const PANE_LABELS = {
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden, sidebarInContent } =
         useValues(todayShellLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location } = useValues(router)
@@ -203,7 +203,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     </>
                 ) : (
-                    sidebarVisible && (
+                    sidebarVisible &&
+                    !sidebarInContent && (
                         <aside
                             ref={sidebarRef}
                             className="TodayShell__sidebar relative border-r border-[var(--border)]"

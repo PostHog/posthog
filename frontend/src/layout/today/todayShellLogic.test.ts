@@ -8,13 +8,7 @@ import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 import { initKeaTests } from '~/test/init'
 
 import { todaySceneTabsLogic } from './todaySceneTabsLogic'
-import {
-    TODAY_RAIL_WIDTH,
-    TODAY_SIDEBAR_DEFAULT_WIDTH,
-    TODAY_SIDEBAR_MAX_WIDTH,
-    railPaneForPath,
-    todayShellLogic,
-} from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
 
 function setRailFlags({ rail = true, warehouse = false }: { rail?: boolean; warehouse?: boolean }): void {
     featureFlagLogic.mount()
@@ -243,7 +237,8 @@ describe('todayShellLogic', () => {
         tabsLogic.mount()
         tabsLogic.actions.addSceneTabs()
         expect(logic.values.sidebarVisible).toBe(true)
-        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH + TODAY_SIDEBAR_DEFAULT_WIDTH)
+        expect(logic.values.sidebarInContent).toBe(true)
+        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
         tabsLogic.actions.removeSceneTabs()
         tabsLogic.actions.releaseSceneTabs()
         expect(logic.values.sidebarVisible).toBe(false)

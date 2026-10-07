@@ -132,6 +132,7 @@ export interface todayShellLogicValues {
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
     sceneTabsInSidebar: boolean
+    sidebarInContent: boolean
     sidebarOpen: boolean
     sidebarVisible: boolean
     sidebarWidth: number
@@ -205,12 +206,14 @@ export interface todayShellLogicMeta {
             todayWarehouseEnabled: boolean
         ) => TodayRailPane
         activePaneHasSidebar: (activePane: TodayRailPane, sceneTabsMounted: boolean, phoneLayout: boolean) => boolean
+        sidebarInContent: (activePane: TodayRailPane, mobileLayout: boolean, phoneLayout: boolean) => boolean
         leftNavWidth: (
             sidebarOpen: boolean,
             sidebarWidth: number,
             mobileLayout: boolean,
             phoneLayout: boolean,
-            activePaneHasSidebar: boolean
+            activePaneHasSidebar: boolean,
+            sidebarInContent: boolean
         ) => number
         sidebarVisible: (
             mobileLayout: boolean,
@@ -331,18 +334,33 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (activePane: TodayRailPane, sceneTabsMounted: boolean, phoneLayout: boolean): boolean =>
                 paneHasSidebar(activePane) || (activePane === 'warehouse' && sceneTabsMounted && !phoneLayout),
         ],
+        // On desktop the warehouse sidebar sits under the warehouse header in the content column, not beside the rail.
+        sidebarInContent: [
+            (s) => [s.activePane, s.mobileLayout, s.phoneLayout],
+            (activePane: TodayRailPane, mobileLayout: boolean, phoneLayout: boolean): boolean =>
+                activePane === 'warehouse' && !mobileLayout && !phoneLayout,
+        ],
         leftNavWidth: [
-            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout, s.activePaneHasSidebar],
+            (s) => [
+                s.sidebarOpen,
+                s.sidebarWidth,
+                s.mobileLayout,
+                s.phoneLayout,
+                s.activePaneHasSidebar,
+                s.sidebarInContent,
+            ],
             (
                 sidebarOpen: boolean,
                 sidebarWidth: number,
                 mobileLayout: boolean,
                 phoneLayout: boolean,
-                activePaneHasSidebar: boolean
+                activePaneHasSidebar: boolean,
+                sidebarInContent: boolean
             ): number =>
                 phoneLayout
                     ? 0
-                    : TODAY_RAIL_WIDTH + (sidebarOpen && !mobileLayout && activePaneHasSidebar ? sidebarWidth : 0),
+                    : TODAY_RAIL_WIDTH +
+                      (sidebarOpen && !mobileLayout && activePaneHasSidebar && !sidebarInContent ? sidebarWidth : 0),
         ],
         sidebarVisible: [
             (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen, s.activePaneHasSidebar],

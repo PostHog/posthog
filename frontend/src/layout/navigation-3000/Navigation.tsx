@@ -17,6 +17,7 @@ import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/Pr
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { TodayWarehouseHeader } from '~/layout/today/TodayWarehouseHeader'
+import { TodayWarehouseSidebar } from '~/layout/today/TodayWarehouseSidebar'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
@@ -57,6 +58,7 @@ export function Navigation({
         phoneLayout: todayPhoneLayout,
         phoneHeaderHidden: todayPhoneHeaderHidden,
         routePane: todayRoutePane,
+        sidebarInContent: todaySidebarInContent,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
@@ -203,8 +205,9 @@ export function Navigation({
                         className={cn(
                             '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
                             // Under the Today layout the shell draws the seam against the content in quill's border.
+                            // The column is a grid there: the warehouse header spans the top row, and the warehouse sidebar sits under it beside the page.
                             todayRail
-                                ? 'flex-col'
+                                ? 'grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]'
                                 : [
                                       'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
                                       sidePanelOpen && 'rounded-r-none',
@@ -212,9 +215,19 @@ export function Navigation({
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
-                        {todayRail && todayRoutePane === 'warehouse' && <TodayWarehouseHeader />}
-                        {/* Same wrapper on every route so main never remounts when the warehouse header appears. */}
-                        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                        {todayRail && todayRoutePane === 'warehouse' && (
+                            <TodayWarehouseHeader className="col-span-2 row-start-1" />
+                        )}
+                        {todayRail && todaySidebarInContent && todaySidebarVisible && (
+                            <TodayWarehouseSidebar className="col-start-1 row-start-2" />
+                        )}
+                        {/* Same wrapper on every route so main never remounts when the warehouse header or sidebar appears. */}
+                        <div
+                            className={cn(
+                                'relative flex min-h-0 min-w-0 flex-1 overflow-hidden',
+                                todayRail && 'col-start-2 row-start-2'
+                            )}
+                        >
                             <main
                                 ref={mainRef}
                                 role="main"

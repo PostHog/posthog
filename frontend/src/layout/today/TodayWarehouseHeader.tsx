@@ -29,7 +29,7 @@ import { WarehouseItem, visibleWarehouseItems, warehouseItemForLocation } from '
 const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'primary', 'secondary']
 
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
-export function TodayWarehouseHeader(): JSX.Element {
+export function TodayWarehouseHeader({ className }: { className?: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { location } = useValues(router)
     const items = visibleWarehouseItems(featureFlags)
@@ -40,7 +40,7 @@ export function TodayWarehouseHeader(): JSX.Element {
 
     return (
         <QuillSceneHeader
-            className="bg-chrome"
+            className={cn('bg-chrome', className)}
             title={
                 <>
                     <DropdownMenu>
