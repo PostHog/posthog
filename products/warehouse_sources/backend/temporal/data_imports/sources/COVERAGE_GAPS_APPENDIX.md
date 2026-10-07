@@ -2398,7 +2398,7 @@ Note: docs.decagon.ai is a fully client-rendered Mintlify site that returns the 
 
 ## Deel — **thin**
 
-Today (23): `contracts`, `cost_centers`, `countries`, `currencies`, `departments`, `groups`, `invoice_adjustments`, `invoices`, `job_titles`, `legal_entities`, `offboarding_tracker`, `onboarding_tracker`, `payment_breakdowns`, `payments`, `payroll_cycles`, `payroll_gross_to_net`, `payroll_reports`, `people`, `seniorities`, `teams`, `time_off_events`, `time_offs`, `timesheets`
+Today (27): `contracts`, `cost_centers`, `countries`, `currencies`, `departments`, `equity_awards`, `groups`, `invoice_adjustments`, `invoices`, `it_clearance_requests`, `it_seats`, `job_titles`, `legal_entities`, `offboarding_tracker`, `onboarding_tracker`, `payment_breakdowns`, `payments`, `payroll_cycles`, `payroll_gross_to_net`, `payroll_reports`, `people`, `seniorities`, `teams`, `time_off_events`, `time_off_policies`, `time_offs`, `timesheets`
 
 Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 
@@ -2414,9 +2414,15 @@ Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 - [x] `/onboarding/tracker and /offboarding/tracker` — worker lifecycle state so joiner/leaver funnels can be measured (medium)
 - [x] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
 - [ ] `/ats/applications, /ats/candidates, /ats/job-postings` — recruiting funnel objects for orgs using Deel's ATS (low)
+- [x] `/it/seats` — seats of the organization's IT seat subscription and the worker holding each (medium)
+- [x] `/it/clearance-requests` — device clearance requests raised by the organization (low)
+- [x] `/time-offs/policy` — organization time-off policies, the configuration behind time-off requests (medium)
+- [x] `/equity-awards` — equity awards granted by the organization (medium)
+- [ ] `/ats/hires` — ATS applications mapped to the HRIS profiles they were hired into; Beta-only (needs `X-Beta: true`), revisit once Deel promotes it to stable (low)
 
 Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has hundreds of paths across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the synced tables still cover a small slice.
 Sub-endpoints of the ticked lines that were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract; `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows; and `/lookups/time-off-types` returns a bare array of enum strings with no object shape or row identity, and those same values already arrive on `/time_offs` rows.
+The four dated-endpoint tables (`it_seats`, `it_clearance_requests`, `time_off_policies`, `equity_awards`) are listed only on the `2026-01-01` pin: Deel documents them only under `/rest` with their own `X-Version` date, so sources pinned to `v2` do not list them.
 The gross-to-net line added a third table, `payroll_cycles` (`/legal-entities/{id}/payroll-events`): the report is keyed by payroll cycle and cycles are only listed per legal entity, so the cycle listing is both the path to the report and the table that dates it.
 
 ## Deepgram — gaps
