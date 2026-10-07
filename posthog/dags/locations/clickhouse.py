@@ -1,3 +1,5 @@
+from django.conf import settings
+
 import dagster
 
 from posthog.dags import (
@@ -67,6 +69,8 @@ defs = dagster.Definitions(
         backups.incremental_non_sharded_backup_schedule,
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
+        # The schedule's team IDs name EU teams. The same IDs name other teams in US.
+        *([deletes.eu_monthly_old_events_cleanup_schedule] if settings.CLOUD_DEPLOYMENT == "EU" else []),
     ],
     sensors=[
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,

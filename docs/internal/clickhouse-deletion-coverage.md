@@ -238,7 +238,9 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for the teams and partitions each manual run names, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for the teams and partitions each run names, and every other personal-data table already expires sooner under its own TTL.
+In EU, `eu_monthly_old_events_cleanup_schedule` runs it monthly for a fixed team list, over every partition from 202001 through the newest month with 13-month-old rows.
+It is stopped by default. It leaves events dated before 2020 in place, because `sharded_events_json` keeps them in its 202001 partition and the schedule matches on the event's own month.
 
 ## Adding a table
 
