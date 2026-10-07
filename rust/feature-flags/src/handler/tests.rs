@@ -333,6 +333,7 @@ async fn test_evaluate_feature_flags() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -420,6 +421,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -815,6 +817,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -900,6 +903,7 @@ async fn test_evaluate_feature_flags_details() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1060,6 +1064,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1144,6 +1149,7 @@ async fn test_long_distinct_id() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1753,6 +1759,7 @@ async fn test_parallel_path_matches_sequential_results() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1786,6 +1793,7 @@ async fn test_parallel_path_matches_sequential_results() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1880,6 +1888,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1919,6 +1928,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
+        persons_db_deadline: None,
     };
 
     let request_id = Uuid::new_v4();

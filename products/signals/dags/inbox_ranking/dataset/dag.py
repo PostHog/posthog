@@ -2,7 +2,7 @@
 
 Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
-    inbox_report_state/v1/dt=D/             Postgres spine + report state + tabular features
+    inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
     inbox_report_labels/v1/dt=D/            cumulative label columns from the dogfood project's events
     inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/

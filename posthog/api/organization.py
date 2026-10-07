@@ -42,7 +42,6 @@ from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -214,6 +213,9 @@ class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
     membership_level = serializers.SerializerMethodField()
+    membership_joined_at = serializers.SerializerMethodField(
+        help_text="When the requesting user joined this organization. Null if the user is not a member."
+    )
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -251,6 +253,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -286,6 +289,7 @@ class OrganizationSerializer(
             "created_at",
             "updated_at",
             "membership_level",
+            "membership_joined_at",
             "plugins_access_level",
             "teams",
             "projects",
@@ -331,6 +335,11 @@ class OrganizationSerializer(
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return OrganizationMembership.Level(membership.level) if membership is not None else None
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_membership_joined_at(self, organization: Organization) -> str | None:
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
+        return membership.joined_at.isoformat() if membership is not None else None
 
     @tracer.start_as_current_span("organization_serializer.teams")
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
@@ -632,7 +641,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
-        from ee.billing.billing_manager import BillingManager, partner_display_name
+        from ee.billing.billing_manager import BillingManager, get_billing_lock_partner, partner_display_name
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too

@@ -126,6 +126,7 @@ PRODUCTS_APPS = [
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
     "products.webmcp.backend.apps.WebmcpConfig",
+    "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -670,6 +671,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
+            "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
@@ -688,6 +692,7 @@ SPECTACULAR_SETTINGS = {
             "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+            "DismissalReasonEnum": "products.signals.backend.views.SIGNAL_REPORT_DISMISSAL_REASON_CHOICES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             #
             # The choices come from a typing.Literal via get_args; there is no class.

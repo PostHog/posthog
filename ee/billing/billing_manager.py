@@ -27,7 +27,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -113,6 +112,14 @@ class BillingManagedByPartnerError(PermissionDenied):
     def __init__(self, partner: OAuthApplication, lock: PartnerLock = PartnerLock.PLAN) -> None:
         partner_name = partner_display_name(partner)
         super().__init__(f"Billing for this organization is managed by {partner_name}. Contact {partner_name} {lock}.")
+
+
+def get_billing_lock_partner(organization: Organization) -> OAuthApplication | None:
+    if organization.customer_id or organization.provisioning_application_id is None:
+        return None
+    return OAuthApplication.objects.filter(
+        pk=organization.provisioning_application_id, _provisioning_config__pays_for_customers=True
+    ).first()
 
 
 def raise_if_billing_managed_by_partner(organization: Organization, lock: PartnerLock = PartnerLock.PLAN) -> None:

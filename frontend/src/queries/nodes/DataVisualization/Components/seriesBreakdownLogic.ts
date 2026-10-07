@@ -3,23 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { DataColorTheme } from 'lib/colors'
 import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
-import type {
-    ChartSettings,
-    VisualizationNode,
-    ErrorTrackingQueryResponse,
-    HogQLAutocompleteResponse,
-    HogQLMetadataResponse,
-    HogQLQueryResponse,
-    HogQueryResponse,
-    LogAttributesQueryResponse,
-    LogValuesQueryResponse,
-    MetricsQueryResponse,
-    SessionsQueryResponse,
-    TraceSpansAggregationQueryResponse,
-    TraceSpansAttributeBreakdownQueryResponse,
-    TraceSpansQueryResponse,
-} from '../../../schema/schema-general'
-import type { TraceSpansTreeQueryResponse } from '../../../schema/schema-general'
+import type { AnyResponseType, ChartSettings, VisualizationNode } from '../../../schema/schema-general'
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { Column } from '../dataVisualizationLogic'
 import { humanizeEventColumnValue } from '../eventColumnLabels'
@@ -101,22 +85,7 @@ export interface seriesBreakdownLogicValues {
     chartSettings: ChartSettings // dataVisualizationLogic
     columns: Column[] // dataVisualizationLogic
     query: VisualizationNode // dataVisualizationLogic
-    response:
-        | ErrorTrackingQueryResponse
-        | HogQLAutocompleteResponse
-        | HogQLMetadataResponse
-        | HogQLQueryResponse<any[]>
-        | HogQueryResponse
-        | LogAttributesQueryResponse
-        | LogValuesQueryResponse
-        | MetricsQueryResponse
-        | Record<string, any>
-        | SessionsQueryResponse
-        | TraceSpansAggregationQueryResponse
-        | TraceSpansAttributeBreakdownQueryResponse
-        | TraceSpansQueryResponse
-        | TraceSpansTreeQueryResponse
-        | null // dataVisualizationLogic
+    response: AnyResponseType | null // dataVisualizationLogic
     selectedXAxis: string | null // dataVisualizationLogic
     selectedYAxis: (SelectedYAxis | null)[] | null // dataVisualizationLogic
     breakdownColumnValues: string[]
@@ -135,22 +104,7 @@ export interface seriesBreakdownLogicActions {
     } // dataVisualizationLogic
     addSeriesBreakdown: (columnName: string | null) => {
         columnName: string | null
-        response:
-            | ErrorTrackingQueryResponse
-            | HogQLAutocompleteResponse
-            | HogQLMetadataResponse
-            | HogQLQueryResponse<any[]>
-            | HogQueryResponse
-            | LogAttributesQueryResponse
-            | LogValuesQueryResponse
-            | MetricsQueryResponse
-            | Record<string, any>
-            | SessionsQueryResponse
-            | TraceSpansAggregationQueryResponse
-            | TraceSpansAttributeBreakdownQueryResponse
-            | TraceSpansQueryResponse
-            | TraceSpansTreeQueryResponse
-            | null
+        response: AnyResponseType | null
     }
     deleteSeriesBreakdown: () => {}
 }
@@ -163,22 +117,7 @@ export interface seriesBreakdownLogicMeta {
         showSeriesBreakdown: (selectedSeriesBreakdownColumn: string | null | undefined) => boolean
         breakdownColumnValues: (
             selectedSeriesBreakdownColumn: string | null | undefined,
-            response:
-                | ErrorTrackingQueryResponse
-                | HogQLAutocompleteResponse
-                | HogQLMetadataResponse
-                | HogQLQueryResponse<any[]>
-                | HogQueryResponse
-                | LogAttributesQueryResponse
-                | LogValuesQueryResponse
-                | MetricsQueryResponse
-                | Record<string, any>
-                | SessionsQueryResponse
-                | TraceSpansAggregationQueryResponse
-                | TraceSpansAttributeBreakdownQueryResponse
-                | TraceSpansQueryResponse
-                | TraceSpansTreeQueryResponse
-                | null,
+            response: AnyResponseType | null,
             columns: Column[]
         ) => string[]
         seriesBreakdownData: (
@@ -186,22 +125,7 @@ export interface seriesBreakdownLogicMeta {
             breakdownColumnValues: string[],
             selectedYAxis: (SelectedYAxis | null)[] | null,
             selectedXAxis: string | null,
-            response:
-                | ErrorTrackingQueryResponse
-                | HogQLAutocompleteResponse
-                | HogQLMetadataResponse
-                | HogQLQueryResponse<any[]>
-                | HogQueryResponse
-                | LogAttributesQueryResponse
-                | LogValuesQueryResponse
-                | MetricsQueryResponse
-                | Record<string, any>
-                | SessionsQueryResponse
-                | TraceSpansAggregationQueryResponse
-                | TraceSpansAttributeBreakdownQueryResponse
-                | TraceSpansQueryResponse
-                | TraceSpansTreeQueryResponse
-                | null,
+            response: AnyResponseType | null,
             columns: Column[],
             chartSettings: ChartSettings,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
@@ -394,7 +318,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                     return visibleBreakdownValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const valueLabel = humanizeEventColumnValue(breakdownColumn.name, value) || '[No value]'
-                        const seriesName = multipleYSeries ? `${selectedYAxis.name} - ${valueLabel}` : valueLabel
+                        const measureLabel = selectedYAxis.settings.display?.label || selectedYAxis.name
+                        const seriesName = multipleYSeries ? `${measureLabel} - ${valueLabel}` : valueLabel
                         const breakdownValue = getBreakdownValueKey(value)
                         const customColorToken = resultCustomizations[breakdownValue]?.color
                         const customColor =

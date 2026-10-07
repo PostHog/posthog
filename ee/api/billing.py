@@ -28,7 +28,6 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -40,6 +39,7 @@ from ee.billing.billing_manager import (
     BillingManagedByPartnerError,
     BillingManager,
     PartnerLock,
+    get_billing_lock_partner,
     http_session,
     raise_if_billing_managed_by_partner,
 )

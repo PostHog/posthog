@@ -446,9 +446,11 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
     - ``closed_groups``: a group with an 'executing' batch is not claimable,
       and neither is a group with a live lease of another owner. Only the
       groups of the window's teams are read, so the set stays small however
-      many groups the fleet holds, and the per-team filter is an array
-      comparison that does not depend on a hashed sub-plan fitting in
-      ``work_mem``.
+      many groups the fleet holds. Each team carries its closed schemas as
+      the keys of a jsonb object (``closed_schemas``), built once per
+      statement. The key test is a binary search, so the filter does not
+      depend on a hashed sub-plan fitting in ``work_mem`` and does not slow
+      down with the number of closed groups of a team.
     - ``gates``: one ``sb_run_gate_idx`` probe per scanned run. A run with a
       'failed' batch is not claimable. ``first_blocked_index`` is the lowest
       batch_index that is 'executing' or 'waiting_retry' inside its backoff.
@@ -474,7 +476,13 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
       ``scanned`` reads the oldest candidates up to ``CLAIM_WINDOW_TEAM_DEPTH``
       (or the LIMIT, if larger). The closed-group filter is inside the scan,
       so a deep backlog behind an executing batch cannot fill the depth and
-      hide the other groups of the team. The run gates cannot be a filter of
+      hide the other groups of the team. The closed-group and held-run filters
+      sit in a ``CASE`` on purpose. The planner prices a bare ``<> ALL`` filter
+      as if almost no row passes, expects about one row per partition, drops
+      the ordered ``sb_claimable_idx`` scan that stops at the depth, and scans
+      and sorts a whole partition for each team and round. It cannot see into
+      the ``CASE``, takes half the rows, and keeps the ordered scan. The run
+      gates cannot be a filter of
       the scan without a probe per batch, so they work in rounds: a round
       that finds held batches records their runs in ``gated_runs`` and
       ``gated_after`` (-1 for a failed run, else the blocked index), and the
@@ -503,6 +511,10 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
     candidate of the window's teams.
     """
     candidate = _claim_candidate_predicate_sql(sync_type_scope)
+    # ``round IN (0, 1, ...)`` means ``round < CLAIM_WINDOW_GATE_ROUNDS``. The planner takes
+    # a third of the rows for a range test and far fewer for an equality list. With the
+    # range test it prices the scan rounds above jit_above_cost.
+    rounds_left = ", ".join(str(n) for n in range(CLAIM_WINDOW_GATE_ROUNDS))
     return f"""
         window_teams AS MATERIALIZED (
             WITH RECURSIVE walk (team_id, n, wrapped, is_team) AS (
@@ -546,15 +558,23 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
         ),
         team_scan AS MATERIALIZED (
             WITH RECURSIVE scan (
-                team_id, round, gated_runs, gated_after, done, ids, created_ats, batch_indexes
+                team_id, closed_schemas, round, gated_runs, gated_after, done, ids, created_ats, batch_indexes
             ) AS (
                 SELECT
-                    t.team_id, 0, '{{}}'::varchar[], '{{}}'::int[], false,
+                    t.team_id,
+                    COALESCE(closed.schemas, '{{}}'::jsonb),
+                    0, '{{}}'::varchar[], '{{}}'::int[], false,
                     '{{}}'::uuid[], '{{}}'::timestamptz[], '{{}}'::int[]
                 FROM window_teams t
+                LEFT JOIN (
+                    SELECT g.team_id, jsonb_object_agg(g.schema_id, true) AS schemas
+                    FROM closed_groups g
+                    GROUP BY g.team_id
+                ) closed ON closed.team_id = t.team_id
                 UNION ALL
                 SELECT
                     s.team_id,
+                    s.closed_schemas,
                     s.round + 1,
                     s.gated_runs || r.new_runs,
                     s.gated_after || r.new_after,
@@ -569,13 +589,15 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
                         FROM {BATCH_TABLE} b
                         WHERE {candidate}
                             AND b.team_id = s.team_id
-                            AND b.schema_id <> ALL (ARRAY(
-                                SELECT g.schema_id FROM closed_groups g WHERE g.team_id = s.team_id
-                            ))
-                            AND (
-                                b.run_uuid <> ALL (s.gated_runs)
-                                OR b.batch_index <= (s.gated_after)[array_position(s.gated_runs, b.run_uuid)]
-                            )
+                            AND CASE
+                                WHEN NOT s.closed_schemas ? b.schema_id
+                                    AND (
+                                        b.run_uuid <> ALL (s.gated_runs)
+                                        OR b.batch_index <= (s.gated_after)[array_position(s.gated_runs, b.run_uuid)]
+                                    )
+                                THEN true
+                                ELSE false
+                            END
                         ORDER BY b.created_at ASC, b.batch_index ASC
                         LIMIT GREATEST(%(limit)s, {CLAIM_WINDOW_TEAM_DEPTH})
                     ),
@@ -628,7 +650,7 @@ def _claim_window_sql(sync_type_scope: str = "") -> str:
                             )
                     ) held
                 ) r
-                WHERE NOT s.done AND s.round < {CLAIM_WINDOW_GATE_ROUNDS}
+                WHERE NOT s.done AND s.round IN ({rounds_left})
             )
             SELECT scan.team_id, scan.ids, scan.created_ats, scan.batch_indexes
             FROM scan
@@ -1501,65 +1523,75 @@ class BatchQueue:
     async def _claim_window(
         conn: psycopg.AsyncConnection[Any], sync_type_scope: str, params: dict[str, Any]
     ) -> _ClaimedWindow:
-        async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                WITH {_claim_window_sql(sync_type_scope)},
-                candidates AS MATERIALIZED (
+        # The planner can price this statement above jit_above_cost although it runs in
+        # milliseconds, and JIT compilation then costs far more than the statement. The
+        # setting must be in place before the statement is planned, so it cannot be part of
+        # it. The transaction holds only this one statement, so the lease upsert commits
+        # as it does in autocommit. Consumer connections run with autocommit=True, so this
+        # is the common case; a caller holding its own transaction gets a SAVEPOINT here
+        # instead (psycopg nests `transaction()` blocks that way), so that caller's own
+        # commit or rollback still governs the claim.
+        async with conn.transaction():
+            await conn.execute("SET LOCAL jit = off")
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    f"""
+                    WITH {_claim_window_sql(sync_type_scope)},
+                    candidates AS MATERIALIZED (
+                        SELECT
+                            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                            b.cumulative_row_count, b.resource_name, b.is_resume,
+                            b.is_first_ever_sync, b.metadata, b.destination_ids,
+                            b.latest_attempt,
+                            b.created_at
+                        FROM {BATCH_TABLE} b
+                        JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
+                    ),
+                    candidate_groups AS MATERIALIZED (
+                        SELECT DISTINCT team_id, schema_id FROM candidates
+                        ORDER BY team_id, schema_id
+                    ),
+                    claimed AS (
+                        INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                        SELECT team_id, schema_id, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now()
+                        FROM candidate_groups
+                        ON CONFLICT (team_id, schema_id) DO UPDATE
+                            SET owner_token = excluded.owner_token,
+                                expires_at = excluded.expires_at,
+                                acquired_at = CASE
+                                    WHEN {LEASE_TABLE}.owner_token = excluded.owner_token THEN {LEASE_TABLE}.acquired_at
+                                    ELSE now()
+                                END,
+                                updated_at = now()
+                            WHERE {LEASE_TABLE}.expires_at < now()
+                               OR {LEASE_TABLE}.owner_token = excluded.owner_token
+                        RETURNING team_id, schema_id
+                    ),
+                    window_info AS (
+                        SELECT
+                            count(*) >= {CLAIM_WINDOW_TEAMS} AS window_full,
+                            COALESCE(bool_or(t.wrapped), false) AS window_wrapped,
+                            (array_agg(t.team_id ORDER BY t.n DESC))[1] AS last_team_id,
+                            (array_agg(t.team_id ORDER BY random()))[1] AS random_team_id
+                        FROM window_teams t
+                    )
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata, b.destination_ids,
-                        b.latest_attempt,
-                        b.created_at
-                    FROM {BATCH_TABLE} b
-                    JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
-                ),
-                candidate_groups AS MATERIALIZED (
-                    SELECT DISTINCT team_id, schema_id FROM candidates
-                    ORDER BY team_id, schema_id
-                ),
-                claimed AS (
-                    INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
-                    SELECT team_id, schema_id, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now()
-                    FROM candidate_groups
-                    ON CONFLICT (team_id, schema_id) DO UPDATE
-                        SET owner_token = excluded.owner_token,
-                            expires_at = excluded.expires_at,
-                            acquired_at = CASE
-                                WHEN {LEASE_TABLE}.owner_token = excluded.owner_token THEN {LEASE_TABLE}.acquired_at
-                                ELSE now()
-                            END,
-                            updated_at = now()
-                        WHERE {LEASE_TABLE}.expires_at < now()
-                           OR {LEASE_TABLE}.owner_token = excluded.owner_token
-                    RETURNING team_id, schema_id
-                ),
-                window_info AS (
-                    SELECT
-                        count(*) >= {CLAIM_WINDOW_TEAMS} AS window_full,
-                        COALESCE(bool_or(t.wrapped), false) AS window_wrapped,
-                        (array_agg(t.team_id ORDER BY t.n DESC))[1] AS last_team_id,
-                        (array_agg(t.team_id ORDER BY random()))[1] AS random_team_id
-                    FROM window_teams t
+                        CASE WHEN w.window_full THEN w.last_team_id ELSE w.random_team_id END AS next_team_cursor,
+                        w.window_full,
+                        w.window_wrapped,
+                        c.*
+                    FROM window_info w
+                    LEFT JOIN (
+                        candidates c
+                        JOIN claimed ON claimed.team_id = c.team_id AND claimed.schema_id = c.schema_id
+                    ) ON true
+                    ORDER BY c.created_at ASC, c.batch_index ASC
+                    """,
+                    params,
                 )
-                SELECT
-                    CASE WHEN w.window_full THEN w.last_team_id ELSE w.random_team_id END AS next_team_cursor,
-                    w.window_full,
-                    w.window_wrapped,
-                    c.*
-                FROM window_info w
-                LEFT JOIN (
-                    candidates c
-                    JOIN claimed ON claimed.team_id = c.team_id AND claimed.schema_id = c.schema_id
-                ) ON true
-                ORDER BY c.created_at ASC, c.batch_index ASC
-                """,
-                params,
-            )
-            rows = await cur.fetchall()
+                rows = await cur.fetchall()
         # The window row is always present; the batch columns are NULL when nothing was claimed.
         next_team_cursor, full, wrapped = None, False, False
         for row in rows:

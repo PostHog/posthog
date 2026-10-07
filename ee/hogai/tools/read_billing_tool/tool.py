@@ -9,10 +9,9 @@ from posthog.schema import MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.sync import database_sync_to_async
 
-from ee.billing.billing_manager import partner_display_name
+from ee.billing.billing_manager import get_billing_lock_partner, partner_display_name
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, is_credit_denominated
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool

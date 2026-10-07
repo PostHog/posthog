@@ -12,6 +12,10 @@ import {
     BIField,
     BIFilter,
     BIFilterOperator,
+    BITableCalculation,
+    BITopN,
+    BITotals,
+    BIValue,
     BIQueryLimit,
     BISort,
 } from '~/queries/schema/schema-business-intelligence'
@@ -41,6 +45,7 @@ import {
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
+import { matchesBIFieldSearch } from './biPropertyFields'
 import { getBIDateField } from './biQueryFilters'
 
 export interface BIEditorLogicProps {
@@ -170,7 +175,20 @@ function removeFieldFromConfig(config: BIConfig, shelf: BIShelf, index: number):
         case 'columns':
             return { ...config, [shelf]: config[shelf].filter((_, fieldIndex) => fieldIndex !== index) }
         case 'values':
-            return { ...config, values: config.values.filter((_, valueIndex) => valueIndex !== index) }
+            return {
+                ...config,
+                values: config.values.filter((_, valueIndex) => valueIndex !== index),
+                topN:
+                    !config.topN || config.topN.measureIndex === index
+                        ? undefined
+                        : {
+                              ...config.topN,
+                              measureIndex:
+                                  config.topN.measureIndex > index
+                                      ? config.topN.measureIndex - 1
+                                      : config.topN.measureIndex,
+                          },
+            }
         case 'filters':
             return { ...config, filters: config.filters.filter((_, filterIndex) => filterIndex !== index) }
     }
@@ -191,6 +209,7 @@ function setFieldExpressionInConfig(config: BIConfig, shelf: BIShelf, index: num
                 values: config.values.map((value, valueIndex) =>
                     valueIndex === index ? { ...value, field: updateField(value.field) } : value
                 ),
+                topN: config.topN?.measureIndex === index ? undefined : config.topN,
             }
         case 'filters':
             return {
@@ -244,6 +263,7 @@ export interface biEditorLogicValues {
     activeDropShelf: BIShelf | null
     activeExpressionEditorId: string | null
     activeExpressionEditorTarget: 'aggregation' | 'field'
+    activeMeasureSettingsIndex: number | null
     autoUpdate: boolean
     availableDataSources: BIDataSource[]
     calculatedMeasureDraft: BICalculatedMeasureDraft | null
@@ -297,7 +317,13 @@ export interface biEditorLogicActions {
     clearActiveDropShelf: (shelf: BIShelf) => {
         shelf: BIShelf
     }
+    combineMeasures: () => {
+        value: true
+    }
     editCalculatedMeasure: (index?: number | null) => {
+        index: number | null
+    }
+    editMeasureSettings: (index: number | null) => {
         index: number | null
     }
     moveFieldToShelf: (
@@ -416,6 +442,19 @@ export interface biEditorLogicActions {
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
+    setTableCalculation: (
+        index: number,
+        tableCalculation: BITableCalculation | undefined
+    ) => {
+        index: number
+        tableCalculation: BITableCalculation | undefined
+    }
+    setTopN: (topN: BITopN | undefined) => {
+        topN: BITopN | undefined
+    }
+    setTotals: (totals: BITotals) => {
+        totals: BITotals
+    }
     setValueAggregation: (
         index: number,
         aggregation: BIAggregation
@@ -439,6 +478,13 @@ export interface biEditorLogicActions {
     ) => {
         index: number
         update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+    }
+    updateMeasureSettings: (
+        index: number,
+        settings: Pick<BIValue, 'display' | 'formatting'>
+    ) => {
+        index: number
+        settings: Pick<BIValue, 'display' | 'formatting'>
     }
     upsertCalculatedMeasure: (draft: BICalculatedMeasureDraft) => {
         draft: BICalculatedMeasureDraft
@@ -536,6 +582,18 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setDateField: (field: BIField | null) => ({ field }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
+        setTableCalculation: (index: number, tableCalculation: BITableCalculation | undefined) => ({
+            index,
+            tableCalculation,
+        }),
+        setTopN: (topN: BITopN | undefined) => ({ topN }),
+        setTotals: (totals: BITotals) => ({ totals }),
+        editMeasureSettings: (index: number | null) => ({ index }),
+        updateMeasureSettings: (index: number, settings: Pick<BIValue, 'formatting' | 'display'>) => ({
+            index,
+            settings,
+        }),
+        combineMeasures: true,
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
         updateFilter: (index: number, update: Partial<Pick<BIFilter, 'values' | 'valueTo' | 'enabled'>>) => ({
@@ -555,6 +613,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         resetConfig: true,
     }),
     reducers(() => ({
+        activeMeasureSettingsIndex: [null as number | null, { editMeasureSettings: (_, { index }) => index }],
         calculatedMeasureDraft: [
             null as BICalculatedMeasureDraft | null,
             {
@@ -663,6 +722,45 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         valueIndex === index ? { ...value, aggregation } : value
                     ),
                 }),
+                setTableCalculation: (config, { index, tableCalculation }) => ({
+                    ...config,
+                    values: config.values.map((value, valueIndex) =>
+                        valueIndex === index
+                            ? {
+                                  ...value,
+                                  ...(!value.formatting &&
+                                  ['percent_of_total', 'percent_change'].includes(value.tableCalculation?.type ?? '') &&
+                                  !['percent_of_total', 'percent_change'].includes(tableCalculation?.type ?? '')
+                                      ? { formatting: { style: 'number' as const, prefix: '', suffix: '' } }
+                                      : {}),
+                                  tableCalculation,
+                              }
+                            : value
+                    ),
+                }),
+                setTopN: (config, { topN }) => ({ ...config, topN }),
+                setTotals: (config, { totals }) => ({ ...config, totals }),
+                updateMeasureSettings: (config, { index, settings }) => ({
+                    ...config,
+                    values: config.values.map((value, valueIndex) =>
+                        valueIndex === index ? { ...value, ...settings } : value
+                    ),
+                }),
+                combineMeasures: (config) =>
+                    config.values.length === 2
+                        ? {
+                              ...config,
+                              chartType: ChartDisplayType.ActionsBar,
+                              values: config.values.map((value, index) => ({
+                                  ...value,
+                                  display: {
+                                      ...value.display,
+                                      displayType: index === 0 ? ('bar' as const) : ('line' as const),
+                                      yAxisPosition: index === 0 ? ('left' as const) : ('right' as const),
+                                  },
+                              })),
+                          }
+                        : config,
                 setFilterOperator: (config, { index, operator }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
@@ -795,7 +893,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 if (!needle) {
                     return dataPaneFields
                 }
-                const matches = (field: BIField): boolean => field.name.toLowerCase().includes(needle)
+                const matches = (field: BIField): boolean => matchesBIFieldSearch(field, needle)
                 return {
                     dimensions: dataPaneFields.dimensions.filter(matches),
                     measures: dataPaneFields.measures.filter(matches),
@@ -847,6 +945,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setDateField: () => actions.runAfterChange(),
         setDataSource: () => actions.runAfterChange(),
         setValueAggregation: () => actions.runAfterChange(),
+        setTableCalculation: () => actions.runAfterChange(),
+        setTopN: () => actions.runAfterChange(),
+        setTotals: () => actions.runAfterChange(),
+        updateMeasureSettings: () => actions.runAfterChange(),
+        combineMeasures: () => actions.runAfterChange(),
         setFilterOperator: () => actions.runAfterChange(),
         setFilterValue: () => actions.runAfterChange(),
         updateFilter: () => actions.runAfterChange(),

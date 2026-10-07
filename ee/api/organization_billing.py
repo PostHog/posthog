@@ -31,7 +31,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
@@ -48,7 +47,12 @@ from ee.api.billing import (
     narrow_usage_types_for_partner,
     without_money,
 )
-from ee.billing.billing_manager import BillingManager, PartnerLock, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    PartnerLock,
+    get_billing_lock_partner,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import is_credit_denominated
 from ee.billing.exports import (
     _gzip_stream,
