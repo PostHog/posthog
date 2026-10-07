@@ -78,9 +78,10 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         inserted_at: datetime
 
     def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
-        # Truncate model-specific tables
+        # TRUNCATE on a Distributed table only drops its pending async inserts, so clear the sharded tables.
+        # Otherwise rows that other tests wrote under a reused team id stay visible here.
         for model_name in self.models.keys():
-            table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
+            table_name = f"sharded_posthog_document_embeddings_{model_name.replace('-', '_')}"
             sync_execute(f"TRUNCATE TABLE {table_name}", flush=False, team_id=self.team.pk)
 
         fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
