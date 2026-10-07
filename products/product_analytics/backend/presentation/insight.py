@@ -38,13 +38,14 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import schema
 from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
+from posthog.api.exposed_edit_gate import reason_edit_needs_access_check
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, exposure_without_viewer_check
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -883,13 +884,13 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and (exposure := exposure_without_viewer_check(instance))
+            and (reason := reason_edit_needs_access_check(instance))
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, and {exposure}."
+                    f"Can't save this query: you don't have access to {blocked_list}, and {reason}."
                 )
 
         with transaction.atomic():
