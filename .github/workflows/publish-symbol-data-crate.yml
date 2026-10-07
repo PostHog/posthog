@@ -46,8 +46,16 @@ jobs:
 
     prepare-release:
         name: Prepare posthog-symbol-data release pull request
-        needs: check-changesets
-        if: needs.check-changesets.outputs.has-changesets == 'true'
+        needs: [check-changesets, identify-release, publish]
+        if: >-
+            !cancelled()
+            && needs.check-changesets.result == 'success'
+            && needs.identify-release.result == 'success'
+            && (
+                (needs.identify-release.outputs.release-commit == '' && needs.publish.result == 'skipped')
+                || (needs.identify-release.outputs.release-commit != '' && needs.publish.result == 'success')
+            )
+            && needs.check-changesets.outputs.has-changesets == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         environment: Release SDK
@@ -295,10 +303,8 @@ jobs:
 
                   echo "url=$pr_url" >> "$GITHUB_OUTPUT"
 
-    release:
+    identify-release:
         name: Identify merged posthog-symbol-data release
-        needs: check-changesets
-        if: needs.check-changesets.outputs.has-changesets == 'false'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -329,14 +335,27 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
               run: |
                   release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.ref == "chore/release-posthog-symbol-data" and .head.repo.full_name == "PostHog/posthog") | .number')
-                  if [ "$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)" -ne 1 ]; then
-                      echo "::error::Expected one merged posthog-symbol-data release pull request for $RELEASE_COMMIT"
+                      --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.ref == "chore/release-posthog-symbol-data") | .number')
+                  release_pr_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
+                  if [ "$release_pr_count" -gt 1 ]; then
+                      echo "::error::Found more than one merged posthog-symbol-data release pull request for $RELEASE_COMMIT"
                       exit 1
+                  fi
+                  if [ "$release_pr_count" -eq 0 ]; then
+                      echo "No merged posthog-symbol-data release pull request found for $RELEASE_COMMIT"
+                      exit 0
                   fi
                   release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
 
                   pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.head.repo.full_name // empty')" != "$REPOSITORY" ]; then
+                      echo "::error::The release pull request did not come from $REPOSITORY"
+                      exit 1
+                  fi
+                  if [ "$(printf '%s' "$pr_data" | jq -r '.merge_commit_sha // empty')" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::The release pull request merge commit does not match $RELEASE_COMMIT"
+                      exit 1
+                  fi
                   if [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASE_APP" ]; then
                       echo "::error::The release pull request was not created by $RELEASE_APP"
                       exit 1
@@ -384,8 +403,11 @@ jobs:
 
     publish:
         name: Publish posthog-symbol-data to crates.io
-        needs: release
-        if: needs.release.outputs.release-commit != ''
+        needs: identify-release
+        if: >-
+            !cancelled()
+            && needs.identify-release.result == 'success'
+            && needs.identify-release.outputs.release-commit != ''
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         environment: crates-posthog-symbol-data
@@ -396,7 +418,7 @@ jobs:
             - name: Checkout release commit
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ needs.release.outputs.release-commit }}
+                  ref: ${{ needs.identify-release.outputs.release-commit }}
                   sparse-checkout: rust
                   sparse-checkout-cone-mode: false
 
@@ -432,7 +454,7 @@ jobs:
                   status=$?
                   set -e
                   if [ "$status" -eq 2 ]; then
-                      echo "posthog-symbol-data ${{ needs.release.outputs.new-version }} is already published"
+                      echo "posthog-symbol-data ${{ needs.identify-release.outputs.new-version }} is already published"
                       exit 0
                   fi
                   exit "$status"
