@@ -48,9 +48,29 @@ KERNEL_ENDPOINTS: dict[str, KernelEndpointConfig] = {
         path="/profiles",
         description="Saved browser profiles (persisted cookies, storage, and auth state).",
     ),
+    "browser_telemetry_events": KernelEndpointConfig(
+        name="browser_telemetry_events",
+        path="/browsers/{session_id}/telemetry/events",
+        # seq is only monotonic within one browser VM, so the session id is part of the key.
+        primary_keys=["browser_session_id", "seq"],
+        # Fans out over every browser session and can carry captured page content, so it's opt-in.
+        should_sync_default=False,
+        description="Archived telemetry events (console, network, page, interaction, and more) captured by your browser sessions during Kernel's 30-day retention window.",
+    ),
 }
 
 ENDPOINTS = tuple(KERNEL_ENDPOINTS.keys())
+
+BROWSER_TELEMETRY_EVENTS = "browser_telemetry_events"
+
+# Kernel expires telemetry events 30 days after capture.
+TELEMETRY_RETENTION_DAYS = 30
+
+# Keys dropped from each telemetry event's `data` object. Network events carry request and response
+# headers verbatim from CDP (including Authorization and Cookie) plus request and response bodies,
+# which hold submitted passwords and issued tokens. Screenshot events carry a base64 PNG of the
+# viewport that has no use as a warehouse column.
+TELEMETRY_DROPPED_DATA_FIELDS: frozenset[str] = frozenset({"headers", "post_data", "body", "png"})
 
 # Credential-bearing fields stripped from every Kernel row before it lands in the warehouse.
 # Kernel app/deployment objects carry `env_vars`; browser objects expose CDP / live-view URLs

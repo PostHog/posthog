@@ -43,4 +43,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the profile.",
         },
     },
+    "browser_telemetry_events": {
+        "description": "A telemetry event captured inside a browser session, such as a console message, network request, page navigation, or crash. Request and response headers and bodies, and screenshot images, are not synced.",
+        "docs_url": "https://kernel.sh/docs/api-reference/browser-telemetry/read-telemetry-events-for-a-browser-session",
+        "columns": {
+            "browser_session_id": "ID of the browser session that captured the event.",
+            "seq": "Sequence number assigned by the browser VM, increasing within a session.",
+            "ts": "Event timestamp in Unix microseconds.",
+            "category": "Event category, such as console, network, page, interaction, control, or system.",
+            "type": "Event type, such as console_log, network_request, page_navigation, or page_crashed.",
+            "data": "Event-specific payload. Its fields depend on the event type.",
+            "source": "Provenance of the event: the producer kind (cdp, kernel_api, extension, local_process), its event name, and producer metadata.",
+            "truncated": "True if the data field was truncated due to size limits.",
+        },
+    },
 }
