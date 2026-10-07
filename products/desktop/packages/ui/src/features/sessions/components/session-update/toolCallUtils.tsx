@@ -225,6 +225,31 @@ export function LoadingIcon({
   return <IconComponent size={ICON_SIZE} className={className} />;
 }
 
+/** Expandable body for a generic tool call: its formatted input, then its text output. */
+export function toolCallDetails({
+  rawInput,
+  content,
+  isComplete,
+  isFailed,
+}: {
+  rawInput: unknown;
+  content: ToolCall["content"];
+  isComplete: boolean;
+  isFailed: boolean;
+}): React.ReactNode | undefined {
+  const fullInput = formatInput(rawInput);
+  const output = stripCodeFences(getContentText(content) ?? "");
+  // A failed call keeps its output because the error text lives in `content`.
+  const showOutput = (isComplete || isFailed) && output.trim().length > 0;
+  if (!fullInput && !showOutput) return undefined;
+  return (
+    <>
+      {fullInput && <ContentPre>{fullInput}</ContentPre>}
+      {showOutput && <ContentPre>{output}</ContentPre>}
+    </>
+  );
+}
+
 export function ContentPre({ children }: { children: React.ReactNode }) {
   return (
     <div className="max-h-64 rounded-sm border border-border">

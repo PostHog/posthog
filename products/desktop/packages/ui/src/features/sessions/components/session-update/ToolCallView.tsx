@@ -9,15 +9,12 @@ import {
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { ToolRow } from "./ToolRow";
 import {
-  ContentPre,
   compactInput,
-  formatInput,
-  getContentText,
   getFilename,
   iconForToolCall,
-  stripCodeFences,
   ToolTitle,
   type ToolViewProps,
+  toolCallDetails,
   useToolCallStatus,
 } from "./toolCallUtils";
 
@@ -128,21 +125,6 @@ export function ToolCallView({
   const inputPreview = mcpDisplay
     ? mcpDisplay.input
     : (specialDisplay?.value ?? compactInput(rawInput));
-  const fullInput = formatInput(rawInput);
-
-  const output = stripCodeFences(getContentText(content) ?? "");
-  const hasOutput = output.trim().length > 0;
-  // Surface output for failures too, otherwise a failed call shows "(Failed)"
-  // with no reason — the error text lives in `content`.
-  const showOutput = (isComplete || isFailed) && hasOutput;
-
-  const body =
-    fullInput || showOutput ? (
-      <>
-        {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput && <ContentPre>{output}</ContentPre>}
-      </>
-    ) : undefined;
 
   return (
     <ToolRow
@@ -151,13 +133,11 @@ export function ToolCallView({
       isFailed={isFailed}
       wasCancelled={wasCancelled}
       defaultOpen={expanded}
-      content={body}
+      content={toolCallDetails({ rawInput, content, isComplete, isFailed })}
     >
       {displayText && <ToolTitle>{displayText}</ToolTitle>}
       {inputPreview && (
-        // `min-w-0 shrink` overrides the title's default `shrink-0`: the input preview is the
-        // flexible piece of the header, so it gives way (and truncates) instead of overflowing.
-        <ToolTitle className="min-w-0 shrink">
+        <ToolTitle>
           <span className="font-mono text-primary text-sm">{inputPreview}</span>
         </ToolTitle>
       )}

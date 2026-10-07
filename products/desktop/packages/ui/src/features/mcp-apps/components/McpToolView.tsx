@@ -6,13 +6,10 @@ import {
 import { readMcpToolDescriptor } from "@posthog/shared";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
-  ContentPre,
   compactInput,
-  formatInput,
-  getContentText,
-  stripCodeFences,
   ToolTitle,
   type ToolViewProps,
+  toolCallDetails,
   truncateText,
   useToolCallStatus,
 } from "../../sessions/components/session-update/toolCallUtils";
@@ -54,21 +51,6 @@ export function McpToolView({
         )
       : undefined
     : compactInput(rawInput);
-  const fullInput = formatInput(rawInput);
-
-  const output = stripCodeFences(getContentText(content) ?? "");
-  const hasOutput = output.trim().length > 0;
-  // Surface output for failures too, otherwise a failed call shows "(Failed)"
-  // with no reason — the error text lives in `content`.
-  const showOutput = (isComplete || isFailed) && hasOutput;
-
-  const body =
-    fullInput || showOutput ? (
-      <>
-        {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput && <ContentPre>{output}</ContentPre>}
-      </>
-    ) : undefined;
 
   return (
     <ToolRow
@@ -77,7 +59,7 @@ export function McpToolView({
       isFailed={isFailed}
       wasCancelled={wasCancelled}
       defaultOpen={expanded}
-      content={body}
+      content={toolCallDetails({ rawInput, content, isComplete, isFailed })}
     >
       <ToolTitle>{displayName}</ToolTitle>
       {inputPreview && (
