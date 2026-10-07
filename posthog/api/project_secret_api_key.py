@@ -89,7 +89,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
         # A key that already holds llm_gateway:read stays saveable; no other key can gain it.
-        if self.instance is not None and any(s.startswith("llm_gateway:") for s in (self.instance.scopes or [])):
+        if self.instance is not None and "llm_gateway:read" in (self.instance.scopes or []):
             allowed.add(("llm_gateway", "read"))
 
         for scope in scopes:

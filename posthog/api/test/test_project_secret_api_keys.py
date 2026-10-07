@@ -159,7 +159,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert response.json()["label"] == "renamed"
         assert response.json()["scopes"] == ["llm_gateway:read"]
 
-    @parameterized.expand([("other_scope", ["endpoint:read"]), ("null_scopes", None)])
+    @parameterized.expand(
+        [("other_scope", ["endpoint:read"]), ("null_scopes", None), ("gateway_write_only", ["llm_gateway:write"])]
+    )
     def test_update_adding_llm_gateway_scope_rejected(self, _name, existing_scopes):
         key = ProjectSecretAPIKey.objects.create(
             team=self.team,
@@ -171,7 +173,7 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}",
-            {"scopes": [*(existing_scopes or []), "llm_gateway:read"]},
+            {"scopes": ["llm_gateway:read"]},
         )
         assert response.status_code == 400
         assert "Scope 'llm_gateway:read' can not be assigned" in response.json()["detail"]
