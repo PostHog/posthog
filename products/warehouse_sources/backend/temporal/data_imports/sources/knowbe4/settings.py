@@ -21,7 +21,7 @@ DEFAULT_REGION = "us"
 PAGE_SIZE = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class KnowBe4EndpointConfig:
     name: str
     path: str
