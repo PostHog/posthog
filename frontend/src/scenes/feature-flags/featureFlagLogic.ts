@@ -110,6 +110,11 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
+import {
+    captureMessageAudienceClicked,
+    cohortAudienceProperties,
+    messageAudienceUrl,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -953,6 +958,8 @@ export interface featureFlagLogicValues {
     alsoCreateInProjects: number[]
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
+    broadcastCohort: CohortType | null
+    broadcastCohortLoading: boolean
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
     completedSchedules: ScheduledChangeType[]
@@ -1209,6 +1216,21 @@ export interface featureFlagLogicActions {
         payload?: any
     ) => {
         featureFlagCopy: CopyFlagsResponseApi | undefined
+        payload?: any
+    }
+    createBroadcastCohort: () => any
+    createBroadcastCohortFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    createBroadcastCohortSuccess: (
+        broadcastCohort: CohortType | null,
+        payload?: any
+    ) => {
+        broadcastCohort: CohortType | null
         payload?: any
     }
     createEarlyAccessFeature: () => any
@@ -3557,6 +3579,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        broadcastCohort: [
+            null as CohortType | null,
+            {
+                createBroadcastCohort: async () => {
+                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                        return (await api.featureFlags.createStaticCohort(props.id)).cohort
+                    }
+                    return null
+                },
+            },
+        ],
         projectsWithCurrentFlag: {
             __default: [] as OrganizationFeatureFlag[],
             loadProjectsWithCurrentFlag: async () => {
@@ -4444,6 +4477,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         copyFlagFailure: () => {
             if (values.copyDependencies && values.copyDestinationProject) {
                 actions.loadCopyDependencyRequirements()
+            }
+        },
+        createBroadcastCohortSuccess: ({ broadcastCohort }) => {
+            if (broadcastCohort && typeof broadcastCohort.id === 'number') {
+                captureMessageAudienceClicked('feature_flag', 'broadcast')
+                router.actions.push(
+                    messageAudienceUrl(
+                        {
+                            source: 'feature_flag',
+                            properties: cohortAudienceProperties({
+                                id: broadcastCohort.id,
+                                name: broadcastCohort.name,
+                            }),
+                            broadcastName: `${values.featureFlag.key} announcement`,
+                        },
+                        'broadcast'
+                    )
+                )
             }
         },
         createStaticCohortSuccess: ({ newCohort }) => {

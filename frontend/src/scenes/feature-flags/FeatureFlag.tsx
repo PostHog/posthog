@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
-import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
+import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconSend, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -147,6 +147,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         dependentFlags,
         configFormat,
         editorKind,
+        broadcastCohortLoading,
     } = useValues(featureFlagLogic)
     const isV1Config = configFormat === 'v1'
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -155,6 +156,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         restoreFeatureFlag,
         editFeatureFlag,
         createStaticCohort,
+        createBroadcastCohort,
         setSelectedTab,
         saveDescriptionInline,
         saveTagsInline,
@@ -194,6 +196,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+    const broadcastDisabledReason = broadcastCohortLoading
+        ? 'Finding the people who have this flag…'
+        : featureFlag?.deleted
+          ? 'This flag is deleted'
+          : !featureFlag?.active
+            ? 'This flag is disabled, so no one has it. Enable it first.'
+            : undefined
 
     // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
     // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
@@ -416,6 +425,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Create cohort
                             </ButtonPrimitive>
                         )}
+                        {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-message-audience-broadcast`}
+                                onClick={() => createBroadcastCohort()}
+                                disabled={!!broadcastDisabledReason}
+                                tooltip={broadcastDisabledReason}
+                            >
+                                <IconSend />
+                                Send a broadcast
+                            </ButtonPrimitive>
+                        )}
                         <ButtonPrimitive
                             menuItem
                             data-attr={`${RESOURCE_TYPE}-create-survey`}
@@ -578,6 +599,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         >
                                             <IconPlusSmall />
                                             Cohort
+                                        </SceneMenuBarItem>
+                                    )}
+                                    {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                        <SceneMenuBarItem
+                                            onClick={() => createBroadcastCohort()}
+                                            disabled={!!broadcastDisabledReason}
+                                            tooltip={broadcastDisabledReason}
+                                            data-attr={`${RESOURCE_TYPE}-menubar-message-audience-broadcast`}
+                                        >
+                                            <IconSend />
+                                            Broadcast
                                         </SceneMenuBarItem>
                                     )}
                                     <SceneMenuBarItem
