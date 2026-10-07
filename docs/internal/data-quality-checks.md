@@ -50,7 +50,8 @@ The source query groups exact evaluator inputs and preserves their row multiplic
 It streams bounded chunks into the configured object store and publishes a manifest only after the source stream completes.
 ClickHouse overflow settings throw instead of returning partial results.
 A subject that exceeds the limit on frozen inputs fails before any manifest is published.
-A manifest freezes the definition and explicitly supplied model revision.
+A manifest freezes the definition, the explicitly supplied model revision, and the evaluator contract version.
+A deployment with a different evaluator version rejects the manifest and its checkpoints.
 A retry must reuse that manifest; a new run must prepare a new one.
 Empty manifests skip.
 

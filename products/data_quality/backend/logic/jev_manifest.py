@@ -18,6 +18,7 @@ from posthog.temporal.common.clickhouse import get_client
 
 from ..facade.enums import CheckRunStatus, SubjectType
 from .contracts import SubjectRef
+from .jev_cache import EVALUATOR_VERSION
 from .jev_question import (
     QuestionChunkEvaluator,
     QuestionChunkResult,
@@ -58,6 +59,7 @@ class QuestionManifest(BaseModel):
     subject_uuid: str
     model_id: str
     model_revision: str
+    evaluator_version: int = Field(ge=1)
     question_config: QuestionConfig
     column_name: str
     chunk_count: int = Field(ge=0)
@@ -165,6 +167,7 @@ async def freeze_question_inputs(
             subject_uuid=subject_uuid,
             model_id=model_id,
             model_revision=model_revision,
+            evaluator_version=EVALUATOR_VERSION,
             question_config=config.model_copy(deep=True),
             column_name=column_name,
             chunk_count=chunks,
@@ -254,6 +257,7 @@ def evaluate_question_manifest(
         manifest.team_id != evaluator.cache.team_id
         or manifest.model_id != evaluator.model_id
         or manifest.model_revision != evaluator.model_revision
+        or manifest.evaluator_version != EVALUATOR_VERSION
         or manifest.question_config != evaluator.config
     ):
         raise ValueError("The frozen run and decision evaluator do not match.")

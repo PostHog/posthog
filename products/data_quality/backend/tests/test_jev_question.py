@@ -28,7 +28,12 @@ from posthog.models.team import Team
 from products.data_quality.backend.facade.enums import CheckRunStatus, SubjectType
 from products.data_quality.backend.logic.compiler import print_check_query
 from products.data_quality.backend.logic.contracts import SubjectRef
-from products.data_quality.backend.logic.jev_cache import DecisionCacheUnavailable, DecisionRequest, JevDecisionCache
+from products.data_quality.backend.logic.jev_cache import (
+    EVALUATOR_VERSION,
+    DecisionCacheUnavailable,
+    DecisionRequest,
+    JevDecisionCache,
+)
 from products.data_quality.backend.logic.jev_evaluator import QuestionGatewayEvaluator
 from products.data_quality.backend.logic.jev_manifest import (
     QuestionManifest,
@@ -419,9 +424,12 @@ def test_manifest_checkpoint_coverage_mismatch_and_permission_revocation_fail_cl
                 new_decision_count=0,
             ),
         )
-    changed = manifest.model_copy(update={"question_config": QuestionConfig(question="A different question?")})
-    with pytest.raises(ValueError, match="do not match"):
-        run(changed, lambda: None)
+    for update in (
+        {"question_config": QuestionConfig(question="A different question?")},
+        {"evaluator_version": EVALUATOR_VERSION + 1},
+    ):
+        with pytest.raises(ValueError, match="do not match"):
+            run(manifest.model_copy(update=update), lambda: None)
 
 
 def test_inference_budget_errors_on_partial_coverage_but_allows_warm_decisions() -> None:
