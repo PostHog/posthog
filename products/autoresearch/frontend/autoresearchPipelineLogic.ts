@@ -63,6 +63,7 @@ import {
     firstCheckDate,
     latestChampionRow,
     realizedAucSeries,
+    validatedPredictionDates,
 } from './onlinePerformance'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
 import {
@@ -761,7 +762,6 @@ export interface autoresearchPipelineLogicMeta {
             pipeline: AutoresearchPipelineApi | null,
             champion: AutoresearchModelApi | null,
             runs: AutoresearchRunApi[],
-            onlinePerformance: OnlinePerformanceRowApi[],
             modelsLoaded: boolean,
             runsLoaded: boolean
         ) => LifecycleStep[] | null
@@ -1348,12 +1348,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             ): AutoresearchPipelineTab => selectedTab ?? defaultTab,
         ],
         lifecycleSteps: [
-            (s) => [s.pipeline, s.champion, s.runs, s.onlinePerformance, s.modelsLoaded, s.runsLoaded],
+            (s) => [s.pipeline, s.champion, s.runs, s.modelsLoaded, s.runsLoaded],
             (
                 pipeline: AutoresearchPipelineApi | null,
                 champion: AutoresearchModelApi | null,
                 runs: AutoresearchRunApi[],
-                onlinePerformance: OnlinePerformanceRowApi[],
                 modelsLoaded: boolean,
                 runsLoaded: boolean
             ): LifecycleStep[] | null =>
@@ -1363,7 +1362,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                           pipeline,
                           champion,
                           runs,
-                          validatedDates: onlinePerformance.map((row) => row.prediction_date),
+                          validatedDates: validatedPredictionDates(runs),
                           now: dayjs(),
                       })
                     : null,

@@ -106,3 +106,21 @@ export function firstCheckDate(
         .sort((a, b) => a.valueOf() - b.valueOf())[0]
     return firstScored ? firstScored.add(horizonDays ?? 0, 'day') : null
 }
+
+/**
+ * Prediction dates that a completed validation run checked. Reads the full run history, because the
+ * online_performance endpoint returns only the newest dates.
+ */
+export function validatedPredictionDates(
+    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'metrics'>[]
+): string[] {
+    return runs.flatMap((run) => {
+        const metrics = run.metrics as { prediction_date?: string; per_model?: Record<string, unknown> } | null
+        return run.run_type === 'validation' &&
+            run.status === 'completed' &&
+            metrics?.prediction_date &&
+            Object.keys(metrics.per_model ?? {}).length > 0
+            ? [metrics.prediction_date]
+            : []
+    })
+}

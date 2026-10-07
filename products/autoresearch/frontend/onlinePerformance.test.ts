@@ -1,5 +1,5 @@
-import { OnlinePerformanceRowApi } from './generated/api.schemas'
-import { calibrationBySegment, realizedAucSeries } from './onlinePerformance'
+import { AutoresearchRunApi, OnlinePerformanceRowApi } from './generated/api.schemas'
+import { calibrationBySegment, realizedAucSeries, validatedPredictionDates } from './onlinePerformance'
 
 function row(overrides: Partial<OnlinePerformanceRowApi>): OnlinePerformanceRowApi {
     return {
@@ -40,5 +40,17 @@ describe('onlinePerformance', () => {
             ['2026-02-10', 0.79],
             ['2026-02-12', 0.82],
         ])
+    })
+
+    test('validatedPredictionDates counts only completed validation runs that scored a model', () => {
+        const scored = { per_model: { champion: { n_scored: 100 } } }
+        const runs = [
+            { run_type: 'validation', status: 'completed', metrics: { prediction_date: '2026-02-10', ...scored } },
+            { run_type: 'validation', status: 'failed', metrics: { prediction_date: '2026-02-11', ...scored } },
+            { run_type: 'validation', status: 'completed', metrics: { prediction_date: '2026-02-12', per_model: {} } },
+            { run_type: 'inference', status: 'completed', metrics: { prediction_date: '2026-02-13', ...scored } },
+        ] as Pick<AutoresearchRunApi, 'run_type' | 'status' | 'metrics'>[]
+
+        expect(validatedPredictionDates(runs)).toEqual(['2026-02-10'])
     })
 })
