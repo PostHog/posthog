@@ -77,6 +77,7 @@ from .appsignal.source import AppsignalSource
 from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
 from .appwrite.source import AppwriteSource
+from .arcade.source import ArcadeSource
 from .argocd.source import ArgocdSource
 from .arxiv.source import ArxivSource
 from .asaas.source import AsaasSource
@@ -723,6 +724,7 @@ from .logrocket.source import LogrocketSource
 from .logz_io.source import LogzIOSource
 from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
+from .loom.source import LoomSource
 from .loop_returns.source import LoopReturnsSource
 from .loops.source import LoopsSource
 from .lovable.source import LovableSource
@@ -817,6 +819,7 @@ from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
 from .nebius_ai.source import NebiusAISource
+from .neo4j.source import Neo4jSource
 from .neon.source import NeonSource
 from .neon_crm.source import NeonCrmSource
 from .netlify.source import NetlifySource
@@ -1058,6 +1061,7 @@ from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
 from .schematic.source import SchematicSource
+from .scrunch.source import ScrunchSource
 from .search_ads_360.source import SearchAds360Source
 from .sec_edgar.source import SecEdgarSource
 from .secoda.source import SecodaSource
@@ -1209,6 +1213,7 @@ from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
 from .tessitura.source import TessituraSource
+from .testdino.source import TestDinoSource
 from .testrail.source import TestrailSource
 from .thinkific.source import ThinkificSource
 from .thinkific_courses.source import ThinkificCoursesSource
@@ -1287,6 +1292,7 @@ from .vendr.source import VendrSource
 from .veracode.source import VeracodeSource
 from .vercel.source import VercelSource
 from .vespa.source import VespaSource
+from .vimeo.source import VimeoSource
 from .virtuous.source import VirtuousSource
 from .visma_economic.source import VismaEconomicSource
 from .vitally.source import VitallySource
