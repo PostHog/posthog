@@ -6390,6 +6390,10 @@ snapshots:
         hash: v1.k794b7964.47dc280e27c512035ac74d86134e2b5771f84b1454556c492f6319d9d3ffa29f.l0n9noDhYfjTrpN-tlvi5TJq4RJCDIkUCFKse51o1O4
     products-autoresearch-probability-histogram--single-bucket--light:
         hash: v1.k794b7964.492095448990e600a399d4212b8fb96e8f95c2e7bdafb3f84d8bdc10467fbf4e.1OfZFFoGzmeH8sxtbwrD-H9bR_n08l9kV63NB2Sv1jU
+    products-business-intelligence-worksheets--worksheets--dark:
+        hash: v1.k794b7964.07d353f8f721fee4df50f532e578c185cb89a6e61838a84828b5d6aa8d074933.Vug8TcMYcUt4yrU-GMl8VkVhxa2sYMsjdHIOs3XbW6Q
+    products-business-intelligence-worksheets--worksheets--light:
+        hash: v1.k794b7964.e90e46bb924e56d9c070a598383f0921ea8228a4c0e496f5c74f48786f573f20.YO56ekCK2pncH_qlfkRjVVKdEKYu0mNRGsaCMxFCBu4
     products-dashboards--dashboard-states--dark:
         hash: v1.k794b7964.cc591635f83447f7bcfb802062302b8b1bbcd51826110b12fa0f68d4830dcfd3.CIgt_KxCyQRgbn7DPF4MDXc5JBlSxbaCPS0Snyx3cRs
     products-dashboards--dashboard-states--light:
@@ -9627,9 +9631,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-connections--light:
         hash: v1.k794b7964.1935edcfcf29d34595696392fd4978b775b6eaf66fb5dcb734df808591a2c593.y57z1-4L6Tt62192ZikMwh9oHmGvTtiAQoJcA_W_VPo
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--dark:
-        hash: v1.k794b7964.ddda7e3729ba2d0ba078ceceee1e8ef44308224557dd3bd2ac4883c3454c6800.NFaSC9E62GVTwg1gtlF-F_pTLx5JnxIqFn-8bkRDLc4
+        hash: v1.k794b7964.b4a02f191c3f0f4691938ccdbbecd888fe313e26ac3eeb639e84c61cda7b2f74.Oh9c6jjjxF2EmkAOz97vCMvVjMG13He9erxhY2wn8Ek
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
-        hash: v1.k794b7964.1583664cd6af59ea5d5f9278c943991856499b8362566f856e26ac3f8d344f90.YTsTB6R6yQBWYh89IBP_k5i58-89BUe5p6JWzhCaxjU
+        hash: v1.k794b7964.d0dac8ad6cf88537506fc2c707d49a1dd67e7fe671b4a3e358a55c93f307e64b.ZI2FaWEJG-rxpGz8O7Chl8Hl9-bcVy77eXKvWjbn2MI
     scenes-app-data-warehouse-sql-editor--bi-drilldown--dark:
         hash: v1.k794b7964.998cdecacb01c35e5707e5c3613da920fa045de78720f4f56473f25d05c899b4.DPaHE2T5QLyltGIWjg4V_xL9eXzIsvHpzSHkSaz23bE
     scenes-app-data-warehouse-sql-editor--bi-drilldown--light:
