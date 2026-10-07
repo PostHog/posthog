@@ -16,12 +16,7 @@ import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limi
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
 import { Hub } from '../../src/types'
 
-/**
- * Single shared kafkaProducer is enough for tests — point every CDP producer
- * slot at it so the routing layer doesn't try to open a second connection.
- * Defaults to the in-memory mock for unit tests; e2e tests should pass a real
- * producer so messages actually flow through Kafka.
- */
+/** Share one producer across slots to avoid opening extra Kafka connections. */
 function buildTestCdpProducerRegistry(
     kafkaProducer: KafkaProducerWrapper = mockProducer
 ): KafkaProducerRegistry<CdpProducerName> {
@@ -32,10 +27,6 @@ function buildTestCdpProducerRegistry(
     })
 }
 
-/**
- * No-op read repositories for tests that don't exercise person/group lookups.
- * Tests that need real resolution should override via spread.
- */
 const noopGroupReadRepository: GroupReadRepository = {
     fetchGroupsByKeys: () => Promise.resolve([]),
     fetchGroupTypesByTeamIds: () => Promise.resolve({}),

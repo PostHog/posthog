@@ -36,7 +36,6 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
-// Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
     const original = jest.requireActual('~/common/utils/request')
     return {
@@ -49,7 +48,6 @@ jest.mock('~/common/utils/request', () => {
 })
 
 const cleanLogs = (logs: string[]): string[] => {
-    // Replaces the function time with a fixed value to simplify testing
     return logs.map((log) => log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms'))
 }
 
@@ -257,16 +255,13 @@ describe('Hogflow Executor', () => {
 
             expect(result.finished).toBe(true)
             expect(result.invocation.state.currentAction?.id).toBe('exit')
-            // The fetch-doing action before the resume point must not run again.
             expect(mockFetch).toHaveBeenCalledTimes(0)
             expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
         })
 
         it('resuming a rerun onto an action removed by a later flow edit fails safe without re-running anything', async () => {
-            // #70792 restores currentAction on rerun. If the flow was edited after the run
-            // recorded its globals and the resume-point action was deleted, ensureCurrentAction
-            // can't find the id. The safe outcome is a finished, errored result — never a
-            // restart from the trigger (which would re-send) and never a hang.
+            // Live edits can delete a rerun's saved resume point. Terminate instead of restarting
+            // from the trigger, which could resend completed requests, or leaving the run hung.
             const invocation = createExampleHogFlowInvocation(hogFlow, {
                 event: {
                     ...createHogExecutionGlobals().event,
@@ -284,7 +279,6 @@ describe('Hogflow Executor', () => {
 
             expect(result.finished).toBe(true)
             expect(result.error).toContain('action_removed_by_edit')
-            // Nothing already done gets re-run: the fetch-doing action never executes.
             expect(mockFetch).toHaveBeenCalledTimes(0)
             expect(result.logs.map((log) => log.message)).not.toContain('Executing action [Action:function_id_1]')
         })
@@ -698,7 +692,6 @@ describe('Hogflow Executor', () => {
                     startedAtTimestamp: DateTime.now().toMillis(),
                 }
 
-                // First step: should process trigger and move to function_id_1, but not complete
                 const result1 = await executor.executeCurrentAction(invocation)
                 expect(result1.finished).toBe(false)
                 expect(result1.invocation.state.currentAction?.id).toBe('function_id_1')
@@ -707,7 +700,6 @@ describe('Hogflow Executor', () => {
                     'Workflow moved to action [Action:function_id_1]',
                 ])
 
-                // Second step: should process function_id_1 and move to exit, but not complete
                 const result2 = await executor.execute(result1.invocation)
                 expect(result2.finished).toBe(true)
                 expect(result2.invocation.state.currentAction?.id).toBe('exit')
@@ -807,13 +799,11 @@ describe('Hogflow Executor', () => {
             ])('exits gracefully when %s', async (_desc, mutateFlow) => {
                 const hogFlow = buildFlow()
                 const invocation = createExampleHogFlowInvocation(hogFlow)
-                // Parked on the delay long enough that it has elapsed, so the handler advances
                 invocation.state.currentAction = {
                     id: 'delay',
                     startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
                 }
                 mutateFlow(hogFlow)
-                // The flow was edited after the run arrived at the step - the live-edit case
                 hogFlow.updated_at = DateTime.now().toMillis()
 
                 const result = await executor.execute(invocation)
@@ -835,7 +825,6 @@ describe('Hogflow Executor', () => {
                     startedAtTimestamp: DateTime.now().minus({ hours: 3 }).toMillis(),
                 }
                 hogFlow.edges = hogFlow.edges.filter((edge) => edge.from !== 'delay')
-                // No edit since the run arrived: the missing edge is a bad definition, not a live edit
                 hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
 
                 const result = await executor.execute(invocation)
@@ -954,7 +943,6 @@ describe('Hogflow Executor', () => {
                     }
                     mutateFlow(hogFlow)
                     hogFlow.updated_at = DateTime.now().toMillis()
-                    // An entry for an unrelated deleted step must not capture this run
                     hogFlow.action_redirects = { some_other_step: 'exit' }
 
                     const result = await executor.execute(invocation)
@@ -974,7 +962,6 @@ describe('Hogflow Executor', () => {
                     }
                     hogFlow.actions = hogFlow.actions.filter((action) => action.id !== 'delay')
                     hogFlow.action_redirects = { delay: 'exit' }
-                    // No edit since the run arrived: the timestamp guard must run before any redirect
                     hogFlow.updated_at = DateTime.now().minus({ hours: 4 }).toMillis()
 
                     const result = await executor.execute(invocation)
@@ -1094,7 +1081,6 @@ describe('Hogflow Executor', () => {
                         expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
                             invocation.state.currentAction!.startedAtTimestamp + expectedParkOffsetMs
                         )
-                        // Parked without advancing: the run is still standing on the delay step
                         expect(result.invocation.state.currentAction?.id).toBe('delay')
                     }
                 })
@@ -1123,7 +1109,6 @@ describe('Hogflow Executor', () => {
                         expectedParkIso: '2025-01-01T05:00:00.000Z',
                     },
                 ])('$name', async ({ edited, expectedParkIso }) => {
-                    // Parked on a window that is closed at the fixed test time
                     const hogFlow = buildWindowFlow({ time: ['10:00', '11:00'], day: 'any', timezone: 'UTC' })
                     const invocation = parkAt(hogFlow, 'window', 60 * 60 * 1000)
                     editFlow(hogFlow, (flow) => {
@@ -1170,7 +1155,6 @@ describe('Hogflow Executor', () => {
 
                 it('a step inserted after the run position executes when reached (live edges are followed)', async () => {
                     const hogFlow = buildFlow()
-                    // Parked on the (2h) delay long enough that it advances on wake
                     const invocation = parkAt(hogFlow, 'delay', 3 * 60 * 60 * 1000)
                     editFlow(hogFlow, (flow) => {
                         addDelayAction(flow, 'delay_b')
@@ -1183,7 +1167,6 @@ describe('Hogflow Executor', () => {
 
                     const result = await executor.execute(invocation)
 
-                    // The run advanced onto the inserted step and parked there for its full duration
                     expect(result.finished).toBe(false)
                     expect(result.invocation.state.currentAction?.id).toBe('delay_b')
                     expect(result.invocation.queueScheduledAt?.toMillis()).toBe(
@@ -1213,8 +1196,6 @@ describe('Hogflow Executor', () => {
             })
 
             it('an in-progress function step completes with the inputs rendered before the edit', async () => {
-                // Two fetches so the function pauses mid-execution: the run parks between them
-                // with its rendered inputs stored in hogFunctionState
                 await insertHogFunctionTemplate(hub.postgres, {
                     id: 'template-test-follow-live-paused',
                     name: 'Prints an input before and after an async pause',
@@ -1246,13 +1227,11 @@ describe('Hogflow Executor', () => {
 
                 const invocation = createExampleHogFlowInvocation(hogFlow)
 
-                // First execution renders the inputs and pauses inside the function at the fetch
                 const pausedResult = await executor.execute(invocation)
                 expect(pausedResult.finished).toBe(false)
                 expect(pausedResult.invocation.state.currentAction?.hogFunctionState).toEqual(expect.any(Object))
                 expect(pausedResult.logs.map((l) => l.message).join('\n')).toContain('Rendered as, Original')
 
-                // Edit the input while the run is paused inside the step
                 editFlow(hogFlow, (flow) => {
                     const action = flow.actions.find((a) => a.id === 'function_1')!
                     ;(action.config as any).inputs.name.value = 'Edited'
@@ -1260,7 +1239,6 @@ describe('Hogflow Executor', () => {
                 ;(hogFlow.actions.find((a) => a.id === 'function_1')!.config as any).inputs.name.bytecode =
                     await compileHog(`return 'Edited'`)
 
-                // The continuation completes as prepared: inputs were rendered at step entry
                 const result = await executor.execute(pausedResult.invocation)
                 expect(result.finished).toBe(true)
                 expect(result.error).toBeUndefined()
@@ -1296,7 +1274,6 @@ describe('Hogflow Executor', () => {
                 })
 
                 it('a time window woken early with unchanged config re-parks at the original window start', async () => {
-                    // The window is closed at the fixed test time (2025-01-01T00:00:00Z)
                     const hogFlow = createHogFlow({
                         actions: {
                             window: {
@@ -1335,7 +1312,6 @@ describe('Hogflow Executor', () => {
 
                     const result = await executor.execute(invocation)
 
-                    // The always-open window handler runs and the run advances
                     expect(result.finished).toBe(true)
                     expect(result.error).toBeUndefined()
                     expect(result.invocation.state.currentAction?.id).toBe('exit')
@@ -1347,7 +1323,6 @@ describe('Hogflow Executor', () => {
             let hogFlow: HogFlow
 
             beforeEach(async () => {
-                // Setup: exit if person no longer matches trigger filters
                 hogFlow = new FixtureHogFlowBuilder()
                     .withExitCondition('exit_only_at_end')
                     .withWorkflow({
@@ -1393,10 +1368,8 @@ describe('Hogflow Executor', () => {
                     },
                 })
 
-                // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
                     'fetch',
                     'billable_invocation',
@@ -1412,10 +1385,8 @@ describe('Hogflow Executor', () => {
                     },
                 })
 
-                // Step 2: run again, should NOT exit early due to exit_only_at_end
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual([
                     'fetch',
                     'billable_invocation',
@@ -1438,7 +1409,6 @@ describe('Hogflow Executor', () => {
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
                 }
 
-                // Person does not match conversion filters yet
                 const invocation = createExampleHogFlowInvocation(
                     hogFlow,
                     {
@@ -1457,7 +1427,6 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
                     'fetch',
                     'billable_invocation',
@@ -1482,7 +1451,6 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // The property-based conversion is also counted on the exit path
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
@@ -1534,7 +1502,6 @@ describe('Hogflow Executor', () => {
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
-                // Setup: exit if person no longer matches trigger filters or person matches conversion filters
                 hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
                 hogFlow.trigger = {
                     type: 'event',
@@ -1552,7 +1519,6 @@ describe('Hogflow Executor', () => {
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
                 }
 
-                // Person does not match conversion filters yet
                 const invocation = createExampleHogFlowInvocation(
                     hogFlow,
                     {
@@ -1571,7 +1537,6 @@ describe('Hogflow Executor', () => {
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
                     'fetch',
                     'billable_invocation',
@@ -1597,7 +1562,6 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // The property-based conversion is also counted on the exit path
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
@@ -1656,7 +1620,6 @@ describe('Hogflow Executor', () => {
 
                 const result = await executor.execute(invocation)
                 expect(result.finished).toBe(true)
-                // No conversion metric from the executor; the flag is consumed, not double-counted
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
                 expect(invocation.state.conversionMatched).toBe(false)
                 expect(invocation.state.conversionCounted).toBeUndefined()
@@ -1686,7 +1649,6 @@ describe('Hogflow Executor', () => {
                                             },
                                         },
                                     },
-                                    // filters: none
                                 },
                                 middle_action: {
                                     id: 'middle_action',
@@ -1716,7 +1678,6 @@ describe('Hogflow Executor', () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'continue'
 
-                        // Mock the handler to return an error in the result
                         const functionHandler = executor['actionHandlers']['function']
                         jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
                             error: new Error('Mocked handler error'),
@@ -1748,8 +1709,6 @@ describe('Hogflow Executor', () => {
                         )
                     })
 
-                    // Steps saved before error handling was configurable, and steps the author never
-                    // touched, carry no on_error. They get the documented default: continue.
                     it('continues to next action when on_error is not set', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         delete action.on_error
@@ -1810,7 +1769,6 @@ describe('Hogflow Executor', () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'abort'
 
-                        // Mock the handler to return an error in the result
                         const functionHandler = executor['actionHandlers']['function']
                         jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
                             error: new Error('Mocked handler error'),
@@ -1833,7 +1791,6 @@ describe('Hogflow Executor', () => {
 
                         expect(result.error).toBe('Mocked handler error')
                         expect(result.finished).toBe(true)
-                        // Should stay on function_id_1 - goToNextAction was NOT called
                         expect(result.invocation.state.currentAction?.id).toBe('function_id_1')
                         expect(result.logs.map((l) => l.message)).not.toEqual(
                             expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
@@ -1846,7 +1803,6 @@ describe('Hogflow Executor', () => {
                             ])
                         )
 
-                        // Check that logger.error was called with the expected log
                         expect(loggerErrorSpy).toHaveBeenCalledWith(
                             '🦔',
                             expect.stringContaining(
@@ -1931,7 +1887,6 @@ describe('Hogflow Executor', () => {
         })
 
         describe('per action runner tests', () => {
-            // NOTE: We test one case of each action to ensure it works as expected, the rest is handles as per-action unit test
             const cases: [
                 string,
                 SimpleHogFlowRepresentation,
@@ -1949,7 +1904,7 @@ describe('Hogflow Executor', () => {
                                 type: 'wait_until_condition',
                                 config: {
                                     condition: {
-                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
+                                        filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
                                     },
                                     max_wait_duration: '10m',
                                 },
@@ -2030,7 +1985,6 @@ describe('Hogflow Executor', () => {
                     {
                         finished: false,
                         scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
-                        // Still pending, so the delay parks without advancing currentAction
                         nextActionId: 'delay',
                     },
                 ],
@@ -2107,7 +2061,6 @@ describe('Hogflow Executor', () => {
                         },
                     })
 
-                    // For the random_cohort_branch action
                     jest.spyOn(Math, 'random').mockReturnValue(0.8)
 
                     invocation.state.currentAction = {
@@ -2270,7 +2223,6 @@ describe('Hogflow Executor', () => {
                             type: 'trigger',
                             config: {
                                 type: 'event',
-                                // Use the test account filter which filters out @posthog.com emails
                                 filters: HOG_FILTERS_EXAMPLES.test_account_filter.filters ?? {},
                             },
                         },
@@ -2310,7 +2262,6 @@ describe('Hogflow Executor', () => {
         })
 
         it('should filter out internal users with @posthog.com email', async () => {
-            // Create globals with internal user email
             const globals = createHogExecutionGlobals({
                 event: {
                     uuid: 'uuid',
@@ -2335,7 +2286,6 @@ describe('Hogflow Executor', () => {
 
             const result = await executor.buildHogFlowInvocations([hogFlow], globals)
 
-            // Should not match because email contains @posthog.com
             expect(result.invocations).toHaveLength(0)
             // These metrics are queued straight by the pipeline, not via an invocation result, so they
             // need the version stamped here or a trigger change that filters everyone out is invisible
@@ -2349,7 +2299,6 @@ describe('Hogflow Executor', () => {
         })
 
         it('should allow external users without @posthog.com email', async () => {
-            // Create globals with external user email
             const globals = createHogExecutionGlobals({
                 event: {
                     uuid: 'uuid',
@@ -2374,7 +2323,6 @@ describe('Hogflow Executor', () => {
 
             const result = await executor.buildHogFlowInvocations([hogFlow], globals)
 
-            // Should match because email doesn't contain @posthog.com
             expect(result.invocations).toHaveLength(1)
             expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
         })
@@ -2437,7 +2385,6 @@ describe('Hogflow Executor', () => {
                 })
                 .build()
 
-            // Set variables directly with required fields
             hogFlow.variables = [
                 { key: 'foo', default: 'bar', type: 'string', label: 'foo' },
                 { key: 'baz', default: 123, type: 'number', label: 'baz' },
@@ -2603,7 +2550,6 @@ describe('Hogflow Executor', () => {
             const hogFlow = await hogFlowBuilder({ key: 'resp', result_path: 'body', spread: true })
             const result = await executeToCompletion(hogFlow)
 
-            // body is { status: 200 } so spread should create resp_status
             expect(result.invocation.state.variables?.resp_status).toBe(200)
         })
 
@@ -2626,7 +2572,6 @@ describe('Hogflow Executor', () => {
 
         it('errors and exits when total variable size exceeds 5KB with on_error=abort', async () => {
             const hogFlow = await hogFlowBuilder({ key: 'response', result_path: null })
-            // Set action to abort on error
             const action = hogFlow.actions.find((a) => a.id === 'action_1')!
             action.on_error = 'abort'
 
@@ -2663,7 +2608,6 @@ describe('Hogflow Executor', () => {
                 result = await executor.execute(result.invocation)
             }
 
-            // on_error=continue (default), so workflow finishes but variables are cleaned up
             expect(result.finished).toBe(true)
             expect(result.invocation.state.variables?.response).toBeUndefined()
             expect(result.invocation.state.variables?.existing).toBe('x'.repeat(5100))
@@ -2671,7 +2615,6 @@ describe('Hogflow Executor', () => {
         })
 
         it('warns when output variable specified but no result returned', async () => {
-            // Use a template that doesn't do a fetch (no result)
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-no-result',
                 name: 'No result template',
@@ -2711,12 +2654,10 @@ describe('Hogflow Executor', () => {
 
             const result = await executeToCompletion(hogFlow)
 
-            // No variables should be set since no result was produced
             expect(result.invocation.state.variables).toBeUndefined()
         })
 
         it('links a create-ai-task result to the task in the stored action result log', async () => {
-            // Mirrors the shape template-posthog-create-task returns on success: { id, run_id }.
             // A non-empty inputs_schema sidesteps an insertRow quirk where an empty array param
             // reaches the jsonb column as an empty object, not an empty array.
             await insertHogFunctionTemplate(hub.postgres, {
@@ -2830,7 +2771,6 @@ describe('Hogflow Executor', () => {
                 ],
             })
 
-            // Create a workflow with 2 regular hog function actions and 2 email actions
             const hogFlow = createHogFlow({
                 actions: {
                     function_1: {
@@ -2928,7 +2868,6 @@ describe('Hogflow Executor', () => {
             expect(result.finished).toBe(true)
             expect(result.error).toBeUndefined()
 
-            // Verify we have billing metrics for both hog functions and email actions
             const fetchBilling = metrics.filter(
                 (m) => m.metric_kind === 'fetch' && m.metric_name === 'billable_invocation'
             )
@@ -3025,7 +2964,6 @@ describe('Hogflow Executor', () => {
 
             const result = await executor.execute(invocation)
 
-            // Should be routed to email queue, not finished
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('email')
             expect(result.invocation.queueMetadata?.originQueue).toBeDefined()
@@ -3124,26 +3062,21 @@ describe('Hogflow Executor', () => {
             // before the email action runs (the trigger action executes first here).
             invocation.queuePriority = 2
 
-            // Step 1: Hogflow worker executes (queue !== 'email') — should route to email queue
             const hogflowResult = await executor.execute(invocation)
             expect(hogflowResult.finished).toBe(false)
             expect(hogflowResult.invocation.queue).toBe('email')
             expect(hogflowResult.invocation.queueParameters?.type).toBe('email')
-            // Uncategorized sends classify as bulk (priority 1).
             expect(hogflowResult.invocation.queuePriority).toBe(1)
             expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
-            // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
             let emailResult = await executor.execute(hogflowResult.invocation)
             while (!emailResult.finished) {
                 emailResult = await executor.execute(emailResult.invocation)
             }
 
-            // Workflow should complete
             expect(emailResult.finished).toBe(true)
             expect(emailResult.error).toBeUndefined()
 
-            // Verify email_sent metric was emitted
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
         })

@@ -138,7 +138,6 @@ type TeamEmailCapBucket = {
     capacity: number
     refillPerSecond: number
     ttlSeconds: number
-    /** Cap and period as the customer sees them in the log line. */
     label: string
 }
 
@@ -167,8 +166,6 @@ export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap:
 }
 
 export interface TeamEmailCapConfig {
-    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
-    // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
@@ -309,8 +306,6 @@ export class TeamSendingCap implements SendPacer {
             }
         }
 
-        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
-        // and log the first cap that would have delayed it, measuring both against real traffic.
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
             const granted = await this.limiter.claimUpTo({

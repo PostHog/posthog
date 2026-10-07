@@ -53,11 +53,6 @@ export interface HogExecutorAsyncConfig {
     internalApiBaseUrl: string
 }
 
-/**
- * Every capability the async functions can reach is required - an async executor missing one is a
- * misconfiguration, not a supported mode, and would only surface as a runtime throw deep inside a
- * customer's function. Callers that don't need any of them want HogExecutorService directly.
- */
 export interface HogExecutorAsyncDependencies {
     teamManager: TeamManager
     conversationsTicketsJwt: ScopedServiceJwt
@@ -79,14 +74,6 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     isTest?: boolean
 }
 
-/**
- * Hog execution plus everything a function needs to suspend and resume: fetches, emails, push
- * notifications, and the queue routing between the workers that service them.
- *
- * The synchronous Hog core is exposed as `hogExecutor` rather than re-wrapped, so callers reach
- * `buildInputsWithGlobals` / `buildHogFunctionInvocations` / `getSensitiveValues` on the thing that
- * actually owns them.
- */
 export class HogExecutorAsyncService {
     constructor(
         public readonly hogExecutor: HogExecutorService,
@@ -128,20 +115,10 @@ export class HogExecutorAsyncService {
                 asyncFunctionCount++
 
                 if (result && asyncFunctionCount > maxAsyncFunctions) {
-                    // We don't want to block the consumer too much hence we have a limit on async functions
                     logger.debug('🦔', `[HogExecutor] Max async functions reached: ${maxAsyncFunctions}`)
                     break
                 }
 
-                // Queue-aware routing: each worker can execute some actions inline
-                // and routes others to a specialized queue. The email worker sends
-                // emails inline but routes fetches back to hogflow. The hogflow
-                // worker does fetches inline but routes emails to the email queue.
-                //
-                // Future: once we add an execution time budget, the email worker
-                // will also handle fetches inline. The only reason to reschedule
-                // back to hogflow will be when overall execution time exceeds the
-                // budget, to avoid blocking the queue.
                 if (queueParamsType === 'fetch') {
                     if (invocation.queue === 'email') {
                         // Intermediate results clone away queueMetadata (createInvocationResult
@@ -165,8 +142,6 @@ export class HogExecutorAsyncService {
                         options?.isTest ?? false
                     )
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue unless this is a test run: tests execute in-process and
-                    // never enqueue, so routing would leave the job unworked.
                     const routeToEmailQueue = invocation.queue !== 'email' && !options?.isTest
                     if (routeToEmailQueue) {
                         // Stash the entry invocation's priority as the origin, not nextInvocation's:
@@ -184,14 +159,12 @@ export class HogExecutorAsyncService {
                             nextInvocation.queuePriority =
                                 EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
                         }
-                        // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
                 }
             } else {
-                // Finish execution, carrying forward previous execResult
                 // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
                 const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
                 result = await this.execute(
@@ -205,7 +178,6 @@ export class HogExecutorAsyncService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
-            // If we have finished _or_ something has been scheduled to run later _or_ the job was routed to a different queue then we break the loop
             if (result.finished || result.invocation.queueScheduledAt || result.invocation.queue !== invocation.queue) {
                 break
             }
@@ -225,10 +197,6 @@ export class HogExecutorAsyncService {
         return result
     }
 
-    /**
-     * A single Hog step with async functions available: the program can call `fetch`, `sendEmail`
-     * and friends, and its handler leaves the queue parameters the resumed run needs.
-     */
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
         options: HogExecutorExecuteOptions = {},
@@ -283,11 +251,6 @@ export class HogExecutorAsyncService {
         )
     }
 
-    /**
-     * Routes an email send to the dedicated email queue instead of sending inline.
-     * The email worker will pick this up, send via SES, and return the job to the
-     * original queue so the workflow can continue.
-     */
     private routeEmailToQueue(
         invocation: CyclotronJobInvocationHogFunction,
         originPriority: number
@@ -335,8 +298,6 @@ export class HogExecutorAsyncService {
             invocation,
             {
                 queue: targetQueue as CyclotronJobInvocationHogFunction['queue'],
-                // Restore the priority the job had before routeEmailToQueue reclassified
-                // it, so an email-class value never orders jobs on the origin queue.
                 queuePriority: originPriority,
                 queueParameters: invocation.queueParameters,
                 queueMetadata: undefined,
@@ -418,7 +379,6 @@ export class HogExecutorAsyncService {
                     const depth = getSelfLoopDepth(invocation.state.globals.event?.properties, functionId)
 
                     if (depth >= SELF_LOOP_MAX_DEPTH) {
-                        // This destination has re-fed itself to the cap - break it.
                         selfLoopGuardCounter.inc({ mode: 'enforce', action: 'blocked' })
                         addLog(
                             'error',
@@ -428,7 +388,6 @@ export class HogExecutorAsyncService {
                         result.finished = true
                         return result
                     }
-                    // Under the cap - stamp this destination's next hop and proceed.
                     selfLoopGuardCounter.inc({ mode: 'enforce', action: 'allowed_with_counter' })
                     params.body = injectSelfLoopDepth(params.body, functionId, depth + 1)
                 }
@@ -560,7 +519,6 @@ export class HogExecutorAsyncService {
             }
         }
 
-        // Reset the attempts as we are done
         result.invocation.state.attempts = 0
 
         let body: unknown = undefined
@@ -570,9 +528,7 @@ export class HogExecutorAsyncService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch {
-                    // Pass through the error
-                }
+                } catch {}
             }
         } catch (e) {
             addLog('error', `Failed to parse response body: ${e.message}`)
@@ -594,7 +550,6 @@ export class HogExecutorAsyncService {
             body: body ?? (fetchError ? `${fetchError.name}: ${fetchErrorDetail(fetchError)}` : undefined),
         }
 
-        // Finally we create the response object as the VM expects
         result.invocation.state.vmState!.stack.push(hogVmResponse)
         result.execResult = hogVmResponse
 

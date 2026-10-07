@@ -130,7 +130,6 @@ export interface EmailServiceConfig extends TeamEmailCapConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
-    // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
@@ -148,9 +147,6 @@ export function sanitizeEmailSubject(subject: string): string {
         .trim()
 }
 
-// Splits a comma-separated address list and extracts the bare email from any RFC-822
-// `"Name" <email@x>` entries. Used by the pre-send suppression check to normalize cc/bcc entries
-// before matching against the suppression list (which stores bare, lower-cased addresses).
 export function extractEmailsFromAddressList(value: string | undefined): string[] {
     if (typeof value !== 'string' || value.trim().length === 0) {
         return []
@@ -378,8 +374,6 @@ export class EmailService {
                 return result
             }
 
-            // Like suppression, the tracking decision lives at this choke point so every send path
-            // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
@@ -410,9 +404,6 @@ export class EmailService {
             const capDelay = await this.teamSendingCap.claim(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
-                // Re-attach the email payload before rescheduling, for the same reason as the
-                // per-workflow limit above: createInvocationResult cleared queueParameters, and
-                // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
@@ -506,7 +497,6 @@ export class EmailService {
             return result
         }
 
-        // Push the response to the VM stack if running inline (not from the email queue)
         result.invocation.state.vmState?.stack.push({
             success,
         })
@@ -583,11 +573,6 @@ export class EmailService {
         return result
     }
 
-    // Returns a human-readable log string when any destination address is suppressed for the team,
-    // or null when the send should proceed. Scans to + cc + bcc — SES delivers to every list, so a
-    // suppressed address anywhere blocks the whole send. `cc` and `bcc` can be comma-separated
-    // lists with RFC-822 `"Name" <email>` entries; we strip the angle-bracketed address before
-    // matching against the normalized suppression identifier.
     private async buildSuppressionSkipReason(
         teamId: number,
         params: CyclotronInvocationQueueParametersEmailType
@@ -718,9 +703,8 @@ export class EmailService {
         }
     }
 
-    // An unusable override degrades to the integration's own sender rather than failing the send.
-    // Steps authored before mid-2026 carry a placeholder address written by an old sender picker,
-    // so throwing here fails sends whose author never typed an address at all.
+    // Legacy sender pickers wrote placeholder addresses without user input; rejecting those
+    // overrides would fail otherwise valid sends. Fall back to the integration sender.
     private resolveFromEmailAddress(
         integration: IntegrationType,
         overrideEmail: string | undefined,
@@ -759,7 +743,6 @@ export class EmailService {
         return overrideEmail
     }
 
-    // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersEmailType,

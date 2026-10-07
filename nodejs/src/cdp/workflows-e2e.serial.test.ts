@@ -1,15 +1,3 @@
-/**
- * Workflows E2E tests through postgres-v2 (Cyclotron node DB).
- *
- * These tests exercise the full hogflow lifecycle:
- *   event → CdpEventsConsumer → CyclotronJobQueuePostgresV2 (produces to v2 DB)
- *   → CdpCyclotronWorkerHogFlow (polls v2 DB) → HogFlowExecutorService
- *   → results written back to v2 DB → logs/metrics to Kafka
- *
- * Only `fetch` is mocked. Everything else is real: v2 database, Kafka
- * producers, Postgres, Redis, person loading, filter evaluation, and
- * state serialization.
- */
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -107,7 +95,7 @@ jest.mock('node:dns/promises', () => ({
     })),
 }))
 
-// Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
+// Use config.ts environment variables so cleanup pools and the hub target the same databases.
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
@@ -139,7 +127,6 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     beforeEach(async () => {
-        // Real Kafka producers for all CDP producer slots
         MockKafkaProducerWrapper.create = jest.fn((...args) => {
             return ActualKafkaProducerWrapper.create(...args)
         })
@@ -160,7 +147,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         hub.CDP_FETCH_RETRIES = 2
         hub.CDP_FETCH_BACKOFF_BASE_MS = 50
 
-        // Insert a simple fetch template for function actions
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-workflows-e2e-fetch',
             name: 'Workflows E2E Fetch',
@@ -187,21 +173,17 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
-        // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
         eventsConsumer = new CdpEventsConsumer(hub, deps, {
             hogQueue: kafkaQueue,
             hogflowQueue,
         })
-        // Drives the data-warehouse-table trigger path. We call processBatch() directly, so the
-        // Kafka consumer is never connected — the shared queues below are the only producers.
         dwhConsumer = new CdpDatawarehouseEventsConsumer(hub, deps, {
             hogQueue: kafkaQueue,
             hogflowQueue,
         })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
-        // Start hogflow worker (consumer side — polls the postgres-v2 backend)
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
         await hogflowWorker.start()
 
@@ -222,8 +204,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         mockProducerObserver.resetKafkaProducer()
     })
 
-    // ── Helpers ──────────────────────────────────────────────────────
-
     function createGlobals(
         overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
     ): HogFunctionInvocationGlobals {
@@ -242,7 +222,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     }
 
-    // v2 stores job lifecycle in the `status` column.
     const statusColumn = 'status'
 
     async function queryCyclotronJobs(): Promise<any[]> {
@@ -250,7 +229,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         return result.rows
     }
 
-    /** Send an event through the events consumer and wait for it to be queued to v2 */
     async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
         await backgroundTask
@@ -277,13 +255,11 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     }
 
-    /** Send a synced warehouse row through the DWH consumer and wait for it to be queued */
     async function triggerDwhWorkflow(rowGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await dwhConsumer.processBatch([rowGlobals])
         await backgroundTask
     }
 
-    /** Insert an active hogflow for the current team */
     async function createWorkflow(
         workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
         opts?: { name?: string }
@@ -292,7 +268,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         return flow.id
     }
 
-    /** Same as createWorkflow but returns the full HogFlow object (useful for hand-built invocations) */
     async function createWorkflowFlow(
         workflow: Parameters<FixtureHogFlowBuilder['withWorkflow']>[0],
         opts?: { name?: string; conversion?: HogFlow['conversion']; exitCondition?: HogFlow['exit_condition'] }
@@ -344,7 +319,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         await hogflowQueue.queueInvocations([invocation])
     }
 
-    // Reusable action configs
     const trigger = () =>
         ({
             type: 'trigger' as const,
@@ -438,7 +412,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect.objectContaining({ method: 'POST' })
             )
 
-            // Verify metrics were produced to Kafka
             await waitForExpect(() => {
                 const metrics = mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -446,7 +419,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(metrics.length).toBeGreaterThanOrEqual(1)
             }, 5000)
 
-            // Verify logs were produced to Kafka
             await waitForExpect(() => {
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs.length).toBeGreaterThanOrEqual(1)
@@ -573,7 +545,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         it('should reschedule on delay and execute function after delay passes', async () => {
             await triggerWorkflow(globals)
 
-            // First: worker picks up job and hits the delay — job gets rescheduled
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -582,10 +553,8 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(rescheduled.length).toBe(1)
             }, 5000)
 
-            // Fetch should NOT have been called yet (delay hasn't passed)
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Wait for the delay to pass and the worker to pick up the job again
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
@@ -595,7 +564,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect.objectContaining({ method: 'POST' })
             )
 
-            // Verify the job completed (transition_count > 1 due to reschedule)
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const terminal = jobs.filter(
@@ -624,8 +592,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         }
 
         it('parks until the date on the event, then continues', async () => {
-            // A fixed duration cannot express this: the instant comes from the payload, so two runs of the
-            // same workflow park to different times.
             const expiresAt = DateTime.utc().plus({ seconds: 0.5 })
             await workflowWaitingUntil()
             await triggerWorkflow(createGlobals({ properties: { expires_at: expiresAt.toISO() } } as any))
@@ -634,7 +600,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     (j: any) => j[statusColumn] === 'available' && new Date(j.scheduled) > new Date()
                 )
                 expect(parked).toHaveLength(1)
-                // Parked to the instant from the data, not to some default span.
                 const scheduled = DateTime.fromJSDate(new Date(parked[0].scheduled)).toUTC()
                 expect(Math.abs(scheduled.diff(expiresAt).as('seconds'))).toBeLessThan(2)
             }, 5000)
@@ -648,7 +613,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('continues straight away when the date has already passed', async () => {
-            // The guard against a reminder for something that already happened firing days late.
             await workflowWaitingUntil()
             await triggerWorkflow(
                 createGlobals({ properties: { expires_at: DateTime.utc().minus({ days: 5 }).toISO() } } as any)
@@ -660,8 +624,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('fires before the date when an offset asks for it', async () => {
-            // The shape a "remind me N days before" workflow needs, and the reason an offset exists rather
-            // than only a bare date: here the date is 1 hour out and the offset pulls the wait to now.
             await workflowWaitingUntil('-1h')
             await triggerWorkflow(
                 createGlobals({ properties: { expires_at: DateTime.utc().plus({ hours: 1 }).toISO() } } as any)
@@ -745,7 +707,6 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         beforeEach(async () => {
             await resetBehavioralCohortsDatabase(hub.postgres)
-            // The person's uuid is the key the cohort_membership lookup runs against
             mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
                 {
                     id: '1',
@@ -838,31 +799,25 @@ describe('Workflows E2E (postgres-v2)', () => {
         it('should cancel the job when workflow is archived during delay', async () => {
             await triggerWorkflow(globals)
 
-            // Wait for the delay step to be hit (job rescheduled)
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             }, 5000)
 
-            // Archive the hogflow while job is waiting
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_hogflow SET status = 'archived' WHERE id = $1`,
                 [hogFlowId],
                 'archiveHogFlow'
             )
-
-            // Force the hogflow manager to reload
             ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(hogFlowId)
 
-            // Wait for the delayed job to be picked up and canceled
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const canceled = jobs.filter((j: any) => j.status === 'canceled')
                 expect(canceled.length).toBe(1)
             }, 10000)
 
-            // Function should NOT have been called
             expect(mockFetch).not.toHaveBeenCalled()
 
             // The run must terminate through the result pipeline, not a silent queue flip:
@@ -883,7 +838,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         // pull the wake forward explicitly (the same scheduled-time update the subscription
         // matcher performs), so there is no race between the park deadline and the edit.
 
-        /** Wait until a job is parked in the future (a delay/wait step was hit) */
         async function waitForParkedJob(): Promise<void> {
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
@@ -891,7 +845,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 5000)
         }
 
-        /** Persist an edited actions/edges graph and bust the worker's config cache, like Django's save + pub/sub would */
         async function applyLiveEdit(flow: HogFlow): Promise<void> {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -902,14 +855,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
         }
 
-        /** Pull parked jobs' scheduled time forward so the worker picks them up now */
         async function wakeParkedJobsNow(): Promise<void> {
             await cyclotronPool.query(
                 `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
             )
         }
 
-        /** Shorten the flow's delay so the woken run advances instead of re-parking */
         function shortenDelay(flow: HogFlow, actionId: string): void {
             const delay = flow.actions.find((a) => a.id === actionId)!
             ;(delay.config as any).delay_duration = '0.5s'
@@ -966,7 +917,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 10000)
             await waitForParkedJob()
 
-            // Reroute the delay's continue edge onto a newly added step
             const functionB = flow.actions.find((a) => a.id === 'function_b')!
             flow.actions.push({
                 ...functionB,
@@ -990,8 +940,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-c', expect.anything())
             }, 10000)
 
-            // Exactly one send per executed step: the step behind the run did not re-run, the old
-            // target never ran, the new target ran once
             const urls = mockFetch.mock.calls.map((call) => call[0])
             expect(urls.filter((u) => u === 'https://example.com/step-a')).toHaveLength(1)
             expect(urls.filter((u) => u === 'https://example.com/step-b')).toHaveLength(0)
@@ -1023,7 +971,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await applyLiveEdit(flow)
             await wakeParkedJobsNow()
 
-            // The parked run wakes, finds its step gone, and finishes as a deliberate exit
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(1)
@@ -1082,7 +1029,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                         type: 'wait_until_condition',
                         config: {
                             condition: {
-                                // Matches $pageview with "posthog" in $current_url
                                 filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
                             },
                             max_wait_duration: '10s',
@@ -1100,7 +1046,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     { from: 'function_timeout', to: 'exit', type: 'continue' },
                 ],
             })
-            // Event matches the condition: $pageview with posthog in URL
             globals = createGlobals({
                 event: '$pageview',
                 properties: { $current_url: 'https://posthog.com' },
@@ -1114,7 +1059,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
 
-            // Should hit the matched branch, not the timeout branch
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
     })
@@ -1128,7 +1072,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                         type: 'wait_until_condition',
                         config: {
                             condition: {
-                                // Requires $autocapture with "reload" in elements_chain_texts — won't match
                                 filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
                             },
                             max_wait_duration: '0.5s',
@@ -1150,7 +1093,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         it('should reschedule while polling, then continue after max_wait expires', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled (condition doesn't match, waiting for next poll)
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -1159,11 +1101,8 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(rescheduled.length).toBe(1)
             }, 5000)
 
-            // Fetch should NOT be called yet — still waiting for condition
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // After max_wait expires, the condition times out and the workflow
-            // continues to the function action via the continue edge
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
@@ -1175,7 +1114,6 @@ describe('Workflows E2E (postgres-v2)', () => {
     describe('wait_until_condition: subscription matcher wakes parked jobs', () => {
         let matcher: CdpHogflowSubscriptionMatcherConsumer
 
-        // trigger → wait_condition → (matched branch | timeout continue) → exit
         const createWaitUntilWorkflow = (waitConfig: Record<string, any>): Promise<string> =>
             createWorkflow({
                 actions: {
@@ -1194,7 +1132,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 ],
             })
 
-        // The job is parked when it is available with a scheduled time in the future.
         const expectParked = async (): Promise<void> => {
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
@@ -1213,7 +1150,6 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         it('wakes a parked job and takes the matched branch when a subscribed event fires', async () => {
             await createWaitUntilWorkflow({
-                // Property condition never matches the trigger event, so the job parks.
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
                 events: [eventNameFilter('wakeup_event')],
                 max_wait_duration: '5m',
@@ -1221,7 +1157,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // A subscribed event fires for this person — the matcher wakes the job.
             await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
 
             await waitForExpect(() => {
@@ -1232,18 +1167,13 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         it('wakes a parked job whose wait entry is action-based (events empty, actions + bytecode set)', async () => {
             await createWaitUntilWorkflow({
-                // Property condition never matches the trigger event, so the job parks.
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                // "Events to wait for" entry targets a PostHog Action: filters.events is empty,
-                // filters.actions is set, and the compiled bytecode matches the action's event.
                 events: [actionFilter('action_wakeup_event', 3)],
                 max_wait_duration: '5m',
             })
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The action's underlying event fires — the matcher must wake the job via the action
-            // entry even though filters.events is empty.
             await matcher.processBatch([createGlobals({ event: 'action_wakeup_event' })])
 
             await waitForExpect(() => {
@@ -1254,16 +1184,12 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         it('wakes a parked job when a later event satisfies the property condition', async () => {
             await createWaitUntilWorkflow({
-                // No events list — only a property-based condition. The matcher evaluates the
-                // condition against every incoming event, making property waits event-driven.
                 condition: { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters },
                 max_wait_duration: '5m',
             })
-            // Trigger with an event that does not satisfy the condition, so the job parks.
             await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
             await expectParked()
 
-            // A later $pageview with a posthog URL satisfies the property condition.
             await matcher.processBatch([
                 createGlobals({ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }),
             ])
@@ -1282,10 +1208,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             })
             await triggerWorkflow(createGlobals())
 
-            // An unrelated event passes through the matcher but must not wake the job.
             await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
 
-            // After max_wait expires the job advances down the continue (timeout) branch.
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 15000)
@@ -1301,7 +1225,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // An unrelated event must not wake the job.
             await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
 
             const jobs = await queryCyclotronJobs()
@@ -1321,7 +1244,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // An unrelated event must not wake the job — the always-true bytecode would otherwise match.
             await matcher.processBatch([createGlobals({ event: 'some_unrelated_event' })])
 
             const jobs = await queryCyclotronJobs()
@@ -1330,16 +1252,12 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('does not fire on entry for an empty property condition; takes the timeout branch', async () => {
-            // An empty condition compiles to always-true bytecode. The executor evaluates the
-            // condition on entry, so without the guard the wait advances down the matched branch
-            // immediately. With no events and no real condition it must park and time out instead.
             await createWaitUntilWorkflow({
                 condition: { filters: emptyConditionFilters() },
                 max_wait_duration: '0.5s',
             })
             await triggerWorkflow(createGlobals())
 
-            // If it fired on entry this would be the matched branch; it must be the timeout branch.
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 15000)
@@ -1347,10 +1265,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('does not fire on entry when an empty condition coexists with a real events entry; still wakes on the event', async () => {
-            // The reported bug: an empty (always-true) condition alongside a real "events to wait
-            // for" entry. Without the guard the empty condition matches on entry and the wait fires
-            // immediately, ignoring the configured event. It must park and only wake when the event
-            // actually fires.
             await createWaitUntilWorkflow({
                 condition: { filters: emptyConditionFilters() },
                 events: [eventNameFilter('wakeup_event')],
@@ -1359,7 +1273,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The configured event fires — the matcher wakes the job via the events entry.
             await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
 
             await waitForExpect(() => {
@@ -1399,7 +1312,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The wait's event fires during the delay — the job must stay parked in the delay.
             await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
 
             const jobs = await queryCyclotronJobs()
@@ -1437,7 +1349,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The conversion event fires during the delay — it must not pull the job out early.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
 
             const jobs = await queryCyclotronJobs()
@@ -1474,14 +1385,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The conversion event fires during the delay — the workflow must exit early.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
 
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.some((j: any) => ['completed', 'failed', 'canceled'].includes(j.status))).toBe(true)
             }, 10000)
-            // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
@@ -1491,7 +1400,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             // person stream synthesizes a $person_updated globals carrying the new person.properties,
             // which the wait's property condition then matches.
             await createWaitUntilWorkflow({
-                // Person-property condition only — never satisfied by the trigger event, so it parks.
                 condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
                 max_wait_duration: '5m',
             })
@@ -1520,8 +1428,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // A clickhouse_person mutation for that person — the person now matches `plan=enterprise`.
-            // No analytics event is involved; this comes straight off the person topic.
             const personMessage = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -1610,14 +1516,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             })
             await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
             await expectParked()
-            // Right event, wrong property — must not wake.
             await matcher.processBatch([
                 createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
             ])
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
-            // Right event and property — wakes.
             await matcher.processBatch([
                 createGlobals({ event: 'cal_booking', properties: { trigger_event: 'BOOKING_CREATED' } }),
             ])
@@ -1672,7 +1576,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 },
                 max_wait_duration: '5m',
             })
-            // Parked person has shop_id but no billing status yet, so the condition is false and it parks.
             mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
                 {
                     id: '1',
@@ -1691,7 +1594,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             ])
             await triggerWorkflow(createGlobals())
             await expectParked()
-            // clickhouse_person mutation sets 42_billing_status = 'active' with no analytics event.
             const personMessage = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -1766,15 +1668,10 @@ describe('Workflows E2E (postgres-v2)', () => {
                 condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
                 max_wait_duration: '5m',
             })
-            // Parked keyed on the anon person ('old-uuid'), which has no `plan`, so the wait parks on entry.
             mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([anonPersonRow()])
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The merge repoints 'distinct_id' onto survivor 'new-uuid' (version > 0). The matcher re-keys the
-            // parked wait onto the survivor and wakes it (scheduled = now). The worker then resolves the job by
-            // the survivor personId — not the repointed distinct_id — re-checks the condition against the
-            // survivor's plan=enterprise, and advances down the matched branch, firing the fetch.
             mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
             await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
 
@@ -1785,9 +1682,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
-            // Production shape: an event arrives for a distinct_id with no person yet, so the wait parks
-            // with person_id NULL. Person wakes are keyed on person_id alone, so nothing can address that
-            // job — before this was fixed, only the 10-minute polling re-check ever advanced it.
             await createWaitUntilWorkflow({
                 condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
                 max_wait_duration: '5m',
@@ -1796,7 +1690,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // The premise of the test: no anchor to wake.
             const parked = await cyclotronPool.query(
                 `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
             )
@@ -1837,14 +1730,12 @@ describe('Workflows E2E (postgres-v2)', () => {
             )
             expect(beforeFill.rows[0].person_id).toBeNull()
 
-            // First mapping arrives. The person exists now but has no `plan`, so the condition is false.
             const personWithoutPlan = { ...survivorPersonRow(), properties: { email: 'test@posthog.com' } }
             mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([personWithoutPlan])
             await matcher.processMoveBatch(
                 matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
             )
 
-            // It re-parked rather than advancing, and it now carries the anchor.
             await waitForExpect(async () => {
                 const afterFill = await cyclotronPool.query(
                     `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
@@ -1854,8 +1745,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 10000)
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Now the property is set. This is a person mutation with no analytics event, so it can only be
-            // matched on person_id — the anchor written above is what makes it findable.
             const personMessage = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -1884,7 +1773,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
             // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
             await createWaitUntilWorkflow({
-                // Property condition never matches the trigger event, so the job parks until the signal.
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
                 events: [eventNameFilter('$insight_alert_firing')],
                 max_wait_duration: '5m',
@@ -1892,7 +1780,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(createGlobals())
             await expectParked()
 
-            // A raw cdp_internal_events message for this person's distinct_id — no analytics event.
             const internalEventMessage = {
                 value: Buffer.from(
                     JSON.stringify({
@@ -1917,10 +1804,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
-            // Regression guard for conversion over-counting on measurement-only flows. The run stays
-            // parked in the delay (exit_only_at_end), and the conversion event fires across three
-            // separate matcher batches. The matcher must record exactly ONE `conversion` metric for
-            // the run (deduped via conversionCounted), and must never wake the job.
             await createWorkflowFlow(
                 {
                     actions: {
@@ -1954,18 +1837,15 @@ describe('Workflows E2E (postgres-v2)', () => {
                     .filter((m: any) => m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
-            // First match counts the conversion once.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
             await waitForExpect(() => {
                 expect(conversionCount()).toBe(1)
             }, 5000)
 
-            // The same conversion event firing again must NOT increment the count — the run already converted.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
             expect(conversionCount()).toBe(1)
 
-            // Measurement-only: the run stays parked and the after-delay step never runs early.
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
@@ -2003,7 +1883,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         it('parks until the window opens and does not advance early on a premature resume', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled to the future time window.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -2027,8 +1906,6 @@ describe('Workflows E2E (postgres-v2)', () => {
 
     describe('wait_until_time_window: window currently open', () => {
         it('advances through the window and runs the next step', async () => {
-            // day: 'any', time: 'any' is always open, so the step must advance and run the next action
-            // instead of parking forever.
             await createWorkflow({
                 actions: {
                     trigger: trigger(),
@@ -2084,12 +1961,10 @@ describe('Workflows E2E (postgres-v2)', () => {
             await triggerWorkflow(globals)
 
             // Hogflow function actions retry fetch within a single execution cycle.
-            // We expect at least 2 calls (initial + retry) before the workflow completes.
             await waitForExpect(() => {
                 expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
             }, 15000)
 
-            // Verify the workflow eventually reaches a terminal state
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const terminal = jobs.filter(
@@ -2254,9 +2129,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 5000)
 
-            // The hog template's `{event.distinct_id}` resolved at runtime to the value
-            // the worker backfilled — proving the full chain: postgres lookup → CyclotronPerson.distinct_id
-            // → state.event.distinct_id mutation → hog input resolution.
             expect(mockFetch).toHaveBeenCalledWith(
                 'https://example.com/batch-distinct-id',
                 expect.objectContaining({
@@ -2305,8 +2177,6 @@ describe('Workflows E2E (postgres-v2)', () => {
     describe('data warehouse table trigger workflow', () => {
         const TABLE_NAME = 'postgres.orders'
 
-        // Row-scoped trigger that always matches (return-true bytecode), so the row payload alone
-        // decides whether the flow fires.
         const dwhTrigger = (tableName: string) =>
             ({
                 type: 'trigger' as const,
@@ -2373,14 +2243,6 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 
     describe('posthog_ticket_tags input resolves templated values per element', () => {
-        // Regression guard for the templating opt-in in posthog/cdp/validation.py.
-        // Reproduces the real user-reported case: a ticket tag set to
-        // `zendesk/{variables.zendesk_ticketid}` used to ship to the runtime as
-        // a literal placeholder string (because the type wasn't on the bytecode
-        // opt-in list), so the ticket ended up tagged with the raw template text
-        // instead of "zendesk/12345". The fix puts the per-element bytecode that
-        // `generate_template_bytecode` already emits for lists into a shape that
-        // `formatHogInput` can walk element-by-element.
         beforeEach(async () => {
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-workflows-e2e-tags',
@@ -2463,10 +2325,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
 
-            // The body proves the full chain end-to-end: per-element bytecode →
-            // formatHogInput recurses into the list → executes against globals
-            // populated with workflow variables → concat produces "zendesk/12345".
-            // Pre-fix behaviour would emit `["zendesk/{variables.zendesk_ticketid}"]`.
             expect(mockFetch).toHaveBeenCalledWith(
                 'https://example.com/tags',
                 expect.objectContaining({
@@ -2481,9 +2339,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         let flowId: string
 
         beforeEach(async () => {
-            // The real template, not a fixture copy: this block exists to prove the shipped hog
-            // compiles and drives the registered async function inside a running workflow, which
-            // is the execution path a template-level test never touches.
             await insertHogFunctionTemplate(hub.postgres, {
                 id: createTaskTemplate.id,
                 name: createTaskTemplate.name,
@@ -2569,7 +2424,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(claims.team_id).toEqual(team.id)
             expect(claims.hog_flow_id).toEqual(flowId)
 
-            // The step parks until Django wakes it with the task's outcome.
             let originKey = ''
             await waitForExpect(async () => {
                 const { rows } = await cyclotronPool.query(`SELECT id, status, state FROM cyclotron_jobs`)
@@ -2632,7 +2486,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             await waitForExpect(() => {
                 expect(runMetricNames()).toContain('failed')
             }, 10000)
-            // 409 is terminal for the step: one request, no retry burning the engine's budget.
             const taskCreates = mockFetch.mock.calls.filter(([url]) => (url as string).includes('/workflow_tasks/'))
             expect(taskCreates).toHaveLength(1)
         })
@@ -2684,9 +2537,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
-            // Fetch takes 600ms — 2x the stallTimeoutMs. The heartbeat
-            // interval firing every 100ms is the only thing preventing
-            // last_heartbeat from going stale.
             mockFetch.mockImplementation(
                 () =>
                     new Promise((resolve) =>
@@ -2717,15 +2567,11 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(midResult.stalled).toBe(0)
             expect(midResult.poisoned).toBe(0)
 
-            // Wait for the workflow to complete
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.some((j) => j.status === 'completed')).toBe(true)
             }, 10000)
 
-            // Final check: no row ever accumulated a touch. This is the
-            // load-bearing assertion — regressions to the setInterval or
-            // its cleanup would flip this to >= 1.
             const jobs = await queryCyclotronJobs()
             for (const row of jobs) {
                 expect(row.janitor_touch_count).toBe(0)
@@ -2734,7 +2580,6 @@ describe('Workflows E2E (postgres-v2)', () => {
     })
 })
 
-// Email queue routing: the email worker reschedules jobs between queue names on the same v2 backend.
 describe('Workflows E2E (email queue)', () => {
     jest.setTimeout(30000)
 
@@ -3848,29 +3693,6 @@ describe('Workflows E2E (email queue)', () => {
     })
 })
 
-/**
- * E2E for the batch resolver dispatch path through the cdp-api HTTP boundary.
- *
- * Goes through real express + supertest, real CdpApi, real cyclotron-node
- * Postgres. Verifies that POST `/batch_invocations/<id>` creates a resolver
- * cyclotron job pointing at the right queue with the right state.
- *
- * The deep state-machine paths (page execution, terminal write, truncation,
- * Django down → resolver parks) are covered by the integration tests in
- * `consumers/cdp-cyclotron-worker-batch-resolve.consumer.test.ts`. This
- * test is the boundary backstop — it caught a real bug (wrong DB URL on
- * the resolver manager) during development.
- *
- * Hub lifecycle follows cdp-api.test.ts: one hub for the suite (beforeAll),
- * torn down once (afterAll). Per-test isolation comes from resetting the
- * postgres team data + truncating cyclotron_jobs in beforeEach.
- */
-
-/**
- * E2E for the cyclotron batch resolver. POST through cdp-api, real consumer
- * loop, mocked Django endpoints, assert on the resulting cyclotron + Django
- * state. Mirrors how the system runs in prod — no manual dequeue plumbing.
- */
 describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     jest.setTimeout(60000)
 
@@ -3887,7 +3709,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     let deps: ReturnType<typeof createCdpConsumerDeps>
     let kafkaProducer: KafkaProducerWrapper
     let mockProducerObserver: KafkaProducerObserver
-    // Fresh consumer per test — built in the it() body, stopped in afterEach.
     let resolverWorker: CdpCyclotronWorkerBatchResolve | undefined
 
     beforeAll(async () => {
@@ -3948,7 +3769,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
     // Fresh worker per test — stop() disconnects the underlying Postgres pool,
     // so a shared instance can't survive past the first test's afterEach.
-    // `wrapJob` lets a test intercept a dequeued job's methods (e.g. fail a commit once).
     function buildResolverConsumer(
         wrapJob?: (job: CyclotronV2DequeuedJob) => CyclotronV2DequeuedJob
     ): CdpCyclotronWorkerBatchResolve {
@@ -3959,7 +3779,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             batchMaxSize: 1,
             heartbeatTimeoutMs: hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
         })
-        // The consumer only calls connect/disconnect/isHealthy on the worker.
         const workerForConsumer = wrapJob
             ? ({
                   connect: (callback: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>) =>
@@ -4138,9 +3957,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
             .expect(200)
 
-        // Start the consumer — it'll pick up the resolver job and process pages
-        // on its own polling loop. waitForExpect waits for the terminal Django
-        // PUT, which only happens after all 3 pages + the terminal-write phase.
         resolverWorker = buildResolverConsumer()
         await resolverWorker.start()
 
@@ -4271,9 +4087,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }
     }, 60_000)
 
-    // Regression test: batch-resolved invocations used to skip trigger_masking entirely
-    // (only the event-triggered pipeline applied it), so a scheduled batch workflow with
-    // a masking TTL re-enrolled the same audience on every run.
     it('trigger_masking suppresses re-enrolling the same person across two batch runs', async () => {
         const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
         const personId = new UUIDT().toString()
@@ -4306,7 +4119,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         resolverWorker = buildResolverConsumer()
         await resolverWorker.start()
 
-        // First run: the person hasn't been masked yet, so they get enrolled.
         const firstRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
@@ -4323,8 +4135,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         )
         expect(firstRunChildren.rows).toHaveLength(1)
 
-        // Second run (simulating the next scheduled re-enrollment): the same person is
-        // masked, so no child invocation should be enqueued this time.
         const secondRunId = new UUIDT().toString()
         await supertest(app)
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
@@ -4415,8 +4225,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(maskCounters).toEqual(['0'])
         }, 20000)
 
-        // What the janitor's stall recovery does to the parked job, without waiting
-        // out the stall timeout.
         await cyclotronPool.query(
             `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL
              WHERE queue_name = $1 AND parent_run_id = $2`,
@@ -4427,8 +4235,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(statusPuts).toEqual([{ status: 'completed' }])
         }, 20000)
 
-        // The replay re-evaluated masking against the released claim and enrolled the
-        // person — without the release it would classify them as masked and enqueue nothing.
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
@@ -4452,8 +4258,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                     dump: () => Promise.resolve(),
                 })
             }
-            // Audience fetch shouldn't be reached — the resolver bails on missing
-            // hogflow before getting that far.
             return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
         })
 
@@ -4465,7 +4269,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
             .expect(200)
 
-        // Sabotage: customer deletes the workflow between dispatch and processing.
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `DELETE FROM posthog_hogflow WHERE id = $1`,
@@ -4563,8 +4366,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         mockInternalFetch.mockImplementation((url: string) => {
             if (url.includes('/user_blast_radius_persons')) {
                 fetchAttempts += 1
-                // Audience fetch always fails — resolver should keep retrying,
-                // never advance the cursor, never enqueue children.
                 return Promise.reject(new Error('The operation was aborted due to timeout'))
             }
             return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
@@ -4595,7 +4396,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             pagesProcessed: number
             pendingTerminal?: string
         }
-        expect(state.cursor).toBeNull() // never advanced
+        expect(state.cursor).toBeNull()
         expect(state.totalEnqueued).toBe(0)
         expect(state.pagesProcessed).toBe(0)
         expect(state.pendingTerminal).toBeUndefined()
@@ -4608,8 +4409,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     })
 
     it('truncation: pre-existing job at maxAudienceSize skips fetch + emits customer log + writes status=completed', async () => {
-        // Pre-populate a resolver job at the cap so the next dequeue takes
-        // the truncation branch (audience fetch never runs).
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
         const statusPuts: Array<{ status: string }> = []
@@ -4656,10 +4455,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(statusPuts).toHaveLength(1)
         }, 20000)
 
-        // Status PUT was completed (truncation is still success, not failure)
         expect(statusPuts[0]).toEqual({ status: 'completed' })
 
-        // No children — the resolver short-circuited before audience fetch
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
@@ -4723,9 +4520,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         }, 20000)
 
         expect(statusPuts[0]).toEqual({ status: 'failed' })
-        expect(fetchAttempts).toBe(1) // one more retry consumed the last attempt budget
+        expect(fetchAttempts).toBe(1)
 
-        // No children enqueued — the resolver bailed before ever returning a page
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
@@ -4791,15 +4587,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(r.rows[0]?.status).toBe('failed')
         }, 20000)
 
-        // One more attempt consumed the budget, then the job failed
         expect(putAttempts).toBe(1)
     })
 
     it('hard cap: page that would cross maxAudienceSize is truncated before enqueue', async () => {
-        // maxAudienceSize=4 with pages of 3. Without the hard cap the resolver
-        // would enqueue 6 children (overshoot by 2) then notice and truncate.
-        // With the hard cap the second page is truncated to 1 row so the
-        // total never exceeds 4.
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
         const personIds = Array.from({ length: 6 }, () => new UUIDT().toString())
@@ -4853,7 +4644,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
         )
-        // Hard cap: exactly 4 children, never 6
         expect(children.rows).toHaveLength(4)
     })
 
@@ -4889,7 +4679,6 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(r.rows[0]?.status).toBe('failed')
         }, 20000)
 
-        // No children, no Django PUT — the resolver failed before any work.
         const children = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
             [parentRunId]
@@ -4898,11 +4687,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     })
 })
 
-// Janitor poison-pill recovery (postgres-v2). Exercises the REAL results service
-// + real Kafka produce — the seam the mocked unit tests can't cover: an isolated
-// poison pill is recorded as a failed, replayable result on hog_invocation_results
-// BEFORE its cyclotron row is deleted, and with recovery disabled the janitor
-// reverts to master's legacy path (marks the pill failed, no recovery record).
+// Record poison pills on hog_invocation_results before deleting cyclotron rows so reruns
+// can discover and replay them. Disabling recovery marks the job failed without a recovery record.
 describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
     jest.setTimeout(30000)
 
@@ -4967,9 +4753,6 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
         )
     }
 
-    // A hogflow job stuck 'running' with a long-stale heartbeat and a touch count
-    // over the budget. The serialized state mirrors a wait_until_condition that
-    // had already advanced past earlier actions.
     async function insertPoisonedHogflowJob(): Promise<string> {
         const id = new UUIDT().toString()
         const state = Buffer.from(
@@ -5001,8 +4784,6 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
 
         expect(result.poisonedIds).toEqual([id])
 
-        // A failed lifecycle row reached the hog_invocation_results topic so the
-        // run is discoverable in the Invocations UI and replayable by rerun.
         await waitForExpect(() => {
             const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
             expect(rows.some((m: any) => m.value.invocation_id === id)).toBe(true)
@@ -5016,7 +4797,6 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
         expect(row.function_id).toBeTruthy()
         expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
 
-        // The cyclotron row is gone — but only because the record exists first.
         const remaining = await cyclotronPool.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1', [id])
         expect(remaining.rowCount).toBe(0)
     })
@@ -5027,9 +4807,6 @@ describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
         janitor = createJanitor({ poisonRecoveryEnabled: false })
         const result = await janitor.runOnce()
 
-        // Kill-switch off → master's legacy path: mark the pill failed and produce
-        // no recovery record. The give-up is terminal (no infinite retry) but not
-        // replayable — exactly master's pre-recovery behavior.
         expect(result.poisonedIds).toEqual([id])
         expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(0)
 
