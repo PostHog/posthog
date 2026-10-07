@@ -151,9 +151,6 @@ Without a user, warehouse access control denies every warehouse table and view, 
 
    **Known limitation:** if that user has left the organization, the run fails and the error surfaces in error tracking.
    This is intentional for now. The plan is to check access when the resource is created, then run it with a bypass afterwards.
-   Subscriptions have the first half: saving an insight or dashboard subscription checks that the requester can read every table its insights use (`products/exports/backend/subscription_query_access.py`).
-   Editing the query of an insight that a subscription delivers, or adding an insight to a dashboard that a subscription delivers in full, runs the same check on the editor (`exposure_without_viewer_check` in `posthog/api/sharing_publish_gate.py`).
-   Deliveries still run as `subscription.created_by`, so the limitation above still applies to them.
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
