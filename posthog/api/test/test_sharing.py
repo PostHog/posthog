@@ -2387,6 +2387,8 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("dashboard_subscription", "delivered by a subscription"),
             # Restoring the dashboard resumes delivery without a subscription write.
             ("deleted_dashboard_subscription", "delivered by a subscription"),
+            # A selection whose insights are all deleted delivers every live tile.
+            ("dashboard_subscription_with_deleted_selection", "delivered by a subscription"),
         ]
     )
     def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):
@@ -2405,6 +2407,11 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             self._subscription(dashboard=dashboard)
+        elif coverage == "dashboard_subscription_with_deleted_selection":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            deleted_insight = Insight.objects.create(team=self.team, created_by=self.user, deleted=True)
+            self._subscription(dashboard=dashboard).dashboard_export_insights.add(deleted_insight)
         else:
             notebook = Notebook.objects.create(
                 team=self.team,
