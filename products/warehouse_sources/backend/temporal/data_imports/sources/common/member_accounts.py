@@ -10,7 +10,7 @@ from typing import Any
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, OauthIntegration
+from posthog.models.integration import Integration, OauthIntegration, UndecryptedIntegrationSecretError
 
 ALL_ACCOUNTS_UNREADABLE = "None of the connected accounts could be read"
 
@@ -33,7 +33,11 @@ def readable_member_accounts(integrations: list[Integration], logger: FilteringB
         if oauth_integration.access_token_expired():
             oauth_integration.refresh_access_token()
         account_id = integration.integration_id
-        access_token = integration.access_token
+        try:
+            access_token = integration.access_token
+        except UndecryptedIntegrationSecretError:
+            # One account with an unreadable stored token must not stop the other accounts.
+            access_token = None
         if integration.errors or not account_id or not access_token:
             logger.warning(
                 "Skipping a connected account whose access expired. Its owner needs to reconnect it.",
