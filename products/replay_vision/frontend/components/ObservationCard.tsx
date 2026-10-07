@@ -15,7 +15,7 @@ import {
     parseIneligibleReason,
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
-import { observationFromRecordingUrl } from '../utils/breadcrumbs'
+import { RECORDING_ORIGIN, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
@@ -395,11 +395,14 @@ export function ObservationDockCard({
     onSeek,
     onRetry,
     retrying = false,
+    returnPath,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
     onRetry?: () => void
     retrying?: boolean
+    /** The page the player is on, so the observation's back button returns to it. */
+    returnPath?: string
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -430,7 +433,7 @@ export function ObservationDockCard({
                     {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
                     <Link
                         data-attr="vision-observation-open"
-                        to={observationFromRecordingUrl(observation.id)}
+                        to={observationFromOriginUrl(observation.id, RECORDING_ORIGIN, returnPath)}
                         className="text-xs whitespace-nowrap"
                     >
                         View details

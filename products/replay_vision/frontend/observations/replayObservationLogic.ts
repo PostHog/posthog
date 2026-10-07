@@ -21,7 +21,6 @@ import {
     RECORDING_ORIGIN,
     WATCH_FEED_ORIGIN,
     isObservationOrigin,
-    posthogAiBreadcrumb,
     safeReturnPath,
     scannerBreadcrumb,
     watchFeedBreadcrumb,
@@ -98,17 +97,36 @@ export function observationOriginParams(searchParams: Record<string, unknown>): 
     const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
     return {
         [OBSERVATION_ORIGIN_PARAM]: origin,
-        ...(origin === POSTHOG_AI_ORIGIN && returnPath ? { [OBSERVATION_RETURN_PATH_PARAM]: returnPath } : {}),
+        ...(returnPath ? { [OBSERVATION_RETURN_PATH_PARAM]: returnPath } : {}),
     }
 }
 
-function recordingBreadcrumb(observation: ReplayObservationApi): Breadcrumb {
+function recordingBreadcrumb(observation: ReplayObservationApi, returnPath: string | null = null): Breadcrumb {
     return {
         key: `recording-${observation.session_id}`,
         name: 'Recording',
-        path: urls.replaySingle(observation.session_id),
+        path: returnPath ?? urls.replaySingle(observation.session_id),
         iconType: 'session_replay',
     }
+}
+
+/** Back returns to the `from` origin when there is one, else to whatever owns the observation. */
+function parentBreadcrumbFor(observation: ReplayObservationApi, searchParams: Record<string, unknown>): Breadcrumb {
+    const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
+    const returnPath = safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM])
+    if (origin === WATCH_FEED_ORIGIN) {
+        return watchFeedBreadcrumb()
+    }
+    if (origin === RECORDING_ORIGIN) {
+        return recordingBreadcrumb(observation, returnPath)
+    }
+    if (origin === POSTHOG_AI_ORIGIN) {
+        return { key: 'replay-vision-posthog-ai', name: 'PostHog AI', path: returnPath ?? urls.ai() }
+    }
+    const returnParams = scannerReturnParams(searchParams)
+    return returnParams.tab === ReplayScannerTab.Search
+        ? searchBreadcrumb(returnParams)
+        : observationParentBreadcrumb(observation, returnParams)
 }
 
 /** The crumb the observation page's back button returns to. */
@@ -330,21 +348,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         }
-        // Back returns to the `from` origin when there is one, else to whatever owns the observation.
         const setParentBreadcrumb = (observation: ReplayObservationApi): void => {
-            const { searchParams } = router.values
-            const returnParams = scannerReturnParams(searchParams)
-            const origin = searchParams[OBSERVATION_ORIGIN_PARAM]
             replayObservationSceneLogic().actions.setParentBreadcrumb(
-                origin === WATCH_FEED_ORIGIN
-                    ? watchFeedBreadcrumb()
-                    : origin === RECORDING_ORIGIN
-                      ? recordingBreadcrumb(observation)
-                      : origin === POSTHOG_AI_ORIGIN
-                        ? posthogAiBreadcrumb(safeReturnPath(searchParams[OBSERVATION_RETURN_PATH_PARAM]))
-                        : returnParams.tab === ReplayScannerTab.Search
-                          ? searchBreadcrumb(returnParams)
-                          : observationParentBreadcrumb(observation, returnParams)
+                parentBreadcrumbFor(observation, router.values.searchParams)
             )
         }
         return {

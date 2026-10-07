@@ -1,5 +1,7 @@
 import { combineUrl } from 'kea-router'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
@@ -21,8 +23,10 @@ export const OBSERVATION_ORIGIN_PARAM = 'from'
 export const WATCH_FEED_ORIGIN = 'watch'
 export const RECORDING_ORIGIN = 'recording'
 export const POSTHOG_AI_ORIGIN = 'ai'
-/** The in-app path a PostHog AI thread was open on, which can be any scene when it is in the side panel. */
+/** The in-app page the reader left, such as a playlist or the scene a PostHog AI side panel was open over. */
 export const OBSERVATION_RETURN_PATH_PARAM = 'return_to'
+
+export type ReturnOrigin = typeof RECORDING_ORIGIN | typeof POSTHOG_AI_ORIGIN
 
 const OBSERVATION_ORIGINS: readonly string[] = [WATCH_FEED_ORIGIN, RECORDING_ORIGIN, POSTHOG_AI_ORIGIN]
 
@@ -32,26 +36,19 @@ export function isObservationOrigin(value: unknown): value is string {
 
 /** Accepts only a same-origin path, so a crafted link can't point the back button at another site. */
 export function safeReturnPath(value: unknown): string | null {
-    return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : null
+    return typeof value === 'string' ? getRelativeNextPath(value, window.location) : null
 }
 
-export function observationFromRecordingUrl(observationId: string): string {
-    return combineUrl(urls.replayVisionObservation(observationId), { [OBSERVATION_ORIGIN_PARAM]: RECORDING_ORIGIN }).url
+/** The current in-app path, without the project prefix, for an observation link's `return_to`. */
+export function currentReturnPath(location: { pathname: string; search: string }): string {
+    return removeProjectIdIfPresent(location.pathname) + location.search
 }
 
-export function observationFromPosthogAiUrl(observationId: string, returnPath: string): string {
+export function observationFromOriginUrl(observationId: string, origin: ReturnOrigin, returnPath?: string): string {
     return combineUrl(urls.replayVisionObservation(observationId), {
-        [OBSERVATION_ORIGIN_PARAM]: POSTHOG_AI_ORIGIN,
-        [OBSERVATION_RETURN_PATH_PARAM]: returnPath,
+        [OBSERVATION_ORIGIN_PARAM]: origin,
+        ...(returnPath ? { [OBSERVATION_RETURN_PATH_PARAM]: returnPath } : {}),
     }).url
-}
-
-export function posthogAiBreadcrumb(returnPath: string | null): Breadcrumb {
-    return {
-        key: 'replay-vision-posthog-ai',
-        name: 'PostHog AI',
-        path: returnPath ?? urls.ai(),
-    }
 }
 
 /** The crumb the back button returns to for an observation opened from the "What to watch" feed. */

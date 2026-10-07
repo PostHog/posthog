@@ -3,10 +3,8 @@ import { router } from 'kea-router'
 
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { observationFromPosthogAiUrl } from '../utils/breadcrumbs'
+import { POSTHOG_AI_ORIGIN, currentReturnPath, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { flattenMarkdownToLine } from '../utils/markdown'
 import { readErrorMessage, readReasoning, readSummary, readTitle } from '../utils/observation'
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
@@ -27,6 +25,9 @@ const SKIP_MESSAGES: Record<string, string> = {
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
     const { gaveUp, latestPerSession, pendingCount } = useValues(replayVisionScanWidgetLogic({ scanId, sessionIds }))
+    // Read once per widget, not per row; the thread can stay open in the side panel across scenes.
+    const { location } = useValues(router)
+    const returnPath = currentReturnPath(location)
     const skippedByReason = Object.entries(
         skipped.reduce<Record<string, number>>((counts, entry) => {
             counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
@@ -60,7 +61,7 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
 
             <div className="divide-y">
                 {latestPerSession.map((observation) => (
-                    <ObservationRow key={observation.id} observation={observation} />
+                    <ObservationRow key={observation.id} observation={observation} returnPath={returnPath} />
                 ))}
                 {pendingCount > 0 && gaveUp && (
                     <p className="m-0 px-3 py-3 text-sm text-secondary">
@@ -76,8 +77,13 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
     )
 }
 
-function ObservationRow({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    const { location } = useValues(router)
+function ObservationRow({
+    observation,
+    returnPath,
+}: {
+    observation: ReplayObservationApi
+    returnPath: string
+}): JSX.Element {
     if (observation.status === 'pending' || observation.status === 'running') {
         return (
             <div className="flex items-center gap-2 px-3 py-2 text-sm text-secondary">
@@ -107,10 +113,7 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
             {body && <p className="m-0 mt-0.5 text-secondary">{body}</p>}
             <Link
                 data-attr="vision-scan-widget-open-observation"
-                to={observationFromPosthogAiUrl(
-                    observation.id,
-                    removeProjectIdIfPresent(location.pathname) + location.search
-                )}
+                to={observationFromOriginUrl(observation.id, POSTHOG_AI_ORIGIN, returnPath)}
                 className="text-xs"
             >
                 View details

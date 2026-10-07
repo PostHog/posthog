@@ -138,11 +138,14 @@ interface RouterPayload {
     initial?: boolean
 }
 
-const EDITOR_PATH_PATTERN =
-    /^\/replay-vision\/[^/]+\/(template|overview|details|configure|triggers|budget)$/
+const LEAVE_EDITOR_POPSTATE_TIMEOUT_MS = 2000
+
+// The goal flow's overview sits outside the manual stepper.
+const EDITOR_PATH_SEGMENTS = new Set<string>([...SCANNER_EDITOR_STEPS, 'overview'])
 
 function isScannerEditorPath(pathname: string): boolean {
-    return EDITOR_PATH_PATTERN.test(removeProjectIdIfPresent(pathname))
+    const [root, , segment, ...rest] = removeProjectIdIfPresent(pathname).split('/').slice(1)
+    return root === 'replay-vision' && rest.length === 0 && EDITOR_PATH_SEGMENTS.has(segment)
 }
 
 function currentHistoryCount(): number | null {
@@ -150,7 +153,7 @@ function currentHistoryCount(): number | null {
     return typeof count === 'number' ? count : null
 }
 
-export function trackEditorHistory(
+function trackEditorHistory(
     previous: EditorHistory | null,
     scannerId: string,
     payload: RouterPayload
@@ -311,15 +314,19 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 return
             }
             // Not a disposable, because the scene unmounts during this popstate and would remove it first.
+            // The timeout drops the listener if the popstate never comes, so it can't fire on a later back.
+            const landed = new AbortController()
             window.addEventListener(
                 'popstate',
                 () => {
+                    landed.abort()
                     if (removeProjectIdIfPresent(window.location.pathname) !== combineUrl(destination).pathname) {
                         router.actions.push(destination)
                     }
                 },
-                { once: true }
+                { signal: landed.signal }
             )
+            setTimeout(() => landed.abort(), LEAVE_EDITOR_POPSTATE_TIMEOUT_MS)
             window.history.go(-depth)
         },
         [router.actionTypes.locationChanged]: ({ pathname }) => {

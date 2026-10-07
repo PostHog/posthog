@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconEye } from '@posthog/icons'
@@ -14,7 +15,7 @@ import type { ReplayObservationApi, ReplayScannerApi } from '../generated/api.sc
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { SCANNER_TYPE_TAG_TYPE, scannerTypeLabel } from '../replay_scanners/types'
-import { observationFromRecordingUrl } from '../utils/breadcrumbs'
+import { RECORDING_ORIGIN, currentReturnPath, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { currentRowIndex, nextTimelineStopMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
@@ -245,6 +246,7 @@ function FocusPane({
     retrying: boolean
 }): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver<HTMLDivElement>({ box: 'border-box' })
+    const { location } = useValues(router)
     const isSummary = isSummaryObservation(observation)
     const reasoning = observation.status === 'succeeded' && !isSummary ? readReasoning(observation) : null
     const hasText = observation.status === 'succeeded' && (isSummary || reasoning !== null)
@@ -307,7 +309,7 @@ function FocusPane({
                     )}
                     <Link
                         data-attr="vision-observation-open-from-sidebar"
-                        to={observationFromRecordingUrl(observation.id)}
+                        to={observationFromOriginUrl(observation.id, RECORDING_ORIGIN, currentReturnPath(location))}
                         className="text-xs self-end"
                     >
                         View details
