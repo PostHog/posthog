@@ -74,8 +74,7 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
-    ARTIFACT_CONTENT_SHA256_KEY,
-    ARTIFACT_OPEN_NETWORK_WRITER_KEY,
+    ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
@@ -339,7 +338,6 @@ __all__ = [
     "read_task_run_living_artifact_version",
     "sandbox_token_has_open_network",
     "is_html_artifact",
-    "task_run_artifact_script_digest",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -4071,8 +4069,7 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-    written_with_open_network: bool,
-    content_sha256: str | None = None,
+    script_sha256: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
@@ -4084,10 +4081,9 @@ def _build_artifact_manifest_entry(
         "content_type": content_type,
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
-        ARTIFACT_OPEN_NETWORK_WRITER_KEY: written_with_open_network,
     }
-    if content_sha256 is not None:
-        entry[ARTIFACT_CONTENT_SHA256_KEY] = content_sha256
+    if script_sha256 is not None:
+        entry[ARTIFACT_SCRIPT_SHA256_KEY] = script_sha256
     if metadata:
         entry["metadata"] = metadata
     return entry
@@ -4156,8 +4152,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
-                written_with_open_network=written_with_open_network,
-                content_sha256=hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None,
+                script_sha256=hashlib.sha256(content_bytes).hexdigest() if written_with_open_network else None,
                 metadata=artifact.get("metadata"),
             )
         )
@@ -4408,10 +4403,10 @@ def finalize_task_run_artifact_uploads(
         if content_length > max_size_bytes:
             return None, build_task_run_artifact_size_error(safe_name, max_size_bytes)
 
-        content_sha256 = None
+        script_sha256 = None
         if written_with_open_network and is_html_artifact(safe_name, content_type):
             uploaded_bytes = object_storage.read_bytes(storage_path, missing_ok=True)
-            content_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
+            script_sha256 = hashlib.sha256(uploaded_bytes).hexdigest() if uploaded_bytes is not None else None
 
         entry = _build_artifact_manifest_entry(
             artifact_id=artifact_id,
@@ -4422,8 +4417,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
-            written_with_open_network=written_with_open_network,
-            content_sha256=content_sha256,
+            script_sha256=script_sha256,
             metadata=artifact.get("metadata"),
         )
         entry["uploaded_by"] = uploaded_by
@@ -4778,40 +4772,6 @@ def sandbox_token_has_open_network(team_id: int, token_id: UUID | int | str) -> 
 def is_html_artifact(name: str, content_type: str) -> bool:
     mime_type = content_type.split(";", 1)[0].strip().lower()
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
-
-
-def task_run_artifact_script_digest(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str, version: int | None
-) -> str | None:
-    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
-        get_task_artifact_for_run,
-        read_living_artifact_version,
-        resolve_living_artifact_version,
-    )
-
-    if version is None:
-        entry = task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
-        if entry is None or entry.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is not True:
-            return None
-        digest = entry.get(ARTIFACT_CONTENT_SHA256_KEY)
-        return digest if isinstance(digest, str) else None
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    try:
-        UUID(str(artifact_id))
-    except ValueError:
-        return None
-    artifact = get_task_artifact_for_run(run, artifact_id)
-    location = resolve_living_artifact_version(artifact, version) if artifact is not None else None
-    if artifact is None or location is None or location.record.get(ARTIFACT_OPEN_NETWORK_WRITER_KEY) is not True:
-        return None
-    try:
-        content = read_living_artifact_version(artifact, version)
-    except Exception:
-        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
-        return None
-    return hashlib.sha256(content.content).hexdigest() if content is not None else None
 
 
 def task_run_artifact_entry(

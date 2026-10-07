@@ -10235,8 +10235,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "source": "agent_output",
                     "content_type": "text/html",
                     "storage_path": f"tasks/artifacts/team_{self.team.id}/task_{task.id}/run_{uuid.uuid4().hex}/interactive.html",
-                    "written_with_open_network": True,
-                    "content_sha256": hashlib.sha256(mock_read_bytes.return_value).hexdigest(),
+                    "script_sha256": hashlib.sha256(mock_read_bytes.return_value).hexdigest(),
                 },
                 {
                     "id": "unmarked-html",

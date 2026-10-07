@@ -2,6 +2,7 @@ import os
 import re
 import json
 import asyncio
+import hashlib
 from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
@@ -67,6 +68,7 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
+from products.tasks.backend.constants import ARTIFACT_SCRIPT_SHA256_KEY
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -3066,6 +3068,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 str(artifact.get("name") or ""), str(artifact.get("content_type") or "")
             ):
                 raise NotFound()
+            stored_sha256 = artifact.get(ARTIFACT_SCRIPT_SHA256_KEY)
+            script_digest = stored_sha256 if isinstance(stored_sha256, str) else None
         else:
             content, error = tasks_facade.read_task_run_living_artifact_version(
                 pk, task_id, self.team_id, artifact_id=artifact_id, version=version
@@ -3076,9 +3080,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 or not tasks_facade.is_html_artifact(content.name, content.content_type)
             ):
                 raise NotFound()
-        script_digest = tasks_facade.task_run_artifact_script_digest(
-            pk, task_id, self.team_id, artifact_id=artifact_id, version=version
-        )
+            script_digest = hashlib.sha256(content.content).hexdigest() if content.written_with_open_network else None
         scripts_available = script_digest is not None
         if run_scripts and not scripts_available:
             raise PermissionDenied(
