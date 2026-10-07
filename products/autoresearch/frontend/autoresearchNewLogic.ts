@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -184,6 +195,7 @@ export interface autoresearchNewLogicValues {
     newPipelineValidationErrors: DeepPartialMap<NewPipelineFormValues, ValidationErrorType>
     resolvedTemplate: ResolvedTemplateApi | null
     resolvedTemplateLoading: boolean
+    resolvedTemplateStale: boolean
     showNewPipelineErrors: boolean
     templates: TemplateInfoApi[]
     templatesLoading: boolean
@@ -443,6 +455,16 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     lemonToast.error('Select a project before creating a model')
                     return
                 }
+                if (values.resolvedTemplateStale) {
+                    // The populations and output property come from the last resolution, so they may
+                    // belong to an older target or horizon.
+                    lemonToast.error(
+                        values.resolvedTemplateLoading
+                            ? 'The template is still loading. Wait for it to finish, then create.'
+                            : "The template didn't load for this target and horizon. Select it again, or use Custom."
+                    )
+                    return
+                }
                 if (values.validationFailed) {
                     lemonToast.error('Validation failed to run. Retry it, then create.')
                     return
@@ -498,6 +520,16 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             },
         },
     })),
+    selectors({
+        resolvedTemplateStale: [
+            (s) => [s.newPipeline, s.resolvedTemplate],
+            (newPipeline: NewPipelineFormValues, resolved: ResolvedTemplateApi | null): boolean =>
+                !!newPipeline.template_key &&
+                (resolved?.template_key !== newPipeline.template_key ||
+                    resolved.target_event !== newPipeline.target_event.trim() ||
+                    resolved.horizon_days !== newPipeline.horizon_days),
+        ],
+    }),
     listeners(({ actions, values }) => ({
         runValidateSuccess: ({ validation }) => {
             if (validation) {

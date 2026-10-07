@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { autoresearchNewLogic } from './autoresearchNewLogic'
 import {
+    autoresearchCreate,
     autoresearchResolveTemplateCreate,
     autoresearchTemplatesList,
     autoresearchValidateCreate,
@@ -16,6 +17,7 @@ jest.mock('./generated/api', () => ({
     autoresearchResolveTemplateCreate: jest.fn(),
 }))
 
+const mockCreate = autoresearchCreate as jest.Mock
 const mockValidate = autoresearchValidateCreate as jest.Mock
 const mockTemplates = autoresearchTemplatesList as jest.Mock
 const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
@@ -172,5 +174,28 @@ describe('autoresearchNewLogic', () => {
         await settle(logic)
         expect(mockResolve).toHaveBeenCalledTimes(2)
         expect(logic.values.newPipeline).toMatchObject({ name: 'Sharing adoption', horizon_days: 30 })
+    })
+
+    it('blocks creation until the template resolves for the current target', async () => {
+        mockResolve.mockResolvedValue(resolved({}))
+        mockCreate.mockResolvedValue({ id: 'pipeline-1', name: 'Likely active soon' })
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        await settle(logic)
+        logic.actions.selectTemplate('likely_active_soon')
+        await settle(logic)
+
+        mockResolve.mockRejectedValueOnce({ detail: 'Resolve failed' })
+        logic.actions.setNewPipelineValues({ target_event: '$autocapture' })
+        await settle(logic)
+        logic.actions.submitNewPipeline()
+        await settle(logic)
+        expect(mockCreate).not.toHaveBeenCalled()
+
+        logic.actions.selectTemplate('likely_active_soon')
+        await settle(logic)
+        logic.actions.submitNewPipeline()
+        await settle(logic)
+        expect(mockCreate).toHaveBeenCalledTimes(1)
     })
 })
