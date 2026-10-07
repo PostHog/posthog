@@ -17,6 +17,7 @@ export function BIAnalysisControls(): JSX.Element {
         <BIShelfCard title="Analysis">
             <div className="flex min-w-0 flex-col gap-2">
                 <LemonCheckbox
+                    labelClassName="text-xs"
                     label="Top N breakdown"
                     checked={!!config.topN}
                     disabledReason={!dimensions.length ? 'Add a categorical dimension first' : undefined}
@@ -65,6 +66,7 @@ export function BIAnalysisControls(): JSX.Element {
                             onChange={(measureIndex) => setTopN({ ...config.topN!, measureIndex })}
                         />
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label='Include "Other"'
                             checked={config.topN.includeOther}
                             onChange={(includeOther) => setTopN({ ...config.topN!, includeOther })}
@@ -78,6 +80,7 @@ export function BIAnalysisControls(): JSX.Element {
                     <>
                         <LemonLabel>Totals</LemonLabel>
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label={
                                 config.chartType === ChartDisplayType.ActionsTable ? 'Grand total' : 'Row grand totals'
                             }
@@ -86,12 +89,14 @@ export function BIAnalysisControls(): JSX.Element {
                         />
                         {config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
                             <LemonCheckbox
+                                labelClassName="text-xs"
                                 label="Column grand totals"
                                 checked={!!config.totals?.columns}
                                 onChange={(columns) => setTotals({ ...config.totals, columns })}
                             />
                         ) : null}
                         <LemonCheckbox
+                            labelClassName="text-xs"
                             label="Subtotals"
                             checked={!!config.totals?.subtotals}
                             onChange={(subtotals) => setTotals({ ...config.totals, subtotals })}
