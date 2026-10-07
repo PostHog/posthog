@@ -39,8 +39,8 @@ function InlineValue({ value, side }: { value: unknown; side: 'before' | 'after'
         <span
             className={
                 side === 'before'
-                    ? 'rounded px-1 bg-fill-error-highlight line-through break-all'
-                    : 'rounded px-1 bg-fill-success-highlight break-all'
+                    ? 'rounded px-1 bg-fill-error-highlight line-through break-all whitespace-pre-wrap'
+                    : 'rounded px-1 bg-fill-success-highlight break-all whitespace-pre-wrap'
             }
         >
             {typeof value === 'string' ? value : JSON.stringify(value)}
