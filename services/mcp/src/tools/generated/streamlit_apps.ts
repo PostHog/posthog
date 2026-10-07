@@ -131,6 +131,41 @@ const streamlitAppsGet = (): ToolBase<
     },
 })
 
+const StreamlitAppsGetSourceSchema = () => {
+    const StreamlitAppsSourceRetrieveParams = orvalSchemas.StreamlitAppsSourceRetrieveParams()
+    const StreamlitAppsSourceRetrieveQueryParams = orvalSchemas.StreamlitAppsSourceRetrieveQueryParams()
+    return StreamlitAppsSourceRetrieveParams.omit({ project_id: true })
+        .extend(StreamlitAppsSourceRetrieveQueryParams.shape)
+        .extend({
+            version_number: StreamlitAppsSourceRetrieveQueryParams.shape['version_number'].describe(
+                'Version number to read. Omit it to read the active version.'
+            ),
+            paths: StreamlitAppsSourceRetrieveQueryParams.shape['paths'].describe(
+                'Comma-separated file paths to return content for, for example `app.py,utils.py`. The manifest still lists every file. Omit it to get every text file.'
+            ),
+        })
+}
+
+const streamlitAppsGetSource = (): ToolBase<
+    ReturnType<typeof StreamlitAppsGetSourceSchema>,
+    Schemas.AppVersionSourceContract
+> => ({
+    name: 'streamlit-apps-get-source',
+    schema: StreamlitAppsGetSourceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsGetSourceSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppVersionSourceContract>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/source/`,
+            query: {
+                paths: params.paths,
+                version_number: params.version_number,
+            },
+        })
+        return result
+    },
+})
+
 const StreamlitAppsListSchema = () => {
     const StreamlitAppsListQueryParams = orvalSchemas.StreamlitAppsListQueryParams()
     return StreamlitAppsListQueryParams
@@ -208,41 +243,6 @@ const streamlitAppsSetSource = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/create_version_from_source/`,
             body,
-        })
-        return result
-    },
-})
-
-const StreamlitAppsGetSourceSchema = () => {
-    const StreamlitAppsSourceRetrieveParams = orvalSchemas.StreamlitAppsSourceRetrieveParams()
-    const StreamlitAppsSourceRetrieveQueryParams = orvalSchemas.StreamlitAppsSourceRetrieveQueryParams()
-    return StreamlitAppsSourceRetrieveParams.omit({ project_id: true })
-        .extend(StreamlitAppsSourceRetrieveQueryParams.shape)
-        .extend({
-            version_number: StreamlitAppsSourceRetrieveQueryParams.shape['version_number'].describe(
-                'Version number to read. Omit it to read the active version.'
-            ),
-            paths: StreamlitAppsSourceRetrieveQueryParams.shape['paths'].describe(
-                'Comma-separated file paths to return content for, for example `app.py,utils.py`. The manifest still lists every file. Omit it to get every text file.'
-            ),
-        })
-}
-
-const streamlitAppsGetSource = (): ToolBase<
-    ReturnType<typeof StreamlitAppsGetSourceSchema>,
-    Schemas.AppVersionSourceContract
-> => ({
-    name: 'streamlit-apps-get-source',
-    schema: StreamlitAppsGetSourceSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof StreamlitAppsGetSourceSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AppVersionSourceContract>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/streamlit_apps/${encodeURIComponent(String(params.short_id))}/source/`,
-            query: {
-                paths: params.paths,
-                version_number: params.version_number,
-            },
         })
         return result
     },
@@ -370,9 +370,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'streamlit-apps-delete': streamlitAppsDelete,
     'streamlit-apps-edit-source': streamlitAppsEditSource,
     'streamlit-apps-get': streamlitAppsGet,
+    'streamlit-apps-get-source': streamlitAppsGetSource,
     'streamlit-apps-list': streamlitAppsList,
     'streamlit-apps-set-source': streamlitAppsSetSource,
-    'streamlit-apps-get-source': streamlitAppsGetSource,
     'streamlit-apps-start': streamlitAppsStart,
     'streamlit-apps-status': streamlitAppsStatus,
     'streamlit-apps-stop': streamlitAppsStop,
