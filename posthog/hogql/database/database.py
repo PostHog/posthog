@@ -3394,18 +3394,22 @@ def _settled_catalog_certifications(
         return {}, {}
 
 
+def _resolve_readable_join(join: LazyJoin, context: HogQLContext) -> Table | None:
+    """The join's target table, or None when the user cannot read it. The database keeps a join
+    to a denied table so that a query that uses the join raises the access error, but the schema
+    must not list what the user cannot read."""
+    try:
+        return join.resolve_table(context)
+    except TableAccessDeniedError:
+        return None
+
+
 def _readable_field_names(table: Table, context: HogQLContext) -> list[str]:
-    """The table's field names without the joins to tables the user cannot read, so a denied join
-    does not show up by name in the nested field list of a lazy join either."""
-    names: list[str] = []
-    for name, field in table.fields.items():
-        if isinstance(field, LazyJoin):
-            try:
-                field.resolve_table(context)
-            except TableAccessDeniedError:
-                continue
-        names.append(name)
-    return names
+    return [
+        name
+        for name, field in table.fields.items()
+        if not isinstance(field, LazyJoin) or _resolve_readable_join(field, context) is not None
+    ]
 
 
 def serialize_fields(
@@ -3578,12 +3582,8 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            try:
-                resolved_table = field.resolve_table(context)
-            except TableAccessDeniedError:
-                # The database keeps a join to a denied table so that a query that uses the join
-                # raises the access error. The user cannot read the target table, so the schema
-                # omits the join field and the other fields still serialize.
+            resolved_table = _resolve_readable_join(field, context)
+            if resolved_table is None:
                 continue
 
             if isinstance(resolved_table, SavedQuery):
