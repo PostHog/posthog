@@ -204,7 +204,6 @@ export class PushNotificationService {
     // to one token per pod per TTL. It is a fallback, not the cache: Valkey is still read first, so the
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
-    // Concurrent sends on this pod for the same key wait for one lookup instead of each minting a token.
     private apnsJwtInFlight = new Map<string, Promise<string>>()
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -725,8 +724,7 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const minted = `${signingInput}.${signature}`
 
-        // Pods that miss the cache together each mint a different token, because ES256 signatures are
-        // randomized. Only the first write lands, and the others adopt it, so Apple sees one token per key.
+        // ES256 signatures are randomized, so pods that miss together mint different tokens. Keep the first.
         const stored = await this.valkey.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
             client.set(cacheKey, minted, 'EX', APNS_JWT_TTL_SECONDS, 'NX')
         )

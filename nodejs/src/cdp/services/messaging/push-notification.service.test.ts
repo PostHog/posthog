@@ -674,9 +674,6 @@ describe('PushNotificationService', () => {
             ['concurrent sends on one pod', 1],
             ['concurrent sends across pods sharing Valkey', 3],
         ])('presents one APNS provider token for %s', async (_name, podCount) => {
-            // A batch fans out into many concurrent sends against an empty cache. Each one minting its own
-            // token sends Apple several distinct tokens for one key within seconds, and Apple answers
-            // 429 TooManyProviderTokenUpdates.
             const pods = Array.from(
                 { length: podCount },
                 () => new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockValkey)
