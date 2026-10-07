@@ -61,6 +61,7 @@ import {
     trialIsActive,
     trialTaskIsActive,
 } from '../components/config/scouts/trials/scoutTrialUtils'
+import { scoutDisplayName } from '../utils/scoutRunsWindow'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
 const TRIAL_RESULT_POLL_CONCURRENCY = 5
@@ -477,7 +478,12 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         configs: [
             null as SignalScoutConfigApi[] | null,
             {
-                loadConfigs: async () => signalsScoutConfigList(String(props.teamId)),
+                loadConfigs: async () => {
+                    const configs = await signalsScoutConfigList(String(props.teamId))
+                    return [...configs].sort((left, right) =>
+                        scoutDisplayName(left).localeCompare(scoutDisplayName(right))
+                    )
+                },
             },
         ],
         setup: [
