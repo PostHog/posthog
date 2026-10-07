@@ -70,7 +70,7 @@ test('a product with no leaf test is not scoped, because the run would collect n
     assert.equal(resolveCoreScopes([coreTask(directory, CORE_TESTS)], [], new Set(['catalog'])).size, 0)
 })
 
-test('a scoped product runs alone, with its ignores, sized by its leaf tests', () => {
+test('a scoped product keeps its ignores in its own leg and is sized by its leaf tests', () => {
     const scope = { ignores: ['backend/tests'], coreTestCount: 1, leafTestCount: 1 }
     const union = {
         // Enough core work to split the product four ways if it counted.
@@ -81,11 +81,15 @@ test('a scoped product runs alone, with its ignores, sized by its leaf tests', (
 
     const matrix = buildMatrix(['catalog', 'small-one'], union, true, new Map([['catalog', scope]]))
 
-    assert.deepEqual(
-        matrix.map((entry) => [entry.group, entry.filters, entry.pytest_args]),
-        [
-            ['catalog (leaf tests)', '--filter=@posthog/products-catalog', '-- --ignore=backend/tests'],
-            ['small-one', '--filter=@posthog/products-small-one', ''],
-        ]
-    )
+    // One job, not five: the core work is not counted, and the small product rides along
+    // in a leg that never sees the ignores.
+    assert.deepEqual(matrix, [
+        {
+            group: 'catalog (leaf tests), small-one',
+            legs: [
+                { filters: '--filter=@posthog/products-catalog', pytest_args: '-- --ignore=backend/tests' },
+                { filters: '--filter=@posthog/products-small-one', pytest_args: '' },
+            ],
+        },
+    ])
 })
