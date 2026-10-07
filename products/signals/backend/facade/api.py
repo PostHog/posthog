@@ -43,7 +43,7 @@ from products.signals.backend.briefing_reports import (
     reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
-from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, ReportPriority, SignalSourceProduct
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.free_trial import FreeTrialPullRequestRefused as FreeTrialPullRequestRefused
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_access import may_read_reports as may_read_reports
@@ -1570,9 +1570,3 @@ def create_tracker_issue_for_report(*, team_id: int, report_id: str, repository:
     from products.signals.backend import tracker_issues
 
     tracker_issues.create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
-
-
-def persisted_report_priority(*, team_id: int, report_id: str, before: datetime) -> "ReportPriority | None":
-    from products.signals.backend.report_generation import priority
-
-    return priority.persisted_report_priority(team_id=team_id, report_id=report_id, before=before)
