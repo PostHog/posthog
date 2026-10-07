@@ -460,7 +460,7 @@ export class HogFlowExecutorService {
     /**
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
-    private async shouldExitEarly(
+    public async shouldExitEarly(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null

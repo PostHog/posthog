@@ -1138,6 +1138,48 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow exit condition test invocations', () => {
+        // person.properties.plan == 'paid' - same shape the serializer compiles for a conversion goal.
+        const paidPlanBytecode = ['_H', 1, 32, 'paid', 32, 'plan', 32, 'properties', 32, 'person', 1, 3, 11]
+
+        const conversionFlowConfiguration = {
+            name: 'Conversion flow',
+            trigger: { type: 'event', filters: {} },
+            exit_condition: 'exit_on_conversion',
+            conversion: {
+                filters: [{ key: 'plan', value: 'paid', operator: 'exact', type: 'person' }],
+                bytecode: paidPlanBytecode,
+            },
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                { id: 'delay_node', name: 'Delay', type: 'delay', config: { delay_duration: '1h' } },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'trigger_node', to: 'delay_node', type: 'continue' },
+                { from: 'delay_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        it.each([
+            ['exits a person who already converted', 'paid', null, 'Workflow exited early'],
+            ['runs the step for a person who has not converted', 'free', 'delay_node', 'Executing action'],
+        ])('%s, like a real run', async (_, plan, expectedNextActionId, expectedLog) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...globals, person: { ...globals.person!, properties: { plan } } },
+                    mock_async_functions: true,
+                    configuration: conversionFlowConfiguration,
+                    current_action_id: 'delay_node',
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({ status: 'success', nextActionId: expectedNextActionId })
+            expect(res.body.logs.map((log: any) => log.message).join('\n')).toContain(expectedLog)
+        })
+    })
+
     it('redacts a flow function action secret from mocked async function logs', async () => {
         const SECRET_TOKEN = 'super-secret-flow-token-xyz'
 

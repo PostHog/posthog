@@ -109,6 +109,28 @@ describe('hogFlowOutputMappingLogic', () => {
             logic.mount()
         })
 
+        it('fetches a sample response even when the sample person would exit the workflow', async () => {
+            let postedBody: Record<string, any> | null = null
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        postedBody = (await request.json()) as Record<string, any>
+                        return [200, { status: 'success', nextActionId: null, logs: [], execResult: { ok: true } }]
+                    },
+                },
+            })
+            wfLogic.actions.setWorkflowValue('exit_condition', 'exit_on_conversion')
+            editorLogic.actions.setNodesRaw([makeActionNode('webhook_node')])
+            editorLogic.actions.setSelectedNodeId('webhook_node')
+
+            await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
+
+            expect(postedBody).toMatchObject({
+                current_action_id: 'webhook_node',
+                configuration: { exit_condition: 'exit_only_at_end' },
+            })
+        })
+
         describe('initial state', () => {
             it('starts with empty mappings and null pendingPath', () => {
                 expect(logic.values.mappings).toEqual([])

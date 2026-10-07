@@ -451,6 +451,8 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     }
 
                     const config = sanitizeWorkflow(JSON.parse(JSON.stringify(workflow)), hogFunctionTemplatesById)
+                    // This fetches one step's response, so the workflow's exit condition must not stop it.
+                    config.exit_condition = 'exit_only_at_end'
 
                     // Strip output_variable from the current action so the backend
                     // only executes the step and returns the raw result without

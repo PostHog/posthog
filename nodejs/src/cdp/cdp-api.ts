@@ -821,6 +821,26 @@ export class CdpApi {
                   }
                 : undefined
 
+            // A real run checks the workflow's exit condition each time it starts or resumes, before
+            // the next step. The trigger is not checked: a real run does not exist until it matches.
+            const startingAction = compoundConfiguration.actions?.find(
+                (action: HogFlowAction) => action.id === startingActionId
+            )
+            if (startingAction && startingAction.type !== 'trigger') {
+                const earlyExitResult = await this.hogFlowExecutor.shouldExitEarly(invocation)
+                if (earlyExitResult) {
+                    res.json({
+                        nextActionId: null,
+                        status: 'success',
+                        errors: [],
+                        logs: earlyExitResult.logs,
+                        variables: earlyExitResult.invocation.state.variables ?? {},
+                        execResult: null,
+                    })
+                    return
+                }
+            }
+
             const logs: MinimalLogEntry[] = []
 
             // In production a wait_until_condition step's "events to wait for" are evaluated by the
