@@ -273,9 +273,9 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
             realized_context=build_realized_context(pipeline),
         )
 
-        assert "| 2026-09-16 | Wed | 0.700 (0.650-0.750) | +0.100 | no | 40 / 1000 | 0.060 / 0.040 |" in prompt
+        assert "| 2026-09-16 | Wed | 0.700 (0.650-0.750) | +0.100 | no | 40 / 1000 | 0.0600 / 0.0400 |" in prompt
         assert "| 2026-09-02 |" not in prompt
-        assert "| 2026-09-01 | Tue | +0.200 | no | 0.060 / 0.040 |" in prompt
+        assert "| 2026-09-01 | Tue | +0.200 | no | 0.0600 / 0.0400 |" in prompt
         assert "other project" not in prompt
         assert "No realized results yet" not in prompt
         related = re.findall(

@@ -782,7 +782,7 @@ def _realized_tables(context: RealizedContext) -> str:
         ]
         lines += [
             f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_auc(d)} | {_fmt_gap(d)}"
-            f" | {_fmt_inside(d)} | {d.n_positive} / {d.n_scored} | {_fmt(d.mean_p_y)} / {_fmt(d.base_rate)} |"
+            f" | {_fmt_inside(d)} | {d.n_positive} / {d.n_scored} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
             for d in model.dates
         ]
     if context.related:
@@ -801,7 +801,7 @@ def _realized_tables(context: RealizedContext) -> str:
             ]
             lines += [
                 f"| {d.prediction_date.isoformat()} | {d.prediction_date.strftime('%a')} | {_fmt_gap(d)}"
-                f" | {_fmt_inside(d)} | {_fmt(d.mean_p_y)} / {_fmt(d.base_rate)} |"
+                f" | {_fmt_inside(d)} | {_fmt_rate(d.mean_p_y)} / {_fmt_rate(d.base_rate)} |"
                 for d in related.dates
             ]
     return "\n".join(lines)
@@ -816,6 +816,11 @@ def _related_heading(related: RelatedPipeline) -> str:
 
 def _fmt(value: float | None) -> str:
     return "-" if value is None else f"{value:.3f}"
+
+
+# Online validation stores rates to 4 decimals. With 3, a rare target's miscalibration reads as 0.000 / 0.000.
+def _fmt_rate(value: float | None) -> str:
+    return "-" if value is None else f"{value:.4f}"
 
 
 def _fmt_auc(d: RealizedDate) -> str:
