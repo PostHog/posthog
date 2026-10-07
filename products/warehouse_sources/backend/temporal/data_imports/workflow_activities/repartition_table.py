@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     capture_repartition_event,
     maybe_flag_for_repartition,
     needs_pre_extraction_detection,
+    pre_extraction_measurement_is_redundant,
     target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -202,6 +203,18 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
         partition_count=schema.partition_count,
         partition_size=schema.partition_size,
     )
+
+
+def _measurement_is_redundant(schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger) -> bool:
+    """Whether the last recorded measurement makes the on-disk read unnecessary. Never raises.
+
+    Any doubt gives False, and the activity then reads the table as before.
+    """
+    try:
+        return pre_extraction_measurement_is_redundant(schema, job)
+    except Exception:
+        logger.warning("repartition: could not check the last measurement, measuring on disk", exc_info=True)
+        return False
 
 
 def _maybe_flag_pre_extraction(
@@ -356,6 +369,10 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     # renamed during the multi-schema migration keeps its folder pinned to the original path (name
     # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
     # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
+    if pending is None and swap is None and _measurement_is_redundant(schema, job, logger):
+        logger.info("repartition: no data reached the table since the last healthy measurement, nothing to do")
+        return
+
     resource_name = schema.resolved_s3_folder_name or schema.name
     table_ref = DeltaTableRef(
         resource_name=resource_name, job=job, logger=logger, expect_missing=schema.table_id is None
