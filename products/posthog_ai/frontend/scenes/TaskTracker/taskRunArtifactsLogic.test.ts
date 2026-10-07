@@ -213,12 +213,24 @@ describe('taskRunArtifactsLogic', () => {
 
         logic.actions.runHtmlPreviewScripts(secondArtifact)
         expect(global.fetch).toHaveBeenLastCalledWith(expect.stringContaining('scripts=true'), expect.anything())
-        await expectLogic(logic, () => respond(4, 'scripts')).toFinishAllListeners()
-        expect(logic.values.htmlPreview).toMatchObject({ scriptsEnabled: true, scriptsAvailable: true })
+        await expectLogic(logic, () => respond(4, 'denied', 403)).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({
+            url: expect.stringContaining('/task-preview/retry/'),
+            scriptsEnabled: false,
+            scriptsError: expect.any(String),
+        })
+
+        logic.actions.runHtmlPreviewScripts(secondArtifact)
+        await expectLogic(logic, () => respond(5, 'scripts')).toFinishAllListeners()
+        expect(logic.values.htmlPreview).toMatchObject({
+            scriptsEnabled: true,
+            scriptsAvailable: true,
+            scriptsError: null,
+        })
 
         logic.actions.leaveHtmlPreview()
         logic.actions.ensureSelectedText()
-        expect(pending).toHaveLength(5)
+        expect(pending).toHaveLength(6)
         expect(logic.values.htmlPreview).toMatchObject({ url: null, left: true })
     })
 

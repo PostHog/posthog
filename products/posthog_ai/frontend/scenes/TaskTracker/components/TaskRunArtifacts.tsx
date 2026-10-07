@@ -238,11 +238,13 @@ function HtmlScriptsBar({
     onRunScripts: () => void
     onStopScripts: () => void
 }): JSX.Element {
-    const message = preview.scriptsEnabled
-        ? 'Scripts are on. This page can send its content and what you type in it to other sites.'
-        : preview.scriptsAvailable
-          ? 'Scripts are off. Run them only if you trust this file. A page with scripts can send its content to other sites.'
-          : 'Scripts are off because the task run that made this file has limited network access.'
+    const message = preview.scriptsError
+        ? preview.scriptsError
+        : preview.scriptsEnabled
+          ? 'Scripts are on. This page can send its content and what you type in it to other sites.'
+          : preview.scriptsAvailable
+            ? 'Scripts are off. Run them only if you trust this file. A page with scripts can send its content to other sites.'
+            : 'Scripts are off because the task run that made this file has limited network access.'
     return (
         <div
             className={cn(
@@ -520,7 +522,11 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
         )
     }
     if (selectedKind === 'html' && mode === 'rendered') {
-        if (!htmlPreview || htmlPreview.artifactId !== selectedArtifact.id || htmlPreviewLoading) {
+        if (
+            !htmlPreview ||
+            htmlPreview.artifactId !== selectedArtifact.id ||
+            (htmlPreviewLoading && !htmlPreview.url)
+        ) {
             return (
                 <div className="flex h-full items-center justify-center">
                     <Spinner />
