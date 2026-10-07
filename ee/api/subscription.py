@@ -62,6 +62,10 @@ from products.exports.backend.models.subscription import (
     unsubscribe_using_token,
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.subscription_query_access import (
+    tables_blocking_subscription_write,
+    write_needs_query_access_check,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -81,7 +85,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.api.subscription_query_access import tables_blocking_subscription_write, write_needs_query_access_check
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
