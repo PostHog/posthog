@@ -39,6 +39,16 @@ def _instant_retries():
     fetch.retry.wait = original_wait
 
 
+class _EofClosingBody(io.BytesIO):
+    # http.client closes its socket file as it reads the last body byte; a plain BytesIO
+    # stays open, which hides the closed-stream crash a production response hits at EOF.
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        if self.tell() == len(self.getbuffer()):
+            self.close()
+        return data
+
+
 def _response(
     status_code: int = 200,
     text: str = "",
@@ -51,9 +61,11 @@ def _response(
     response.text = text
     response.headers = {"Content-Type": content_type}
     response.json.return_value = json_data
-    # The CSV path stream-parses `response.raw`; a real urllib3 response over the body keeps
-    # the `decode_content` + TextIOWrapper plumbing honest.
-    response.raw = urllib3.response.HTTPResponse(body=io.BytesIO(text.encode("utf-8")), preload_content=False)
+    # The CSV path streams `iter_content`; a real response over a urllib3 stream that closes
+    # at EOF keeps the TextIOWrapper plumbing honest.
+    streamed = requests.Response()
+    streamed.raw = urllib3.response.HTTPResponse(body=_EofClosingBody(text.encode("utf-8")), preload_content=False)
+    response.iter_content.side_effect = streamed.iter_content
     typed = cast(requests.Response, response)
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
@@ -144,12 +156,24 @@ class TestCodyTransport:
             ("application/json; charset=utf-8", None, {"buckets": [{"id": "b1"}]}, [{"id": "b1"}]),
             ("application/json", None, {"id": "b1"}, [{"id": "b1"}]),
             ("text/csv", "id,amount\nb1,10\n", None, [{"id": "b1", "amount": "10"}]),
+            ("text/csv", "", None, []),
+            ("text/csv", 'id,notes\n1,"line one\nline two"\n', None, [{"id": "1", "notes": "line one\nline two"}]),
+            ("text/csv", 'id,notes\n1,"line one\nline two"', None, [{"id": "1", "notes": "line one\nline two"}]),
         ]
     )
     def test_rows_from_response_sniffs_json_and_csv(self, content_type, text, json_data, expected):
         response = _response(200, text=text or "", content_type=content_type, json_data=json_data)
 
         assert list(_rows_from_response(response, mock.Mock())) == expected
+        cast(mock.Mock, response).close.assert_called_once()
+
+    def test_rows_from_response_closes_response_when_parsing_fails(self):
+        response = _response(200)
+        cast(mock.Mock, response).iter_content.side_effect = requests.exceptions.ChunkedEncodingError("dropped")
+
+        with pytest.raises(requests.exceptions.ChunkedEncodingError):
+            list(_rows_from_response(response, mock.Mock()))
+        cast(mock.Mock, response).close.assert_called_once()
 
     def test_validate_credentials_probes_one_day_by_user_report(self):
         session = mock.Mock()
