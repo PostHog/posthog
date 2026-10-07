@@ -18,9 +18,8 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.facade.api import subscription_delivers_insight, subscription_delivers_whole_dashboard
+from products.exports.backend.facade.api import subscription_delivers
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.facade.models import Insight
 
 _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
 _TARGET_FIELDS = ("insight", "dashboard")
@@ -105,15 +104,6 @@ def blocked_access_for_subscription(
     return blocked_access_for_user(user, team, delivered_queries(instance, attrs))
 
 
-def subscription_delivers(artifact: Insight | Dashboard) -> bool:
-    """Decide if an active subscription delivers this artifact: the insight itself, or every live
-    tile of the dashboard. An edit to such an artifact must pass the editor's table-access check,
-    because the recipients' own access is never checked."""
-    if isinstance(artifact, Insight):
-        return subscription_delivers_insight(team_id=artifact.team_id, insight_id=artifact.id)
-    return subscription_delivers_whole_dashboard(team_id=artifact.team_id, dashboard_id=artifact.id)
-
-
 def check_can_add_insight_to_subscribed_dashboard(
     user: User,
     dashboard: Dashboard,
@@ -131,7 +121,7 @@ def check_can_add_insight_to_subscribed_dashboard(
     uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
     if uac.is_organization_admin:
         return
-    if not subscription_delivers(dashboard):
+    if not subscription_delivers(dashboard.team_id, dashboard_id=dashboard.id):
         return
     blocked = blocked_access_for_user(user, dashboard.team, [query])
     if blocked:

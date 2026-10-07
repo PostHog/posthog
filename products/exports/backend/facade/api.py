@@ -181,6 +181,17 @@ def subscription_delivers_whole_dashboard(*, team_id: int, dashboard_id: int) ->
     )
 
 
+def subscription_delivers(team_id: int, *, insight_id: int | None = None, dashboard_id: int | None = None) -> bool:
+    """Decide if an active subscription delivers this insight, or every live tile of this dashboard.
+    An edit to such an artifact must pass the editor's table-access check, because the recipients'
+    own access is never checked."""
+    if insight_id is not None:
+        return subscription_delivers_insight(team_id=team_id, insight_id=insight_id)
+    if dashboard_id is not None:
+        return subscription_delivers_whole_dashboard(team_id=team_id, dashboard_id=dashboard_id)
+    return False
+
+
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
 # The API rejects this key from clients, so only PostHog's own writers reach this map.
 _PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}

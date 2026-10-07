@@ -199,7 +199,7 @@ def save_saved_insight_query(
     from posthog.api.query_access_check import blocked_access_for_user  # noqa: PLC0415, I001 — avoids HogQL import cycle
     from posthog.api.sharing_publish_gate import is_publicly_shared  # noqa: PLC0415, I001 — avoids HogQL import cycle
 
-    from products.exports.backend.subscription_query_access import subscription_delivers  # noqa: PLC0415, I001 — avoids HogQL import cycle
+    from products.exports.backend.facade.api import subscription_delivers  # noqa: PLC0415, I001 — avoids HogQL import cycle
 
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
@@ -215,7 +215,7 @@ def save_saved_insight_query(
         if (
             insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             and not access_control.is_organization_admin
-            and (is_publicly_shared(insight) or subscription_delivers(insight))
+            and (is_publicly_shared(insight) or subscription_delivers(insight.team_id, insight_id=insight.id))
         ):
             blocked = blocked_access_for_user(user, insight.team, [query])
             if blocked:
