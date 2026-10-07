@@ -5,7 +5,14 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { firstErroredScannerStep, scannerEditorSceneLogic, scannerStepErrors } from './scannerEditorSceneLogic'
+import {
+    SCANNER_EDITOR_STEPS,
+    firstErroredScannerStep,
+    isScannerEditorPath,
+    scannerEditorSceneLogic,
+    scannerStepErrors,
+    scannerStepUrl,
+} from './scannerEditorSceneLogic'
 
 describe('firstErroredScannerStep', () => {
     it.each([
@@ -15,6 +22,20 @@ describe('firstErroredScannerStep', () => {
         ['no errors maps nowhere', {}, null],
     ])('%s', (_label, errors, expected) => {
         expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
+
+describe('isScannerEditorPath', () => {
+    it.each([
+        ...SCANNER_EDITOR_STEPS.map((step) => [scannerStepUrl(step, 'abc'), true] as const),
+        [scannerStepUrl('overview', 'new'), true],
+        [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
+        [urls.replayVisionScannerSelfDriving('abc'), true],
+        [urls.replayVision('abc'), false],
+        [urls.replayVisionObservation('abc'), false],
+        [urls.replayVision(), false],
+    ])('%s → %s', (pathname, expected) => {
+        expect(isScannerEditorPath(pathname)).toBe(expected)
     })
 })
 
