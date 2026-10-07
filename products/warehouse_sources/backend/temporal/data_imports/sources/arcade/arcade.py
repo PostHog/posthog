@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 from posthog.dataclasses import frozen
 
@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    PaginatorConfig,
     ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -90,12 +91,15 @@ def get_resource(
         endpoint["json"] = {"type": definition.insight_type, "teamId": config.team_id}
         if name == "flow_engagement":
             endpoint["json"].update({"from": period_start, "to": period_end, "size": 1 if probe else PAGE_SIZE})
-            endpoint["paginator"] = {
-                "type": "page_number",
-                "base_page": 1,
-                "param_location": "json",
-                "maximum_page": 1 if probe else None,
-            }
+            endpoint["paginator"] = cast(
+                PaginatorConfig,
+                {
+                    "type": "page_number",
+                    "base_page": 1,
+                    "param_location": "json",
+                    "maximum_page": 1 if probe else None,
+                },
+            )
 
     def add_context(row: dict[str, Any]) -> dict[str, Any]:
         if definition.insight_type:
