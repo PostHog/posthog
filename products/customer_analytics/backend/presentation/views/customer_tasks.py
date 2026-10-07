@@ -90,6 +90,10 @@ class CustomerTaskAssigneeErrorSerializer(serializers.Serializer):
     assigned_to_id = serializers.CharField(read_only=True, help_text="Why the selected assignee is not allowed.")
 
 
+class CustomerTaskRoleErrorSerializer(serializers.Serializer):
+    assigned_role = serializers.CharField(read_only=True, help_text="Why the selected role filter is not allowed.")
+
+
 class CustomerTaskCreateSerializer(serializers.Serializer):
     account_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="UUID of a visible account, or null for an accountless task."
@@ -471,9 +475,10 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             return Response(error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskRoleNotFound):
-            return Response(
-                {"assigned_role": "Select a role in this organization."}, status=status.HTTP_400_BAD_REQUEST
+            role_error = CustomerTaskRoleErrorSerializer(
+                instance={"assigned_role": "Select a role in this organization."}
             )
+            return Response(role_error.data, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(exc, contracts.CustomerTaskInvalidTransition):
             return Response(
                 {"status": "This task can" + chr(39) + f"t move from {exc.current} to {exc.requested}."},
