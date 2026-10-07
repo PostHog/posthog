@@ -399,6 +399,9 @@ class ClickHousePrinter(BasePrinter):
                 # Re-inserted so it prints after the global settings rather than at the field's declared position.
                 merged.pop("json_type_escape_dots_in_keys", None)
                 merged["json_type_escape_dots_in_keys"] = True
+            if self._reads_native_events_table:
+                # Property sub-objects and arrays must retain the slashes returned by legacy reads.
+                merged["output_format_json_escape_forward_slashes"] = False
             if self.context.emit_top_level_settings:
                 printed = self._print_settings(merged)
                 if printed is not None:
@@ -614,8 +617,6 @@ class ClickHousePrinter(BasePrinter):
         if node.name != "toJSONString" or len(node.args) != 1:
             return None
         arg = node.args[0]
-        if isinstance(arg, ast.JsonSubcolumnAccess) and arg.access_type == "sub_object":
-            return f"{JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({self.visit(arg)}))"
         arg_type = resolve_field_type(arg)
         if not isinstance(arg_type, ast.FieldType):
             return None
@@ -975,6 +976,11 @@ class ClickHousePrinter(BasePrinter):
         left_type = node.left.type.resolve_constant_type(self.context)
         right_type = node.right.type.resolve_constant_type(self.context)
         return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
+
+    def visit_type_cast(self, node: ast.TypeCast) -> str:
+        if node.type_name.lower() == "nullable(string)":
+            return f"CAST({self.visit(node.expr)}, 'Nullable(String)')"
+        return super().visit_type_cast(node)
 
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):

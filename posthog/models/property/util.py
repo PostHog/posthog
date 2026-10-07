@@ -79,11 +79,11 @@ def get_property_string_expr(
 
 def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
-    object_value = f"JSONStripEmptyStringsAndNulls(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}))"
+    object_value = f"replaceAll(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}), '\\\\/', '/')"
     scalar_string = f"toString({scalar_value})"
     # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
     # string's JSON form starts with '"' (see the HogQL resolver).
-    scalar_json = f"toJSONString({scalar_value})"
+    scalar_json = f"replaceAll(toJSONString({scalar_value}), '\\\\/', '/')"
     # 91 and 123 are '[' and '{'; compared by code so no brace literal reaches callers that str.format the SQL.
     is_container = f"ascii({scalar_string}) IN (91, 123) AND ascii({scalar_json}) IN (91, 123)"
     raw_value = (

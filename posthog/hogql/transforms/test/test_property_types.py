@@ -131,6 +131,39 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dynamic", "properties.value = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
+            ("declared", "properties.$browser IN ('Chrome', 'Firefox')", "in(events.properties.`$browser`, tuple("),
+            (
+                "person",
+                "poe.properties.$session_id = '5'",
+                "CAST(events.person_properties.`$session_id`, 'Nullable(String)')",
+            ),
+            ("to_string", "toString(properties.value) = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
+        ]
+    )
+    def test_native_string_predicates_expose_subcolumns(self, _name: str, predicate: str, expected: str) -> None:
+        select = f"SELECT count() FROM events WHERE {predicate}"
+        native = self._print_select(select)
+        assert expected in native
+        assert "toJSONString" not in native
+
+        legacy = self._print_select(select, use_new_events_schema=False)
+        assert expected not in legacy
+
+        restricted = self._print_select(
+            select,
+            restricted_properties={
+                RestrictedProperty(name="value", property_type=PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="$browser", property_type=PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="$session_id", property_type=PropertyDefinition.Type.PERSON),
+            },
+        )
+        assert expected not in restricted
+        assert "events.properties" not in restricted
+        assert "events.person_properties" not in restricted
+
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
@@ -508,11 +541,18 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("typed_array", "$exception_types"),
-            ("dynamic_array", "custom_array"),
+            ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path"]),
+            ("dynamic_array", "custom_array", ["a", '"b"', "https://example.com/path"]),
+            (
+                "object",
+                "custom_object",
+                {"empty": "", "escaped": '\u0001"\\\t', "url": "https://example.com/path", "number": 2**63},
+            ),
         ]
     )
-    def test_raw_property_helper_reads_only_one_json_subcolumn(self, _name: str, property_name: str) -> None:
+    def test_raw_property_helper_reads_only_one_json_subcolumn(
+        self, _name: str, property_name: str, value: list[str] | dict[str, str | int]
+    ) -> None:
         expression, _ = get_property_string_expr(
             "events",
             property_name,
@@ -530,10 +570,12 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             {
                 "property_key": property_name,
                 "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
-                "documents": [json.dumps({property_name: value}) for value in [["a", '"b"'], [], None]],
+                "documents": [json.dumps({property_name: item}) for item in [value, [], None]],
             },
         )
-        assert rows == [('["a","\\"b\\""]',), ("",), ("",)]
+        assert json.loads(rows[0][0]) == value
+        assert "\\/" not in rows[0][0]
+        assert rows[1:] == [("",), ("",)]
 
     @parameterized.expand(
         [

@@ -60,6 +60,7 @@ from posthog.hogql.visitor import CloningVisitor, clone_expr
 from posthog.clickhouse.events_json import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
     TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX,
     TEMPORARY_EVENT_PROPERTY_ROOTS,
     TEMPORARY_PROPERTIES_COLUMN,
@@ -1842,6 +1843,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             or self._optimize_materialized_array_compare(node)
             or self._optimize_materialized_array_ilike(node)
             or self._optimize_materialized_array_multisearch(node)
+            or self._optimize_native_json_string_compare(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
             or self._optimize_materialized_ilike(node)
@@ -2350,6 +2352,50 @@ class ClickHousePropertyResolver(CloningVisitor):
             ],
         )
         return contains if node.op == ast.CompareOperationOp.Gt else _call("not", [contains])
+
+    def _optimize_native_json_string_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        op_name = {
+            ast.CompareOperationOp.Eq: "equals",
+            ast.CompareOperationOp.NotEq: "notEquals",
+            ast.CompareOperationOp.In: "in",
+            ast.CompareOperationOp.NotIn: "notIn",
+        }.get(node.op)
+        if op_name is None:
+            return None
+        property_expr = node.left
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            constant = _string_pattern_constant(node.right)
+            if constant is None:
+                property_expr = node.right
+                constant = _string_pattern_constant(node.left)
+            values = [constant.value] if constant is not None else None
+        else:
+            values = self._extract_string_constants(node.right)
+        if not values or any(not value or value.startswith(("[", "{")) for value in values):
+            return None
+        if self._is_boolean_conversion(property_expr):
+            return None
+        prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
+        if prop is None or prop.source.kind != "json_subcolumn":
+            return None
+
+        declared_types = (
+            EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+            if _is_events_properties(prop.field_type, self.context)
+            else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        )
+        declared_type = declared_types.get(prop.key) if prop.source.json_column is None else None
+        column = prop.bare_column()
+        if declared_type not in ("String", "LowCardinality(String)"):
+            # A bare Dynamic comparison converts the constant to each runtime type and can throw.
+            # The String cast matches the scalar read; containers cannot match these constants.
+            column = ast.TypeCast(expr=column, type_name="Nullable(String)", type=ast.StringType(nullable=True))
+        value: ast.Expr = (
+            ast.Tuple(exprs=[_const(value) for value in values])
+            if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn)
+            else _const(values[0])
+        )
+        return _call(op_name, [column, value])
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):

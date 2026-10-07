@@ -158,7 +158,11 @@ class TestPrinter(BaseTest):
 
     def _native_read_settings_suffix(self) -> str:
         # The printer appends this to the global settings of every query that reads the native events table.
-        return ", json_type_escape_dots_in_keys=1" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else ""
+        return (
+            ", json_type_escape_dots_in_keys=1, output_format_json_escape_forward_slashes=0"
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else ""
+        )
 
     def _with_active_events_table(self, expected_sql: str) -> str:
         if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
@@ -5645,15 +5649,18 @@ class TestNewEventsSchemaDefaults(BaseTest):
         # Only a read of the native table needs ClickHouse to unescape stored dotted keys, and an older
         # ClickHouse rejects the setting name, so it must not leak onto other queries.
         self.assertNotIn("json_type_escape_dots_in_keys", printed_without_events)
+        self.assertNotIn("output_format_json_escape_forward_slashes", printed_without_events)
         if use_new_events_schema:
             self.assertIn("FROM events_json AS events", printed)
             self.assertIn("events.properties.schema_test_property", printed)
             self.assertNotIn("JSONExtractRaw", printed)
             self.assertIn("json_type_escape_dots_in_keys=1", printed)
+            self.assertIn("output_format_json_escape_forward_slashes=0", printed)
         else:
             self.assertIn("FROM events ", printed)
             self.assertIn("JSONExtractRaw(events.properties", printed)
             self.assertNotIn("json_type_escape_dots_in_keys", printed)
+            self.assertNotIn("output_format_json_escape_forward_slashes", printed)
 
 
 @snapshot_clickhouse_queries
@@ -6113,7 +6120,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             index_name = get_minmax_index_name(mat_col.name)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 assert index_name not in eq_result.clickhouse
-                assert self._json_dynamic_property_expr("test_prop") in eq_result.clickhouse
+                assert "CAST(events.properties.test_prop, 'Nullable(String)')" in eq_result.clickhouse
             else:
                 assert get_index_from_explain(eq_result.clickhouse, index_name), (
                     f"Expected skip index {index_name} to be used"

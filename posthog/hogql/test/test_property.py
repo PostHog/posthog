@@ -506,7 +506,7 @@ class TestProperty(BaseTest):
         sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
         self.assertIn("getSubcolumn(events.properties, %(hogql_val_", sql)
         self.assertNotIn("events.properties.a", sql)
-        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb", "^`a%2Eb`"})
+        self.assertEqual(set(context.values.values()) - {"x"}, {"a%2Eb"})
 
     def test_property_string_expr_reads_dotted_key_as_one_flat_path_on_native_table(self):
         # Raw-SQL readers must bind the escaped path name like the printer does, and stay safe for callers that

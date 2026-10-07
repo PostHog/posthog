@@ -160,6 +160,12 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
+On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String).
+This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
+Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+Native queries disable forward-slash escaping so object and array text retains `/`.
+
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
 
 Internal marketing queries can read cached session dimensions from `posthog.web_sessions_dimensional_preaggregated`.
