@@ -226,6 +226,12 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     /**
+     * Client shows `structuredContent` to the model as well as the text, so a UI tool
+     * without a formatted table can send its payload once, in `structuredContent`.
+     * Other UI-app hosts get the payload as compact text, with the app data on `_meta`.
+     */
+    structuredContentReachesModel?: boolean
+    /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
      * a connected server pays nothing for having one. Must not throw: a failing gateway
@@ -2103,10 +2109,10 @@ export function createExecTool(
                                 // the raw JSON. When such a table exists, re-home the UI app's data
                                 // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
                                 // table and the chart still renders. When there is no formatted table,
-                                // the payload stays in the standard `structuredContent` field — which
-                                // both the model and the app read — and the text channel carries a
-                                // pointer rather than a second copy of the same rows.
+                                // a client that shows `structuredContent` to the model gets the payload
+                                // there with a pointer in the text. Other clients get compact text.
                                 forceUiDataToMeta: true,
+                                structuredContentReachesModel: options.structuredContentReachesModel === true,
                                 includeAppData,
                                 distinctId,
                                 includeUiResponseMeta: isInlineUiAppHost,

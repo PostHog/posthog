@@ -204,6 +204,12 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
 
+// Non-Anthropic client names whose model reads `structuredContent`. Codex and the
+// PostHog Desktop pi harness both connect with the `posthog-code` consumer, but Codex
+// reads `structuredContent` in place of the text and the pi harness drops it.
+// Neither can use a text pointer to `structuredContent`, so they are not listed here.
+export const STRUCTURED_CONTENT_MODEL_CLIENT_NAME_FRAGMENTS = ['claude-code'] as const
+
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
     // clients inject into the model's system prompt. Codex discards it, so
@@ -339,6 +345,14 @@ export class MCPClientProfile {
         // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
         // The per-request vendor header (`ClaudeCode`) is the reliable signal.
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
+    }
+
+    forwardsStructuredContentToModel(): boolean {
+        // Allow-list: an unknown client gets the result as compact text, which every client can read.
+        return (
+            this.isAnthropicClient() ||
+            matchesAnyFragment(this.clientName, STRUCTURED_CONTENT_MODEL_CLIENT_NAME_FRAGMENTS)
+        )
     }
 
     isClaudeChatHost(): boolean {

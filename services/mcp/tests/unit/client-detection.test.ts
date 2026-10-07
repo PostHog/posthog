@@ -472,6 +472,20 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('forwardsStructuredContentToModel()', () => {
+        it.each([
+            [{ clientName: 'claude-code' }, true],
+            [{ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' }, true],
+            [{ vendorClient: 'Cowork' }, true],
+            [{ clientName: 'codex-mcp-client', consumer: 'posthog-code' }, false],
+            [{ userAgent: 'openai-mcp/1.0.0 (Codex)', consumer: 'posthog-code' }, false],
+            [{ clientName: 'pi-mcp-bridge', consumer: 'posthog-code' }, false],
+            [{ consumer: 'posthog-code' }, false],
+        ])('is %j -> %s', (input, expected) => {
+            expect(new MCPClientProfile(input).forwardsStructuredContentToModel()).toBe(expected)
+        })
+    })
+
     describe('isClaudeChatHost()', () => {
         it.each([
             // Claude web/desktop ignore the `instructions` payload → keep env-context.

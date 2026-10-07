@@ -475,7 +475,7 @@ describe('exec tool', () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
-            const exec = createExec([tool], 'posthog-code')
+            const exec = createExec([tool], 'posthog-code', { structuredContentReachesModel: true })
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
                 structuredContent?: Record<string, unknown>
@@ -556,7 +556,7 @@ describe('exec tool', () => {
                     _posthogUrl: 'http://localhost:8010/insights/new#q=...',
                 }),
             })
-            const exec = createExec([tool], 'posthog-code')
+            const exec = createExec([tool], 'posthog-code', { structuredContentReachesModel: true })
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
                 structuredContent?: Record<string, unknown>
@@ -569,6 +569,27 @@ describe('exec tool', () => {
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
             expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
+
+        // Codex reads structuredContent in place of the text, and the pi harness drops it.
+        it.each([
+            ['list', { count: 1, next: null, results: [{ id: 7, name: 'Pricing page', feature_flag_key: 'pricing' }] }],
+            ['detail', { id: 7, name: 'Pricing page', feature_flag: { key: 'pricing', filters: { groups: [] } } }],
+            ['results', { experiment: { id: 7, name: 'Pricing page' }, exposures: { total: 10 }, metrics: [] }],
+        ])(
+            'gives a PostHog Desktop client that does not show structuredContent to the model one compact %s text',
+            async (_shape, handlerResult) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                    handler: async () => handlerResult,
+                })
+                const exec = createExec([tool], 'posthog-code', { structuredContentReachesModel: false })
+                const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as ToolResultPayload
+
+                expect(result.content[0]!.text).toBe(`${formatResponse(handlerResult)}\n\n${UI_APP_RENDER_NOTE}`)
+                expect(result.structuredContent).toBeUndefined()
+                expect(result._meta?.[APP_DATA_META_KEY]).toMatchObject(handlerResult)
+            }
+        )
 
         it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',

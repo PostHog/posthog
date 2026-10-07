@@ -27,11 +27,18 @@ export interface BuildToolResultOptions {
      * For inline-exec UI-app hosts (PostHog Desktop, Claude Code): when a compact
      * formatted table is available, drop top-level `structuredContent` toward the model so
      * it reads the compact table instead of the verbose JSON, and re-home the app payload
-     * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table
-     * the payload stays in the standard `structuredContent` field and the text channel gets
-     * a pointer instead of a second copy of it. Overridden by an explicit `output_format`.
+     * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table,
+     * see `structuredContentReachesModel`. Overridden by an explicit `output_format`.
      */
     forceUiDataToMeta?: boolean | undefined
+    /**
+     * With `forceUiDataToMeta` and no formatted table: when true, the payload stays in
+     * `structuredContent` and the text channel gets a pointer to it. When false, the text
+     * channel gets the compact serialization and the app payload moves onto `_meta`, so a
+     * client that drops `structuredContent` or reads it in place of the text gets one
+     * compact copy.
+     */
+    structuredContentReachesModel?: boolean | undefined
     /** Native widgets need the handler object even when the tool has no MCP UI resource. */
     includeAppData?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
@@ -141,9 +148,10 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
  *    `structuredContent`. Coding agents surface `structuredContent` to the model in
  *    preference to `content[].text`, so keeping it would hide the formatted table
  *    behind raw JSON.
- * 3. Conversely, a UI tool with no `formattedResults` on an inline-exec UI host keeps
- *    `structuredContent` and drops the mirrored text, so the payload reaches the agent
- *    exactly once instead of once per channel.
+ * 3. A UI tool with no `formattedResults` on an inline-exec UI host sends the payload to
+ *    the agent exactly once. A client that shows `structuredContent` to the model gets it
+ *    there with a pointer in the text. Any other client gets the compact text, and the app
+ *    payload moves onto `_meta`.
  * 4. Native widgets use app metadata regardless of UI resources. Their models read
  *    the text channel unless the caller explicitly requests JSON.
  */
@@ -155,6 +163,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         params,
         suppressStructuredContentForFormattedResults,
         forceUiDataToMeta,
+        structuredContentReachesModel,
         includeAppData,
         distinctId,
         includeUiResponseMeta,
@@ -203,14 +212,16 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
 
     // Native widgets read metadata independently of the model's text format, so with app data
     // present `structuredContent` would be a third copy of the rows the text and `_meta` already
-    // carry. MCP UI hosts only suppress it when a compact table can replace it for the model.
+    // carry. MCP UI hosts suppress it when a compact table can replace it for the model, or
+    // when the model would not read it next to the compact text.
     const suppressStructuredContent =
         !!includeAppData ||
         (!callerWantsJson &&
             formattedResults !== undefined &&
-            (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults))
+            (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults)) ||
+        (!!forceUiDataToMeta && !structuredContentReachesModel && !useJson && !isStringResult)
 
-    // Inline-exec UI hosts surface BOTH `content[].text` and `structuredContent` to the
+    // Claude Code and Cowork surface BOTH `content[].text` and `structuredContent` to the
     // model. A UI tool with no compact formatted table has nothing smaller to offer the
     // text channel, so mirroring the payload there hands the agent a second full copy of
     // the same rows. Carry it once, in `structuredContent` — the field the UI app reads
@@ -219,6 +230,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const structuredContentOnly =
         !includeAppData &&
         !!forceUiDataToMeta &&
+        !!structuredContentReachesModel &&
         hasUiResource &&
         !isStringResult &&
         !useJson &&

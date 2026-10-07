@@ -230,9 +230,9 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 
 // Inline-exec UI-app hosts (PostHog Desktop, Claude Code) go through the exec
 // wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
-// should only move onto `_meta` when a compact formatted table takes structuredContent's
-// place for the model — otherwise it stays in the standard structuredContent field so it
-// isn't duplicated under a non-standard `_meta` key.
+// should only move onto `_meta` when compact text takes structuredContent's place for the
+// model. Otherwise it stays in the standard structuredContent field so it isn't duplicated
+// under a non-standard `_meta` key.
 describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', () => {
     it('suppresses structuredContent and re-homes the payload onto _meta when a formatted table exists', () => {
         const payload = buildToolResultPayload({
@@ -263,6 +263,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             toolName: 'query-trends',
             params: {},
             forceUiDataToMeta: true,
+            structuredContentReachesModel: true,
             includeUiResponseMeta: true,
             distinctId: 'd',
         })
@@ -299,23 +300,33 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             },
         ],
     ])('serializes a %s payload exactly once when there is no formatted table', (_shape, handlerResult) => {
-        const payload = buildToolResultPayload({
-            handlerResult,
-            toolMeta: { ui: { resourceUri: 'ui://posthog/experiment-list.html' } },
-            toolName: 'experiment-list',
-            params: {},
-            forceUiDataToMeta: true,
-            includeUiResponseMeta: true,
-            includeRenderNote: true,
-            distinctId: 'd',
-        })
+        for (const structuredContentReachesModel of [true, false]) {
+            const payload = buildToolResultPayload({
+                handlerResult,
+                toolMeta: { ui: { resourceUri: 'ui://posthog/experiment-list.html' } },
+                toolName: 'experiment-list',
+                params: {},
+                forceUiDataToMeta: true,
+                structuredContentReachesModel,
+                includeUiResponseMeta: true,
+                includeRenderNote: true,
+                distinctId: 'd',
+            })
 
-        expect(payload.structuredContent).toMatchObject(handlerResult)
-        // The text channel points at structuredContent instead of repeating it.
-        expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
-        expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
-        expect(payload.content[0]!.text).not.toContain('Onboarding copy')
-        expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
+            expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
+            if (structuredContentReachesModel) {
+                expect(payload.structuredContent).toMatchObject(handlerResult)
+                expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+                expect(payload.content[0]!.text).not.toContain('Onboarding copy')
+                expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
+            } else {
+                // Codex reads structuredContent in place of the text, and the pi harness drops it.
+                expect(payload.structuredContent).toBeUndefined()
+                expect(payload.content[0]!.text).toContain(formatResponse(handlerResult))
+                expect(payload.content[0]!.text).not.toContain(STRUCTURED_CONTENT_ONLY_TEXT)
+                expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject(handlerResult)
+            }
+        }
     })
 
     it('counts the structured payload for token estimation when the text is only a pointer', () => {
@@ -327,6 +338,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             toolName: 'query-trends',
             params: {},
             forceUiDataToMeta: true,
+            structuredContentReachesModel: true,
             includeUiResponseMeta: true,
             includeRenderNote: true,
             distinctId: 'd',
