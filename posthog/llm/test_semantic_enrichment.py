@@ -12,6 +12,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_OUTPUT_TOKENS,
     MIN_OUTPUT_TOKENS,
     TruncatedCompletionError,
+    UnparseableCompletionError,
     _ChatClient,
     _Completion,
     _MessagesClient,
@@ -104,6 +105,17 @@ class TestMessagesClient:
         assert completion.max_output_tokens == 16384
         assert completion.usage == {"model": "m", "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}
 
+    def test_prefills_an_open_brace_and_restores_it_in_the_text(self):
+        sdk = self._sdk(_messages_response('"columns": {"a": "desc"}}'))
+
+        completion = _MessagesClient(sdk).complete(model="claude-haiku-4-5", prompt="p", temperature=0.2, team_id=7)
+
+        assert sdk.messages.create.call_args.kwargs["messages"] == [
+            {"role": "user", "content": "p"},
+            {"role": "assistant", "content": "{"},
+        ]
+        assert json.loads(completion.text) == {"columns": {"a": "desc"}}
+
     def test_reports_a_max_tokens_stop_as_truncated(self):
         sdk = self._sdk(_messages_response('{"columns": ', stop_reason="max_tokens"))
 
@@ -187,10 +199,10 @@ class TestGenerateJsonCompletion:
         with pytest.raises(TruncatedCompletionError):
             generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
 
-    def test_unparseable_reply_that_was_not_truncated_raises_plain_value_error(self):
+    def test_unparseable_reply_that_was_not_truncated_raises_its_own_error(self):
         client = self._client("sorry, no")
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(UnparseableCompletionError) as excinfo:
             generate_json_completion(product="warehouse_semantic_enrichment", team_id=7, prompt="p", client=client)
 
         assert not isinstance(excinfo.value, TruncatedCompletionError)

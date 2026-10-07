@@ -35,6 +35,7 @@ from posthog.llm.semantic_enrichment import (
     MAX_ENRICHMENT_BATCHES,
     MAX_PROMPT_CHARS,
     BoundedPrompt,
+    UnparseableCompletionError,
     bound_prompt_over_columns,
     collapse_untrusted,
     generate_json_completion,
@@ -519,7 +520,10 @@ def _run_enrichment_batches(target: _EnrichmentTarget, plan: _AnnotationPlan, lo
             log.warning("view_enrichment.llm_gateway_not_configured")
             return _BatchRun(ai_count=ai_count, unfinished=remaining, failed=True)
         except Exception as e:
-            capture_exception(e)
+            # An unparseable reply is an occasional model miss, not a bug: this run withholds the
+            # hash, so the next trigger enriches again. The log line below still records it.
+            if not isinstance(e, UnparseableCompletionError):
+                capture_exception(e)
             log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
             return _BatchRun(ai_count=ai_count, unfinished=remaining, failed=True)
 
