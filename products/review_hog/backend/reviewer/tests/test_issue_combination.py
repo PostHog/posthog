@@ -20,6 +20,7 @@ class TestCombineIssues:
         # source_perspective is stamped (to the skill name) by the review activity, NOT recomputed here —
         # combine must preserve it while re-stamping ids and flattening sorted by (pass, chunk).
         perspective_results = {
+            (4, 5): IssuesReview(issues=[_issue("e", "review-hog-perspective-security-audit")]),
             (3, 5): IssuesReview(issues=[_issue("a", "review-hog-perspective-performance-reliability")]),
             (1, 5): IssuesReview(
                 issues=[
@@ -32,15 +33,16 @@ class TestCombineIssues:
 
         combined = combine_issues(perspective_results)
 
-        assert len(combined) == 4
+        assert len(combined) == 5
         # Deterministic order: sorted by (pass_number, chunk_id), so pass 1 issues come first.
-        assert [i.id for i in combined] == ["1-5-1", "1-5-2", "2-5-1", "3-5-1"]
+        assert [i.id for i in combined] == ["1-5-1", "1-5-2", "2-5-1", "3-5-1", "4-5-1"]
         # Each issue keeps the skill name its review activity stamped (now keyed by the re-stamped id).
         assert {i.id: i.source_perspective for i in combined} == {
             "1-5-1": "review-hog-perspective-logic-correctness",
             "1-5-2": "review-hog-perspective-logic-correctness",
             "2-5-1": "review-hog-perspective-contracts-security",
             "3-5-1": "review-hog-perspective-performance-reliability",
+            "4-5-1": "review-hog-perspective-security-audit",
         }
 
     def test_orders_by_chunk_id_within_a_pass(self) -> None:

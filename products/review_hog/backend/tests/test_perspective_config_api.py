@@ -64,13 +64,13 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         # The min-1 floor: a user must always keep ≥1 perspective on, or their reviews would run empty.
         register_missing_perspective_configs(self.team.id, self.user.id)
         names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        for name in names[:2]:
+        for name in names[:-1]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
 
-        res = self.client.patch(f"{self.base}/{names[2]}/", {"enabled": False}, format="json")
+        res = self.client.patch(f"{self.base}/{names[-1]}/", {"enabled": False}, format="json")
 
         assert res.status_code == 400
-        last = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=names[2])
+        last = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=names[-1])
         assert last.enabled is True
 
     def test_an_enabled_validator_does_not_satisfy_the_perspective_floor(self) -> None:
@@ -78,13 +78,13 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         # let a user disable their last perspective.
         register_missing_perspective_configs(self.team.id, self.user.id)
         names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        for name in names[:2]:
+        for name in names[:-1]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
         ReviewSkillConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, enabled=True
         )
 
-        res = self.client.patch(f"{self.base}/{names[2]}/", {"enabled": False}, format="json")
+        res = self.client.patch(f"{self.base}/{names[-1]}/", {"enabled": False}, format="json")
 
         assert res.status_code == 400
 

@@ -66,3 +66,4 @@ class PerspectiveType(Enum):
     LOGIC_CORRECTNESS = "Logic & Correctness"
     CONTRACTS_SECURITY = "Contracts & Security"
     PERFORMANCE_RELIABILITY = "Performance & Reliability"
+    SECURITY_AUDIT = "Security audit"
