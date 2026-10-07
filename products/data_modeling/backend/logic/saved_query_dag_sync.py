@@ -64,6 +64,10 @@ def node_type_for(saved_query: "DataWarehouseSavedQuery") -> NodeType:
     return NodeType.VIEW
 
 
+# The table-node unique index is partial on this predicate, so a lookup must state it to use the index.
+TABLE_NODE_LOOKUP = {"saved_query__isnull": True, "metric_id__isnull": True}
+
+
 def get_dag_id(team_id: int) -> str:
     """Return the standard dag_id for a team."""
     return f"posthog_{team_id}"
@@ -83,6 +87,7 @@ def _managed_cross_dag_reference(
         dag=dag,
         name=dependency_name,
         type=NodeType.TABLE,
+        **TABLE_NODE_LOOKUP,
         defaults={"properties": {"origin": "cross_dag_view", "saved_query_id": str(saved_query.id)}},
     )
     return node
@@ -164,6 +169,7 @@ def resolve_dependency_to_node(
             dag=dag,
             name=dependency_name,
             type=NodeType.TABLE,
+            **TABLE_NODE_LOOKUP,
             defaults={
                 "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
             },
@@ -183,6 +189,7 @@ def resolve_dependency_to_node(
         dag=dag,
         name=dependency_name,
         type=NodeType.TABLE,
+        **TABLE_NODE_LOOKUP,
         defaults={"properties": {"origin": "posthog"}},
     )
     properties = {**(node.properties if isinstance(node.properties, dict) else {}), "origin": "posthog"}
