@@ -342,6 +342,11 @@ class TestExperimentRuleWarnings:
                 [(EXTENDS, "filters.rules[1]")],
             ),
             ("paused_split_has_no_rollout_to_extend", cfg(split(A, 30, PRO, paused=True), targeted(B, "green")), []),
+            (
+                "partial_rollout_continues_to_a_split_serving_its_value",
+                cfg(rollout(A, 30, "green", seed=OTHER_SEED), split(B)),
+                [(EXTENDS, "filters.rules[1]")],
+            ),
             ("narrower_split_is_inconclusive", cfg(split(A, 100, PRO), targeted(B, "red")), []),
             (
                 # The rollout above takes the same hash share, so the split enrolls nobody new.

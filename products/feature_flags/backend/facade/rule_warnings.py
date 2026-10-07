@@ -137,10 +137,10 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
         if not _continues_after_partial_miss(upper):
             continue
         assert upper.rollout_percentage is not None
-        upper_values = {variant.value for variant in upper.variants} if upper.variants else {upper.value}
+        upper_values = _served_values(upper)
         for lower_index in range(upper_index + 1, len(config.rules)):
             lower = config.rules[lower_index]
-            if lower.value not in upper_values:
+            if not upper_values & _served_values(lower):
                 continue
             population = _overlap(upper, lower)
             if population is None:
@@ -165,6 +165,10 @@ def _rollout_miss_extensions(config: ValidatedConfig) -> Iterator[ManagementWarn
                 ),
                 attr=f"filters.rules[{lower_index}]",
             )
+
+
+def _served_values(rule: ValidatedRule) -> set[str | None]:
+    return {variant.value for variant in rule.variants} if rule.variants else {rule.value}
 
 
 def _continues_after_partial_miss(rule: ValidatedRule) -> bool:
