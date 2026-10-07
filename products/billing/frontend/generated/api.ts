@@ -44,6 +44,7 @@ import type {
     BillingUsageStatusApi,
     BillingUsageSummaryApi,
     BillingUsageTimeseriesRetrieveParams,
+    ClaimCouponApi,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
     PaginatedBillingTimeSeriesPointListApi,
@@ -125,12 +126,15 @@ export const getBillingCouponsClaimCreateUrl = () => {
     return `/api/billing/coupons/claim/`
 }
 
-export const billingCouponsClaimCreate = async (billingApi: BillingApi, options?: RequestInit): Promise<void> => {
+export const billingCouponsClaimCreate = async (
+    claimCouponApi?: ClaimCouponApi,
+    options?: RequestInit
+): Promise<void> => {
     return apiMutator<void>(getBillingCouponsClaimCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(billingApi),
+        body: JSON.stringify(claimCouponApi),
     })
 }
 

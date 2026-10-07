@@ -22251,6 +22251,13 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    export interface ClaimCoupon {
+      /** Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access. */
+      code?: string;
+      /** Slug of a campaign to redeem. Give this or `code`, never both. Any organization member can redeem an allowlisted campaign. */
+      campaign_slug?: string;
+    }
+
     export interface TagCount {
       /** The tag value. */
       tag: string;
