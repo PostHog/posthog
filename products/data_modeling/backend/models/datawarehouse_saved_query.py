@@ -290,17 +290,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller, and so does UnstorableColumnTypeError, which
-        is raised before anything changes. Any other failure disables materialization, because the
-        alternative is a query that reports itself materialized while nothing is scheduled to
-        materialize it.
+        A rejected frequency propagates to the caller, and so does UnstorableColumnTypeError from
+        the frequency write, which checks the stored column types before it writes anything. Any
+        other failure disables materialization, because the alternative is a query that reports
+        itself materialized while nothing is scheduled to materialize it.
         """
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
-        )
-        from products.data_modeling.backend.logic.materialized_column_types import (  # noqa: PLC0415 -- the validator reads this model
-            check_saved_query_column_types,
         )
         from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
@@ -312,7 +309,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         node: Node | None = None
         try:
-            check_saved_query_column_types(self.team_id, self.pk)
             # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
             # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
