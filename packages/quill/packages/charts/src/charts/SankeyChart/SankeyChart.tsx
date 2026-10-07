@@ -266,7 +266,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
         return {
             scales,
-            dimensions,
+            dimensions: { ...dimensions, plotWidth: plot.plotWidth },
             labels: [],
             series: [],
             theme,
@@ -275,7 +275,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
             yGutters: [],
         }
-    }, [scales, dimensions, theme, canvasBounds])
+    }, [scales, dimensions, plot.plotWidth, theme, canvasBounds])
     const sankeyValue = useMemo<SankeyLayoutContextValue<NodeMeta, LinkMeta>>(
         () => ({ layout, canvasBounds }),
         [layout, canvasBounds]
