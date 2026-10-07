@@ -1361,7 +1361,12 @@ class TestSavedQuery(APIBaseTest):
     ) -> None:
         temporal = AsyncMock()
         temporal.list_schedules.return_value.__aiter__.return_value = []
-        with patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal):
+        with (
+            patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.async_connect", return_value=temporal),
+            patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=temporal),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -1383,8 +1388,11 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(node.type, NodeType.MAT_VIEW if materialized else NodeType.VIEW)
         if materialized:
             temporal.list_schedules.assert_called()
+            temporal.create_schedule.assert_awaited()
+            temporal.start_workflow.assert_awaited()
         else:
-            temporal.list_schedules.assert_not_called()
+            temporal.create_schedule.assert_not_awaited()
+            temporal.start_workflow.assert_not_awaited()
         self.assertEqual(
             ActivityLog.objects.filter(item_id=saved_query.id, activity="materialization_enabled").exists(),
             materialized,

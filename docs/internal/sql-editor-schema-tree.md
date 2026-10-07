@@ -51,7 +51,8 @@ The saved-query API accepts `sync_frequency` on create and update.
 Any cadence other than `"never"` means the view is materialized.
 On create, and on update of a view that is not materialized yet, it materializes the view at that cadence and starts its first run, through the same code as the `materialize` action.
 That runs inside the write's transaction after the DAG node exists, so a refused cadence leaves no saved query behind on create and leaves the view unchanged on update.
-When an update both changes the query and enables materialization, a failed dependency sync returns 500 and rolls back the update before materialization can use old dependencies.
+An update that enables materialization rebuilds dependencies from the saved query, including when the query changed in an earlier request.
+A failed dependency sync returns 500 and rolls back the update before materialization can use old dependencies.
 On a view that is already materialized, the cadence only changes the node's target.
 A create that matches an existing view by name runs as an update.
 An omitted cadence leaves the target unchanged on update; explicit `null` and `"never"` both clear it.

@@ -64,8 +64,10 @@ class TestSavedQueryWriteFields(APIBaseTest):
         self.assertEqual(node.dag_id, dag.id)
         self.assertEqual(get_declared_target(node), timedelta(hours=6))
 
-    @parameterized.expand([("patch",), ("upsert",)])
-    def test_materializing_a_query_update_rolls_back_when_its_dependencies_cannot_sync(self, operation: str) -> None:
+    @parameterized.expand([("patch", True), ("upsert", True), ("patch", False)])
+    def test_materializing_an_update_rolls_back_when_its_dependencies_cannot_sync(
+        self, operation: str, edit_query: bool
+    ) -> None:
         other = DAG.objects.create(team=self.team, name="Other")
         parent = self._create_view(name="other_view", dag_id=str(other.id))
         self.assertEqual(parent.status_code, 201, parent.content)
@@ -80,6 +82,15 @@ class TestSavedQueryWriteFields(APIBaseTest):
             "sync_frequency": "6hour",
             "description": "Events from another view",
         }
+        if not edit_query:
+            query = fields.pop("query")
+            revision = fields.pop("edited_history_id")
+            edited = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+                {"query": query, "edited_history_id": revision},
+            )
+            self.assertEqual(edited.status_code, 200, edited.content)
+            created = edited.json()
         with patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal):
             if operation == "patch":
                 response = self.client.patch(
