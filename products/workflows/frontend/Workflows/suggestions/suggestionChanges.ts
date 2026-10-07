@@ -25,8 +25,15 @@ export interface SuggestedChanges {
     workflow: SuggestedFieldChange[]
 }
 
+export type SuggestedFieldView =
+    | { kind: 'inline' }
+    | { kind: 'diff'; language: 'html' | 'json' | 'plaintext'; original: string; modified: string }
+
 // Every step input sits at `config.inputs.<name>.value`, so those segments say nothing to a reader.
 const SILENT_SEGMENTS = new Set(['config', 'inputs', 'value'])
+
+// A value longer than this does not fit on one line next to its replacement, so it gets a diff.
+const INLINE_MAX_LENGTH = 80
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -80,6 +87,59 @@ function sameLeaf(before: unknown, after: unknown): boolean {
         return false
     }
     return JSON.stringify(before) === JSON.stringify(after)
+}
+
+function fitsInline(value: unknown): boolean {
+    if (typeof value === 'string') {
+        return value.length <= INLINE_MAX_LENGTH && !value.includes('\n')
+    }
+    return !isPlainObject(value) && !Array.isArray(value)
+}
+
+function looksLikeHtml(change: SuggestedFieldChange): boolean {
+    if (change.path.split('.').at(-1) === 'html') {
+        return true
+    }
+    return [change.before, change.after].some((value) => typeof value === 'string' && /^\s*</.test(value))
+}
+
+// Minified email HTML can be one long line. A line break between adjacent tags lets the diff
+// point at the changed tag, and it keeps HTML that already has line breaks as it is.
+function splitAdjacentTags(html: string): string {
+    return html.replace(/>(?=<)/g, '>\n')
+}
+
+// Inline images can be megabytes of base64 that hide the change and stall the diff. Their bytes
+// say nothing a reader can judge, so the diff shows their size. Compare emails renders them.
+function shortenDataUris(html: string): string {
+    return html.replace(/data:([\w/+.-]+);base64,[A-Za-z0-9+/=\s]{200,}/g, (match, type: string) => {
+        const kilobytes = Math.round((match.length * 3) / 4 / 1024)
+        return `data:${type};base64,… (${kilobytes.toLocaleString()} KB)`
+    })
+}
+
+export function describeFieldView(change: SuggestedFieldChange): SuggestedFieldView {
+    const { before, after } = change
+    if (fitsInline(before) && fitsInline(after)) {
+        return { kind: 'inline' }
+    }
+    const isText = (value: unknown): boolean => typeof value === 'string' || value === undefined || value === null
+    if (isText(before) && isText(after)) {
+        const original = typeof before === 'string' ? before : ''
+        const modified = typeof after === 'string' ? after : ''
+        if (looksLikeHtml(change)) {
+            return {
+                kind: 'diff',
+                language: 'html',
+                original: splitAdjacentTags(shortenDataUris(original)),
+                modified: splitAdjacentTags(shortenDataUris(modified)),
+            }
+        }
+        return { kind: 'diff', language: 'plaintext', original, modified }
+    }
+    const asJson = (value: unknown): string =>
+        value === undefined || value === null ? '' : JSON.stringify(value, null, 2)
+    return { kind: 'diff', language: 'json', original: asJson(before), modified: asJson(after) }
 }
 
 export function describeSuggestedChanges(content: Record<string, unknown>, live: HogFlow | null): SuggestedChanges {

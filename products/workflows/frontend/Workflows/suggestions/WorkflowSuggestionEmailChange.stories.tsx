@@ -5,6 +5,8 @@ import { WorkflowSuggestionEmailChange } from './WorkflowSuggestionEmailChange'
 const meta: Meta<typeof WorkflowSuggestionEmailChange> = {
     title: 'Products/Workflows/Suggestion email change',
     component: WorkflowSuggestionEmailChange,
+    // Monaco lays the diff out after the first paint, like the other Monaco diff stories.
+    tags: ['test-skip'],
 }
 export default meta
 
