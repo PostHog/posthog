@@ -144,5 +144,28 @@ describe('TrendsPieChart', () => {
 
             expect(getHogChart(container).proportionLegendItems()).toEqual(expectedRows)
         })
+
+        it('floors a negative part at 0 in the total below the bar, matching what the bar renders', async () => {
+            const { container } = renderInsight({
+                query: buildTrendsQuery({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: 'NappedWithNegativePart',
+                            name: 'NappedWithNegativePart',
+                        },
+                    ],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+                }),
+            })
+            await waitFor(() => expect(container.querySelector('[data-attr="trend-proportion-bar"]')).not.toBeNull(), {
+                timeout: 5000,
+            })
+
+            // Raw sum of 10 and -4 is 6, but the bar floors the negative part at 0, so the
+            // total must read 10 to agree with a bar that is 100% Spike.
+            expect(container.querySelector('[data-attr="trend-total"]')).toHaveTextContent('10')
+        })
     })
 })

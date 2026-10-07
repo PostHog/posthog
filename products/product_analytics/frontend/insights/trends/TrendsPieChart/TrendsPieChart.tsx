@@ -147,8 +147,17 @@ export function TrendsPieChart({
     )
 
     const total = useMemo(
-        () => visibleResults.reduce((acc: number, r: IndexedTrendResult) => acc + (r.aggregated_value ?? 0), 0),
-        [visibleResults]
+        () =>
+            visibleResults.reduce((acc: number, r: IndexedTrendResult) => {
+                const value = r.aggregated_value ?? 0
+                if (!isProportionBar) {
+                    return acc + value
+                }
+                // Match the bar's per-part floor (`partValue` in quill-charts' ProportionBar), so a
+                // negative formula result doesn't make the total disagree with the rendered parts.
+                return acc + (Number.isFinite(value) ? Math.max(0, value) : 0)
+            }, 0),
+        [visibleResults, isProportionBar]
     )
 
     const valueFormatter = useCallback(
@@ -295,7 +304,7 @@ export function TrendsPieChart({
     const renderTotalBelow = (className?: string | false): JSX.Element | false =>
         showAggregation &&
         !isDonut && (
-            <div className={clsx('text-7xl text-center font-bold m-0', className)}>
+            <div className={clsx('text-7xl text-center font-bold m-0', className)} data-attr="trend-total">
                 {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
             </div>
         )
