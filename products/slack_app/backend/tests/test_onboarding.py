@@ -285,6 +285,46 @@ class TestOnboarding:
 
         assert onboarding.EVENT_COMPLETED not in [c.args[1] for c in mock_capture.call_args_list]
 
+    @pytest.mark.parametrize(
+        "slack_team_id,scope,workspace_already_linked,onboards",
+        [
+            ("T_NEW", "channels:manage,chat:write", False, True),
+            ("T12345", "chat:write", True, False),
+        ],
+    )
+    @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
+    @patch("products.slack_app.backend.analytics.capture_slack_event")
+    def test_install_captures_installed_for_every_fresh_install(
+        self,
+        mock_capture,
+        mock_start,
+        django_capture_on_commit_callbacks,
+        slack_team_id,
+        scope,
+        workspace_already_linked,
+        onboards,
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+
+        with django_capture_on_commit_callbacks(execute=True):
+            Integration.objects.create(
+                team=other_team,
+                kind="slack",
+                integration_id=slack_team_id,
+                config={"scope": scope, "authed_user": {"id": "U_INSTALL"}},
+                created_by=self.user,
+            )
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.args[1] == "slack app installed"
+        assert mock_capture.call_args.kwargs == {
+            "slack_user_id": "U_INSTALL",
+            "posthog_user": self.user,
+            "has_inbox_scopes": onboards,
+            "workspace_already_linked": workspace_already_linked,
+        }
+        assert mock_start.called is onboards
+
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
         from posthog.temporal.ai.slack_app.activities.onboarding import run_posthog_slack_inbox_onboarding
