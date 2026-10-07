@@ -2812,6 +2812,11 @@ _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, 
 _WEBHOOK_ATTESTED_RUN_OUTPUT_KEYS = frozenset({"pr_merged"})
 
 
+def _carries_final_message(validated_data: dict) -> bool:
+    output = validated_data.get("output")
+    return isinstance(output, dict) and isinstance(output.get("final_message"), str) and bool(output["final_message"])
+
+
 def _apply_caller_output(stored: object, incoming: dict, merged: dict) -> dict:
     """Enforce the webhook-attested keys on a caller's output write.
 
@@ -3398,12 +3403,15 @@ def update_task_run(
             # A dormant run has no workflow to complete its stream after cancellation.
             run.state = {**(run.state or {}), "cancel_fallback_cleanup_complete": True}
             update_fields.add("state")
+        # Drop an earlier turn's message so the workflow step waits for the report of this turn.
+        # A `finish` call that carries the report in the same PATCH keeps it.
         if (
             caller_is_agent
             and new_status == TaskRun.Status.COMPLETED
             and old_status != new_status
             and run.task.origin_product == Task.OriginProduct.WORKFLOW
             and (run.state or {}).get("end_run_when_done")
+            and not _carries_final_message(validated_data)
         ):
             if isinstance(run.output, dict):
                 run.output = {key: value for key, value in run.output.items() if key != "final_message"}

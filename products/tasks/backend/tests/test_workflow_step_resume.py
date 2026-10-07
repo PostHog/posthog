@@ -227,3 +227,30 @@ class TestResumeWorkflowStepForRun(BaseTest):
             resume.assert_not_called()
             _persist_final_message(str(run.id), "Current turn")
             assert resume.call_args.kwargs["result"]["final_message"] == "Current turn"
+
+    def test_agent_completion_with_a_report_wakes_the_step_with_it_and_keeps_it(self) -> None:
+        run = self._run(status=TaskRun.Status.IN_PROGRESS, final_message="Previous turn")
+        run.state = {"end_run_when_done": True}
+        run.save(update_fields=["state"])
+
+        with (
+            patch(_RESUME) as resume,
+            patch(_SEND_TASK) as send_task,
+            patch("products.tasks.backend.facade.api.signal_workflow_completion"),
+            patch("products.tasks.backend.logic.services.loop_runs.handle_loop_run_terminal"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                update_task_run(
+                    run.id,
+                    run.task_id,
+                    self.team.id,
+                    validated_data={"status": "completed", "output": {"final_message": "Opened 2 draft PRs"}},
+                    only_if_non_terminal=True,
+                    caller_is_agent=True,
+                )
+            assert resume.call_args.kwargs["result"]["final_message"] == "Opened 2 draft PRs"
+            send_task.assert_not_called()
+            _persist_final_message(str(run.id), "Waiting on CI")
+            run.refresh_from_db()
+            assert run.output["final_message"] == "Opened 2 draft PRs"
+            assert resume.call_count == 1
