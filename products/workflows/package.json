@@ -20,6 +20,7 @@
     "devDependencies": {
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
         "@types/papaparse": "*",
         "kea-test-utils": "catalog:"
     },
