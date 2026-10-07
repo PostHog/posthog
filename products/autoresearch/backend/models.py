@@ -374,7 +374,7 @@ class AutoresearchIteration(PipelineScopedModel):
         ]
 
 
-class AutoresearchSuggestion(PipelineScopedModel):
+class AutoresearchSuggestion(PipelineScopedModel, IsolatedProductCreatedMetaFields):
     """A free-text hypothesis or direction injected into a running pipeline by a user or agent."""
 
     class Priority(models.TextChoices):
@@ -392,16 +392,6 @@ class AutoresearchSuggestion(PipelineScopedModel):
         AGENT = "agent", "Agent"
 
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="suggestions")
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_index=False,
-        db_constraint=False,
-        related_name="+",
-    )
 
     prompt = models.TextField(help_text="Free-text hypothesis or direction for the agent to explore")
     priority = models.CharField(
@@ -423,7 +413,6 @@ class AutoresearchSuggestion(PipelineScopedModel):
         help_text="Agent's note on how the suggestion was interpreted and acted upon",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

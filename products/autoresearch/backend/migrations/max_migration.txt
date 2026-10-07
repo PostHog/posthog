@@ -1,1 +1,1 @@
-0004_autoresearchpipeline_created_by_index
+0005_autoresearchsuggestion_created_by_index
