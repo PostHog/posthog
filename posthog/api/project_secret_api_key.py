@@ -5,7 +5,6 @@ from django.db import IntegrityError
 from django.db.models import QuerySet
 from django.utils import timezone
 
-import posthoganalytics
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -89,9 +88,8 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
 
     def validate_scopes(self, scopes):
         allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
-        # Allow llm_gateway:read only when the flag is on or the key already has it, so a flag
-        # rollback can't make an existing key unsaveable. Flag is evaluated only when requested.
-        if any(s.startswith("llm_gateway:") for s in scopes) and self._llm_gateway_grantable():
+        # A key that already holds llm_gateway:read stays saveable; no other key can gain it.
+        if self.instance is not None and any(s.startswith("llm_gateway:") for s in (self.instance.scopes or [])):
             allowed.add(("llm_gateway", "read"))
 
         for scope in scopes:
@@ -109,10 +107,6 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
             if (scope_parts[0], scope_parts[1]) not in allowed:
-                if (scope_parts[0], scope_parts[1]) == ("llm_gateway", "read"):
-                    raise serializers.ValidationError(
-                        "LLM gateway scope is not available for this project. Contact support to enable this feature."
-                    )
                 allowed_scopes = ", ".join(f"{obj}:{action}" for obj, action in sorted(allowed))
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
@@ -122,26 +116,6 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         existing = set(self.instance.scopes or []) if self.instance is not None else set()
         _enforce_caller_holds_scopes(self.context["request"], [scope for scope in scopes if scope not in existing])
         return scopes
-
-    def _llm_gateway_grantable(self) -> bool:
-        existing_has_llm_gateway = self.instance is not None and any(
-            s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
-        )
-        return existing_has_llm_gateway or self._ai_gateway_enabled()
-
-    def _ai_gateway_enabled(self) -> bool:
-        team = self.context["view"].team
-        user = self.context["request"].user
-        return bool(
-            posthoganalytics.feature_enabled(
-                "ai-gateway",
-                str(user.distinct_id),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)

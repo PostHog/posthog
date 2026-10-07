@@ -8830,14 +8830,6 @@ snapshots:
         hash: v1.k794b7964.13ae77563960d8df1279788e5a1b2a17b0f38c4469bb92d3a22f3cc569903681.v3gbz8mdvwkQ2INsmiXInoQZTCBj3KGPrqcynRaxFCU
     scenes-app-ai-observability-trace-view-trace-view-switch--on-old-view--light:
         hash: v1.k794b7964.de72868c75c31f3ba3d9813b5f86064d7dbf37bc1a896b8f13032dc102758876.Xpri2jtS8YkCfKQmwMkmtGGWN8oTE_vfUOaiXtOwJK0
-    scenes-app-aigateway--empty--dark:
-        hash: v1.k794b7964.daa11f1fa049181ba0f2a1682df377cca565a9d072188b77107ad9d0649e9623.mzdAzwhxfNqVM1hHDGRozAkPE5jqxA8pkYj_h67yw7c
-    scenes-app-aigateway--empty--light:
-        hash: v1.k794b7964.e0e5df5df8793c8468e27f6a9b082ed18e064ec1a6868da346984ff80acda39c.kMn7Ls6yq-E9wPX_Q_5cuIX5Gy0isIpnA-AsFj8F5V4
-    scenes-app-aigateway--page--dark:
-        hash: v1.k794b7964.daa11f1fa049181ba0f2a1682df377cca565a9d072188b77107ad9d0649e9623.XZv2VVoyPh7uZWHrC-fr3SN0Seo8oAHHWpG9QFtxmaU
-    scenes-app-aigateway--page--light:
-        hash: v1.k794b7964.c0c671f9520955f2d7b427ea9d998cafcaa32498677b7c0c933e887786a016cc.P3yeVak_kL5AjaxOowXaoIxcGpWslxE9XKtHckP1_sk
     scenes-app-annotations--annotations--dark:
         hash: v1.k794b7964.651aae7146d31971a314f627499eafdaa3d35933cde8dd0ad47abc6eab722148.H9u02T71vFBWS4vd-5sVVqacwrqXc9xeeOHs7b4qnL4
     scenes-app-annotations--annotations--light:

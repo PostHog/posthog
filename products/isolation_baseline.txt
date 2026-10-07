@@ -18,7 +18,6 @@
 
 access_control
 actions
-ai_gateway
 ai_observability
 alerts
 analytics_platform

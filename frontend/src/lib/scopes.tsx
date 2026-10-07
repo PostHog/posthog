@@ -388,7 +388,6 @@ export type ProjectSecretAPIKeyScopePreset = {
 export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
-    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each scope object

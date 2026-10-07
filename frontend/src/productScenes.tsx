@@ -11,7 +11,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
-    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
     AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),

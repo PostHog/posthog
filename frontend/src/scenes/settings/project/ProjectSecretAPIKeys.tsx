@@ -8,6 +8,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { PROJECT_SECRET_API_KEY_SCOPE_PRESETS } from 'lib/scopes'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
@@ -20,7 +21,6 @@ function EditKeyModal(): JSX.Element {
         editingKeyChanged,
         formScopeRadioValues,
         filteredScopes,
-        availablePresets,
         searchTerm,
     } = useValues(projectSecretAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, setSearchTerm } =
@@ -71,7 +71,7 @@ function EditKeyModal(): JSX.Element {
                         <LemonSelect
                             size="small"
                             placeholder="Select preset"
-                            options={availablePresets}
+                            options={PROJECT_SECRET_API_KEY_SCOPE_PRESETS}
                             dropdownMatchSelectWidth={false}
                         />
                     </LemonField>
