@@ -43,17 +43,25 @@ export function AiTaskPromptDiffs({ changes }: { changes: AiTaskPromptChange[] }
                     <div key={change.actionId} className="flex flex-col gap-1">
                         <span className="text-xs text-secondary break-words">{change.stepName}</span>
                         <div className="overflow-hidden rounded border">
-                            <Suspense fallback={<LemonSkeleton className="h-24 w-full" />}>
-                                <MonacoDiffEditor
-                                    original={change.livePrompt}
-                                    value={change.stagedPrompt}
-                                    modified={change.stagedPrompt}
-                                    language="markdown"
-                                    theme={isDarkMode ? 'vs-dark' : 'vs'}
-                                    options={DIFF_OPTIONS}
-                                    loading={<LemonSkeleton className="h-24 w-full" />}
-                                />
-                            </Suspense>
+                            {change.livePrompt ? (
+                                <Suspense fallback={<LemonSkeleton className="h-24 w-full" />}>
+                                    <MonacoDiffEditor
+                                        original={change.livePrompt}
+                                        value={change.stagedPrompt}
+                                        modified={change.stagedPrompt}
+                                        language="markdown"
+                                        theme={isDarkMode ? 'vs-dark' : 'vs'}
+                                        options={DIFF_OPTIONS}
+                                        loading={<LemonSkeleton className="h-24 w-full" />}
+                                    />
+                                </Suspense>
+                            ) : (
+                                // Monaco reads empty text as one blank line, so a diff against it would show
+                                // that line as removed. With nothing live, all of the text is added.
+                                <pre className="m-0 p-2 whitespace-pre-wrap break-words font-mono text-xs bg-fill-success-highlight">
+                                    {change.stagedPrompt}
+                                </pre>
+                            )}
                         </div>
                     </div>
                 ))}

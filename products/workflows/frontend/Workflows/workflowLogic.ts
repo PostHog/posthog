@@ -174,8 +174,8 @@ export interface AiTaskPromptChange {
 }
 
 /**
- * The AI task steps whose instructions the staged draft changes, for review before publish. A step
- * the draft adds, or turns into an AI task, has no live instructions to compare against, so it is not included.
+ * The AI task steps whose instructions the staged draft changes, for review before publish. A step the
+ * draft adds, or turns into an AI task, has no live instructions, so it compares against empty ones.
  */
 export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
     const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
@@ -187,11 +187,11 @@ export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] 
             : ''
 
     return (workflow.draft?.actions ?? []).flatMap((stagedAction) => {
-        const liveAction = liveActionsById.get(stagedAction.id)
-        if (!liveAction || !isAiTaskStep(liveAction) || !isAiTaskStep(stagedAction)) {
+        if (!isAiTaskStep(stagedAction)) {
             return []
         }
-        const livePrompt = promptOf(liveAction)
+        const liveAction = liveActionsById.get(stagedAction.id)
+        const livePrompt = liveAction && isAiTaskStep(liveAction) ? promptOf(liveAction) : ''
         const stagedPrompt = promptOf(stagedAction)
         return livePrompt === stagedPrompt
             ? []
@@ -3109,6 +3109,24 @@ function getSaveQueue(
     }))
 }
 
+// Server wins while auto-save can flush the local buffer: unsaved edits are then at most
+// a few seconds old, so reconcile silently instead of interrupting with a conflict
+// banner. When auto-save can't flush (toggled off, no name to save under, or a pending
+// schedule change, which only a manual save persists), the buffer can hold real work,
+// so the banner lets the user choose.
+function syncWithServerCopy(values: workflowLogicType['values'], actions: workflowLogicType['actions']): void {
+    const autoSaveCanFlush =
+        values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+    if (values.hasUnsavedChanges && !autoSaveCanFlush) {
+        actions.setExternallyEdited(true)
+    } else {
+        // Flag the sync first so the editor shows a brief working/disabled overlay and
+        // re-enables once the fresh copy loads (like auto-save).
+        actions.setSyncingExternalEdit(true)
+        actions.loadWorkflow()
+    }
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -3982,21 +4000,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (getSaveQueue(cache, values, props).classify(event) !== 'external') {
                 return
             }
-            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
-            // a few seconds old, so reconcile silently instead of interrupting with a conflict
-            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
-            // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
-            const autoSaveCanFlush =
-                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
-            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
-                actions.setExternallyEdited(true)
-            } else {
-                // Flag the sync first so the editor shows a brief working/disabled overlay and
-                // re-enables once the fresh copy loads (like auto-save).
-                actions.setSyncingExternalEdit(true)
-                actions.loadWorkflow()
-            }
+            syncWithServerCopy(values, actions)
         },
         publishDraft: async () => {
             if (!props.id || props.id === 'new' || values.draftActionPending) {
@@ -4004,31 +4008,26 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             let preview
-            let stagedWorkflow = values.originalWorkflow
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
-                // The token covers the draft the preview read. Another tab or an agent can stage a newer
-                // draft before this editor reloads, so the instruction diffs must come from the server copy.
-                if (!isSameTimestamp(preview.draft_updated_at, stagedWorkflow?.draft_updated_at)) {
-                    stagedWorkflow = await api.hogFlows.getHogFlow(props.id)
-                }
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
             }
-            if (!isSameTimestamp(preview.draft_updated_at, stagedWorkflow?.draft_updated_at)) {
-                // The draft moved again after the preview, so the diffs would not show what Publish promotes.
-                lemonToast.warning(
-                    'Someone updated the staged changes while the preview loaded. Review the latest version, then publish again.'
-                )
-                actions.loadWorkflow()
+            // The token covers the draft the preview read. When another tab or an agent staged a newer
+            // draft than this editor holds, the editor and the dialog would show a draft Publish does not
+            // promote, so load the newer draft for review first.
+            const stagedWorkflow = values.originalWorkflow
+            if (!stagedWorkflow || !isSameTimestamp(preview.draft_updated_at, stagedWorkflow.draft_updated_at)) {
+                lemonToast.warning('Someone updated the staged changes. Review the latest version, then publish again.')
+                syncWithServerCopy(values, actions)
                 return
             }
-            const aiTaskPromptChanges = stagedWorkflow ? getAiTaskPromptChanges(stagedWorkflow) : []
+            const aiTaskPromptChanges = getAiTaskPromptChanges(stagedWorkflow)
             // pinned: analytics event name
             posthog.capture('workflows publish dialog opened', {
                 workflow_id: props.id,
