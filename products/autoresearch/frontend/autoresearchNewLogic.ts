@@ -33,9 +33,9 @@ import {
 type TargetType = 'event' | 'action'
 
 /** A semantic population spec (`{"kind": ...}`) from resolve-template. */
-export type PopulationKind = Record<string, unknown>
+type PopulationKind = Record<string, unknown>
 
-export interface NewPipelineFormValues {
+interface NewPipelineFormValues {
     name: string
     target_type: TargetType
     // For event targets this is the event name; for action targets it's the action's
@@ -103,7 +103,7 @@ function populationBody(kind: PopulationKind | null, filters: AnyPropertyFilter[
 }
 
 /** Build the population request fields shared by validate + create. */
-export function populationRequestFields(values: NewPipelineFormValues): {
+function populationRequestFields(values: NewPipelineFormValues): {
     training_population: Record<string, unknown>
     inference_population: Record<string, unknown>
 } {
@@ -142,7 +142,7 @@ export function populationSummary(kind: PopulationKind | null, filters: AnyPrope
 }
 
 /** The form values a resolve-template response sets. Fields the user edited keep their value. */
-export function valuesFromResolvedTemplate(
+function valuesFromResolvedTemplate(
     resolved: ResolvedTemplateApi,
     previous: ResolvedTemplateApi | null,
     current: NewPipelineFormValues
