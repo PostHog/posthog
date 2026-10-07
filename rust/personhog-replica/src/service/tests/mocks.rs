@@ -28,6 +28,12 @@ impl FailingStorage {
             error: storage::StorageError::Query("syntax error at position 42".to_string()),
         }
     }
+
+    pub fn with_failed_precondition() -> Self {
+        Self {
+            error: storage::StorageError::FailedPrecondition("rows changed; retry".to_string()),
+        }
+    }
 }
 
 #[async_trait]
