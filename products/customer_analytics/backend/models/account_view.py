@@ -2,12 +2,12 @@ from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 from products.customer_analytics.backend.facade.enums import AccountViewVisibility
 
 
-class AccountView(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+class AccountView(ModelActivityMixin, TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
     visibility = models.CharField(
@@ -18,16 +18,6 @@ class AccountView(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     content = models.JSONField()
     text_content = models.TextField(default="", db_default="")
     version = models.PositiveIntegerField(default=1, db_default=1)
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        db_index=False,
-        related_name="+",
-    )
     last_modified_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -37,7 +27,6 @@ class AccountView(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_index=False,
         related_name="+",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
 
