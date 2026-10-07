@@ -740,6 +740,33 @@ class SentryIssueSignalInput(SignalInputBase):
     extra: SentryIssueSignalExtra
 
 
+class DatadogSignalExtra(SignalExtraBase):
+    # One schema serves every Datadog table, because a variant is keyed by (source_product, source_type).
+    # `kind` names the table and each emitter fills only the fields its table has.
+    kind: str
+    severity: str | None = None
+    state: str | None = None
+    created: str | None = None
+    service: str | None = None
+    platform: str | None = None
+    file_path: str | None = None
+    function_name: str | None = None
+    error_type: str | None = None
+    resource_name: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    is_crash: str | None = None
+    window_total_count: str | None = None
+    window_impacted_users: str | None = None
+    occurrences: str | None = None
+
+
+class DatadogSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.DATADOG]
+    extra: DatadogSignalExtra
+
+
 class RollbarItemSignalExtra(SignalExtraBase):
     level: str | None
     status: str | None
@@ -1089,6 +1116,7 @@ SignalInput = Annotated[
     | BugsnagErrorSignalInput
     | HoneybadgerFaultSignalInput
     | RaygunErrorGroupSignalInput
+    | DatadogSignalInput
     | SnykScannerFindingSignalInput
     | SonarqubeScannerFindingSignalInput
     | SemgrepScannerFindingSignalInput
@@ -1145,6 +1173,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BugsnagErrorSignalInput,
     HoneybadgerFaultSignalInput,
     RaygunErrorGroupSignalInput,
+    DatadogSignalInput,
     SnykScannerFindingSignalInput,
     SonarqubeScannerFindingSignalInput,
     SemgrepScannerFindingSignalInput,

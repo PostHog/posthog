@@ -55,6 +55,12 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
   An absent, empty, or malformed list means no narrowing.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
+- **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
+  The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
+  The grouped fetcher reads pages of groups from the noisiest down, drops the groups already in `SignalEmissionRecord`, and stops once it holds `max_records` new groups, so set `record_processed_outputs=True` on the config.
+  Hash the group key into `source_id` and keep the weight below 1.0, so one group cannot open a report on its own.
+  Add `week_period(last_seen)` to the hashed key so a group that stays noisy, or returns after a fix, can emit again at most once per week.
+  The generic fetcher takes an optional `order_by` on the config, so the `max_records` limit keeps the most important records.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
   Records emission in `SignalEmissionRecord` optimistically at fetch time.
 

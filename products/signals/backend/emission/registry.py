@@ -60,6 +60,9 @@ class SignalSourceTableConfig(BaseModel):
     fields: tuple[str, ...]
     # Optional filter clause (interpreted by the fetcher — HogQL for data warehouse, ORM for Postgres sources)
     where_clause: str | None = None
+    # Optional ORDER BY expression (HogQL) for the fetcher's query, so the `max_records` limit keeps the
+    # most important records instead of an arbitrary subset
+    order_by: str | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
@@ -153,6 +156,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
+    from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
+    from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
+    from products.signals.backend.emission.datadog_incidents import DATADOG_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
@@ -206,12 +213,16 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GITLAB, "issues", GITLAB_CONFIG)
     register_signal_source(ExternalDataSourceType.GITEA, "issues", GITEA_CONFIG)
     register_signal_source(ExternalDataSourceType.SHORTCUT, "stories", SHORTCUT_CONFIG)
-    # Tier-1 error tracking (record kind: issue)
+    # Tier-1 error tracking and incidents (record kind: issue)
     register_signal_source(ExternalDataSourceType.SENTRY, "issues", SENTRY_CONFIG)
     register_signal_source(ExternalDataSourceType.ROLLBAR, "items", ROLLBAR_CONFIG)
     register_signal_source(ExternalDataSourceType.BUGSNAG, "errors", BUGSNAG_CONFIG)
     register_signal_source(ExternalDataSourceType.HONEYBADGER, "faults", HONEYBADGER_CONFIG)
     register_signal_source(ExternalDataSourceType.RAYGUN, "error_groups", RAYGUN_CONFIG)
+    register_signal_source(ExternalDataSourceType.DATADOG, "error_tracking_issues", DATADOG_ERROR_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.DATADOG, "error_spans", DATADOG_ERROR_SPANS_CONFIG)
+    register_signal_source(ExternalDataSourceType.DATADOG, "error_logs", DATADOG_ERROR_LOGS_CONFIG)
+    register_signal_source(ExternalDataSourceType.DATADOG, "incidents", DATADOG_CONFIG)
     # Tier-2 security scanners (record kind: scanner_finding)
     register_signal_source(ExternalDataSourceType.SNYK, "issues", SNYK_CONFIG)
     register_signal_source(ExternalDataSourceType.SONARQUBE, "issues", SONARQUBE_CONFIG)

@@ -23,6 +23,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.BUGSNAG, "errors", "bugsnag", "issue"),
     (ExternalDataSourceType.HONEYBADGER, "faults", "honeybadger", "issue"),
     (ExternalDataSourceType.RAYGUN, "error_groups", "raygun", "issue"),
+    (ExternalDataSourceType.DATADOG, "error_tracking_issues", "datadog", "issue"),
+    (ExternalDataSourceType.DATADOG, "error_spans", "datadog", "issue"),
+    (ExternalDataSourceType.DATADOG, "error_logs", "datadog", "issue"),
+    (ExternalDataSourceType.DATADOG, "incidents", "datadog", "issue"),
     # Tier-2 security scanners
     (ExternalDataSourceType.SNYK, "issues", "snyk", "scanner_finding"),
     (ExternalDataSourceType.SONARQUBE, "issues", "sonarqube", "scanner_finding"),
@@ -46,7 +50,7 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
 ]
 
-IDS = [product for _, _, product, _ in TIER1_SOURCES]
+IDS = [f"{product}-{table}" for _, table, product, _ in TIER1_SOURCES]
 
 
 def _mock_record(fields: tuple[str, ...]) -> dict:
@@ -102,3 +106,14 @@ def test_config_has_actionability_and_summarization_prompts(source_type, table, 
     assert config is not None
     assert config.actionability_prompt is not None and "{description}" in config.actionability_prompt
     assert config.summarization_prompt is not None and "{description}" in config.summarization_prompt
+
+
+def test_datadog_incident_description_includes_severity_and_state():
+    config = get_signal_config(ExternalDataSourceType.DATADOG.value, "incidents")
+    assert config is not None
+    output = config.emitter(
+        1, {"id": "abc", "title": "Checkout latency", "severity": "SEV-2", "state": "active", "created": None}
+    )
+    assert output is not None
+    assert output.description == "Checkout latency\nSeverity: SEV-2, State: active"
+    assert output.extra["kind"] == "incident"

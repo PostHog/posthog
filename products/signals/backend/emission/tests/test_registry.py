@@ -9,10 +9,13 @@ from posthog.hogql import ast
 from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.visitor import TraversingVisitor
 
+from products.signals.backend.emission.datadog_error_logs import datadog_error_log_record_fetcher
+from products.signals.backend.emission.datadog_error_spans import datadog_error_span_record_fetcher
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
 from products.signals.backend.emission.google_search_console_opportunities import google_search_console_record_fetcher
 from products.signals.backend.emission.registry import (
     _SIGNAL_TABLE_CONFIGS,
+    RecordFetcher,
     SignalSourceTableConfig,
     get_signal_config,
     get_signal_source_identity,
@@ -32,7 +35,12 @@ _BASE_FIELDS = {
 }
 
 
-_HOGQL_RECORD_FETCHERS = (data_warehouse_record_fetcher, google_search_console_record_fetcher)
+_GROUPED_RECORD_FETCHERS = (datadog_error_span_record_fetcher, datadog_error_log_record_fetcher)
+_HOGQL_RECORD_FETCHERS = (
+    data_warehouse_record_fetcher,
+    google_search_console_record_fetcher,
+    *_GROUPED_RECORD_FETCHERS,
+)
 
 
 class _CallNameCollector(TraversingVisitor):
@@ -57,13 +65,22 @@ def _build_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | 
 
     # A source with a scope gets an allowlist, so its scope expression is parsed by this sweep too.
     source_config = {config.scope_config_key: ["scope-1", "scope-2"]} if config.scope_config_key else {}
-    with patch(
-        "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
+    # A grouped fetcher builds its own query, so run it instead of the generic one.
+    fetcher: RecordFetcher = (
+        config.record_fetcher if config.record_fetcher in _GROUPED_RECORD_FETCHERS else data_warehouse_record_fetcher
+    )
+    with (
+        patch(
+            "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
+        ),
+        patch(
+            "products.signals.backend.emission.fetchers.grouped_warehouse.execute_hogql_query", side_effect=fake_execute
+        ),
     ):
-        data_warehouse_record_fetcher(
-            team=MagicMock(),
-            config=config,
-            context={
+        fetcher(
+            MagicMock(),
+            config,
+            {
                 "table_name": "source.table",
                 "last_synced_at": last_synced_at,
                 "extra": {},

@@ -51,6 +51,24 @@ def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config:
     return [scope_id.strip() for scope_id in raw]
 
 
+def build_cursor_clause(config: SignalSourceTableConfig, last_synced_at: str | None) -> tuple[str, dict[str, Any]]:
+    """The WHERE clause that selects records newer than the last sync, with its placeholders.
+
+    Continuous syncs use the previous sync time. The first ever sync looks back a limited window.
+    """
+    partition_expr = (
+        f"parseDateTimeBestEffort({config.partition_field})"
+        if config.partition_field_is_datetime_string
+        else config.partition_field
+    )
+    if last_synced_at is not None:
+        return (
+            f"{partition_expr} > {{last_synced_at}}",
+            {"last_synced_at": ast.Constant(value=datetime.fromisoformat(last_synced_at))},
+        )
+    return f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day", {}
+
+
 def data_warehouse_record_fetcher(
     team: Team,
     config: SignalSourceTableConfig,
@@ -63,18 +81,9 @@ def data_warehouse_record_fetcher(
     scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
-    partition_expr = (
-        f"parseDateTimeBestEffort({config.partition_field})"
-        if config.partition_field_is_datetime_string
-        else config.partition_field
-    )
-    # Continuous sync — filter records since last sync
-    if last_synced_at is not None:
-        where_parts.append(f"{partition_expr} > {{last_synced_at}}")
-        placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(last_synced_at))
-    # First ever sync — look back a limited window
-    else:
-        where_parts.append(f"{partition_expr} > now() - interval {config.first_sync_lookback_days} day")
+    cursor_clause, cursor_placeholders = build_cursor_clause(config, last_synced_at)
+    where_parts.append(cursor_clause)
+    placeholders.update(cursor_placeholders)
     if config.where_clause:
         where_parts.append(config.where_clause)
     # Filtered in the query rather than in Python so the LIMIT below counts only allowlisted records.
@@ -84,10 +93,12 @@ def data_warehouse_record_fetcher(
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
+    order_sql = f"ORDER BY {config.order_by}" if config.order_by else ""
     query = f"""
         SELECT {fields_sql}
         FROM {escape_table_name(table_name)}
         WHERE {where_sql}
+        {order_sql}
         LIMIT {config.max_records}
     """
     logger.info(

@@ -75,6 +75,7 @@ class SignalSourceProduct(StrEnum):
     BUGSNAG = "bugsnag"
     HONEYBADGER = "honeybadger"
     RAYGUN = "raygun"
+    DATADOG = "datadog"
     # Tier-2 security scanners (record kind: scanner_finding)
     SNYK = "snyk"
     SONARQUBE = "sonarqube"
@@ -186,6 +187,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
+    SignalSourceProduct.DATADOG: "Datadog",
 }
 
 
