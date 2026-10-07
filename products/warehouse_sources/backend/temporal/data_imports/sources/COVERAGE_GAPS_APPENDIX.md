@@ -6497,6 +6497,15 @@ Diffed against: <https://raw.githubusercontent.com/PaystackOSS/openapi/main/dist
 
 Note: paystack.com/docs/api is behind Cloudflare (403 to curl), so I used the vendor's own published OpenAPI repo PaystackOSS/openapi (dist/paystack.yaml, 125 paths). Coverage of the classic payments objects is good; the gaps are ledger/reconciliation and commerce.
 
+## PeecAI — gaps
+
+Today (9): `actions`, `archived_prompts`, `brands`, `chats`, `model_channels`, `prompts`, `tag_groups`, `tags`, `topics`
+
+Diffed against: <https://api.peec.ai/customer/v1/openapi/json>
+
+- [x] `/actions/list` — Peec-generated and customer-written actions per project, with status, impact and assignee (high)
+- [x] `/tag-groups` — lookup resolving the user-defined `group` values on the tags we already sync, with their shared color (low)
+
 ## Pendo — **thin**
 
 Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
