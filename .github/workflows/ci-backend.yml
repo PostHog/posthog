@@ -940,7 +940,7 @@ jobs:
         needs: [changes, turbo-discover, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
         if: >-
             !cancelled() &&
-            (github.event.pull_request.draft != true ||
+            (true ||
              startsWith(github.head_ref, 'trunk-merge/') ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
