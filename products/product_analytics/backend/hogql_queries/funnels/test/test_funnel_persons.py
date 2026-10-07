@@ -375,8 +375,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_1",
             first_timestamp=timezone.now() + timedelta(days=1),
         )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="user_1",
+            first_timestamp=timezone.now(),
+            last_timestamp=timezone.now() + timedelta(milliseconds=900),
+        )
 
-        # First event, but no recording
+        # First event, but its recording is too short to watch
         query = FunnelsQuery(
             series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
             interval="day",

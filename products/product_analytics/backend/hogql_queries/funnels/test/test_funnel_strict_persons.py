@@ -135,7 +135,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             session_id="s2",
             distinct_id="user_1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
             ensure_analytics_event_in_session=False,  # Would mess up the strict funnel
         )
 
