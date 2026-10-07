@@ -112,20 +112,33 @@ ACCEPTORS: Mapping[WarehouseSuggestionKind, Acceptor] = {
 }
 
 
-def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> WarehouseSuggestion:
+@frozen
+class AcceptOutcome:
+    suggestion: WarehouseSuggestion
+    newly_accepted: bool
+
+
+def accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
     try:
         return _accept(team_id, suggestion_id, request)
     except SuggestionSubjectGoneError:
-        transition_to(suggestion_id, team_id, WarehouseSuggestionStatus.AUTO_RESOLVED, user_id=None)
+        _resolve_quietly(team_id, suggestion_id)
         raise
 
 
-def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> WarehouseSuggestion:
+def _resolve_quietly(team_id: int, suggestion_id: UUID) -> None:
+    try:
+        transition_to(suggestion_id, team_id, WarehouseSuggestionStatus.AUTO_RESOLVED, user_id=None)
+    except (SuggestionAlreadyDecidedError, WarehouseSuggestion.DoesNotExist):
+        return
+
+
+def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> AcceptOutcome:
     with transaction.atomic():
         suggestion = WarehouseSuggestion.objects.for_team(team_id).select_for_update().get(id=suggestion_id)
         status = WarehouseSuggestionStatus(suggestion.status)
         if status == WarehouseSuggestionStatus.ACCEPTED:
-            return suggestion
+            return AcceptOutcome(suggestion=suggestion, newly_accepted=False)
         if status != WarehouseSuggestionStatus.PROPOSED:
             raise SuggestionAlreadyDecidedError(status, WarehouseSuggestionStatus.ACCEPTED)
         kind = WarehouseSuggestionKind(suggestion.kind)
@@ -133,7 +146,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Wareho
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind(suggestion.subject_kind))
         payload = payload_from_json(kind, suggestion.payload_version, suggestion.payload)
         created_asset = ACCEPTORS[kind].accept(suggestion, payload, request)
-        return transition_to(
+        accepted = transition_to(
             suggestion.id,
             team_id,
             WarehouseSuggestionStatus.ACCEPTED,
@@ -141,6 +154,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Wareho
             created_asset=created_asset,
             transitions=HUMAN_TRANSITIONS,
         )
+        return AcceptOutcome(suggestion=accepted, newly_accepted=True)
 
 
 def _subject_exists(suggestion: WarehouseSuggestion) -> bool:

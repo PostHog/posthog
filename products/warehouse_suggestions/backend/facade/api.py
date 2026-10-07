@@ -126,17 +126,16 @@ def accept_suggestion(
     was_impersonated: bool,
 ) -> Suggestion:
     row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
-    was_accepted = row.status == WarehouseSuggestionStatus.ACCEPTED
-    accepted = accept.accept(
+    outcome = accept.accept(
         team.pk,
         row.id,
         accept.AcceptRequest(
             team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
         ),
     )
-    if not was_accepted:
-        report_outcomes(SuggestionOutcome.ACCEPTED, [accepted], team=team, user=user)
-    return _single_contract(team.pk, user_access_control, accepted, access)
+    if outcome.newly_accepted:
+        report_outcomes(SuggestionOutcome.ACCEPTED, [outcome.suggestion], team=team, user=user)
+    return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
 
 def _actionable_suggestion(
