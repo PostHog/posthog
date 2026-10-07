@@ -1086,13 +1086,6 @@ class TestWebhookEventMapping:
         # the event map — otherwise we'd subscribe the source webhook to unrelated events.
         assert CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
 
-    def test_balance_transaction_has_no_webhook_event(self):
-        # No Stripe event carries a `balance_transaction` object, so offering webhook sync for this
-        # table would leave it completing every run with zero rows.
-        assert BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
-        assert BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_OBJECT_TYPE
-        assert "transfer" in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values()
-
     def test_billing_alert_events_not_subscribed(self):
         # Narrowed from a blanket "no billing.* events" assertion now that BillingMeter,
         # BillingCreditGrant and BillingCreditBalanceTransaction are real tables. The original bug
@@ -1160,6 +1153,7 @@ class TestWebhookEventMapping:
 
     @parameterized.expand(
         [
+            (BALANCE_TRANSACTION_RESOURCE_NAME,),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
             (SETUP_ATTEMPT_RESOURCE_NAME,),
             (SHIPPING_RATE_RESOURCE_NAME,),
@@ -1691,6 +1685,11 @@ class TestSchemaWebhookCapability:
         for name, schema in self.by_name.items():
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
+
+    def test_balance_transaction_does_not_offer_webhook_sync(self):
+        # No Stripe event carries a `balance_transaction` object, so a webhook-mode table would
+        # complete every run with zero rows.
+        assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
 
 
 class TestCreateWebhookPermissionErrorCopy:
