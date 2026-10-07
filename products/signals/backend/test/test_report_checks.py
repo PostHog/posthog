@@ -1693,8 +1693,17 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert dispatch.call_args.kwargs["skill_name"] == FALLBACK_CHECK_SKILL_NAME
         assert self._results() == []
 
-    @parameterized.expand([("named_lane", "signals-scout-health-checks"), ("fallback_lane", None)])
-    def test_a_check_on_a_paused_scout_waits_for_the_resume_without_spending_errors(self, _name, skill_name) -> None:
+    @parameterized.expand(
+        [
+            (f"{report_status}_{lane}", skill, report_status)
+            for report_status in SignalReport.CHECK_EXECUTION_STATUSES
+            for lane, skill in [("named_lane", "signals-scout-health-checks"), ("fallback_lane", None)]
+        ]
+    )
+    def test_a_check_on_a_paused_scout_waits_for_the_resume_without_spending_errors(
+        self, _name: str, skill_name: str | None, report_status: str
+    ) -> None:
+        SignalReport.objects.filter(id=self.report.id).update(status=report_status)
         # A pause is somebody's decision, so the check neither runs on another scout nor burns its
         # error budget while the pause lasts.
         if skill_name is None:
@@ -1706,7 +1715,7 @@ class TestAgentCheckDispatch(APIBaseTest):
             LLMSkill.objects.create(team=self.team, name=skill_name, is_latest=True, deleted=False)
             scout_config = SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=False)
             config = {"instructions": "Re-read the issue and say whether it still fires.", "skill_name": skill_name}
-        check = self._check(config=config)
+        check = self._check(config=config, expires_at=timezone.now() + timedelta(minutes=30))
 
         for _ in range(MAX_CONSECUTIVE_CHECK_ERRORS):
             SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
@@ -2138,8 +2147,16 @@ class TestPendingChecks(APIBaseTest):
         # Well past the soak, but the clock has not started: the report is still open.
         assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
 
-    @parameterized.expand([("metric", "metric_threshold"), ("agent", "agent")])
-    def test_restoring_monitoring_starts_a_fresh_window_even_when_the_flag_is_off(self, _name: str, kind: str) -> None:
+    @parameterized.expand(
+        [
+            (f"{kind}_{report_status}", kind, report_status)
+            for kind in ["metric_threshold", "agent"]
+            for report_status in SignalReport.CHECK_EXECUTION_STATUSES
+        ]
+    )
+    def test_restoring_monitoring_starts_a_fresh_window_even_when_the_flag_is_off(
+        self, _name: str, kind: str, report_status: SignalReport.Status
+    ) -> None:
         check = create_check(
             report=self.report,
             title="Verify the fix",
@@ -2152,6 +2169,9 @@ class TestPendingChecks(APIBaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 self.report.save(update_fields=self.report.transition_to(SignalReport.Status.MONITORING))
         first_anchor = self.report.monitoring_started_at
+        if report_status == SignalReport.Status.RESOLVED:
+            self.report.save(update_fields=self.report.transition_to(report_status))
+            assert self.report.monitoring_started_at == first_anchor
         self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
         assert self.report.monitoring_started_at is None
         with time_machine.travel(timezone.now() + timedelta(days=10), tick=False):
@@ -2163,7 +2183,10 @@ class TestPendingChecks(APIBaseTest):
                     self.report.save(update_fields=self.report.transition_to(self.report.restore_target_status()))
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
-        assert check.measurement_start_at == self.report.monitoring_started_at == restored_at
+        assert check.measurement_start_at == (
+            restored_at if kind == "metric_threshold" or report_status == "monitoring" else None
+        )
+        assert self.report.monitoring_started_at == (restored_at if report_status == "monitoring" else None)
         assert check.measurement_start_at != first_anchor
         assert check.next_run_at > restored_at
 

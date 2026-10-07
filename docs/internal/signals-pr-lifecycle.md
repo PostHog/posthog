@@ -11,6 +11,9 @@ checks' soak and measurement windows. Repeated merge notifications do not reset 
 The flag only controls new entry. Disabling it leaves existing monitoring reports visible and their
 checks running. Historical resolved reports are unchanged. Keep the flag off until Django and workers
 have fully deployed support for this state; local DEBUG environments enable it for development.
+List and detail serialization evaluate this flag locally and fail closed while its definition is
+unavailable. Configure the rollout with organization ID conditions or percentage rollouts; the local
+evaluation supplies only the organization's ID. State transitions retain remote evaluation fallback.
 
 A monitoring report automatically resolves once every applicable, non-cancelled check passes all its
 remaining runs. Failed, errored, inconclusive, expired, or partially completed checks leave the report
@@ -23,8 +26,14 @@ review. The legacy `inbox` view includes both reports awaiting a decision and mo
 The follow-up timing descriptions below also apply to monitoring: its entry replaces resolution as the
 measurement anchor. Resolving a monitoring report keeps the anchor. Reopening immediately parks active
 checks and clears it; the next implementation starts a new window, and stale results cannot settle it.
-Archiving pauses monitoring checks; restoring monitoring starts a fresh window even if the rollout
+Archiving pauses checks and clears the anchor, including after manual resolution of a monitoring report.
+Restoring starts a fresh window; restoring monitoring works even if the rollout
 flag is disabled. Checks from earlier windows cannot confirm the restored report's outcome.
+The open Monitoring detail refreshes its report, checks, and work log every 30 seconds, pauses in hidden
+tabs, and backs off failed refreshes. Leaving Monitoring refreshes the final check results. Existing
+saved default inbox filters gain Verifying once; custom selections and shared links remain authoritative.
+Refund dialog copy uses the first billable PR's merge state, matching the refund endpoint, rather than
+the presence of any merged PR on the report. A refunded unmerged PR archives the report and parks checks.
 
 Attaching a new open, draft, or unknown PR to a monitoring or resolved report returns it to ready.
 The shared PR-linking service applies this rule to task outputs and agent attachments.

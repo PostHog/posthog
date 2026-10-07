@@ -37,6 +37,75 @@ const DEFAULT_STATE: InboxFilterState = {
 }
 
 describe('inboxFiltersLogic', () => {
+    describe('saved state filters', () => {
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests()
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/available_reviewers/': () => [200, {}] } })
+        })
+
+        it.each([
+            [
+                ['monitoring', 'needs-decision'],
+                ['monitoring', 'verifying', 'needs-decision'],
+            ],
+            [['resolved'], ['resolved']],
+            [[], []],
+        ])('migrates only the saved default %s', (saved, expected) => {
+            localStorage.setItem('scenes.inbox.logics.inboxFiltersLogic.stateFilter', JSON.stringify(saved))
+            router.actions.push(urls.inbox())
+            const logic = inboxFiltersLogic()
+            logic.mount()
+            try {
+                expect(logic.values.stateFilter).toEqual(expected)
+                expect(logic.values.stateFilterVersion).toBe(1)
+            } finally {
+                logic.unmount()
+            }
+        })
+
+        it('keeps an explicit shared selection and does not migrate it on later mounts', () => {
+            localStorage.setItem(
+                'scenes.inbox.logics.inboxFiltersLogic.stateFilter',
+                JSON.stringify(['monitoring', 'needs-decision'])
+            )
+            router.actions.push(urls.inbox(), { state: 'monitoring,needs-decision' })
+            const logic = inboxFiltersLogic()
+            logic.mount()
+            expect(logic.values.stateFilter).toEqual(['monitoring', 'needs-decision'])
+            logic.unmount()
+            initKeaTests()
+            router.actions.push(urls.inbox())
+            const restored = inboxFiltersLogic()
+            restored.mount()
+            try {
+                expect(restored.values.stateFilter).toEqual(['monitoring', 'needs-decision'])
+            } finally {
+                restored.unmount()
+            }
+        })
+
+        it('allows deselecting Verifying after the migration without adding it back', () => {
+            localStorage.setItem(
+                'scenes.inbox.logics.inboxFiltersLogic.stateFilter',
+                JSON.stringify(['monitoring', 'needs-decision'])
+            )
+            router.actions.push(urls.inbox())
+            const logic = inboxFiltersLogic()
+            logic.mount()
+            logic.actions.toggleState('verifying')
+            logic.unmount()
+            initKeaTests()
+            router.actions.push(urls.inbox())
+            const restored = inboxFiltersLogic()
+            restored.mount()
+            try {
+                expect(restored.values.stateFilter).toEqual(['monitoring', 'needs-decision'])
+            } finally {
+                restored.unmount()
+            }
+        })
+    })
     describe('buildSignalReportListOrdering', () => {
         it('leads with the selected time field so "Newest first" surfaces the newest reports', () => {
             // The list is flat, so created_at must be the primary key — not a sub-sort within status buckets.

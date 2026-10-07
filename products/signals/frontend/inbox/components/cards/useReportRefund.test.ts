@@ -2,20 +2,22 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { refundKeptStatus } from './useReportRefund'
 
 describe('refundKeptStatus', () => {
-    const report = (status: SignalReportStatus, merged: boolean): SignalReport =>
+    const report = (status: SignalReportStatus, keptStatus: SignalReport['refund_kept_status']): SignalReport =>
         ({
             id: 'report-1',
             status,
             implementation_pr_url: 'https://github.com/example/app/pull/1',
-            implementation_pr_merged: merged,
+            implementation_pr_merged: true,
+            refund_kept_status: keptStatus,
         }) as unknown as SignalReport
 
     it.each([
-        [SignalReportStatus.MONITORING, true, SignalReportStatus.MONITORING],
-        [SignalReportStatus.RESOLVED, true, SignalReportStatus.RESOLVED],
-        [SignalReportStatus.MONITORING, false, null],
-        [SignalReportStatus.READY, true, null],
-    ])('keeps a %s report with merged=%s as %s', (status, merged, expected) => {
-        expect(refundKeptStatus(report(status, merged))).toBe(expected)
+        [SignalReportStatus.MONITORING, 'monitoring', SignalReportStatus.MONITORING],
+        [SignalReportStatus.RESOLVED, 'resolved', SignalReportStatus.RESOLVED],
+        [SignalReportStatus.MONITORING, null, null],
+        [SignalReportStatus.RESOLVED, null, null],
+        [SignalReportStatus.READY, null, null],
+    ] as const)('uses the backend retained status for %s with a merged PR', (status, keptStatus, expected) => {
+        expect(refundKeptStatus(report(status, keptStatus))).toBe(expected)
     })
 })

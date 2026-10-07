@@ -25,7 +25,8 @@ report recently reached a state only a deliberate action produces (`_ENGAGED_REP
 `resolved` is deliberately in that set even though the GitHub webhook sets it without an in-app
 action, because the webhook resolves on PR *merge*: a human merging the report's PR on GitHub is
 real consumption that leaves no other server-side trace. `monitoring` is in the set for the same
-reason, because with report monitoring on the webhook moves a merged report there instead. `suppressed` is deliberately NOT in the
+reason, because with report monitoring on the webhook moves a merged report there instead. Its
+entry timestamp counts as engagement; later signal updates do not. `suppressed` is deliberately NOT in the
 set, because the same webhook suppresses a report when its PR closes unmerged, which a stale-bot
 can do with no human anywhere in the loop; a human archiving a report leaves a `DISMISSAL`
 artefact and is counted there instead. A view counts as consumption on purpose: reading is how
@@ -61,6 +62,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -405,10 +407,10 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
     engaged |= {
         str(report_id)
         for report_id in SignalReport.objects.filter(
+            Q(status=SignalReport.Status.MONITORING, monitoring_started_at__gte=window_start)
+            | Q(status__in=_ENGAGED_REPORT_STATUSES - {SignalReport.Status.MONITORING}, updated_at__gte=window_start),
             team_id=team_id,
             id__in=report_ids,
-            status__in=_ENGAGED_REPORT_STATUSES,
-            updated_at__gte=window_start,
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by

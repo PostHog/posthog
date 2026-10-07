@@ -71156,6 +71156,14 @@ export namespace Schemas {
       OutOfPeriod: 'out_of_period',
     } as const;
 
+    export type RefundKeptStatusEnum = typeof RefundKeptStatusEnum[keyof typeof RefundKeptStatusEnum];
+
+
+    export const RefundKeptStatusEnum = {
+      Monitoring: 'monitoring',
+      Resolved: 'resolved',
+    } as const;
+
     /**
      * * `posthog_health_check` - PostHog health check
      * * `posthog_onboarding` - PostHog onboarding
@@ -71303,6 +71311,8 @@ export namespace Schemas {
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
       readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** The status a refund preserves when the first billable PR merged; null when refunding archives the report. */
+      readonly refund_kept_status: RefundKeptStatusEnum | null;
       /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
        *
        * * `posthog_health_check` - PostHog health check
@@ -91254,6 +91264,8 @@ export namespace Schemas {
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
       readonly refund_ineligibility_reason: RefundIneligibilityReasonEnum | null;
+      /** The status a refund preserves when the first billable PR merged; null when refunding archives the report. */
+      readonly refund_kept_status: RefundKeptStatusEnum | null;
       /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
        *
        * * `posthog_health_check` - PostHog health check

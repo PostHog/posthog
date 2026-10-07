@@ -58,6 +58,8 @@ from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
+    from products.signals.backend.implementation_pr import ImplementationPr
+
 _IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
 
 SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
@@ -66,8 +68,8 @@ SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
 
 
-def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTask]:
-    """Implementation bridges whose task shipped a billable PR run matching `run_created_at`.
+def _bridges_with_pr_run(**run_filters: datetime | bool) -> QuerySet[SignalReportTask]:
+    """Implementation bridges whose task shipped a billable PR run matching `run_filters`.
 
     Rooted on the signals-owned `SignalReportTask` bridge and traversing to runs via the
     `task__runs` relation, so the query never imports the tasks product's internals — it stays
@@ -94,7 +96,7 @@ def _bridges_with_pr_run(**run_created_at: datetime) -> QuerySet[SignalReportTas
         task__runs__team_id=F("team_id"),
         # `output__pr_url__startswith` only matches present, string-typed values, so no
         # separate isnull / empty-string guard is needed.
-        **run_created_at,
+        **run_filters,
     )
 
 
@@ -195,7 +197,7 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
         .filter(report_id=report_id)
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
-        .order_by("task__runs__created_at")
+        .order_by("task__runs__created_at", "task__runs__id")
         .values_list("task__runs__created_at", "task__runs__output__pr_url")
         .first()
     )
@@ -256,6 +258,40 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID]) ->
         .annotate(first_run_at=Min("task__runs__created_at"))
     )
     return {str(row["report_id"]): row["first_run_at"] for row in rows}
+
+
+def refund_kept_statuses_by_report(
+    reports: Sequence[SignalReport], pull_requests_map: dict[str, list["ImplementationPr"]]
+) -> dict[str, str]:
+    report_ids = [str(report.id) for report in reports if report.status in SignalReport.CHECK_EXECUTION_STATUSES]
+    if not report_ids:
+        return {}
+    first_urls = dict(
+        _bridges_with_pr_run()
+        .filter(report_id__in=report_ids)
+        .order_by("report_id", "task__runs__created_at", "task__runs__id")
+        .distinct("report_id")
+        .values_list("report_id", "task__runs__output__pr_url")
+    )
+    merged_runs = {
+        (str(report_id), url)
+        for report_id, url in _bridges_with_pr_run(task__runs__output__pr_merged=True)
+        .filter(report_id__in=report_ids)
+        .values_list("report_id", "task__runs__output__pr_url")
+        .distinct()
+    }
+    kept: dict[str, str] = {}
+    for report in reports:
+        if (url := first_urls.get(report.id)) is None:
+            continue
+        report_id = str(report.id)
+        attached = next(
+            (pr for pr in pull_requests_map.get(report_id, []) if pr.url == url and pr.attached_at is not None), None
+        )
+        merged = attached.merged if attached is not None else (report_id, url) in merged_runs
+        if merged:
+            kept[report_id] = report.status
+    return kept
 
 
 # Why a report can't be refunded right now (`refund_ineligibility_reason`); None = refundable.

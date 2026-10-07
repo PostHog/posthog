@@ -257,6 +257,11 @@ class TestSignalReportRefundAPI(APIBaseTest):
     ):
         report = _make_report(self.team, status=initial_status)
         _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert detail.status_code == status.HTTP_200_OK, detail.json()
+        assert detail.json()["refund_kept_status"] == (
+            expected_status if expected_status in SignalReport.CHECK_EXECUTION_STATUSES else None
+        )
         response = self._refund(report)
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
@@ -344,12 +349,13 @@ class TestSignalReportRefundAPI(APIBaseTest):
             assert self._refund(report).status_code == status.HTTP_200_OK
         assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
 
+    @parameterized.expand([(status,) for status in SignalReport.CHECK_EXECUTION_STATUSES])
     @time_machine.travel(_NOW, tick=False)
-    def test_later_merged_pr_does_not_vouch_for_the_refunded_one(self, _flag):
+    def test_later_merged_pr_does_not_vouch_for_the_refunded_one(self, _flag, report_status: str) -> None:
         # The refund reverses the charge for the first billable PR, and it's that PR which must be
         # closed if it never merged. A different, later PR on the same report merging says nothing
         # about it — treating the report as merged would leave the refunded PR open.
-        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+        report = _make_report(self.team, status=report_status)
         _make_pr_run(
             self.team,
             report,
@@ -361,6 +367,19 @@ class TestSignalReportRefundAPI(APIBaseTest):
             report,
             created_at=datetime(2026, 6, 12, tzinfo=UTC),
             output={"pr_url": "https://github.com/x/y/pull/2", "pr_merged": True},
+        )
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert detail.status_code == status.HTTP_200_OK, detail.json()
+        assert detail.json()["refund_kept_status"] is None
+        listed = self.client.get(
+            f"/api/projects/{self.team.id}/signals/reports/",
+            {"include_all_statuses": "true", "include_source_metadata": "false"},
+        )
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert any(row["id"] == str(report.id) for row in listed.json()["results"]), listed.json()
+        assert (
+            next(row for row in listed.json()["results"] if row["id"] == str(report.id))["refund_kept_status"] is None
         )
 
         with patch("products.signals.backend.views.report_user_action") as mock_report:

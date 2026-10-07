@@ -143,6 +143,7 @@ export interface SignalReport {
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
+    refund_kept_status?: SignalReportApi['refund_kept_status']
     /** The served ranking model's score. Staff only: null for other users and for unscored reports. */
     ranking?: ReportRankingApi | null
 }

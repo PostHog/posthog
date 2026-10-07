@@ -567,6 +567,13 @@ export const RefundIneligibilityReasonEnumApi = {
     OutOfPeriod: 'out_of_period',
 } as const
 
+export type RefundKeptStatusEnumApi = (typeof RefundKeptStatusEnumApi)[keyof typeof RefundKeptStatusEnumApi]
+
+export const RefundKeptStatusEnumApi = {
+    Monitoring: 'monitoring',
+    Resolved: 'resolved',
+} as const
+
 /**
  * * `posthog_health_check` - PostHog health check
  * * `posthog_onboarding` - PostHog onboarding
@@ -714,6 +721,8 @@ export interface SignalReportListApi {
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
     readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** The status a refund preserves when the first billable PR merged; null when refunding archives the report. */
+    readonly refund_kept_status: RefundKeptStatusEnumApi | null
     /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
      *
      * * `posthog_health_check` - PostHog health check
@@ -940,6 +949,8 @@ export interface SignalReportApi {
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
     readonly refund_ineligibility_reason: RefundIneligibilityReasonEnumApi | null
+    /** The status a refund preserves when the first billable PR merged; null when refunding archives the report. */
+    readonly refund_kept_status: RefundKeptStatusEnumApi | null
     /** Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.
      *
      * * `posthog_health_check` - PostHog health check

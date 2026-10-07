@@ -11,7 +11,7 @@ import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { reportPullRequests, hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { reportPullRequests } from '../../utils/reportPullRequests'
 import { openRefundReportDialog, RefundKeptStatus } from '../shell/RefundReportDialog'
 
 // Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
@@ -22,17 +22,14 @@ const REFUND_DISABLED_REASONS: Record<string, string> = {
 }
 
 /**
- * The status a refund leaves in place, or null when the refund dismisses the report. A merged PR
- * implemented the fix, so the refund endpoint keeps a Monitoring or Resolved report where it is
- * (the `implemented_via_merged_pr` branch). The dialog copy and the detail pane's navigation both
- * read this, so they agree.
+ * The backend selects the first billable PR; later merged PRs cannot vouch for the refunded one.
  */
 export function refundKeptStatus(report: SignalReport): RefundKeptStatus | null {
-    if (
-        (report.status === SignalReportStatus.MONITORING || report.status === SignalReportStatus.RESOLVED) &&
-        hasMergedReportPullRequest(report)
-    ) {
-        return report.status
+    if (report.refund_kept_status === SignalReportStatus.MONITORING) {
+        return SignalReportStatus.MONITORING
+    }
+    if (report.refund_kept_status === SignalReportStatus.RESOLVED) {
+        return SignalReportStatus.RESOLVED
     }
     return null
 }

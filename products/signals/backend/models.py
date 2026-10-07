@@ -585,9 +585,6 @@ class SignalReport(UUIDModel):
                 if error is None:
                     raise ValueError("error is required for transition to failed")
                 self.error = error
-                if self.status == S.MONITORING:
-                    self.monitoring_started_at = None
-                    updated_fields.add("monitoring_started_at")
                 updated_fields.add("error")
 
             # Any non-deleted status can be suppressed
@@ -603,9 +600,6 @@ class SignalReport(UUIDModel):
                 S.SUPPRESSED,
             ):
                 # Remember where it was so "restore" can return it there (see restore_target_status).
-                if self.status == S.MONITORING:
-                    self.monitoring_started_at = None
-                    updated_fields.add("monitoring_started_at")
                 self.status_before_suppression = self.status
                 self.promoted_at = None
                 updated_fields.update(["status_before_suppression", "promoted_at"])
@@ -626,8 +620,7 @@ class SignalReport(UUIDModel):
                 pass
 
             case (S.RESOLVED | S.MONITORING, S.READY):
-                self.monitoring_started_at = None
-                updated_fields.add("monitoring_started_at")
+                pass
 
             case (S.PENDING_INPUT | S.READY | S.FAILED, S.MONITORING):
                 from products.signals.backend.report_content_gates import (
@@ -649,6 +642,10 @@ class SignalReport(UUIDModel):
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
+
+        if self.status in self.CHECK_EXECUTION_STATUSES and new_status not in self.CHECK_EXECUTION_STATUSES:
+            self.monitoring_started_at = None
+            updated_fields.add("monitoring_started_at")
 
         # First arrival into a user-visible status (the inbox lists READY, PENDING_INPUT, and FAILED).
         # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a

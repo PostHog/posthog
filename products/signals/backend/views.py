@@ -107,6 +107,7 @@ from products.signals.backend.billing import (
     first_billable_pr_run_at_by_report,
     period_billable_credits_for_org,
     refund_ineligibility_reason,
+    refund_kept_statuses_by_report,
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
@@ -2026,6 +2027,7 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
+            "refund_kept_status_map": refund_kept_statuses_by_report([report], pull_requests_map),
             "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
@@ -2501,6 +2503,7 @@ class SignalReportViewSet(
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "refund_kept_status_map": refund_kept_statuses_by_report(reports, pull_requests_map),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
@@ -3244,6 +3247,18 @@ class SignalReportViewSet(
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 
+            # Merged sources no longer own signals or work; only their survivor can resume checks.
+            if (
+                report.status == SignalReport.Status.SUPPRESSED
+                and target_status in {SignalReport.Status.POTENTIAL, *SignalReport.CHECK_EXECUTION_STATUSES}
+                and was_merged_away(report)
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "This report was merged into another one and can't be restored. Open the report it was "
+                    "merged into instead.",
+                )
+
             # Archiving must not grant a transition the report couldn't make directly. "Any
             # non-deleted status can be suppressed", so without this a report could be laundered
             # through the archive into RESOLVED from candidate/in_progress with no title or summary.
@@ -3292,15 +3307,6 @@ class SignalReportViewSet(
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
-                    )
-                # A merged report has no signals of its own left: they moved to the survivor, and
-                # so did its work log. Restoring it would put an empty duplicate back in the inbox
-                # and start it collecting again alongside the report it was folded into.
-                if was_merged_away(report):
-                    return (
-                        SignalReportBulkStateOutcome.SKIPPED,
-                        "This report was merged into another one and can't be restored. Open the report it was "
-                        "merged into instead.",
                     )
                 effective_target = report.restore_target_status()
 

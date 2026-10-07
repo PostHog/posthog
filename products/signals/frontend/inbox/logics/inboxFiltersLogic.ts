@@ -54,7 +54,7 @@ const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
 /**
- * The states selected by default: the two that hold open work. The closed states (Resolved,
+ * The states selected by default: those that hold open work. The closed states (Resolved,
  * Dismissed) stay one checkbox away so the fresh inbox leads with what needs a person.
  */
 export const DEFAULT_STATE_FILTER: InboxReportSectionKey[] = ['monitoring', 'verifying', 'needs-decision']
@@ -291,6 +291,7 @@ export interface inboxFiltersLogicValues {
     sortField: InboxSortField
     sourceProductFilter: string[]
     stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved' | 'verifying')[]
+    stateFilterVersion: number
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -337,6 +338,9 @@ export interface inboxFiltersLogicActions {
         payload?: {
             query?: string
         }
+    }
+    migrateStateFilter: (keepSelection: boolean) => {
+        keepSelection: boolean
     }
     searchAvailableReviewers: (query: string) => {
         query: string
@@ -408,7 +412,14 @@ export interface inboxFiltersLogicMeta {
         ) => InboxCreatedWindow | null
         isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
-            stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
+            stateFilter: (
+                | 'dismissed'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'resolved'
+                | 'verifying'
+            )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
     }
@@ -462,6 +473,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         // Multi-select: the open-work states are selected by default (DEFAULT_STATE_FILTER), and an
         // empty selection means every state the user can see.
         toggleState: (state: InboxReportSectionKey) => ({ state }),
+        migrateStateFilter: (keepSelection: boolean) => ({ keepSelection }),
         // Replace the whole selection. The priority control is a single select, but the state
         // stays a list so a shared link carrying several priorities still filters by all of them.
         setPriorityFilter: (priorities: SignalReportPriority[]) => ({ priorities }),
@@ -659,8 +671,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     current.includes(state) ? current.filter((s) => s !== state) : [...current, state],
                 setFilters: (_, { filters }) => filters.stateFilter,
                 clearFilters: () => DEFAULT_STATE_FILTER,
+                migrateStateFilter: (current, { keepSelection }) =>
+                    !keepSelection && sameSet(current, ['monitoring', 'needs-decision'])
+                        ? DEFAULT_STATE_FILTER
+                        : current,
             },
         ],
+        stateFilterVersion: [0, { persist: true }, { migrateStateFilter: () => 1 }],
     }),
 
     selectors({
@@ -760,6 +777,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
     urlToAction(({ actions, values }) => {
         const applyFromUrl = (_: unknown, searchParams: Record<string, any>): void => {
             const hasFilterParams = FILTER_URL_KEYS.some((key) => key in searchParams)
+            if (values.stateFilterVersion === 0) {
+                actions.migrateStateFilter(hasFilterParams)
+            }
             if (!hasFilterParams) {
                 // Bare inbox URL: keep the persisted state, but reflect any non-default filters back
                 // into the URL so the current view is immediately shareable.
@@ -806,7 +826,10 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         }
     }),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (values.stateFilterVersion === 0) {
+            actions.migrateStateFilter(FILTER_URL_KEYS.some((key) => key in router.values.searchParams))
+        }
         actions.loadAvailableReviewers()
     }),
 ])

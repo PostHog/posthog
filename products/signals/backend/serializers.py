@@ -20,7 +20,11 @@ from posthog.models import Team, User
 from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
-from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.billing import (
+    REFUND_INELIGIBILITY_REASONS,
+    refund_ineligibility_reason,
+    refund_kept_statuses_by_report,
+)
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
@@ -1311,6 +1315,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
     monitoring_enabled = serializers.SerializerMethodField(
         help_text="Whether this organization can mark an implemented fix as monitoring before confirming its outcome."
     )
+    refund_kept_status = serializers.SerializerMethodField(
+        help_text="The status a refund preserves when the first billable PR merged; null when refunding archives the report."
+    )
+
+    @extend_schema_field(
+        serializers.ChoiceField(choices=[SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED], allow_null=True)
+    )
+    def get_refund_kept_status(self, obj: SignalReport) -> str | None:
+        kept = self.context.get("refund_kept_status_map")
+        if kept is None:
+            kept = refund_kept_statuses_by_report([obj], {str(obj.id): self._get_pull_requests(obj)})
+        return kept.get(str(obj.id))
+
     monitoring_started_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When this report's current monitoring period began."
     )
@@ -1321,7 +1338,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
         key = f"report_monitoring_enabled_{obj.team_id}"
         if key not in self.context:
-            self.context[key] = team_report_monitoring_enabled(obj.team_id)
+            self.context[key] = team_report_monitoring_enabled(obj.team_id, only_evaluate_locally=True)
         return bool(self.context[key])
 
     class Meta:
@@ -1364,6 +1381,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "assignee",
             "refund",
             "refund_ineligibility_reason",
+            "refund_kept_status",
             "billing_exempt_reason",
             "channel_id",
             "ranking",

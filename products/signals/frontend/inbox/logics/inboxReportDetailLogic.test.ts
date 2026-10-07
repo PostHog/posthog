@@ -16,9 +16,14 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { EnrichedReviewer, SignalReport } from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
-import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import {
+    ReportTaskEntry,
+    implementationSlotClaim,
+    inboxReportDetailLogic,
+    REPORT_MONITORING_POLL_INTERVAL_MS,
+} from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -31,6 +36,112 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    describe('monitoring refresh', () => {
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+        let intervals: jest.SpyInstance
+        let poll: () => void
+        let reportRequests: number
+        let checkRequests: number
+        let artefactRequests: number
+        let fail: boolean
+        let release: () => void
+        let held: Promise<void>
+        let now: number
+        let clock: jest.SpyInstance
+        const monitoring = { ...REPORT, status: SignalReportStatus.MONITORING, updated_at: '2026-09-30T00:00:00Z' }
+        const passed = { id: 'check-1', status: 'passed', updated_at: '2026-10-01T00:00:00Z' } as SignalReportCheckApi
+
+        beforeEach(async () => {
+            initKeaTests()
+            reportRequests = checkRequests = artefactRequests = 0
+            fail = false
+            held = Promise.resolve()
+            release = () => {}
+            now = Date.now()
+            clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+            intervals = jest.spyOn(global, 'setInterval')
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/signals/reports/:id/': async () => {
+                        reportRequests++
+                        await held
+                        return fail
+                            ? [500, { detail: 'Unavailable' }]
+                            : [200, { ...monitoring, status: 'resolved', updated_at: passed.updated_at }]
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': () => {
+                        checkRequests++
+                        return [200, { results: [passed] }]
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': () => {
+                        artefactRequests++
+                        return [200, { results: [] }]
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                },
+            })
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: monitoring })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            poll = intervals.mock.calls.find(
+                ([, delay]) => delay === REPORT_MONITORING_POLL_INTERVAL_MS
+            )?.[0] as () => void
+        })
+
+        afterEach(() => {
+            release()
+            logic.unmount()
+            intervals.mockRestore()
+            clock.mockRestore()
+            resumeKeaLoadersErrors()
+        })
+
+        it('refreshes a report without a PR or task, keeps one request in flight and stops after resolution', async () => {
+            held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            poll()
+            await waitFor(() => expect(reportRequests).toBe(1))
+            poll()
+            expect(reportRequests).toBe(1)
+            release()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.report?.status).toBe('resolved')
+            expect(logic.values.reportChecks).toEqual([passed])
+            expect(checkRequests).toBe(2)
+            expect(artefactRequests).toBe(2)
+            poll()
+            expect(reportRequests).toBe(1)
+        })
+
+        it('backs off failures and retries after the delay', async () => {
+            fail = true
+            silenceKeaLoadersErrors()
+            poll()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.status).toBe('monitoring')
+            expect(logic.values.monitoringRefreshFailures).toBe(1)
+            poll()
+            expect(reportRequests).toBe(1)
+            now += 2 * REPORT_MONITORING_POLL_INTERVAL_MS
+            fail = false
+            poll()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(reportRequests).toBe(2)
+            expect(logic.values.monitoringRefreshFailures).toBe(0)
+            expect(logic.values.report?.status).toBe('resolved')
+        })
+
+        it('refreshes final checks when the shell moves the report out of Monitoring', async () => {
+            logic.actions.setReport({ ...monitoring, status: SignalReportStatus.RESOLVED })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(checkRequests).toBe(2)
+            expect(artefactRequests).toBe(2)
+            expect(logic.values.reportChecks).toEqual([passed])
+        })
+    })
     describe('check approval', () => {
         const openCheck = {
             id: 'check-1',
