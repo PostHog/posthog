@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +11,7 @@ import type { ResourceEditedEvent } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
+import { NEW_TEMPLATE } from './constants'
 import { messageTemplateLogic } from './messageTemplateLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -102,6 +104,47 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    it.each([
+        { description: 'creating a template', id: 'new', method: 'post', status: 201, outcome: 'saveTemplateSuccess' },
+        {
+            description: 'saving an existing template',
+            id: 'existing-id',
+            method: 'patch',
+            status: 200,
+            outcome: 'saveTemplateSuccess',
+        },
+        { description: 'a failed save', id: 'new', method: 'post', status: 500, outcome: 'saveTemplateFailure' },
+    ])('keeps the form submitting until $description finishes', async ({ id, method, status, outcome }) => {
+        let finishSave!: () => void
+        const saveHeld = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        const save = jest.fn(async () => {
+            await saveHeld
+            return [status, { id: 'saved-id', name: 'Welcome email', content: { email: { subject: 'Hello' } } }]
+        })
+        useMocks({
+            [method]: {
+                '/api/environments/:team_id/messaging_templates/': save,
+                '/api/environments/:team_id/messaging_templates/:id/': save,
+            },
+        })
+        logic = messageTemplateLogic({ id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setTemplateValues({ id, name: 'Welcome email', content: { email: { subject: 'Hello' } } })
+
+        logic.actions.submitTemplate()
+        await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        expect(logic.values.isTemplateSubmitting).toBe(true)
+
+        finishSave()
+        await expectLogic(logic).toDispatchActions([outcome])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isTemplateSubmitting).toBe(false)
+        expect(save).toHaveBeenCalledTimes(1)
+    })
+
     describe('save failure feedback', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -131,7 +174,7 @@ describe('messageTemplateLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ id: 'existing-id', name: 'Existing' })
+                logic.actions.saveTemplate({ ...NEW_TEMPLATE, id: 'existing-id', name: 'Existing' })
             }).toDispatchActions(['saveTemplateFailure'])
 
             if (withButton) {
@@ -142,6 +185,189 @@ describe('messageTemplateLogic', () => {
             } else {
                 expect(mockToast.error).toHaveBeenCalledWith(toast)
             }
+        })
+    })
+
+    describe('creating a template', () => {
+        const content = { email: { subject: 'Hello' } }
+        let finishCreate: () => void
+        let loadedIds: string[]
+        let confirmSpy: jest.SpyInstance
+        let otherLogics: ReturnType<typeof messageTemplateLogic.build>[]
+
+        const mountTemplateLogic = (id: string): ReturnType<typeof messageTemplateLogic.build> => {
+            const templateLogic = messageTemplateLogic({ id })
+            templateLogic.mount()
+            otherLogics.push(templateLogic)
+            return templateLogic
+        }
+
+        const finishTheCreate = async (): Promise<void> => {
+            finishCreate()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            const createHeld = new Promise<void>((resolve) => {
+                finishCreate = resolve
+            })
+            loadedIds = []
+            otherLogics = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': (req) => {
+                        loadedIds.push(String(req.params.id))
+                        return [200, { id: req.params.id, name: 'Loaded', content }]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async () => {
+                        await createHeld
+                        return [
+                            201,
+                            { id: 'created-id', name: 'Welcome email', content, updated_at: '2026-01-01T00:00:00Z' },
+                        ]
+                    },
+                },
+            })
+            confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setTemplateValues({ name: 'Welcome email', content })
+            logic.actions.submitTemplate()
+            await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        })
+
+        afterEach(() => {
+            otherLogics.forEach((templateLogic) => templateLogic.unmount())
+            confirmSpy.mockRestore()
+        })
+
+        it.each([
+            { description: 'the saved copy', typed: null, name: 'Welcome email', subject: 'Hello', changed: false },
+            {
+                description: 'the edits typed during the create',
+                typed: { name: 'Typed name', subject: 'Typed subject' },
+                name: 'Typed name',
+                subject: 'Typed subject',
+                changed: true,
+            },
+        ])('opens it at its own URL with $description and no reload', async ({ typed, name, subject, changed }) => {
+            if (typed) {
+                logic.actions.setTemplateValue('name', typed.name)
+                logic.actions.setTemplateValue('content.email.subject', typed.subject)
+            }
+
+            await finishTheCreate()
+            const created = mountTemplateLogic('created-id')
+
+            expect(router.values.location.pathname).toContain(urls.workflowsLibraryTemplate('created-id'))
+            expect(confirmSpy).not.toHaveBeenCalled()
+            await expectLogic(created).toMatchValues({ templateLoading: false, templateChanged: changed })
+            expect(created.values.template).toMatchObject({ id: 'created-id', name, content: { email: { subject } } })
+            expect(created.values.originalTemplate.name).toBe('Welcome email')
+            await expectLogic(created).toFinishAllListeners()
+            expect(loadedIds).toEqual([])
+
+            created.unmount()
+            otherLogics = otherLogics.filter((templateLogic) => templateLogic !== created)
+            await expectLogic(mountTemplateLogic('created-id')).toDispatchActions(['loadTemplateSuccess'])
+            expect(loadedIds).toEqual(['created-id'])
+        })
+
+        it('keeps the typed edits and their conflict reload here, and loads it later, when another unsaved form blocked the redirect', async () => {
+            const otherForm = mountTemplateLogic('other-id')
+            await expectLogic(otherForm).toDispatchActions(['loadTemplateSuccess'])
+            otherForm.actions.setTemplateValue('name', 'Unsaved elsewhere')
+            confirmSpy.mockReturnValue(false)
+            logic.actions.setTemplateValue('name', 'Typed name')
+
+            await finishTheCreate()
+
+            expect(router.values.location.pathname).not.toContain(urls.workflowsLibraryTemplate('created-id'))
+            await expectLogic(logic).toMatchValues({ templateChanged: true })
+            expect(logic.values.template).toMatchObject({ id: 'created-id', name: 'Typed name' })
+            resourceEditedLogic.actions.resourceEdited({
+                notification_type: 'resource_edited',
+                team_id: 1,
+                resource_type: 'MessageTemplate',
+                resource_id: 'created-id',
+                updated_at: '2026-01-01T00:01:00Z',
+                actor_user_id: null,
+            })
+            await expectLogic(logic).toMatchValues({ externallyEdited: true })
+
+            await expectLogic(logic, () => logic.actions.syncExternalEdit()).toDispatchActions(['loadTemplateSuccess'])
+            expect(loadedIds).toEqual(['other-id', 'created-id'])
+            expect(logic.values.template).toMatchObject({ id: 'created-id', name: 'Loaded' })
+            const created = mountTemplateLogic('created-id')
+            await expectLogic(created).toDispatchActions(['loadTemplateSuccess'])
+            expect(created.values.template.name).toBe('Loaded')
+        })
+    })
+
+    describe('while a save is in flight', () => {
+        let finishSave: () => void
+        let confirmSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            const saveHeld = new Promise<void>((resolve) => {
+                finishSave = resolve
+            })
+            const content = { email: { subject: 'Hello' } }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': {
+                        id: 'existing-id',
+                        name: 'Existing',
+                        content,
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                        await saveHeld
+                        return [200, { id: 'existing-id', name: 'Saved', content }]
+                    },
+                },
+            })
+            confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            router.actions.push(urls.workflowsLibraryTemplate('existing-id'))
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            logic.actions.setTemplateValue('name', 'Saved')
+            logic.actions.submitTemplate()
+            await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        })
+
+        afterEach(() => {
+            confirmSpy.mockRestore()
+        })
+
+        it.each([
+            {
+                description: 'keeps edits typed during the save',
+                duringSave: () => logic.actions.setTemplateValue('name', 'Typed while saving'),
+                name: 'Typed while saving',
+                changed: true,
+            },
+            {
+                description: 'shows the saved copy after a discard during the save',
+                duringSave: () => logic.actions.resetTemplate(logic.values.originalTemplate),
+                name: 'Saved',
+                changed: false,
+            },
+        ])('keeps the editor on screen and $description', async ({ duringSave, name, changed }) => {
+            expect(logic.values.templateLoading).toBe(false)
+            duringSave()
+
+            finishSave()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ templateChanged: changed })
+            expect(logic.values.template.name).toBe(name)
+            expect(logic.values.originalTemplate.name).toBe('Saved')
+            expect(confirmSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -225,7 +451,7 @@ describe('messageTemplateLogic', () => {
             },
         ])('parks events that arrive during a save and $description', async ({ events, name }) => {
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ ...logic.values.template, name: 'Saved here' })
+                logic.actions.saveTemplate(logic.values.template)
                 events.forEach((updated_at) => resourceEditedLogic.actions.resourceEdited(edited({ updated_at })))
             })
                 .toDispatchActions(['setDeferredExternalEdit', 'saveTemplateSuccess', 'replayDeferredExternalEdit'])

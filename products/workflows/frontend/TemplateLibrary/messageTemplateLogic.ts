@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { objectsEqual } from 'lib/utils/objects'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -38,6 +39,8 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    savedTemplate: MessageTemplate | null
+    savedTemplateLoading: boolean
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -58,6 +61,7 @@ export interface messageTemplateLogicValues {
         ValidationErrorType
     >
     templateHasErrors: boolean
+    templateId: string
     templateLoading: boolean
     templateManualErrors: Record<string, any>
     templatePickerOpen: boolean
@@ -152,7 +156,7 @@ export interface messageTemplateLogicActions {
             updated_at: string | null
         }
     }
-    saveTemplate: (template: any) => any
+    saveTemplate: (template: MessageTemplate) => MessageTemplate
     saveTemplateFailure: (
         error: string,
         errorObject?: any
@@ -161,11 +165,11 @@ export interface messageTemplateLogicActions {
         errorObject?: any
     }
     saveTemplateSuccess: (
-        template: MessageTemplate,
-        payload?: any
+        savedTemplate: MessageTemplate,
+        payload?: MessageTemplate
     ) => {
-        template: MessageTemplate
-        payload?: any
+        savedTemplate: MessageTemplate
+        payload?: MessageTemplate
     }
     setDeferredExternalEdit: (event: ResourceEditedEvent | null) => {
         event: ResourceEditedEvent | null
@@ -298,6 +302,7 @@ export interface messageTemplateLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
+        templateId: (originalTemplate: MessageTemplate, arg: string) => string
     }
 }
 
@@ -307,6 +312,33 @@ export type messageTemplateLogicType = MakeLogicType<
     MessageTemplateLogicProps,
     messageTemplateLogicMeta
 >
+
+type TemplateEdits = Pick<MessageTemplate, 'name' | 'description' | 'content'>
+
+interface CreatedTemplateHandoff {
+    savedTemplate: MessageTemplate
+    unsavedEdits: TemplateEdits | null
+}
+
+const createdTemplateHandoffs = new Map<string, CreatedTemplateHandoff>()
+
+function handOffCreatedTemplate(handoff: CreatedTemplateHandoff): void {
+    createdTemplateHandoffs.set(handoff.savedTemplate.id, handoff)
+}
+
+function discardCreatedTemplateHandoff(id: string): void {
+    createdTemplateHandoffs.delete(id)
+}
+
+function takeCreatedTemplateHandoff(id: string): CreatedTemplateHandoff | undefined {
+    const handoff = createdTemplateHandoffs.get(id)
+    discardCreatedTemplateHandoff(id)
+    return handoff
+}
+
+function templateEdits({ name, description, content }: MessageTemplate): TemplateEdits {
+    return { name, description, content }
+}
 
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
@@ -336,7 +368,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ asyncActions }) => ({
         template: {
             defaults: {
                 ...NEW_TEMPLATE,
@@ -350,7 +382,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
-                actions.saveTemplate(template)
+                await asyncActions.saveTemplate(template)
             },
         },
     })),
@@ -400,24 +432,36 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         ],
     }),
-    loaders(({ props }) => ({
+    selectors({
+        templateId: [
+            (s) => [s.originalTemplate, (_, props: MessageTemplateLogicProps) => props.id],
+            (originalTemplate: MessageTemplate, propsId: string): string =>
+                originalTemplate.id === NEW_TEMPLATE.id ? propsId : originalTemplate.id,
+        ],
+    }),
+    loaders(({ props, values }) => ({
         template: {
             loadTemplate: async () => {
-                if (!props.id || props.id === 'new') {
+                if (values.templateId === NEW_TEMPLATE.id) {
                     return {
                         ...NEW_TEMPLATE,
                     } as MessageTemplate
                 }
 
-                return await api.messaging.getTemplate(props.id)
-            },
-            saveTemplate: (template) => {
-                if (template.id === 'new') {
-                    return api.messaging.createTemplate(template)
-                }
-                return api.messaging.updateTemplate(template.id, template)
+                return await api.messaging.getTemplate(values.templateId)
             },
         },
+        savedTemplate: [
+            null as MessageTemplate | null,
+            {
+                saveTemplate: (template: MessageTemplate) => {
+                    if (template.id === 'new') {
+                        return api.messaging.createTemplate(template)
+                    }
+                    return api.messaging.updateTemplate(template.id, template)
+                },
+            },
+        ],
         message: {
             loadMessage: async () => {
                 if (!props.messageId) {
@@ -429,14 +473,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     })),
     listeners(({ actions, props, values }) => ({
         resourceEdited: ({ event }) => {
-            if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
+            if (event.resource_type === 'MessageTemplate' && event.resource_id === values.templateId) {
                 actions.templateEditedElsewhere(event)
             }
         },
         templateEditedElsewhere: ({ event }) => {
             // The echo of our own save can arrive before its response. Parked until the flight settles,
             // it then compares equal to the loaded stamp and is dropped.
-            if (values.templateLoading) {
+            if (values.templateLoading || values.savedTemplateLoading) {
                 actions.setDeferredExternalEdit(event)
                 return
             }
@@ -503,13 +547,29 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             lemonToast.error('Failed to save template. Please try again.')
         },
-        saveTemplateSuccess: async ({ template }) => {
+        saveTemplateSuccess: async ({ savedTemplate, payload: submittedTemplate }) => {
             lemonToast.success('Template saved')
-            // Clear the unsaved-changes state before navigating so the beforeUnload guard
-            // does not intercept the post-save redirect.
-            actions.resetTemplate(template)
-            actions.setOriginalTemplate(template)
-            template.id && router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+            actions.setOriginalTemplate(savedTemplate)
+            const isNewTemplate = savedTemplate.id !== props.id
+            const editedWhileSaving = values.templateChanged && !objectsEqual(values.template, submittedTemplate)
+            if (isNewTemplate) {
+                const unsavedEdits = editedWhileSaving ? templateEdits(values.template) : null
+                handOffCreatedTemplate({ savedTemplate, unsavedEdits })
+                // The reset clears the unsaved-changes state, so the beforeUnload guard
+                // does not intercept this redirect.
+                actions.resetTemplate(savedTemplate)
+                const createdTemplateUrl = urls.workflowsLibraryTemplate(savedTemplate.id)
+                router.actions.replace(createdTemplateUrl)
+                const redirectWasBlocked = !router.values.location.pathname.endsWith(createdTemplateUrl)
+                if (redirectWasBlocked) {
+                    discardCreatedTemplateHandoff(savedTemplate.id)
+                    if (unsavedEdits) {
+                        actions.setTemplateValues(unsavedEdits)
+                    }
+                }
+            } else if (!editedWhileSaving) {
+                actions.resetTemplate(savedTemplate)
+            }
             actions.replayDeferredExternalEdit()
         },
         loadMessageSuccess: async ({ message }) => {
@@ -570,6 +630,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
     })),
     afterMount(({ props, actions, values }) => {
+        const createdTemplate = takeCreatedTemplateHandoff(props.id)
+        if (createdTemplate) {
+            actions.setOriginalTemplate(createdTemplate.savedTemplate)
+            actions.resetTemplate(createdTemplate.savedTemplate)
+            if (createdTemplate.unsavedEdits) {
+                actions.setTemplateValues(createdTemplate.unsavedEdits)
+            }
+            return
+        }
+
         if (props.id !== 'new') {
             actions.loadTemplate()
         }

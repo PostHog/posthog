@@ -122,6 +122,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     data-attr="cancel-message-template"
                                     type="secondary"
                                     onClick={() => resetTemplate(originalTemplate)}
+                                    disabledReason={isTemplateSubmitting ? 'Wait for the save to finish' : undefined}
                                     size="small"
                                 >
                                     Discard changes
@@ -134,11 +135,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
                                 disabledReason={
-                                    !templateChanged
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
+                                    isSyncingExternalEdit
+                                        ? 'Wait for the reload to finish'
+                                        : !templateChanged
+                                          ? 'No changes to save'
+                                          : !template.name
+                                            ? 'Name is required'
+                                            : undefined
                                 }
                                 size="small"
                             >
@@ -207,6 +210,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     size="small"
                                     onClick={() => syncExternalEdit()}
                                     loading={isSyncingExternalEdit}
+                                    disabledReason={isTemplateSubmitting ? 'Wait for the save to finish' : undefined}
                                 >
                                     Reload
                                 </LemonButton>
