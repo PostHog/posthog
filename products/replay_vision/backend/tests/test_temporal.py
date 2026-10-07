@@ -2791,9 +2791,25 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
+@pytest.mark.parametrize(
+    "leaf_type,leaf_message,expected_reason",
+    [
+        (None, "no events", "internal_error:no events"),
+        # A dropped Postgres connection is our capacity, not a bug, so the raw text with the server address
+        # must not reach the user next to a "contact support" label.
+        (
+            "OperationalError",
+            "connection to server at 10.0.0.5 failed: server closed the connection unexpectedly",
+            "infra_transient:lost the connection to a PostHog database",
+        ),
+        ("InterfaceError", "connection already closed", "infra_transient:lost the connection to a PostHog database"),
+    ],
+)
+async def test_apply_scanner_workflow_marks_failed_when_fetch_raises(
+    leaf_type: str | None, leaf_message: str, expected_reason: str
+) -> None:
+    fetch_error = _wrap_in_activity_error(ApplicationError(leaf_message, type=leaf_type, non_retryable=True))
     new_observation_id = uuid.uuid4()
-    fetch_error = ApplicationError("no events", non_retryable=True)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2804,7 +2820,7 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
         activity_errors={fetch_session_events_activity: fetch_error},
     )
 
-    with pytest.raises(ApplicationError, match="no events"):
+    with pytest.raises(ActivityError):
         await _run_workflow(_build_inputs(session_id="sess-broken"), mocks)
 
     called = {fn for fn, _ in mocks.activity_calls}
@@ -2816,7 +2832,7 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
 
     failed_input = mocks.activity_calls[-1][1]
     assert failed_input.observation_id == new_observation_id
-    assert "no events" in failed_input.error_reason.lower()
+    assert failed_input.error_reason == expected_reason
 
 
 @pytest.mark.asyncio
@@ -2906,7 +2922,8 @@ async def test_apply_scanner_workflow_attributes_an_experiment_scan_end_to_end(
         # point of the guard: the two marks are different activity types, so switching mid-run is
         # non-deterministic.
         ("RECORDING_TOO_LARGE", False, False, "rasterization_failed"),
-        ("CAPTURE_ABORTED", True, False, "rasterization_failed"),
+        # A capture that stopped mid-render is a render pod fault, so the user gets a retry, not a "known issue".
+        ("CAPTURE_ABORTED", True, False, "infra_transient"),
         (None, True, False, "rasterization_failed"),
     ],
 )
@@ -3008,6 +3025,53 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
         captured = " ".join(str(item.get("value")) for item in serialized)
         assert "ECONNREFUSED" not in captured
         assert "10.0.0.5" not in captured
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "leaf",
+    [
+        # The child's own execution_timeout kills it mid-render, and Temporal reports it directly on the
+        # ChildWorkflowError, carrying no rasterizer error code.
+        "child_execution_timeout",
+        # The render's schedule-to-close cap fires first instead, so the timeout arrives one wrap deeper.
+        "render_activity_timeout",
+        # The prep phase spent the envelope, so the child refused to start a render it could not hold.
+        "budget_exhausted",
+    ],
+)
+async def test_apply_scanner_workflow_classifies_a_rasterize_timeout_as_transient(leaf: str) -> None:
+    # A render that ran out of time says nothing about the recording, so rasterization_failed would show the
+    # user a "known issue" retry prompt for a video that was still rendering.
+    new_observation_id = uuid.uuid4()
+    if leaf == "budget_exhausted":
+        cause: BaseException = _wrap_in_activity_error(
+            ApplicationError("no render budget left", type="RENDER_BUDGET_EXHAUSTED", non_retryable=True)
+        )
+    else:
+        timeout = TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        cause = _wrap_in_activity_error(timeout) if leaf == "render_activity_timeout" else timeout
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(cause),
+    )
+
+    with pytest.raises(ScannerFailureError) as exc_info:
+        await _run_workflow(_build_inputs(session_id="sess-slow"), mocks)
+
+    assert exc_info.value.kind is FailureKind.INFRA_TRANSIENT
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert mark_observation_ineligible_activity not in called
+    assert (
+        mocks.activity_calls[-1][1].error_reason
+        == "infra_transient:rasterizer ran out of time rendering this recording"
+    )
 
 
 @pytest.mark.asyncio
@@ -3511,7 +3575,7 @@ async def test_apply_scanner_workflow_embeds_monitor_reasoning_without_classifie
     assert embed_input.model_output == model_output
 
 
-def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
+def _wrap_in_activity_error(cause: BaseException) -> ActivityError:
     """Build a minimal ActivityError shaped like what Temporal raises into a workflow's `except` block."""
     activity_err = ActivityError.__new__(ActivityError)
     activity_err.__cause__ = cause

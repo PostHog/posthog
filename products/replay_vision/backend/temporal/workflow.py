@@ -14,13 +14,19 @@ from temporalio.exceptions import (
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    find_temporal_timeout_error,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     BumpStuckCounterInput,
     bump_stuck_counter_activity,
 )
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_BUDGET_EXHAUSTED_TYPE,
     RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
     RasterizeRecordingInputs,
 )
@@ -200,6 +206,17 @@ _RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
     {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
 )
 
+# The rasterizer's ffmpeg capture stopped before playback ended. That is a render pod fault, and the
+# rasterizer itself marks it retryable, so it says nothing about whether the recording can render.
+_RASTERIZER_CAPTURE_ABORTED_TYPE = "CAPTURE_ABORTED"
+
+# Temporal sets the ApplicationError type to the Python class name, and Django and psycopg share these
+# names. Both mean Postgres refused or dropped the connection, which is capacity on our side, not a bug.
+_DB_CONNECTION_FAILURE_TYPES = frozenset({"OperationalError", "InterfaceError"})
+
+# The raw text carries the server address and pooler wording, so one stable message keeps a single issue.
+_DB_CONNECTION_FAILURE_MESSAGE = "lost the connection to a PostHog database"
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -238,6 +255,13 @@ def _root_cause_message(e: BaseException) -> str:
     cause = unwrap_temporal_cause(e) or e
     msg = getattr(cause, "message", None) or str(cause) or type(cause).__name__
     return truncate_for_temporal_payload(msg, MAX_ERROR_MESSAGE_CHARS)
+
+
+# A render that ran out of time tells us nothing about the recording: the renderer was slow or at capacity,
+# which is the same story as a timeout against any other PostHog dependency (see `_activity_timeout_kind`).
+# One message for every timeout type keeps them in a single error-tracking issue, instead of one per the
+# wording Temporal happens to attach.
+_RENDER_TIMED_OUT_MESSAGE = "rasterizer ran out of time rendering this recording"
 
 
 def _normalized_rasterizer_infra_message(code: str) -> str:
@@ -452,12 +476,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             if ineligible_kind is not None:
                 await self._mark_ineligible(observation_id, scanner_type, ineligible_kind, _root_cause_message(e))
             else:
-                failure_kind = (
-                    _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE)
-                    or _activity_timeout_kind(e)
-                    or FailureKind.INTERNAL_ERROR.value
+                failure_kind = _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE) or _activity_timeout_kind(e)
+                message = _root_cause_message(e)
+                if failure_kind is None and _failure_type(e) in _DB_CONNECTION_FAILURE_TYPES:
+                    wf.logger.warning("replay_vision.db_connection_failed detail=%s", message)
+                    failure_kind, message = FailureKind.INFRA_TRANSIENT.value, _DB_CONNECTION_FAILURE_MESSAGE
+                await self._mark_failed(
+                    observation_id, scanner_type, failure_kind or FailureKind.INTERNAL_ERROR.value, message
                 )
-                await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
             raise
         finally:
             if uploaded is not None:
@@ -616,6 +642,15 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception as exc:
                     wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
+            # A timeout anywhere in the chain — the child's execution_timeout, or the render activity's own
+            # start-to-close or schedule-to-close — carries no rasterizer error code, so it would otherwise
+            # fall through to RASTERIZATION_FAILED and tell the user a working recording is a known issue.
+            # A budget the prep phase already spent is the same story, reached before the render starts.
+            if find_temporal_timeout_error(e) is not None or rasterizer_type == RASTERIZE_BUDGET_EXHAUSTED_TYPE:
+                wf.logger.warning("replay_vision.rasterizer_timed_out detail=%s", _root_cause_message(e))
+                raise ScannerFailureError(_RENDER_TIMED_OUT_MESSAGE, kind=FailureKind.INFRA_TRANSIENT) from None
+            if rasterizer_type == _RASTERIZER_CAPTURE_ABORTED_TYPE:
+                raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.INFRA_TRANSIENT) from e
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 
