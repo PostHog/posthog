@@ -54,6 +54,7 @@ Focus:
 
 - One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
 - Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
+- An isolated product that holds many independent packages can also declare `backend:test-core-check`, whose inputs are the files that need the whole suite. A pull request that changes the product and none of those inputs runs the suite without the test files among them. The product owns a test that fails when an input can reach a file outside the inputs. `warehouse_sources` is the reference: its guard is `test_ci_core_coupled_sources.py`.
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) sits above the facade, outside the contract surface — but a product is only soundly skippable once that presentation is thin and reaches internals exclusively through the facade (see [What makes the skip sound](#what-makes-the-skip-sound)); an unsealed presentation that still holds business logic is not

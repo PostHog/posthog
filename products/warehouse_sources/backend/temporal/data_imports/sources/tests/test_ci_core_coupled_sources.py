@@ -393,6 +393,14 @@ def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
         "A contract change must run the whole suite."
     )
 
+    # The root turbo.json has full-line comments, which json.loads rejects.
+    root_turbo = json.loads(re.sub(r"^\s*//.*$", "", (root / "turbo.json").read_text(), flags=re.MULTILINE))
+    outside_product = {glob for glob in root_turbo["tasks"]["backend:test"]["inputs"] if glob.startswith("../")}
+    assert outside_product <= set(inputs), (
+        f"{sorted(outside_product - set(inputs))} are backend:test inputs outside the product and are not "
+        f"{_CORE_TASK} inputs. A change to them marks the product changed and must run the whole suite."
+    )
+
 
 def test_core_test_inputs_never_reach_a_leaf_source() -> None:
     root = _repo_root()
