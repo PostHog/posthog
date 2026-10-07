@@ -370,17 +370,10 @@ def _validate_status(value: object, where: str, errors: list[str]) -> str | _Uns
     return UNSET
 
 
-def _validate_inherit(value: object, where: str, errors: list[str]) -> bool | _Unset:
+def _validate_bool(value: object, key: str, where: str, errors: list[str]) -> bool | _Unset:
     if isinstance(value, bool):
         return value
-    errors.append(f"{where}: 'inherit' must be a boolean")
-    return UNSET
-
-
-def _validate_sensitive(value: object, where: str, errors: list[str]) -> bool | _Unset:
-    if isinstance(value, bool):
-        return value
-    errors.append(f"{where}: 'sensitive' must be a boolean")
+    errors.append(f"{where}: '{key}' must be a boolean")
     return UNSET
 
 
@@ -431,9 +424,9 @@ def _parse_rule(raw: object, index: int, errors: list[str], warnings: list[str])
 
     owners = _validate_owners_value(raw["owners"], where, errors) if "owners" in raw else UNSET
     status = _validate_status(raw["status"], where, errors) if "status" in raw else UNSET
-    inherit = _validate_inherit(raw["inherit"], where, errors) if "inherit" in raw else UNSET
+    inherit = _validate_bool(raw["inherit"], "inherit", where, errors) if "inherit" in raw else UNSET
     additions = _validate_additions(raw["additions"], where, errors) if "additions" in raw else []
-    sensitive = _validate_sensitive(raw["sensitive"], where, errors) if "sensitive" in raw else UNSET
+    sensitive = _validate_bool(raw["sensitive"], "sensitive", where, errors) if "sensitive" in raw else UNSET
     return [
         OwnersRule(
             match=pattern, owners=owners, status=status, inherit=inherit, additions=additions, sensitive=sensitive
@@ -488,12 +481,12 @@ def parse_owners_file(
     if "status" in data:
         file.status = _validate_status(data["status"], "status", errors)
     if "inherit" in data:
-        inherit = _validate_inherit(data["inherit"], "inherit", errors)
+        inherit = _validate_bool(data["inherit"], "inherit", "inherit", errors)
         file.inherit = True if isinstance(inherit, _Unset) else inherit
     if "additions" in data:
         file.additions = _validate_additions(data["additions"], "additions", errors)
     if "sensitive" in data:
-        file.sensitive = _validate_sensitive(data["sensitive"], "sensitive", errors)
+        file.sensitive = _validate_bool(data["sensitive"], "sensitive", "sensitive", errors)
 
     # Repo-wide settings and the team registry are single lookups, so they only make sense at
     # the root; a nested file carrying them would silently do nothing.
