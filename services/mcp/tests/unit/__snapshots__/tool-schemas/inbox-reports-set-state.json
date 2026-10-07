@@ -38,8 +38,8 @@
             "type": "number"
         },
         "state": {
-            "description": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
-            "enum": ["suppressed", "potential", "resolved"],
+            "description": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, 'monitoring' when a fix is implemented but its outcome is not confirmed, or 'resolved' when the outcome is confirmed. Entering monitoring requires the signals-report-monitoring organization rollout flag. Resolving is allowed from ready, pending_input, monitoring, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved\n* `monitoring` - monitoring",
+            "enum": ["suppressed", "potential", "resolved", "monitoring"],
             "type": "string"
         }
     },
