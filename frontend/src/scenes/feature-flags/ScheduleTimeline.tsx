@@ -89,8 +89,14 @@ function yForRollout(rollout: number): number {
     return MARGIN.top + ((100 - rollout) * PLOT_HEIGHT) / 100
 }
 
-function markTitle(occurrence: ScheduleOccurrence): string {
+/**
+ * `unlabelledRollout` is the level of a step whose label was dropped for overlapping an earlier one.
+ * Without it such a mark is a bare dot: the drop takes away the only reading of its level, and a
+ * plain step has no other reason to carry a title.
+ */
+function markTitle(occurrence: ScheduleOccurrence, unlabelledRollout: number | null): string {
     return [
+        unlabelledRollout !== null ? `${unlabelledRollout}% rollout` : '',
         occurrence.needsApproval ? 'Needs approval' : '',
         occurrence.rolloutUnchanged
             ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${describeCoveringLevel(occurrence.projected)}`
@@ -141,7 +147,8 @@ interface OccurrenceLayout {
     stepY: number | null
     /**
      * Null for a marker, and for a step label that would overlap an earlier step label whose baseline
-     * sits within one font size of its own. Nearby dates on a flat plan would otherwise stack their text.
+     * sits within one font size of its own. One font size is 9 units and the plot spends 0.9 units per
+     * rollout point, so two steps less than about 10 points apart on nearby dates stack their text.
      */
     placedStepLabel: PlacedLabel | null
 }
@@ -258,6 +265,13 @@ export function ScheduleTimeline({
         })
     }
 
+    // A known level is not the same as a drawn segment. A plan whose only plottable step is its last
+    // occurrence draws a labelled mark and no segment: the step has no level before it to run from,
+    // and the trailing run stops at the plot edge the mark already sits on. Reading the segments here
+    // would tell that reader no line is drawn because every condition is targeted, beside a mark
+    // proving otherwise.
+    const hasRolloutLevel = currentRolloutPercentage !== null || layouts.some((layout) => layout.stepY !== null)
+
     // role="img" makes the chart a single leaf node, so a screen reader never descends into the
     // marks and hears no date, level, or approval state. The label has to carry the plan itself.
     const chartLabel = `Timeline of ${occurrences.length} upcoming scheduled changes: ${occurrences
@@ -328,7 +342,10 @@ export function ScheduleTimeline({
                         const { x, timeLabel, topLabelY, stepY, placedStepLabel } = layouts[index]
                         const blocked = occurrence.needsApproval
                         // A browser shows only the first <title> child as the hover tooltip.
-                        const title = markTitle(occurrence)
+                        const title = markTitle(
+                            occurrence,
+                            stepY !== null && !placedStepLabel ? occurrence.projected.rolloutPercentage : null
+                        )
                         return (
                             <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
                                 {title && <title>{title}</title>}
@@ -401,7 +418,7 @@ export function ScheduleTimeline({
                 </svg>
             </div>
             <p className="text-xs text-muted m-0">
-                {stepSegments.length > 0
+                {hasRolloutLevel
                     ? 'The line shows how much of your audience the flag reaches. It does not count conditions that target specific users, or conditions set to a different audience type, because their reach depends on how many match them.'
                     : 'No rollout line is shown because every condition targets specific users or a different audience type. Their reach depends on how many match them.'}
             </p>
