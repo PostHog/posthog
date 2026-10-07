@@ -59,8 +59,8 @@ describe('HogFunctionHandler', () => {
             recipientTokensService,
             hub.encryptedFields
         )
-        const emailService = new EmailService(
-            {
+        const emailService = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
@@ -68,14 +68,14 @@ describe('HogFunctionHandler', () => {
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
-        )
+            integrationManager: hub.integrationManager,
+            teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+            siteUrl: hub.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            recipientsManager: new RecipientsManagerService(hub.postgres),
+        })
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
             {
@@ -120,8 +120,6 @@ describe('HogFunctionHandler', () => {
             mockEmailValidationService,
             'fetch'
         )
-
-        // Simple hog function that prints the inputs
 
         template = await insertHogFunctionTemplate(hub.postgres, {
             id: `template-test-hogflow-executor-${team.id}`,
@@ -299,7 +297,6 @@ describe('HogFunctionHandler', () => {
             )
             expect(warnings).toHaveLength(1)
             expect(warnings[0].message).toContain('coupon')
-            // Rendering is unchanged: the step still executes, with the reference rendered empty
             expect(handlerResult.error).toBeUndefined()
             expect(mockFetch).toHaveBeenCalled()
         })
@@ -411,14 +408,10 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
-        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
         expect(invocationResult.metrics).toEqual([])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
-    // Guards the fix that split suppression from opt-out: previously both branches collapsed to a
-    // single "opted out" log with no metric, so a customer couldn't tell why a workflow send was
-    // skipped or measure suppression volume from the app-metrics view.
     it('should skip execution, log a suppression message, and emit email_suppressed when recipient preferences returns suppressed', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
 
@@ -459,7 +452,6 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
-        // Flow continues to the next action (a skip, not a failure branch), and nothing was sent.
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(mockFetch).not.toHaveBeenCalled()
         expect(invocationResult.logs[0].message).toContain('no reachable mail servers')
@@ -475,9 +467,6 @@ describe('HogFunctionHandler', () => {
         ])
     })
 
-    // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
-    // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
-    // carrying the handler's billing type — never fall back to another channel's kind.
     it.each([
         ['fetch', 'workflow_billable_invocations'],
         ['email', 'workflow_emails_sent'],
@@ -583,7 +572,6 @@ describe('HogFunctionHandler', () => {
                 mockEmailValidationService,
                 billingType
             )
-            // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
                 ...invocation,
                 hogFlow: { ...invocation.hogFlow, version: 3 },
@@ -602,7 +590,6 @@ describe('HogFunctionHandler', () => {
     )
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
-        // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
             finished: false,
             invocation: invocation as any,
@@ -667,10 +654,8 @@ describe('HogFunctionHandler', () => {
             (metric) => metric.metric_name === 'billable_invocation'
         )
 
-        // Ensure NO billing metrics are emitted when recipient has opted out
         expect(billableMetrics).toHaveLength(0)
 
-        // Verify the function was still marked as finished with the right log
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('Recipient has opted out')
     })
