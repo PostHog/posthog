@@ -31,7 +31,14 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         domains_opt = options.get("domains")
-        requested = [d.strip().lower() for d in domains_opt.split(",") if d.strip()] if domains_opt else []
+        if domains_opt is None:
+            requested: list[str] = []
+        else:
+            # An omitted option updates every domain. An explicit but empty value is a mistake,
+            # not a request to update every domain, so reject it instead of widening the scope.
+            requested = [d.strip().lower() for d in domains_opt.split(",") if d.strip()]
+            if not requested:
+                raise CommandError("--domains was empty. Omit it to update every domain.")
         domains = ses_email_domains(requested)
 
         if options.get("dry_run"):

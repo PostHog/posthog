@@ -35,3 +35,11 @@ class TestDisableSesFeedbackForwarding(BaseTest):
 
         called = [c.args[0] for c in mock_provider_cls.return_value.disable_feedback_forwarding.call_args_list]
         assert called == ["broken.com", "gone.com", "ses.com"]
+
+    @patch("products.workflows.backend.management.commands.disable_ses_feedback_forwarding.SESProvider")
+    def test_rejects_an_explicitly_empty_domains_value(self, mock_provider_cls: MagicMock) -> None:
+        # An empty value must not fall through to updating every domain.
+        with pytest.raises(CommandError, match="empty"):
+            call_command("disable_ses_feedback_forwarding", "--domains", ",")
+
+        mock_provider_cls.return_value.disable_feedback_forwarding.assert_not_called()
