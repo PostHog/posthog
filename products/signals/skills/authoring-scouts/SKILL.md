@@ -127,6 +127,7 @@ If the project has an approved metric for that measure (`metric-list` shows what
 A scout's schedule and emit behavior live on its `SignalScoutConfig`, separate from the skill body.
 For a **brand-new scout**, pass these settings in the nested `config` object of the `posthog:scout-create` call, including creating it disabled or in dry-run **before it ever runs**.
 The endpoint creates the skill and config atomically, always opts the scout into the report channel, and safely re-applies config fields when the same definition is retried.
+A scout with a product-specific output must stay off the report channel, so create it with `skill-create` and `scout-config-create` instead; see [Scouts with a product-specific output](references/report-contract.md#scouts-with-a-product-specific-output).
 Otherwise the coordinator auto-registers an enabled config on the default every-24-hours schedule on its next tick (up to ~30 min).
 For an **existing scout**, tune with `posthog:scout-config-update` (find the `id` via `-config-list`):
 
@@ -260,6 +261,7 @@ The standard loop is **dogfood → run once ready → inspect**:
 1. Dogfood the discriminator + explore patterns yourself against the live project (above).
    Refine the body until the logic holds on real data — this is the cheap, iterable part.
 2. Create the scout and its config together via `posthog:scout-create` (schedule and the default `emit=true` go in the nested `config`; bundled reference files go in `files`), then spend one `-run-now` to watch the whole scout execute end-to-end.
+   For a scout with a [product-specific output](references/report-contract.md#scouts-with-a-product-specific-output), use `skill-create` and then `scout-config-create` instead.
    Pass a `note` on that call to point the run at the case you dogfooded ("focus on the checkout drop from Tuesday") so the first real run exercises the path you care about.
    Leave `run_interval_minutes` at a sustainable value — you no longer need a short interval to force an early run.
 3. After the run finishes, read what it did: `posthog:inbox-reports-list` (the reports it actually wrote), `posthog:scout-runs-list` (run summaries), `-runs-retrieve` (full reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).

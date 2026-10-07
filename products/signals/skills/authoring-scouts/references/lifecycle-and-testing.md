@@ -45,6 +45,11 @@ posthog:skill-get {"skill_name": "signals-scout-error-tracking"}
 # New scout from scratch: create the complete definition and config.
 posthog:scout-create {"name": "signals-scout-<scope>", "description": "...", "body": "...", "config": {"run_interval_minutes": 120}}
 
+# New scout with a product-specific output: scout-create always grants the report tools,
+# so create the skill without them and register its config separately (see report-contract.md).
+posthog:skill-create {"name": "<scope>-scout", "description": "...", "body": "..."}
+posthog:scout-config-create {"skill_name": "<scope>-scout", "run_interval_minutes": 120}
+
 # Adapt an existing per-team scout — use the SMALLEST primitive (find/replace, not full-body)
 posthog:skill-get {"skill_name": "signals-scout-<scope>"}          # get current version first
 posthog:skill-update {"skill_name": "signals-scout-<scope>", "base_version": N, "edits": [{"old": "...", "new": "..."}]}
@@ -100,6 +105,7 @@ The loop is **dogfood → run once ready → inspect**:
 
 1. Dogfood the discriminator + explore patterns yourself against the live project (above), refining the body until the logic holds — the cheap, iterable part.
 2. Create the scout and its config together via `posthog:scout-create` (the default `emit=true` goes in the nested `config`), leaving `run_interval_minutes` at a sustainable value — no short-interval trick needed.
+   A scout with a [product-specific output](report-contract.md#scouts-with-a-product-specific-output) uses `skill-create` and then `scout-config-create` instead (see Path A).
    Then spend one `-run-now` to watch the whole scout execute end-to-end, and inspect once it finishes:
    - `posthog:inbox-reports-list` — the reports it actually wrote.
    - `posthog:scout-runs-list` — run summaries.

@@ -645,3 +645,9 @@ A report on a workflow change could autostart a code PR for a change that is onl
 
 Before you add the report tools to a scout that does not have them, read its description and output section.
 If the scout states a product-specific output, keep it off the report channel.
+
+To create such a scout per team, do not use `scout-create`, because it always grants both report tools.
+Create the skill with `skill-create` and leave `allowed_tools` empty.
+Then register it with `scout-config-create`, and set its schedule, `enabled`, and `emit` on that call.
+Give the skill a name without the `signals-scout-` prefix.
+The coordinator auto-registers an enabled config for a prefixed skill that has no config, so a prefixed scout can run on the defaults before your `scout-config-create` call.
