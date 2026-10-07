@@ -145,6 +145,13 @@ export interface SkippedSourceApi {
     reason: string
 }
 
+export interface ResyncFailureApi {
+    /** ID of the table whose resync did not start. */
+    schema_id: string
+    /** Why the resync did not start. */
+    detail: string
+}
+
 export interface AddSourcesResponseApi {
     /** Sources newly attached to this destination. */
     attached: SyncedSourceApi[]
@@ -152,6 +159,8 @@ export interface AddSourcesResponseApi {
     skipped: SkippedSourceApi[]
     /** Number of tables sent for a full resync. */
     tables_resyncing: number
+    /** Tables whose resync did not start. The sources are still attached. */
+    resync_failures: ResyncFailureApi[]
 }
 
 /**

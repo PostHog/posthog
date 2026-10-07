@@ -445,6 +445,39 @@ class TestAddSources(DestinationAPITestBase):
         assert resync.call_args.args[0].id == self.schema.id
         assert resync.call_args.args[0].id != disabled.id
 
+    def test_rejects_system_managed_sources(self) -> None:
+        self.source.connection_metadata = {"system_managed": True}
+        self.source.save(update_fields=["connection_metadata"])
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_true_rejected_before_attaching_when_syncs_are_paused(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.is_any_external_data_schema_paused",
+            return_value=True,
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 0
+
+    def test_resync_failure_is_reported_and_links_are_kept(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.resync_schema",
+            return_value=Response(status=status.HTTP_400_BAD_REQUEST, data={"detail": "boom"}),
+        ):
+            response = self.client.post(self.url, {"source_ids": [str(self.source.id)], "resync": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["tables_resyncing"] == 0
+        assert [failure["schema_id"] for failure in body["resync_failures"]] == [str(self.schema.id)]
+        assert len(body["attached"]) == 1
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).count() == 1
+
     def test_requires_editor_on_selected_source_tables(self) -> None:
         table = DataWarehouseTable.objects.create(name="charges", team=self.team, external_data_source=self.source)
         self.schema.table = table

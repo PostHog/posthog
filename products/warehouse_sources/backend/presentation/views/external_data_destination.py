@@ -16,6 +16,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchema,
@@ -83,10 +84,18 @@ class SkippedSourceSerializer(serializers.Serializer):
     reason = serializers.CharField(help_text="Why the source was not attached.")
 
 
+class ResyncFailureSerializer(serializers.Serializer):
+    schema_id = serializers.UUIDField(help_text="ID of the table whose resync did not start.")
+    detail = serializers.CharField(help_text="Why the resync did not start.")
+
+
 class AddSourcesResponseSerializer(serializers.Serializer):
     attached = SyncedSourceSerializer(many=True, help_text="Sources newly attached to this destination.")
     skipped = SkippedSourceSerializer(many=True, help_text="Sources that were not attached and their reasons.")
     tables_resyncing = serializers.IntegerField(help_text="Number of tables sent for a full resync.")
+    resync_failures = ResyncFailureSerializer(
+        many=True, help_text="Tables whose resync did not start. The sources are still attached."
+    )
 
 
 def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
@@ -407,6 +416,14 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         missing = {str(source_id) for source_id in source_ids} - by_id.keys()
         if missing:
             raise ValidationError({"source_ids": f"Unknown sources: {', '.join(sorted(missing))}"})
+        # Mirrors the source and schema viewsets, which reject writes to sources PostHog manages.
+        if any(source.is_system_managed for source in sources):
+            raise PermissionDenied("Sources managed by PostHog cannot be changed through this API.")
+        # Reject before attaching anything, so a billing pause never leaves links without a resync.
+        if serializer.validated_data["resync"] and is_any_external_data_schema_paused(team_id):
+            raise ValidationError(
+                {"resync": "Monthly sync limit reached. Please increase your billing limit to resume syncing."}
+            )
 
         self._assert_can_mutate(destination)
         if not is_service_auth(request):
@@ -448,17 +465,32 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 attached_sources.append(source)
 
         tables_resyncing = 0
+        resync_failures: list[dict[str, str]] = []
         if serializer.validated_data["resync"]:
             for source in attached_sources:
                 for schema in ExternalDataSchema.objects.filter(
                     team_id=team_id, source=source, should_sync=True, deleted=False
                 ):
-                    result = resync_schema(schema)
+                    # The links are already committed, so report a table that fails to start instead of
+                    # erroring: a retry would skip these sources as already attached.
+                    try:
+                        result = resync_schema(schema)
+                    except ValidationError as e:
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(e.detail)})
+                        continue
                     if result.status_code != status.HTTP_200_OK:
-                        raise ValidationError({"resync": result.data})
+                        resync_failures.append({"schema_id": str(schema.id), "detail": str(result.data)})
+                        continue
                     tables_resyncing += 1
 
-        return Response({"attached": attached, "skipped": skipped, "tables_resyncing": tables_resyncing})
+        return Response(
+            {
+                "attached": attached,
+                "skipped": skipped,
+                "tables_resyncing": tables_resyncing,
+                "resync_failures": resync_failures,
+            }
+        )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # `.instance` is `Any | None` on the base serializer type, but `update`/`partial_update`

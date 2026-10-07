@@ -11306,6 +11306,13 @@ export namespace Schemas {
       reason: string;
     }
 
+    export interface ResyncFailure {
+      /** ID of the table whose resync did not start. */
+      schema_id: string;
+      /** Why the resync did not start. */
+      detail: string;
+    }
+
     export interface AddSourcesResponse {
       /** Sources newly attached to this destination. */
       attached: SyncedSource[];
@@ -11313,6 +11320,8 @@ export namespace Schemas {
       skipped: SkippedSource[];
       /** Number of tables sent for a full resync. */
       tables_resyncing: number;
+      /** Tables whose resync did not start. The sources are still attached. */
+      resync_failures: ResyncFailure[];
     }
 
     export interface AddSuppressionRequest {
