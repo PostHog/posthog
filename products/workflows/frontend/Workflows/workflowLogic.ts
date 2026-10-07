@@ -180,7 +180,7 @@ export interface AiTaskPromptChange {
 export function getAiTaskPromptChanges(workflow: HogFlow): AiTaskPromptChange[] {
     const liveActionsById = new Map(workflow.actions.map((action) => [action.id, action]))
     const promptOf = (action: HogFlowAction): string =>
-        action.type === 'function' && typeof action.config.inputs.prompt?.value === 'string'
+        action.type === 'function' && typeof action.config.inputs?.prompt?.value === 'string'
             ? action.config.inputs.prompt.value
             : ''
 
@@ -4002,17 +4002,23 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setDraftActionPending('publish')
             let preview
+            let stagedWorkflow = values.originalWorkflow
             try {
                 // Two-step publish: the unconfirmed call only previews the impact and mints the token
                 // a confirmed publish must return, so a stale draft can never be promoted blind.
                 preview = await api.hogFlows.publishHogFlow(props.id, { confirm: false })
+                // The token covers the draft the preview read. Another tab or an agent can stage a newer
+                // draft before this editor reloads, so the instruction diffs must come from the server copy.
+                if (preview.draft_updated_at !== stagedWorkflow?.draft_updated_at) {
+                    stagedWorkflow = await api.hogFlows.getHogFlow(props.id)
+                }
             } catch {
                 lemonToast.error('Could not load the publish preview. Please try again.')
                 return
             } finally {
                 actions.setDraftActionPending(null)
             }
-            const aiTaskPromptChanges = values.originalWorkflow ? getAiTaskPromptChanges(values.originalWorkflow) : []
+            const aiTaskPromptChanges = stagedWorkflow ? getAiTaskPromptChanges(stagedWorkflow) : []
             // pinned: analytics event name
             posthog.capture('workflows publish dialog opened', {
                 workflow_id: props.id,

@@ -44,6 +44,12 @@ describe('getAiTaskPromptChanges', () => {
         ],
         ['skips an AI task step the draft adds', [], [functionStep('a', 'New step')], []],
         [
+            'treats a step stored without inputs as having empty instructions',
+            [{ ...functionStep('a', ''), config: { template_id: 'template-posthog-create-task' } } as HogFlowAction],
+            [functionStep('a', 'Triage the ticket')],
+            [{ actionId: 'a', stepName: 'Step a', livePrompt: '', stagedPrompt: 'Triage the ticket' }],
+        ],
+        [
             'skips a function step from another template',
             [functionStep('a', 'Old', 'template-webhook')],
             [functionStep('a', 'New', 'template-webhook')],

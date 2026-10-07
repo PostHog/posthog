@@ -119,7 +119,9 @@ export function openPublishConfirmDialog({
         title: 'Publish staged changes?',
         // The dialog otherwise shrinks to fit its content, and a diff takes its width from the dialog.
         ...(aiTaskPromptChanges.length > 0 ? { width: '48rem' } : { maxWidth: '36rem' }),
-        description: (
+        // The body goes in `content`, which scrolls. The dialog header does not, so a long body there
+        // pushes the buttons off screen.
+        content: (
             <PublishImpactContent
                 impact={impact}
                 inFlightRuns={inFlightRuns}
