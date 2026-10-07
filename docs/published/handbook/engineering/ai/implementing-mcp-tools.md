@@ -358,6 +358,13 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
+   For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
+   needs from each result row. This adds a compact text response for clients that cannot read
+   `structuredContent`, while preserving the full structured payload for the app and explicit
+   JSON output. For example, the error issue list includes issue IDs, status, severity, timestamps,
+   impact counts, and links, but leaves volume buckets to the app. Pagination metadata stays in
+   the text response, and `results[0]` explicitly identifies an empty page.
+
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
