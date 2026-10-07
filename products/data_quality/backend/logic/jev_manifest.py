@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 
 CHUNK_INPUTS = 128
 MAX_INPUT_BYTES = 8192
+# Freezing writes to the shared object store before any inference budget applies, so a subject with
+# more distinct inputs than a run can evaluate must fail closed rather than stream without a bound.
+MAX_FROZEN_INPUTS = 100_000
 
 
 class ManifestInput(BaseModel):
@@ -129,8 +132,9 @@ async def freeze_question_inputs(
     config: QuestionConfig,
     column_name: str,
     retention_hours: int = 24,
+    max_inputs: int = MAX_FROZEN_INPUTS,
 ) -> QuestionManifest:
-    if not model_id.strip() or not model_revision.strip() or retention_hours < 1:
+    if not model_id.strip() or not model_revision.strip() or retention_hours < 1 or max_inputs < 1:
         raise ValueError("A snapshot needs a pinned model revision and a positive lifetime.")
     config.input_columns(column_name)
     # Attempts use separate prefixes. Only a complete manifest may be published as the run's snapshot.
@@ -141,6 +145,8 @@ async def freeze_question_inputs(
         async for item in inputs:
             if item.text is not None and len(item.text.encode()) > MAX_INPUT_BYTES:
                 raise ValueError("A question input exceeds 8 KiB; no input was truncated.")
+            if chunks * CHUNK_INPUTS + len(chunk) >= max_inputs:
+                raise ValueError("The question subject exceeds the limit on frozen inputs.")
             chunk.append(item)
             rows += item.row_count
             unique += item.text is not None

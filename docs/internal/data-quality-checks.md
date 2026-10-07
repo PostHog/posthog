@@ -49,6 +49,7 @@ Warehouse fields must appear in the subject's column catalog, and the projection
 The source query groups exact evaluator inputs and preserves their row multiplicities without a row limit.
 It streams bounded chunks into the configured object store and publishes a manifest only after the source stream completes.
 ClickHouse overflow settings throw instead of returning partial results.
+A subject that exceeds the limit on frozen inputs fails before any manifest is published.
 A manifest freezes the definition and explicitly supplied model revision.
 A retry must reuse that manifest; a new run must prepare a new one.
 Empty manifests skip.
@@ -58,7 +59,7 @@ Thresholds are excluded.
 Only validated probabilities and their revision, evaluator version, and timestamp enter the cache.
 The default TTL is 30 days and reads do not renew it.
 Malformed or expired entries miss; Redis errors stop evaluation.
-Leases use ownership tokens, bounded renewal, and atomic publication and release.
+Leases use ownership tokens, bounded renewal that outlasts the inference wait, and atomic publication and release.
 A crash between the model response and cache publication can still cause duplicate billed inference.
 
 The chunk evaluator reuses `PromptJevRunner` and the billed gateway.

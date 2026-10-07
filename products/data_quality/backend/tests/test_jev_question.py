@@ -334,6 +334,39 @@ def test_full_manifest_coverage_cold_warm_and_retry() -> None:
         assert len(calls) == 500
 
 
+@pytest.mark.parametrize(
+    "texts,max_inputs,message",
+    [(["a" * 8193], 200, "8 KiB"), ([str(index) for index in range(200)], 130, "frozen inputs")],
+)
+def test_oversized_freeze_fails_closed_and_publishes_nothing(texts: list[str], max_inputs: int, message: str) -> None:
+    objects: dict[str, str] = {}
+
+    async def source() -> AsyncIterator[WeightedInput]:
+        for text in texts:
+            yield WeightedInput(text=text, row_count=1)
+
+    with (
+        patch(
+            "posthog.storage.object_storage.write", side_effect=lambda key, content: objects.__setitem__(key, content)
+        ),
+        patch("posthog.storage.object_storage.delete", side_effect=lambda key: objects.pop(key, None)),
+        pytest.raises(ValueError, match=message),
+    ):
+        async_to_sync(freeze_question_inputs)(
+            inputs=source(),
+            store=QuestionManifestStore(),
+            team_id=1,
+            run_id="example-run",
+            subject_uuid="example-table",
+            model_id="example-model",
+            model_revision="immutable-revision-1",
+            config=QuestionConfig(question="Is this valid?"),
+            column_name="description",
+            max_inputs=max_inputs,
+        )
+    assert objects == {}
+
+
 def test_manifest_checkpoint_coverage_mismatch_and_permission_revocation_fail_closed() -> None:
     store = QuestionManifestStore()
     cache = JevDecisionCache(fakeredis.FakeRedis(), team_id=1)

@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 EVALUATOR_VERSION = 1
 DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60
 MAX_CACHE_BATCH = 256
+DEFAULT_LEASE_SECONDS = 60
+# Renewal runs every half lease, so the default covers 60 + 6 * 30 = 240 seconds. Coverage must outlast
+# the chunk evaluator's inference wait, or a slow batch loses its lease and the retry pays for it again.
+DEFAULT_MAX_RENEWALS = 6
 
 
 class DecisionCacheUnavailable(RuntimeError):
@@ -101,8 +105,8 @@ class JevDecisionCache:
         *,
         team_id: int,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
-        lease_seconds: int = 60,
-        max_renewals: int = 2,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+        max_renewals: int = DEFAULT_MAX_RENEWALS,
     ) -> None:
         if team_id <= 0 or ttl_seconds <= 0 or lease_seconds <= 0 or max_renewals < 0:
             raise ValueError("Invalid decision cache configuration.")
