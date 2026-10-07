@@ -56,6 +56,12 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         # only start workflows that find the pool full.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
     ),
+    SourceKind.BILLING: SourceBinding(
+        workflow="billing-alert-platform-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(minutes=2),
+        discovery_limit=settings.ALERTS_PLATFORM_BILLING_KEYS_PER_TICK,
+    ),
 }
 
 

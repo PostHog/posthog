@@ -105,9 +105,12 @@ class AlertPolicy:
 
 LOGS_ALERT_POLICY = AlertPolicy()
 
-# Two constants rather than one changed default, because production logs keeps its own mute
-# semantics until it migrates.
-PLATFORM_LOGS_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
+# What a source on the platform runs when nothing about its alerts needs a lifecycle of its own.
+# It differs from `LOGS_ALERT_POLICY` because production logs keeps its own mute semantics until it
+# migrates.
+PLATFORM_DEFAULT_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
+
+PLATFORM_LOGS_ALERT_POLICY = PLATFORM_DEFAULT_ALERT_POLICY
 
 BILLING_ALERT_POLICY = AlertPolicy(
     broken_is_terminal=False,
