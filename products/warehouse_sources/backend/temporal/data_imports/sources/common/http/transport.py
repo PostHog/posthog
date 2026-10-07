@@ -17,7 +17,9 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
+
+from django.conf import settings
 
 import requests
 from requests import PreparedRequest, Response
@@ -26,6 +28,24 @@ from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
+
+RequestTimeout = float | tuple[float | None, float | None]
+
+# Pass this as `timeout` to send a request with no deadline. `None` does not do that: `requests`
+# passes `None` for every call that names no timeout, so `None` means "use the default".
+NO_REQUEST_TIMEOUT: tuple[None, None] = (None, None)
+
+
+def default_request_timeout() -> tuple[float, float]:
+    """The (connect, read) timeout for a request that names none."""
+    return (
+        settings.DATA_WAREHOUSE_SOURCE_CONNECT_TIMEOUT_SECONDS,
+        settings.DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS,
+    )
+
+
+def resolve_request_timeout(timeout: RequestTimeout | None) -> RequestTimeout:
+    return default_request_timeout() if timeout is None else timeout
 
 
 class BoundedRetry(Retry):
@@ -99,6 +119,9 @@ class TrackedHTTPAdapter(HTTPAdapter):
     `capture=False` keeps requests metered and logged but excludes them from HTTP
     sample capture — for auth exchanges whose bodies carry secrets the name-based
     scrubbers can't recognise (e.g. a minted session token in a generic `id` field).
+
+    A request that reaches `send()` with `timeout=None` gets `default_request_timeout()`, so a
+    stalled host cannot hold a worker without limit. Pass `NO_REQUEST_TIMEOUT` to opt out.
     """
 
     def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), capture: bool = True, **kwargs: Any) -> None:
@@ -110,7 +133,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
         self,
         request: PreparedRequest,
         stream: bool = False,
-        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
+        timeout: RequestTimeout | None = None,
         verify: bool | str = True,
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
@@ -122,7 +145,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
             response = super().send(
                 request,
                 stream=stream,
-                timeout=timeout,
+                timeout=cast(Any, resolve_request_timeout(timeout)),
                 verify=verify,
                 cert=cert,
                 proxies=proxies,
