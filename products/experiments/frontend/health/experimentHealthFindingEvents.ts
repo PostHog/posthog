@@ -1,12 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
-import type { ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
+import type { ExperimentWarning, ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
 
 import type { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
+import type { ExperimentHealthApi } from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
@@ -48,6 +49,25 @@ const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentH
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
     return { code: EXPERIMENT_WARNING_FINDING_CODES[warningKey], variant: warningKey }
+}
+
+function isExperimentWarningKey(subcode: string | null): subcode is ExperimentWarningKey {
+    return subcode !== null && Object.hasOwn(EXPERIMENT_WARNING_FINDING_CODES, subcode)
+}
+
+/** The flag-state warning among the server's findings. The server sends the warning key as the subcode. */
+export function experimentWarningFromHealth(health: ExperimentHealthApi): ExperimentWarning | null {
+    for (const finding of health.findings) {
+        const { subcode } = finding
+        if (isExperimentWarningKey(subcode) && EXPERIMENT_WARNING_FINDING_CODES[subcode] === finding.code) {
+            if (subcode !== 'running_but_single_variant_shipped') {
+                return { key: subcode }
+            }
+            const variantKey = finding.evidence.variant_key
+            return { key: subcode, variantKey: typeof variantKey === 'string' ? variantKey : null }
+        }
+    }
+    return null
 }
 
 // These events are read in aggregate, so they carry ids, codes and counts only. The experiment
