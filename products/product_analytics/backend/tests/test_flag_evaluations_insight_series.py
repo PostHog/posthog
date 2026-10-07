@@ -12,6 +12,7 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     flush_persons_and_events,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -34,8 +35,6 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
     LifecycleQueryRunner,
@@ -80,10 +79,11 @@ def _retention_entity(aggregation_target_field: str) -> dict[str, Any]:
 class TestFlagEvaluationsInsightSeries(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        table_gate = patch(
+            "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True
         )
+        table_gate.start()
+        self.addCleanup(table_gate.stop)
         person_created_at = datetime(2025, 1, 8, 8, 0, tzinfo=UTC)
         alice = _create_person(team_id=self.team.pk, distinct_ids=["alice"], created_at=person_created_at)
         bob = _create_person(team_id=self.team.pk, distinct_ids=["bob"], created_at=person_created_at)
