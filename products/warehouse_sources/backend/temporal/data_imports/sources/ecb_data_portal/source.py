@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_p
     ecb_data_portal_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.settings import (
+    BASE_URL,
     ENDPOINT_CONFIGS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -48,6 +49,17 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             WAF_BLOCK_MARKER: "ECB Data Portal blocked this request. Try again later.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_request_csv_rows` calls `raise_for_status()` after `DEFAULT_RETRY` has already retried
+        # a 5xx in-process. A 5xx that remains is a transient ECB outage, and Temporal retries the
+        # activity. Match status, reason and host, not the per-flow path or query string.
+        return {
+            f"500 Server Error: Internal Server Error for url: {BASE_URL}/",
+            f"502 Server Error: Bad Gateway for url: {BASE_URL}/",
+            f"503 Server Error: Service Unavailable for url: {BASE_URL}/",
+            f"504 Server Error: Gateway Timeout for url: {BASE_URL}/",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
