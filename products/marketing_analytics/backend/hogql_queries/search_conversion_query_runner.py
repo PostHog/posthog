@@ -1,4 +1,4 @@
-from posthog.schema import NativeMarketingSource, SessionTableVersion
+from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -28,12 +28,9 @@ class SearchConversionQueryRunner(MarketingAnalyticsAttributionQueryRunner):
         else:
             has_gclid = parse_expr("notEmpty(ifNull(events.session.$entry_gclid, ''))")
             has_msclkid = parse_expr(
-                "notEmpty(extractURLParameter(ifNull({url}, ''), 'msclkid'))", placeholders={"url": url}
+                "notEmpty(ifNull(events.session.$entry_msclkid, '')) OR notEmpty(extractURLParameter(ifNull({url}, ''), 'msclkid'))",
+                placeholders={"url": url},
             )
-            if not self.modifiers or self.modifiers.sessionTableVersion != SessionTableVersion.V3:
-                has_msclkid = ast.Or(
-                    exprs=[has_msclkid, parse_expr("notEmpty(ifNull(events.session.$entry_msclkid, ''))")]
-                )
         return parse_expr(
             """
             concat(

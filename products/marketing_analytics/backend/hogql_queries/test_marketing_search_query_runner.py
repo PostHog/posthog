@@ -390,6 +390,7 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                 "www.bing.com",
                 True,
             ),
+            ("bing-stored-click", "2022-12-15", "https://example.com/pricing", "cpc", "www.bing.com", True),
             ("excluded", "2023-01-09", "https://example.com/pricing", "cpc", "$direct", False),
             ("previous", "2022-12-15", "https://example.com/pricing", "cpc", "$direct", True),
         ]:
@@ -408,10 +409,11 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
                         "microsoft"
                         if person in ("bing-paid", "bing-previous")
                         else "google"
-                        if medium and person not in ("auto-tagged", "bing-auto-tagged")
+                        if medium and person not in ("auto-tagged", "bing-auto-tagged", "bing-stored-click")
                         else ""
                     ),
                     "gclid": "example-click" if person == "auto-tagged" else "",
+                    "msclkid": "example-click" if person == "bing-stored-click" else "",
                     "utm_medium": medium,
                     "$referring_domain": referrer,
                 },
@@ -470,8 +472,8 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
         assert bing_row.posthogConversions is not None
         assert bing_row.posthogConversions[0].conversions == 2
         assert bing_row.posthogConversions[0].costPerConversion == 10
-        assert bing_row.posthogConversions[0].previousConversions == 1
-        assert bing_row.posthogConversions[0].previousCostPerConversion == 6
+        assert bing_row.posthogConversions[0].previousConversions == 2
+        assert bing_row.posthogConversions[0].previousCostPerConversion == 3
         query.includePostHogConversions = False
         result = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).calculate()
         assert result.posthogConversionGoals is None

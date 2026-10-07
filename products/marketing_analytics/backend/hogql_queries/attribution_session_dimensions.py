@@ -60,7 +60,7 @@ def _raw_dimensions(
         fields.append("$entry_current_url")
     if "has_gclid" in columns:
         fields.append("$entry_gclid")
-    if "has_msclkid" in columns and modifiers.sessionTableVersion != SessionTableVersion.V3:
+    if "has_msclkid" in columns:
         fields.append("$entry_msclkid")
     context = HogQLContext(modifiers=modifiers)
     select_sessions = (
@@ -108,9 +108,7 @@ def _raw_dimensions(
     search_dimensions = {
         "entry_url": parse_expr("cutQueryStringAndFragment(ifNull($entry_current_url, ''))"),
         "has_gclid": parse_expr("notEmpty(ifNull($entry_gclid, ''))"),
-        "has_msclkid": parse_expr("notEmpty(extractURLParameter(ifNull($entry_current_url, ''), 'msclkid'))")
-        if modifiers.sessionTableVersion == SessionTableVersion.V3
-        else parse_expr(
+        "has_msclkid": parse_expr(
             "notEmpty(ifNull($entry_msclkid, '')) OR notEmpty(extractURLParameter(ifNull($entry_current_url, ''), 'msclkid'))"
         ),
     }
