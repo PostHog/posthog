@@ -19,7 +19,7 @@ from uuid import UUID
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person import Person
@@ -54,6 +54,7 @@ RepairOutcome = Literal[
     "repaired",
     "skipped_not_divergent",
     "skipped_not_live",
+    "skipped_team_gone",
     "skipped_tombstoned",
     "skipped_owner_changed",
     "skipped_mapping_gone",
@@ -68,6 +69,7 @@ LEGACY_TOMBSTONE_MIN_VERSION = 100
 HIDDEN_TEAM_STEP = 10_000
 SWEPT_TEAM_STEP = 10_000
 STALE_TEAM_STEP = 5_000
+SAMPLE_TEAM_STEP = 10_000
 
 _HIDDEN_SETTINGS = {"max_execution_time": 900, "max_memory_usage": 32_000_000_000}
 _SWEPT_SETTINGS = {"apply_deleted_mask": 0, "max_execution_time": 1800, "max_memory_usage": 64_000_000_000}
@@ -132,6 +134,7 @@ class SampleBucket:
 class SampleSummary:
     sampled: int
     counts: dict[SampleBucket, int]
+    skipped_team_ids: list[int]
 
 
 @frozen
@@ -222,19 +225,20 @@ def _scan_team_ranges(
     on_rows: Callable[[list[Any]], None],
     log: Callable[[str], None],
 ) -> list[int]:
-    """Return each team that runs out of memory even when scanned alone, so the caller can rerun it with more memory."""
+    """Return each team that runs out of memory or time even when scanned alone, so the caller can rerun it with higher limits."""
     skipped: list[int] = []
 
     def scan(lo: int, hi: int) -> None:
         try:
             rows = query(lo, hi)
-        except ClickHouseQueryMemoryLimitExceeded:
+        except (ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut) as exc:
+            reason = "out of memory" if isinstance(exc, ClickHouseQueryMemoryLimitExceeded) else "timed out"
             if hi - lo == 1:
-                log(f"team {lo}: out of memory, skipped")
+                log(f"team {lo}: {reason}, skipped")
                 skipped.append(lo)
                 return
             mid = (lo + hi) // 2
-            log(f"teams [{lo}, {hi}): out of memory, bisecting")
+            log(f"teams [{lo}, {hi}): {reason}, bisecting")
             scan(lo, mid)
             scan(mid, hi)
             return
@@ -436,9 +440,9 @@ HAVING argMax(is_deleted, version) = 0
 def _classify_sampled(
     pg_version: int | None, ch_max_version: int, *, team_exists: bool, tombstoned: bool
 ) -> SampleClassification:
+    if not team_exists:
+        return "team_gone"
     if pg_version is None:
-        if not team_exists:
-            return "team_gone"
         return "pg_tombstone" if tombstoned else "pg_absent"
     if pg_version == ch_max_version:
         return "equal"
@@ -453,54 +457,78 @@ def scan_sample(
     cutoff: datetime | None = None,
     min_team_id: int = 0,
     max_team_id: int | None = None,
+    team_step: int = SAMPLE_TEAM_STEP,
     on_sampled: Callable[[SampledPerson], None],
     log: Callable[[str], None],
 ) -> SampleSummary:
     """Classify a uniform sample of live ClickHouse persons against Postgres."""
     if not 0 <= residue < modulus:
         raise ValueError("residue must be in [0, modulus)")
-    rows = _ch(
-        _SAMPLE_SQL,
-        {
-            "modulus": modulus,
-            "residue": residue,
-            "written_within_days": written_within_days or 0,
-            "min_team_id": min_team_id,
-            "max_team_id": _resolve_max_team_id(max_team_id),
-        },
-        _SAMPLE_SETTINGS,
-    )
-    log(f"sampled {len(rows)} live ClickHouse persons")
     cutoff_ts = cutoff.timestamp() if cutoff is not None else None
-    by_team: dict[int, dict[str, tuple[int, SampleEra]]] = defaultdict(dict)
-    for team_id, person_uuid, ch_max_version, written_at in rows:
-        era: SampleEra = "any" if cutoff_ts is None else "before_cutoff" if written_at < cutoff_ts else "since_cutoff"
-        by_team[int(team_id)][person_uuid] = (int(ch_max_version), era)
-
-    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     counts: Counter[SampleBucket] = Counter()
-    for team_id, sampled in sorted(by_team.items()):
-        team_exists = team_id in existing_teams
-        pg_versions = _live_person_versions(team_id, list(sampled), "person_divergence_sample")
-        missing = [u for u in sampled if u not in pg_versions]
-        tombstoned = _tombstoned_uuids(team_id, missing) if team_exists else set()
-        for person_uuid, (ch_max_version, era) in sampled.items():
-            pg_version = pg_versions.get(person_uuid)
-            classification = _classify_sampled(
-                pg_version, ch_max_version, team_exists=team_exists, tombstoned=person_uuid in tombstoned
+    sampled_count = 0
+
+    def query(lo: int, hi: int) -> list[Any]:
+        return _ch(
+            _SAMPLE_SQL,
+            {
+                "modulus": modulus,
+                "residue": residue,
+                "written_within_days": written_within_days or 0,
+                "min_team_id": lo,
+                "max_team_id": hi,
+            },
+            _SAMPLE_SETTINGS,
+        )
+
+    def on_rows(rows: list[Any]) -> None:
+        nonlocal sampled_count
+        if not rows:
+            return
+        sampled_count += len(rows)
+        by_team: dict[int, dict[str, tuple[int, SampleEra]]] = defaultdict(dict)
+        for team_id, person_uuid, ch_max_version, written_at in rows:
+            era: SampleEra = (
+                "any" if cutoff_ts is None else "before_cutoff" if written_at < cutoff_ts else "since_cutoff"
             )
-            counts[SampleBucket(classification=classification, era=era)] += 1
-            on_sampled(
-                SampledPerson(
-                    team_id=team_id,
-                    person_uuid=person_uuid,
-                    classification=classification,
-                    era=era,
-                    ch_max_version=ch_max_version,
-                    pg_version=pg_version,
+            by_team[int(team_id)][person_uuid] = (int(ch_max_version), era)
+
+        existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
+        for team_id, sampled in sorted(by_team.items()):
+            team_exists = team_id in existing_teams
+            # A deleted team's persons can outlive it in Postgres, so they are team_gone whatever their version.
+            pg_versions = (
+                _live_person_versions(team_id, list(sampled), "person_divergence_sample") if team_exists else {}
+            )
+            missing = [u for u in sampled if u not in pg_versions]
+            tombstoned = _tombstoned_uuids(team_id, missing) if team_exists else set()
+            for person_uuid, (ch_max_version, era) in sampled.items():
+                pg_version = pg_versions.get(person_uuid)
+                classification = _classify_sampled(
+                    pg_version, ch_max_version, team_exists=team_exists, tombstoned=person_uuid in tombstoned
                 )
-            )
-    return SampleSummary(sampled=len(rows), counts=dict(counts))
+                counts[SampleBucket(classification=classification, era=era)] += 1
+                on_sampled(
+                    SampledPerson(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        classification=classification,
+                        era=era,
+                        ch_max_version=ch_max_version,
+                        pg_version=pg_version,
+                    )
+                )
+
+    skipped = _scan_team_ranges(
+        query,
+        min_team_id=min_team_id,
+        max_team_id=_resolve_max_team_id(max_team_id),
+        team_step=team_step,
+        on_rows=on_rows,
+        log=log,
+    )
+    log(f"sampled {sampled_count} live ClickHouse persons")
+    return SampleSummary(sampled=sampled_count, counts=dict(counts), skipped_team_ids=skipped)
 
 
 _TEAM_PERSONS_SQL = """
@@ -927,7 +955,8 @@ def _execute_plan(
     for mapping in owned:
         stored_version = stored_versions.get(mapping.distinct_id)
         if stored_version is None:
-            mapping_actions.append(_mapping_action(plan, mapping, "skipped_owner_changed"))
+            # The primary no longer lists the mapping under this person: it moved or was tombstoned after the raise.
+            mapping_actions.append(_mapping_action(plan, mapping, "skipped_mapping_gone"))
         elif stored_version < mapping.target_version:
             mapping_actions.append(_mapping_action(plan, mapping, "skipped_reread_lagging"))
         else:
@@ -1039,8 +1068,27 @@ def repair_persons(
     undelivered = 0
     pacer = _WritePacer(max_per_second=max_writes_per_second)
     deliveries = _Deliveries()
+    existing_teams = set(Team.objects.filter(id__in=list(by_team)).values_list("id", flat=True))
     try:
         for team_id, person_uuids in sorted(by_team.items()):
+            if team_id not in existing_teams:
+                # A deleted team's ClickHouse rows go with the team, so a repair would only republish what the deletion removed.
+                for person_uuid in person_uuids:
+                    action = RepairAction(
+                        team_id=team_id,
+                        person_uuid=person_uuid,
+                        distinct_id=None,
+                        kind=None,
+                        pg_version=None,
+                        ch_max_version=None,
+                        target_version=None,
+                        outcome="skipped_team_gone",
+                    )
+                    person_outcomes[action.outcome] += 1
+                    on_action(action)
+                    processed += 1
+                log(f"team {team_id}: no longer exists, {len(person_uuids)} persons skipped")
+                continue
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 for plan in _plan_chunk(team_id, chunk):
                     for action in _execute_plan(

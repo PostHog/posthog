@@ -14,7 +14,7 @@ from parameterized import parameterized
 from personhog.types.v1 import person_pb2
 
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models import Team
@@ -29,6 +29,8 @@ from posthog.models.person.divergence import (
     RepairSummary,
     SampleBucket,
     SampledPerson,
+    SampleSummary,
+    ScanSummary,
     TeamCheck,
     _WritePacer,
     check_team,
@@ -46,6 +48,7 @@ from posthog.models.person.util import (
 )
 from posthog.models.signals import mute_selected_signals
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
@@ -312,6 +315,10 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self._ch_person_row(absent, 3)
         team_gone = uuid4()
         self._ch_person_row(team_gone, 1, team_id=gone_team_id)
+        # Postgres can still hold a deleted team's persons until the team purge reaches them.
+        team_gone_in_postgres = uuid4()
+        self._ch_person_row(team_gone_in_postgres, 1, team_id=gone_team_id)
+        get_active_fake().add_person(team_id=gone_team_id, person_id=987655, uuid=str(team_gone_in_postgres), version=1)
         deleted_winner = self._pg_person(version=3)
         self._ch_person_row(deleted_winner.uuid, 4, deleted=True)
         written_long_ago = self._pg_person(version=3)
@@ -325,6 +332,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             cutoff=now() - timedelta(days=1),
             min_team_id=self.team.pk,
             max_team_id=gone_team_id + 1,
+            team_step=1,
             on_sampled=sampled.append,
             log=lambda _: None,
         )
@@ -336,8 +344,15 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             str(tombstoned.uuid): ("pg_tombstone", "since_cutoff", None),
             str(absent): ("pg_absent", "since_cutoff", None),
             str(team_gone): ("team_gone", "since_cutoff", None),
+            str(team_gone_in_postgres): ("team_gone", "since_cutoff", None),
         }
-        assert summary.sampled == 6
+        assert summary.sampled == 7
+        assert summary.skipped_team_ids == []
+        assert all(
+            call.request.team_id != gone_team_id
+            for call in get_active_fake().calls
+            if call.method == "get_persons_by_uuids"
+        )
         assert summary.counts[SampleBucket(classification="equal", era="before_cutoff")] == 1
 
     def test_team_check_counts_old_live_clickhouse_rows_that_postgres_still_holds(self) -> None:
@@ -557,6 +572,27 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
         assert self._ch_person(person_uuid) == before
 
+    def test_skips_every_person_of_a_team_that_no_longer_exists(self) -> None:
+        missing_team_id = self.team.pk + 1_000_000
+        assert not Team.objects.filter(pk=missing_team_id).exists()
+        person_uuid = str(uuid4())
+        get_active_fake().add_person(team_id=missing_team_id, person_id=987654, uuid=person_uuid, version=3)
+        self._ch_person_row(person_uuid, 3, team_id=missing_team_id)
+        self._ch_person_row(person_uuid, 103, deleted=True, team_id=missing_team_id)
+        actions: list[RepairAction] = []
+
+        summary = repair_persons(
+            [PersonRef(team_id=missing_team_id, person_uuid=person_uuid)],
+            apply=True,
+            on_action=actions.append,
+            log=lambda _: None,
+        )
+
+        assert [a.outcome for a in actions] == ["skipped_team_gone"]
+        assert summary.person_outcomes == {"skipped_team_gone": 1}
+        get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("get_persons_by_uuids")
+
     def test_skips_a_person_the_primary_tombstoned_while_the_replica_still_shows_it_live(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"lagging-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
@@ -753,6 +789,29 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         ]
         assert self._ch_mapping("moved") == (str(person.uuid), 1, 100)
 
+    def test_leaves_a_mapping_unpublished_once_the_primary_no_longer_lists_it_after_the_raise(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"gone": 0})
+        self._ch_person_row(person.uuid, 3)
+        self._ch_mapping_row("gone", person.uuid, 100, deleted=True)
+        fake = get_active_fake()
+        list_distinct_ids = fake.get_distinct_ids_for_persons
+
+        def primary_lost_the_mapping(
+            request: person_pb2.GetDistinctIdsForPersonsRequest,
+        ) -> person_pb2.GetDistinctIdsForPersonsResponse:
+            if request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
+                return person_pb2.GetDistinctIdsForPersonsResponse()
+            return list_distinct_ids(request)
+
+        with patch.object(fake, "get_distinct_ids_for_persons", side_effect=primary_lost_the_mapping):
+            _, actions = self._repair(person.uuid)
+
+        assert [(a.distinct_id, a.outcome) for a in actions] == [
+            (None, "skipped_not_divergent"),
+            ("gone", "skipped_mapping_gone"),
+        ]
+        assert self._ch_mapping("gone") == (str(person.uuid), 1, 100)
+
 
 class TestWritePacer(SimpleTestCase):
     def test_idle_time_before_the_writes_buys_no_burst(self) -> None:
@@ -775,20 +834,48 @@ class TestWritePacer(SimpleTestCase):
 
 
 class TestScanTeamRanges(SimpleTestCase):
-    def test_a_team_that_runs_out_of_memory_alone_is_skipped_and_every_other_team_is_scanned(self) -> None:
+    @parameterized.expand(
+        [
+            (f"{scan}_{name}", scan, error)
+            for scan in ("stale", "sample")
+            for name, error in (
+                ("out_of_memory", ClickHouseQueryMemoryLimitExceeded),
+                ("timeout", ClickHouseQueryTimeOut),
+            )
+        ]
+    )
+    def test_a_team_that_fails_alone_is_skipped_and_every_other_team_is_scanned(
+        self, _name: str, scan: str, error: type[Exception]
+    ) -> None:
         scanned: list[int] = []
 
         def query(_sql: str, args: dict[str, Any], **_kwargs: Any) -> list[Any]:
             teams = range(args["min_team_id"], args["max_team_id"])
             if 7 in teams:
-                raise ClickHouseQueryMemoryLimitExceeded()
+                raise error()
             scanned.extend(teams)
             return []
 
         with patch("posthog.models.person.divergence.sync_execute", side_effect=query):
-            summary = scan_stale_persons(
-                window_days=60, min_team_id=0, max_team_id=16, team_step=8, on_found=lambda _: None, log=lambda _: None
-            )
+            if scan == "stale":
+                summary: ScanSummary | SampleSummary = scan_stale_persons(
+                    window_days=60,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_found=lambda _: None,
+                    log=lambda _: None,
+                )
+            else:
+                summary = scan_sample(
+                    modulus=1,
+                    residue=0,
+                    min_team_id=0,
+                    max_team_id=16,
+                    team_step=8,
+                    on_sampled=lambda _: None,
+                    log=lambda _: None,
+                )
 
         assert summary.skipped_team_ids == [7]
         assert sorted(scanned) == [team for team in range(16) if team != 7]

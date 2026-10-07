@@ -29,6 +29,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.person.divergence import (
     HIDDEN_TEAM_STEP,
+    SAMPLE_TEAM_STEP,
     STALE_TEAM_STEP,
     SWEPT_TEAM_STEP,
     DivergentPerson,
@@ -112,6 +113,12 @@ class Command(BaseCommand):
             help="Sample the persons where cityHash64(id) %% MODULUS = RESIDUE.",
         )
         sample.add_argument("--residue", type=int, required=True, help="See --modulus.")
+        sample.add_argument(
+            "--team-step",
+            type=_positive_int,
+            default=SAMPLE_TEAM_STEP,
+            help="Team ids per ClickHouse query (default: %(default)s).",
+        )
         sample.add_argument(
             "--written-within-days",
             type=_positive_int,
@@ -229,6 +236,7 @@ class Command(BaseCommand):
                     cutoff=options["cutoff"],
                     min_team_id=options["min_team_id"],
                     max_team_id=options["max_team_id"],
+                    team_step=options["team_step"],
                     on_sampled=_csv_sink(handle, SampledPerson),
                     log=self._log,
                 )
@@ -238,7 +246,10 @@ class Command(BaseCommand):
                         sample_summary.counts.items(), key=lambda item: (item[0].classification, item[0].era)
                     )
                 )
-                self._log(f"sample scan: {sample_summary.sampled} persons: {counts}")
+                self._log(
+                    f"sample scan: {sample_summary.sampled} persons: {counts}, "
+                    f"skipped teams {sample_summary.skipped_team_ids}"
+                )
             else:
                 write = _csv_sink(handle, TeamCheck)
                 for team_id in options["team_id"]:
