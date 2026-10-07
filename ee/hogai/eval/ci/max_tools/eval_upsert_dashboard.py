@@ -11,9 +11,12 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
+    ChartDisplayType,
+    DateRange,
     EventsNode,
     HumanMessage,
     InsightVizNode,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -65,6 +68,7 @@ Error: {{output.error}}
 
 Evaluate:
 1. If expected action is "No action": The agent should NOT have called upsert_dashboard. Pass if no tool was called, fail otherwise.
+   If expected action lists options joined by "or" (for example, "No action or add_insights"), pass if the actual action matches any option. Skip checks 2b-2d for a "No action" match.
 2. If expected action is create/update:
    a. Did the agent call the upsert_dashboard tool?
    b. Was the correct action (create/update) chosen?
@@ -184,14 +188,20 @@ def _extract_dashboard_result(state: AssistantState) -> dict:
     return result
 
 
-async def _create_dashboard(team, user, title: str, description: str):
+async def _create_dashboard(
+    team,
+    user,
+    title: str,
+    description: str,
+    insight_name: str = "Mobile app screen views",
+    insight_query: InsightVizNode | None = None,
+):
     dashboard = await Dashboard.objects.acreate(team=team, name=title, description=description, created_by=user)
+    query = insight_query or InsightVizNode(source=TrendsQuery(series=[EventsNode(name="$pageview")]))
     insight = await Insight.objects.acreate(
         team=team,
-        name="Mobile app screen views",
-        query=InsightVizNode(source=TrendsQuery(series=[EventsNode(name="$pageview")])).model_dump(
-            mode="json", exclude_none=True
-        ),
+        name=insight_name,
+        query=query.model_dump(mode="json", exclude_none=True),
         created_by=user,
         saved=True,
         deleted=False,
@@ -287,6 +297,30 @@ async def eval_update_dashboard(call_agent_for_dashboard, demo_org_team_user, py
             expected=EvalExpected(
                 action="update",
                 insight_titles=["Mobile app screen views by country"],
+            ),
+        ),
+        EvalCase(
+            input=EvalInput(
+                input="Refresh the weekly key metrics table on my Weekly report dashboard with this week's numbers",
+                dashboard=await _create_dashboard(
+                    team,
+                    user,
+                    "Weekly report",
+                    "A dashboard for the weekly report",
+                    insight_name="Weekly key metrics",
+                    insight_query=InsightVizNode(
+                        source=TrendsQuery(
+                            series=[EventsNode(event="$pageview"), EventsNode(event="signed_up")],
+                            dateRange=DateRange(date_from="2026-09-14", date_to="2026-09-20"),
+                            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+                        )
+                    ),
+                ),
+            ),
+            # A replace-all update removes the existing tile and waits for approval, so only an in-place
+            # insight edit (no upsert_dashboard call) or add_insights refreshes the dashboard.
+            expected=EvalExpected(
+                action="No action or add_insights",
             ),
         ),
     ]
