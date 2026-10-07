@@ -31,6 +31,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
     const { config, showMeOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
     const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
     const containerRef = useRef<HTMLDivElement>(null)
+    const cardsRef = useRef<HTMLDivElement>(null)
     const biEditorResizerProps: ResizerLogicProps = {
         logicKey: 'bi-editor-side-pane',
         placement: 'right',
@@ -39,6 +40,14 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
     }
     const { desiredSize } = useValues(resizerLogic(biEditorResizerProps))
     const biSidePaneWidth = Math.min(400, Math.max(180, desiredSize ?? 240))
+    const cardsResizerProps: ResizerLogicProps = {
+        logicKey: 'bi-editor-cards-pane',
+        placement: 'right',
+        containerRef: cardsRef,
+        persistent: true,
+    }
+    const { desiredSize: cardsDesiredSize } = useValues(resizerLogic(cardsResizerProps))
+    const cardsWidth = Math.min(320, Math.max(160, cardsDesiredSize ?? 160))
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
@@ -64,20 +73,30 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 <BIMeasureSettingsModal />
                 <div className="flex min-h-0 flex-1">
                     <div
-                        className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @5xl/bi-editor:w-[calc(var(--bi-side-pane-width)+10rem)] @5xl/bi-editor:flex-row"
+                        className="relative flex w-[var(--bi-side-pane-width)] max-w-[50%] shrink-0 flex-col border-r @5xl/bi-editor:w-[calc(var(--bi-side-pane-width)+var(--bi-cards-width))] @5xl/bi-editor:max-w-none @5xl/bi-editor:flex-row"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ '--bi-side-pane-width': `${biSidePaneWidth}px` } as React.CSSProperties}
+                        style={
+                            {
+                                '--bi-side-pane-width': `${biSidePaneWidth}px`,
+                                '--bi-cards-width': `${cardsWidth}px`,
+                            } as React.CSSProperties
+                        }
                     >
-                        {/* The resizer measures the data pane alone, because the cards column has a fixed width */}
-                        <div ref={biEditorResizerProps.containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                        <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
                             <BIDataPane tabId={tabId} />
+                            <Resizer {...biEditorResizerProps} />
                         </div>
-                        <div className="flex max-h-[40%] shrink-0 flex-col overflow-y-auto border-t @5xl/bi-editor:max-h-none @5xl/bi-editor:w-40 @5xl/bi-editor:border-l @5xl/bi-editor:border-t-0">
-                            <BIFiltersCard />
-                            <BIMarksCard />
-                            <BIAnalysisControls />
+                        <div
+                            ref={cardsRef}
+                            className="relative flex min-h-0 max-h-[40%] shrink-0 flex-col border-t @5xl/bi-editor:max-h-none @5xl/bi-editor:w-[var(--bi-cards-width)] @5xl/bi-editor:border-l @5xl/bi-editor:border-t-0"
+                        >
+                            <div className="min-h-0 overflow-y-auto">
+                                <BIFiltersCard />
+                                <BIMarksCard />
+                                <BIAnalysisControls />
+                            </div>
+                            <Resizer {...cardsResizerProps} className="hidden @5xl/bi-editor:block" />
                         </div>
-                        <Resizer {...biEditorResizerProps} />
                     </div>
                     <div className="flex min-w-0 flex-1 flex-col">
                         <BIShelfStrip
