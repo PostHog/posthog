@@ -341,6 +341,26 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
+def _managed_alert_markers(filters: Optional[dict]) -> Optional[tuple[frozenset[str], frozenset[str]]]:
+    """The ownership markers of an alert-owned destination: the managed alert events it follows and
+    the alert ids its properties pin it to. None when the filters follow no managed alert event."""
+    filters = filters or {}
+    event_ids = frozenset(
+        event_filter["id"]
+        for event_filter in filters.get("events") or []
+        if isinstance(event_filter, dict) and is_managed_alert_internal_event(event_filter.get("id"))
+    )
+    if not event_ids:
+        return None
+    alert_ids: set[str] = set()
+    for property_filter in filters.get("properties") or []:
+        if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
+            continue
+        value = property_filter.get("value")
+        alert_ids.update(str(item) for item in (value if isinstance(value, list) else [value]))
+    return event_ids, frozenset(alert_ids)
+
+
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     base_updated_at = serializers.DateTimeField(
@@ -631,22 +651,28 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         if not self.context.get("allow_managed_alert_destination"):
-            current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
-            proposed_filters = attrs.get("filters", current_filters)
-            current_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (current_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            proposed_is_managed = any(
-                is_managed_alert_internal_event(event_filter.get("id"))
-                for event_filter in (proposed_filters or {}).get("events", [])
-                if isinstance(event_filter, dict)
-            )
-            if current_is_managed or proposed_is_managed:
+            managed_instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+            current_filters = managed_instance.filters if isinstance(managed_instance, HogFunction) else {}
+            current_markers = _managed_alert_markers(current_filters)
+            proposed_markers = _managed_alert_markers(attrs.get("filters", current_filters))
+            if proposed_markers is not None and (is_create or current_markers is None):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+            if current_markers is not None:
+                # The alert API owns which alert a destination belongs to and removes a destination
+                # group as a whole. Everything else about the function stays editable here.
+                if proposed_markers != current_markers:
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "The alert this destination belongs to cannot be changed. "
+                            "Manage it from the alert's notification settings."
+                        }
+                    )
+                if attrs.get("deleted"):
+                    raise serializers.ValidationError(
+                        {"deleted": "Remove this destination from the alert's notification settings instead."}
+                    )
 
         proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
         reserved = sorted(
