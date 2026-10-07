@@ -45,6 +45,8 @@ export interface LemonTabsProps<T extends string | number> {
     /** Pass in JSX to be sticky to the right of the tabs. */
     rightSlot?: React.ReactNode
     rightSlotClassName?: string
+    /** Skip the tab bar and render only the active content, for callers that draw the bar elsewhere. */
+    barHidden?: boolean
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -63,6 +65,7 @@ export function LemonTabs<T extends string | number>({
     sceneInset = false,
     rightSlot,
     rightSlotClassName,
+    barHidden = false,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -90,80 +93,82 @@ export function LemonTabs<T extends string | number>({
             }
             data-attr={dataAttr}
         >
-            <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
-                <div
-                    className={cn('flex gap-x-4 md:gap-x-8', {
-                        'gap-x-2': size === 'small',
-                        'pr-4': rightSlot,
-                    })}
-                >
-                    {realTabs.map((tab) => {
-                        const disabled = !!tab.disabledReason
-                        const content = (
-                            <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
-                                {tab.label}
-                                {tab.completed && (
-                                    <div className="absolute left-full -top-2 md:top-auto -ml-[2px] md:ml-1 size-4 shrink-0 flex items-center justify-center">
-                                        <IconCheckCircle className="size-4 text-success" />
-                                    </div>
-                                )}
-                                {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
-                            </div>
-                        )
-
-                        return (
-                            <Tooltip
-                                key={tab.key}
-                                title={tab.disabledReason || tab.tooltip}
-                                placement="top"
-                                offset={0}
-                                docLink={tab.tooltipDocLink}
-                            >
-                                <li
-                                    className={cn(
-                                        'LemonTabs__tab',
-                                        tab.key === activeKey && 'LemonTabs__tab--active',
-                                        disabled && 'LemonTabs__tab--disabled'
-                                    )}
-                                    onClick={onChange && !disabled ? () => onChange(tab.key) : undefined}
-                                    role="tab"
-                                    aria-selected={tab.key === activeKey}
-                                    aria-disabled={disabled || undefined}
-                                    tabIndex={disabled ? -1 : 0}
-                                    onKeyDown={
-                                        onChange && !disabled
-                                            ? (e) => {
-                                                  if (e.key === 'Enter') {
-                                                      onChange(tab.key)
-                                                  }
-                                              }
-                                            : undefined
-                                    }
-                                    ref={tab.key === activeKey ? selectionRef : undefined}
-                                >
-                                    {tab.link ? (
-                                        <Link className="LemonTabs__tab-content" to={tab.link}>
-                                            {content}
-                                        </Link>
-                                    ) : (
-                                        <div className="LemonTabs__tab-content">{content}</div>
-                                    )}
-                                </li>
-                            </Tooltip>
-                        )
-                    })}
-                </div>
-                {rightSlot && (
+            {!barHidden && (
+                <ul className={cn('LemonTabs__bar', barClassName)} role="tablist" ref={containerRef}>
                     <div
-                        className={cn(
-                            'mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4',
-                            rightSlotClassName
-                        )}
+                        className={cn('flex gap-x-4 md:gap-x-8', {
+                            'gap-x-2': size === 'small',
+                            'pr-4': rightSlot,
+                        })}
                     >
-                        {rightSlot}
+                        {realTabs.map((tab) => {
+                            const disabled = !!tab.disabledReason
+                            const content = (
+                                <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
+                                    {tab.label}
+                                    {tab.completed && (
+                                        <div className="absolute left-full -top-2 md:top-auto -ml-[2px] md:ml-1 size-4 shrink-0 flex items-center justify-center">
+                                            <IconCheckCircle className="size-4 text-success" />
+                                        </div>
+                                    )}
+                                    {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
+                                </div>
+                            )
+
+                            return (
+                                <Tooltip
+                                    key={tab.key}
+                                    title={tab.disabledReason || tab.tooltip}
+                                    placement="top"
+                                    offset={0}
+                                    docLink={tab.tooltipDocLink}
+                                >
+                                    <li
+                                        className={cn(
+                                            'LemonTabs__tab',
+                                            tab.key === activeKey && 'LemonTabs__tab--active',
+                                            disabled && 'LemonTabs__tab--disabled'
+                                        )}
+                                        onClick={onChange && !disabled ? () => onChange(tab.key) : undefined}
+                                        role="tab"
+                                        aria-selected={tab.key === activeKey}
+                                        aria-disabled={disabled || undefined}
+                                        tabIndex={disabled ? -1 : 0}
+                                        onKeyDown={
+                                            onChange && !disabled
+                                                ? (e) => {
+                                                      if (e.key === 'Enter') {
+                                                          onChange(tab.key)
+                                                      }
+                                                  }
+                                                : undefined
+                                        }
+                                        ref={tab.key === activeKey ? selectionRef : undefined}
+                                    >
+                                        {tab.link ? (
+                                            <Link className="LemonTabs__tab-content" to={tab.link}>
+                                                {content}
+                                            </Link>
+                                        ) : (
+                                            <div className="LemonTabs__tab-content">{content}</div>
+                                        )}
+                                    </li>
+                                </Tooltip>
+                            )
+                        })}
                     </div>
-                )}
-            </ul>
+                    {rightSlot && (
+                        <div
+                            className={cn(
+                                'mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4',
+                                rightSlotClassName
+                            )}
+                        >
+                            {rightSlot}
+                        </div>
+                    )}
+                </ul>
+            )}
             {realTabs.map((tab) => {
                 const isActive = tab.key === activeKey
                 const shouldRender = 'content' in tab && (isActive || tab.keepMounted)

@@ -1,0 +1,32 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { initKeaTests } from '~/test/init'
+
+import { toolsLogic } from './toolsLogic'
+
+describe('toolsLogic', () => {
+    beforeEach(() => {
+        initKeaTests()
+        featureFlagLogic.mount()
+    })
+
+    test.each([
+        [true, true, false],
+        [true, false, true],
+        [false, false, true],
+    ])('with the rail %s and the warehouse flag %s, lists the SQL editor: %s', (railOn, warehouseOn, listed) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: railOn,
+            [FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE]: warehouseOn,
+        })
+        const logic = toolsLogic()
+        logic.mount()
+
+        const hrefs = logic.values.tools.map((tool) => tool.href?.split(/[?#]/)[0])
+        expect(hrefs.includes(urls.sqlEditor())).toBe(listed)
+        expect(hrefs.includes(urls.sources())).toBe(listed)
+        expect(hrefs.length).toBeGreaterThan(0)
+    })
+})

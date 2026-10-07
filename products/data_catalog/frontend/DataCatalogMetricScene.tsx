@@ -20,7 +20,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -37,6 +36,7 @@ import {
     SceneMenuBarMenu,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
@@ -358,7 +358,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </LemonBanner>
                 )}
 
-                <LemonTabs
+                <SceneTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}
                     tabs={[

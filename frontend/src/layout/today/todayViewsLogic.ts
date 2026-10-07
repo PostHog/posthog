@@ -405,7 +405,8 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
         [router.actionTypes.locationChanged]: ({ pathname }: LocationChangedPayload) => {
             // Creating, restoring or opening a view lands on a new Views path, so the recents stay current.
             // Search and hash changes, such as dashboard filters, keep the path and do not reload.
-            if (pathname !== cache.lastPathname && railPaneForPath(pathname) === 'views') {
+            // The views check precedes the warehouse one in railPaneForPath, so the warehouse flag cannot change it.
+            if (pathname !== cache.lastPathname && railPaneForPath(pathname, false) === 'views') {
                 actions.loadRecentViews()
             }
             cache.lastPathname = pathname

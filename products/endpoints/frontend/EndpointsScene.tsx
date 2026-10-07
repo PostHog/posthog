@@ -6,12 +6,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -92,7 +93,7 @@ export function EndpointsScene(): JSX.Element {
                             </Shortcut>
                         }
                     />
-                    <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
+                    <SceneTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     <InsightPickerEndpointModal />
                 </SceneContent>
             </BindLogic>

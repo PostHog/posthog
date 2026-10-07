@@ -430,10 +430,10 @@ export const FEATURE_FLAGS = {
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
+    METRICS_DASHBOARD_CONTROLS: 'metrics-dashboard-controls', // owner: #team-apm — shows each dashboard filter only for the tiles it changes, and adds the metric label filter
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
     METRICS_FUNDAMENTALS: 'metrics-fundamentals', // owner: #team-apm (@jonmcwest, @frankh), gates the Fundamentals tab and the explain API behind it, which check the metrics viewer's own reductions
-    METRICS_DASHBOARD_CONTROLS: 'metrics-dashboard-controls', // owner: #team-apm — shows each dashboard filter only for the tiles it changes, and adds the metric label filter
     METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
@@ -557,6 +557,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. Every arm promotes the predicted group on the All tab; only banner also suggests the right tab
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today briefing the homepage
+    TODAY_RAIL_WAREHOUSE: 'today-rail-warehouse', // owner: @EDsCODE #team-warehouse, adds the Warehouse rail tile, header menu, home page and sidebar tabs on top of today-rail-nav
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
@@ -633,9 +634,12 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-// The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
+// The Today rail swaps out the whole navigation and the warehouse flag adds to it, so stories opt in to both explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
+    (flag) =>
+        flag !== FEATURE_FLAGS.TODAY_RAIL_NAV &&
+        flag !== FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE &&
+        flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
 )
 
 export const INSIGHT_VISUAL_ORDER = {

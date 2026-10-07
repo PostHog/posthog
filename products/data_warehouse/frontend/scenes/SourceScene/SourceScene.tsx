@@ -22,7 +22,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -252,7 +253,7 @@ export function SourceScene({ id }: SourceSceneProps): JSX.Element {
                     attachTo={logic}
                 />
             ) : (
-                <LemonTabs
+                <SceneTabs
                     activeKey={isSelfManagedSource ? 'configuration' : currentTab}
                     tabs={[
                         {
@@ -368,7 +369,7 @@ function ManagedSourceTabs({
                     deprecation={source.api_version_deprecation}
                 />
             )}
-            <LemonTabs
+            <SceneTabs
                 activeKey={currentTab}
                 tabs={tabs}
                 onChange={(tab) => {
