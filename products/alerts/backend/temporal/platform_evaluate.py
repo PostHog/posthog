@@ -29,7 +29,7 @@ with workflow.unsafe.imports_passed_through():
         SourceKind,
         SourceOutcomeInputs,
     )
-    from products.alerts_platform.backend.facade.temporal import SOURCE_BINDINGS
+    from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
 PLAN_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
@@ -104,7 +104,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceEvaluationInputs) -> int:
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
-        expires_at = (workflow.now() + SOURCE_BINDINGS[SourceKind.INSIGHT].evaluation_timeout).timestamp()
+        expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
         admitted = await workflow.execute_activity(
             plan_platform_insight_batch_activity,
             InsightBatchPlanInputs(evaluation=inputs, expires_at=expires_at),
