@@ -94,6 +94,7 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
+    MicrosoftTeamsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
     ReconnectRequired,
@@ -425,6 +426,31 @@ class LinearTeamSerializer(serializers.Serializer):
 
 class LinearTeamsResponseSerializer(serializers.Serializer):
     teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
+
+
+class MicrosoftTeamsTeamSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Microsoft Teams team ID (the Microsoft 365 group ID).")
+    name = serializers.CharField(help_text="Microsoft Teams team display name.")
+
+
+class MicrosoftTeamsTeamsResponseSerializer(serializers.Serializer):
+    teams = MicrosoftTeamsTeamSerializer(
+        many=True, help_text="Microsoft Teams teams that the connected user is a member of."
+    )
+
+
+class MicrosoftTeamsChannelsQuerySerializer(serializers.Serializer):
+    team_id = serializers.UUIDField(help_text="Microsoft Teams team ID whose channels to list.")
+
+
+class MicrosoftTeamsChannelSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Microsoft Teams channel ID.")
+    name = serializers.CharField(help_text="Microsoft Teams channel display name.")
+    membership_type = serializers.CharField(help_text="Channel membership type: standard, private, or shared.")
+
+
+class MicrosoftTeamsChannelsResponseSerializer(serializers.Serializer):
+    channels = MicrosoftTeamsChannelSerializer(many=True, help_text="Channels in the Microsoft Teams team.")
 
 
 class IntegrationAssigneeSerializer(serializers.Serializer):
@@ -1471,6 +1497,8 @@ class IntegrationViewSet(
         "jira_assignable_users",
         "linear_teams",
         "linear_team_members",
+        "microsoft_teams_teams",
+        "microsoft_teams_channels",
         "github_assignees",
         "gitlab_members",
         "anthropic_managed_agents",
@@ -2209,6 +2237,32 @@ class IntegrationViewSet(
         _ensure_oauth_token_valid(instance)
         query = query_serializer.validated_data
         return assignees_response(lambda: LinearIntegration(instance).list_assignees(query["team_id"], query["search"]))
+
+    @extend_schema(responses={200: MicrosoftTeamsTeamsResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="microsoft_teams_teams")
+    def microsoft_teams_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "microsoft-teams":
+            raise ValidationError("microsoft_teams_teams endpoint is only supported for Microsoft Teams integrations")
+        _ensure_oauth_token_valid(instance)
+        return Response({"teams": MicrosoftTeamsIntegration(instance).list_teams()})
+
+    @extend_schema(
+        parameters=[MicrosoftTeamsChannelsQuerySerializer], responses={200: MicrosoftTeamsChannelsResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="microsoft_teams_channels")
+    def microsoft_teams_channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = MicrosoftTeamsChannelsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "microsoft-teams":
+            raise ValidationError(
+                "microsoft_teams_channels endpoint is only supported for Microsoft Teams integrations"
+            )
+        _ensure_oauth_token_valid(instance)
+        team_id = str(query_serializer.validated_data["team_id"])
+        return Response({"channels": MicrosoftTeamsIntegration(instance).list_channels(team_id)})
 
     @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")

@@ -28,6 +28,7 @@ import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -116,6 +117,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
+    'microsoft-teams': IconMicrosoftTeams,
     vercel: IconVercel,
     'azure-blob': IconAzureBlob,
     firebase: IconFirebase,
@@ -167,6 +169,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'TikTok Ads'
         case 'bing-ads':
             return 'Bing Ads'
+        case 'microsoft-teams':
+            return 'Microsoft Teams'
         case 'azure-blob':
             return 'Azure Blob Storage'
         case 'pinterest-ads':

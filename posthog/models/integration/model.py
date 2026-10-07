@@ -158,6 +158,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        MICROSOFT_TEAMS = "microsoft-teams"
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"

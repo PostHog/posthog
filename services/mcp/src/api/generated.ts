@@ -57982,6 +57982,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `microsoft-teams` - Microsoft Teams
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -58037,6 +58038,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      MicrosoftTeams: 'microsoft-teams',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -58092,6 +58094,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `microsoft-teams` - Microsoft Teams
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -64473,6 +64476,32 @@ export namespace Schemas {
       Ratio: 'ratio',
       Retention: 'retention',
     } as const;
+
+    export interface MicrosoftTeamsChannel {
+      /** Microsoft Teams channel ID. */
+      id: string;
+      /** Microsoft Teams channel display name. */
+      name: string;
+      /** Channel membership type: standard, private, or shared. */
+      membership_type: string;
+    }
+
+    export interface MicrosoftTeamsChannelsResponse {
+      /** Channels in the Microsoft Teams team. */
+      channels: MicrosoftTeamsChannel[];
+    }
+
+    export interface MicrosoftTeamsTeam {
+      /** Microsoft Teams team ID (the Microsoft 365 group ID). */
+      id: string;
+      /** Microsoft Teams team display name. */
+      name: string;
+    }
+
+    export interface MicrosoftTeamsTeamsResponse {
+      /** Microsoft Teams teams that the connected user is a member of. */
+      teams: MicrosoftTeamsTeam[];
+    }
 
     export interface MinimalPerson {
       /** Numeric person ID. */
@@ -120637,6 +120666,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `microsoft-teams` - Microsoft Teams
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -120703,6 +120733,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      MicrosoftTeams: 'microsoft-teams',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -120851,6 +120882,13 @@ export namespace Schemas {
     /**
      * Linear team ID whose members to list.
      * @minLength 1
+     */
+    team_id: string;
+    };
+
+    export type IntegrationsMicrosoftTeamsChannelsRetrieveParams = {
+    /**
+     * Microsoft Teams team ID whose channels to list.
      */
     team_id: string;
     };

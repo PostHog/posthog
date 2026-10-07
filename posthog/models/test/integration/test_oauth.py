@@ -428,6 +428,38 @@ class TestOauthIntegrationModel(BaseTest):
                 "id_token": mock_id_token,
             }
 
+    @parameterized.expand(
+        [
+            ("bing_ads", "bing-ads", {}),
+            ("microsoft_teams", "microsoft-teams", {"tenant_id": "tenant-guid"}),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_microsoft_integration_takes_identity_from_id_token(self, _name, kind, expected_extra_config, mock_post):
+        jwt_payload = {"oid": "user-oid", "preferred_username": "someone@example.com", "tid": "tenant-guid"}
+        encoded_payload = base64.urlsafe_b64encode(json.dumps(jwt_payload).encode()).decode().rstrip("=")
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "FAKE_ACCESS_TOKEN",
+            "refresh_token": "FAKE_REFRESH_TOKEN",
+            "id_token": f"eyJhbGciOiJSUzI1NiJ9.{encoded_payload}.fake_signature",
+            "expires_in": 3600,
+        }
+
+        with self.settings(
+            BING_ADS_CLIENT_ID="bing-client-id",
+            BING_ADS_CLIENT_SECRET="bing-client-secret",
+            MICROSOFT_TEAMS_CLIENT_ID="teams-client-id",
+            MICROSOFT_TEAMS_CLIENT_SECRET="teams-client-secret",
+        ):
+            integration = OauthIntegration.integration_from_oauth_response(
+                kind, self.team.id, self.user, {"code": "code", "state": "next=/projects/test"}
+            )
+
+            assert integration.integration_id == "user-oid"
+            assert integration.display_name == "someone@example.com"
+            assert {key: integration.config.get(key) for key in expected_extra_config} == expected_extra_config
+
     def test_integration_access_token_expired(self):
         now = datetime.now()
         with time_machine.travel(now, tick=False):
