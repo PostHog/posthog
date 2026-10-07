@@ -98,6 +98,7 @@ interface UseTaskCreationOptions {
   adapter?: Adapter;
   runtime?: AgentRuntime;
   model?: string;
+  modelAccess?: ModelAccess;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
@@ -220,6 +221,7 @@ export function useTaskCreation({
   adapter,
   runtime = "acp",
   model,
+  modelAccess,
   reasoningLevel,
   contextWindow,
   fastMode,
@@ -341,19 +343,39 @@ export function useTaskCreation({
       setIsCreatingTask(true);
 
       try {
+        const settings = useSettingsStore.getState();
+        if (
+          workspaceMode === "cloud" &&
+          (!settings._hasHydrated || settings._hydrationError)
+        ) {
+          toast.error("Billing choice unavailable", {
+            description:
+              "Try again in Settings > Harness. Your saved billing choice has not changed.",
+          });
+          return false;
+        }
+        const subscription =
+          adapter === "codex" ? codexSubscription : claudeSubscription;
+        const selectedAccess =
+          modelAccess ?? subscriptionModelAccess(subscription, workspaceMode);
+        if (
+          workspaceMode === "cloud" &&
+          runtime !== "pi" &&
+          selectedAccess === "own-subscription" &&
+          !subscription.cloudFlagEnabled
+        ) {
+          toast.error("Subscription billing is unavailable", {
+            description:
+              "Your billing choice has not changed. Try again later, or select PostHog credits for this task in the Billing menu.",
+          });
+          return false;
+        }
         if (
           workspaceMode === "cloud" &&
           runtime !== "pi" &&
           adapter === "claude" &&
-          claudeSubscription.cloudSubscriptionOn
+          selectedAccess === "own-subscription"
         ) {
-          if (!claudeSubscription.cloudFlagEnabled) {
-            toast.error("Claude plan billing is unavailable for cloud tasks", {
-              description:
-                "Try again later, or select PostHog in the Billing menu.",
-            });
-            return false;
-          }
           try {
             if (!claudeTokenStore || !(await claudeTokenStore.has())) {
               toast.error("Add your Claude token before starting this task", {
@@ -472,11 +494,11 @@ export function useTaskCreation({
           );
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
-              ? subscriptionModelAccess(codexSubscription, workspaceMode)
+              ? selectedAccess
               : undefined;
           const claudeModelAccess =
             runtime !== "pi" && adapter === "claude"
-              ? subscriptionModelAccess(claudeSubscription, workspaceMode)
+              ? selectedAccess
               : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
@@ -715,6 +737,7 @@ export function useTaskCreation({
       adapter,
       runtime,
       model,
+      modelAccess,
       reasoningLevel,
       contextWindow,
       fastMode,

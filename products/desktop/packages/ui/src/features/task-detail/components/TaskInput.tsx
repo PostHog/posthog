@@ -19,6 +19,7 @@ import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
+import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
@@ -43,6 +44,7 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
+import { CloudBillingSummary } from "@posthog/ui/features/settings/CloudBillingSummary";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -380,6 +382,16 @@ export function TaskInput({
     !!channelContextPath || (!!channelContext && !channelContextDismissed);
 
   const adapter = lastUsedAdapter;
+  const [billingChoices, setBillingChoices] = useState<
+    Partial<Record<Adapter, ModelAccess>>
+  >({});
+  const taskModelAccess = billingChoices[adapter ?? "claude"];
+  const setTaskModelAccess = (access: ModelAccess): void =>
+    setBillingChoices((choices) => ({
+      ...choices,
+      [adapter ?? "claude"]: access,
+    }));
+
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -556,10 +568,11 @@ export function TaskInput({
   const composerModelAccess =
     runtime === "pi"
       ? undefined
-      : subscriptionModelAccess(
+      : (taskModelAccess ??
+        subscriptionModelAccess(
           adapter === "codex" ? codexSubscription : claudeSubscription,
           workspaceMode,
-        );
+        ));
 
   const {
     repositories: visibleCloudRepositories,
@@ -1088,6 +1101,7 @@ export function TaskInput({
 
   const handleTaskCreatedEffect = useCallback(
     (task: Task) => {
+      setBillingChoices({});
       handleAutoresearchTaskCreated(task);
       onTaskCreatedEffect?.(task);
     },
@@ -1115,6 +1129,7 @@ export function TaskInput({
     editorIsEmpty,
     adapter,
     runtime,
+    modelAccess: taskModelAccess,
     executionMode: runtime === "pi" ? undefined : currentExecutionMode,
     model: taskModel,
     reasoningLevel: taskReasoningLevel,
@@ -1634,6 +1649,9 @@ export function TaskInput({
                     />
                   </div>
                 )}
+                {workspaceMode === "cloud" && (
+                  <CloudBillingSummary modelAccess={composerModelAccess} />
+                )}
                 <PromptInput
                   ref={editorRef}
                   sessionId={promptSessionId}
@@ -1757,6 +1775,7 @@ export function TaskInput({
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
                         modelAccess={composerModelAccess}
+                        onModelAccessChange={setTaskModelAccess}
                         showBillingMenu
                         workspaceMode={workspaceMode}
                         isDefaultSelection={isDefaultSelection}

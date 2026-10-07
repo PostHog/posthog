@@ -22,7 +22,11 @@ const { tokenStore, track, setClaudeCloudSubscriptionOn, toast } = vi.hoisted(
 
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (selector: (s: unknown) => unknown) =>
-    selector({ setClaudeCloudSubscriptionOn }),
+    selector({
+      setClaudeCloudSubscriptionOn,
+      _hasHydrated: true,
+      _hydrationError: false,
+    }),
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast }));
@@ -177,7 +181,7 @@ describe("ClaudeCloudTokenSection", () => {
     renderSection(true);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unlock your system key store and try again.",
+      "Your billing choice has not changed.",
     );
     expect(
       screen.queryByLabelText("Claude setup token"),

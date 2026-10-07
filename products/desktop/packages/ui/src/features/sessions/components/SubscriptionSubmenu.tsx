@@ -11,7 +11,6 @@ import {
 } from "@posthog/quill";
 import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
-  applyModelAccess,
   subscriptionModelAccess,
   useAdapterSubscription,
   type WorkspaceModeForAccess,
@@ -48,47 +47,38 @@ interface SubscriptionSubmenuProps {
   adapter: Adapter;
   closeOnChange?: boolean;
   workspaceMode?: WorkspaceModeForAccess;
+  modelAccess?: ModelAccess;
+  onModelAccessChange?: (access: ModelAccess) => void;
 }
 
 export function SubscriptionSubmenu({
   adapter,
   closeOnChange = false,
   workspaceMode,
+  modelAccess,
+  onModelAccessChange,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
   const cloudTask = workspaceMode === "cloud";
   const cloudAvailable = cloudTask && subscription.cloudFlagEnabled;
   const available = subscription.flagEnabled || cloudAvailable;
-  if (!available) {
+  if (!available || !onModelAccessChange) {
     return null;
   }
 
   const providerLabel = PROVIDER_LABEL[adapter];
-  const selected: ModelAccess = cloudTask
-    ? subscriptionModelAccess(subscription, "cloud")
-    : subscription.subscriptionOn
-      ? "own-subscription"
-      : "posthog-gateway";
-  const effective = subscriptionModelAccess(
-    subscription,
-    workspaceMode ?? "local",
-  );
+  const selected =
+    modelAccess ??
+    subscriptionModelAccess(subscription, workspaceMode ?? "local");
   const valueLabel =
-    effective === "own-subscription" ? providerLabel : "PostHog";
+    selected === "own-subscription" ? providerLabel : "PostHog";
   const providerLocked = cloudTask && !cloudAvailable;
   const showLoginNote =
-    !cloudTask && subscription.subscriptionOn && !subscription.loggedIn;
+    !cloudTask && selected === "own-subscription" && !subscription.loggedIn;
 
   const selectAccess = (next: string): void => {
-    const ownSubscription = next === "own-subscription";
-    if (cloudTask) {
-      subscription.setCloudSubscriptionOn(ownSubscription);
-      return;
-    }
-    applyModelAccess(
-      adapter,
-      ownSubscription ? "own-subscription" : "posthog-gateway",
-      subscription.loggedIn,
+    onModelAccessChange(
+      next === "own-subscription" ? "own-subscription" : "posthog-gateway",
     );
   };
 
@@ -101,6 +91,9 @@ export function SubscriptionSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
+        <div className="max-w-64 px-2 py-1.5 text-muted-foreground text-xs">
+          For this task only. Your default stays the same.
+        </div>
         <DropdownMenuRadioGroup value={selected} onValueChange={selectAccess}>
           <DropdownMenuRadioItem
             value="posthog-gateway"
@@ -136,11 +129,6 @@ export function SubscriptionSubmenu({
           )}
         </DropdownMenuRadioGroup>
         {showLoginNote && (
-          // A quiet inline note rather than a permanent menu row: it appears
-          // only once the provider option is picked without a confirmed
-          // login, and sessions keep running on PostHog until the login
-          // completes. Unknown status counts as not logged in, so the note
-          // stays reachable when the status check cannot run or is pending.
           <div className="px-2 py-1.5 text-muted-foreground text-xs">
             <button
               type="button"

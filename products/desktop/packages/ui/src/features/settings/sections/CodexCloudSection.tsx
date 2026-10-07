@@ -20,6 +20,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { SettingsRecovery } from "../SettingsRecovery";
+import { useSettingsStore } from "../settingsStore";
 
 interface CodexCloudSectionProps {
   cloudSubscriptionOn: boolean;
@@ -28,6 +30,9 @@ interface CodexCloudSectionProps {
 export function CodexCloudSection({
   cloudSubscriptionOn,
 }: CodexCloudSectionProps): ReactElement {
+  const settingsReady = useSettingsStore(
+    (state) => state._hasHydrated && !state._hydrationError,
+  );
   const account = useCodexCloudAccount();
   const disconnect = useDisconnectCodexCloudAccount();
   const service = useCodexCloudAccountService();
@@ -87,31 +92,55 @@ export function CodexCloudSection({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-xs">Cloud tasks</span>
-        <Switch
-          size="sm"
-          aria-label="Use your ChatGPT plan for cloud tasks"
-          data-attr="codex-cloud-subscription-toggle"
-          checked={cloudSubscriptionOn}
-          disabled={pending}
-          onCheckedChange={(checked) => {
-            const next = checked === true;
-            if (next === cloudSubscriptionOn) return;
-            setCloudSubscriptionOn("codex", next);
-          }}
-        />
+        {settingsReady && (
+          <Switch
+            size="sm"
+            aria-label="Use your ChatGPT plan for cloud tasks"
+            data-attr="codex-cloud-subscription-toggle"
+            checked={cloudSubscriptionOn}
+            disabled={pending}
+            onCheckedChange={(checked) => {
+              const next = checked === true;
+              if (next === cloudSubscriptionOn) return;
+              setCloudSubscriptionOn("codex", next);
+            }}
+          />
+        )}
       </div>
+      <SettingsRecovery />
       <span className="text-muted-foreground text-xs">
         PostHog keeps your ChatGPT login and gives each cloud task a short-lived
         token. Tasks run when Desktop is closed. Compute is billed separately.
       </span>
+      {cloudSubscriptionOn && (
+        <span className="text-muted-foreground text-xs">
+          Your subscription is selected. Connection problems do not change your
+          billing choice.
+        </span>
+      )}
       {account.isPending ? (
         <output className="text-muted-foreground text-xs">
           Checking account…
         </output>
       ) : account.isError ? (
-        <span role="alert" className="text-muted-foreground text-xs">
-          Cannot check the ChatGPT account. {account.error.message}
-        </span>
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 text-muted-foreground text-xs"
+        >
+          <span>
+            We could not check your ChatGPT connection. Your billing choice has
+            not changed.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            loading={account.isFetching}
+            disabled={account.isFetching}
+            onClick={() => void account.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
       ) : status === "connected" ? (
         <span className="flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
           <span
@@ -146,9 +175,12 @@ export function CodexCloudSection({
             size="sm"
             data-attr="codex-cloud-account-connect"
             disabled={pending}
-            onClick={() => start.mutate()}
+            loading={start.isPending}
+            onClick={() => {
+              if (!pending) start.mutate();
+            }}
           >
-            {status === "reauth_required" ? "Log in again" : "Log in"}
+            {status === "reauth_required" ? "Reconnect" : "Log in"}
           </Button>
         </div>
       )}

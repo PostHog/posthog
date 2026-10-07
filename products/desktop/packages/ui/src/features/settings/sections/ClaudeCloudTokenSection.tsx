@@ -12,6 +12,8 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useId, useState } from "react";
+import { SettingsRecovery } from "../SettingsRecovery";
+import { useSettingsStore } from "../settingsStore";
 
 interface ClaudeCloudTokenSectionProps {
   cloudSubscriptionOn: boolean;
@@ -22,6 +24,9 @@ export function ClaudeCloudTokenSection({
   cloudSubscriptionOn,
   onCreateToken,
 }: ClaudeCloudTokenSectionProps): ReactElement | null {
+  const settingsReady = useSettingsStore(
+    (state) => state._hasHydrated && !state._hydrationError,
+  );
   const tokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
     CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   );
@@ -93,22 +98,34 @@ export function ClaudeCloudTokenSection({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-xs">Cloud tasks</span>
-        <Switch
-          size="sm"
-          aria-label="Use your Claude plan for cloud tasks"
-          data-attr="claude-cloud-subscription-toggle"
-          checked={cloudSubscriptionOn}
-          disabled={!!pendingAction}
-          onCheckedChange={(checked) => {
-            const next = checked === true;
-            if (next === cloudSubscriptionOn) return;
-            setCloudSubscriptionOn("claude", next);
-          }}
-        />
+        {settingsReady && (
+          <Switch
+            size="sm"
+            aria-label="Use your Claude plan for cloud tasks"
+            data-attr="claude-cloud-subscription-toggle"
+            checked={cloudSubscriptionOn}
+            disabled={!!pendingAction}
+            onCheckedChange={(checked) => {
+              const next = checked === true;
+              if (next === cloudSubscriptionOn) return;
+              setCloudSubscriptionOn("claude", next);
+            }}
+          />
+        )}
       </div>
+      <SettingsRecovery />
       <span className="text-muted-foreground text-xs">
         Keep Desktop open to start or resume. Compute is billed separately.
       </span>
+      {cloudSubscriptionOn &&
+        !tokenQuery.isPending &&
+        !tokenQuery.isError &&
+        !tokenQuery.data && (
+          <output className="text-muted-foreground text-xs">
+            Your subscription is selected. Add a token to start cloud tasks. We
+            will not switch to PostHog credits.
+          </output>
+        )}
       {tokenQuery.isPending ? (
         <output className="text-muted-foreground text-xs">
           Checking token…
@@ -122,7 +139,7 @@ export function ClaudeCloudTokenSection({
             {confirmRemoval
               ? "Remove the saved token?"
               : tokenQuery.isError
-                ? tokenQuery.error.message
+                ? "We could not read your Claude token. Your billing choice has not changed."
                 : "Token saved"}
           </span>
           {confirmRemoval ? (
@@ -155,6 +172,7 @@ export function ClaudeCloudTokenSection({
                   size="sm"
                   variant="outline"
                   loading={tokenQuery.isFetching}
+                  disabled={tokenQuery.isFetching}
                   onClick={() => void tokenQuery.refetch()}
                 >
                   Try again

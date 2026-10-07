@@ -3,6 +3,7 @@ import {
   DEFAULT_OPTION_META_KEY,
   OPTION_DOCS_URL_META_KEY,
 } from "@posthog/shared";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { Theme } from "@radix-ui/themes";
 import {
   configure,
@@ -1010,6 +1011,7 @@ describe("ReasoningLevelSelector", () => {
             thoughtOption={thoughtOption()}
             adapter={adapter}
             showBillingMenu
+            onModelAccessChange={vi.fn()}
             workspaceMode="cloud"
           />
         </Theme>,
@@ -1028,7 +1030,7 @@ describe("ReasoningLevelSelector", () => {
   );
 
   it.each(["local", "cloud"] as const)(
-    "keeps enabled subscription billing selectable for %s tasks",
+    "keeps task billing separate from the default for %s tasks",
     async (workspaceMode) => {
       useAdapterSubscription.mockReturnValue(
         subscriptionState({
@@ -1036,13 +1038,17 @@ describe("ReasoningLevelSelector", () => {
           cloudSubscriptionOn: true,
         }),
       );
+      useSettingsStore.setState({ claudeCloudSubscriptionOn: true });
+      const onModelAccessChange = vi.fn();
       const user = userEvent.setup({ pointerEventsCheck: 0 });
       render(
         <Theme>
           <ReasoningLevelSelector
             thoughtOption={thoughtOption()}
             adapter="claude"
+            modelAccess="own-subscription"
             showBillingMenu
+            onModelAccessChange={onModelAccessChange}
             workspaceMode={workspaceMode}
           />
         </Theme>,
@@ -1059,6 +1065,10 @@ describe("ReasoningLevelSelector", () => {
       expect(
         screen.queryByText(/Log in to Claude Code/),
       ).not.toBeInTheDocument();
+      screen.getByRole("menuitemradio", { name: "PostHog" }).focus();
+      await user.keyboard("{Enter}");
+      expect(onModelAccessChange).toHaveBeenCalledWith("posthog-gateway");
+      expect(useSettingsStore.getState().claudeCloudSubscriptionOn).toBe(true);
     },
     20000,
   );
@@ -1075,6 +1085,7 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption()}
           adapter="claude"
           showBillingMenu
+          onModelAccessChange={vi.fn()}
           workspaceMode="local"
         />
       </Theme>,
@@ -1095,6 +1106,8 @@ describe("ReasoningLevelSelector", () => {
           thoughtOption={thoughtOption()}
           adapter="claude"
           showBillingMenu
+          modelAccess="own-subscription"
+          onModelAccessChange={vi.fn()}
           workspaceMode="local"
         />
       </Theme>,

@@ -269,3 +269,11 @@ biome lint packages/core
 ```
 
 Expected result: zero `noRestrictedImports` violations.
+
+## Cloud billing choice recovery
+
+In Settings > Harness, enable a subscription for cloud tasks. A connection error must keep that choice selected. Use Try again to check the connection, or reconnect when the login has expired.
+
+If saved settings cannot be read, the cloud billing controls show Billing choice unavailable. The saved record must remain unchanged. Cloud task creation and prewarming must wait until the settings can be read. Try again must restore the saved choice.
+
+In a new cloud task, select PostHog in the Billing menu. Only that task must use PostHog credits for models. The subscription default in Settings must stay selected. The composer shows model billing and compute billing before submission.

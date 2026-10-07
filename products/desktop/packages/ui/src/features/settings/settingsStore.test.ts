@@ -31,6 +31,9 @@ async function resetPersistenceMocks() {
   getItem.mockResolvedValue(null);
   setItem.mockResolvedValue(undefined);
   removeItem.mockResolvedValue(undefined);
+  await useSettingsStore.persist.rehydrate();
+  await flushRendererStateWrites();
+  setItem.mockClear();
 }
 
 // Persisted writes are debounced; flush while polling so the assertion sees
@@ -749,4 +752,44 @@ describe("feature settingsStore hydration", () => {
 
     expect(useSettingsStore.getState()._hasHydrated).toBe(true);
   });
+});
+
+describe("settings recovery", () => {
+  it.each(["read", "json"])(
+    "preserves settings after a %s failure and restores the choice on retry",
+    async (failure) => {
+      await resetPersistenceMocks();
+      await useSettingsStore.persist.rehydrate();
+      await flushRendererStateWrites();
+      setItem.mockClear();
+      if (failure === "read")
+        getItem.mockRejectedValue(new Error("Storage unavailable"));
+      else getItem.mockResolvedValue("invalid-json");
+      await useSettingsStore.persist.rehydrate();
+      useSettingsStore.getState().setHedgehogMode(true);
+      await flushRendererStateWrites();
+      expect(useSettingsStore.getState()._hydrationError).toBe(true);
+      expect(setItem).not.toHaveBeenCalled();
+      getItem.mockResolvedValue(
+        JSON.stringify({
+          state: {
+            claudeCloudSubscriptionOn: true,
+            codexCloudSubscriptionOn: true,
+          },
+          version: 0,
+        }),
+      );
+      await useSettingsStore.persist.rehydrate();
+      await flushRendererStateWrites();
+      expect(useSettingsStore.getState()).toMatchObject({
+        _hydrationError: false,
+        claudeCloudSubscriptionOn: true,
+        codexCloudSubscriptionOn: true,
+      });
+      expect(JSON.parse(setItem.mock.calls.at(-1)?.[1]).state).toMatchObject({
+        claudeCloudSubscriptionOn: true,
+        codexCloudSubscriptionOn: true,
+      });
+    },
+  );
 });

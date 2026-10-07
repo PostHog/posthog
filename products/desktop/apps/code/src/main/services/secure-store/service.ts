@@ -22,13 +22,6 @@ export interface SecureStoreBackend {
   clear(): void;
 }
 
-/**
- * Backing service for the secure-store router: an encrypted-at-rest key/value
- * store. Values are machine-key encrypted before they touch the backend so the
- * persisted store never holds plaintext. All operations are best-effort and
- * never throw to the caller — a storage failure logs and degrades to a null
- * read / no-op write, matching the prior inline router behavior.
- */
 @injectable()
 export class SecureStoreService {
   constructor(
@@ -46,19 +39,24 @@ export class SecureStoreService {
       }
       const plaintext = decrypt(this.store.get(key) as string);
       if (plaintext === null) {
-        log.error("Stored value failed to decrypt; treating as missing", {
+        log.error("Stored value failed to decrypt", {
           key,
         });
+        if (key === "settings-storage") {
+          throw new Error("Saved settings could not be read. Try again.");
+        }
       }
       return plaintext;
     } catch (error) {
       log.error("Failed to get item:", error);
+      if (key === "settings-storage") throw error;
       return null;
     }
   }
 
   setItem(key: string, value: string): void {
     try {
+      if (key === "settings-storage") this.getItem(key);
       this.store.set(key, encrypt(value));
     } catch (error) {
       log.error("Failed to set item:", error);

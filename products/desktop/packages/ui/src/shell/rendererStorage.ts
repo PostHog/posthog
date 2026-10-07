@@ -155,6 +155,7 @@ export const stateStorage: StateStorage = {
       return;
     }
     queuePendingWrite(key, value);
+    if (key === "settings-storage") await flushPendingWrite(key);
   },
   removeItem: async (key) => {
     // Removal is explicit intent rather than a stale state snapshot, so it is

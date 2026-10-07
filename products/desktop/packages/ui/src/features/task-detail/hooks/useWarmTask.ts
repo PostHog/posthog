@@ -6,6 +6,7 @@ import {
 } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useEffect, useMemo, useRef } from "react";
 import { logger } from "../../../shell/logger";
 import {
@@ -55,6 +56,9 @@ export function useWarmTask({
   sandboxEnvironmentId,
   customImageId,
 }: UseWarmTaskOptions): void {
+  const settingsReady = useSettingsStore(
+    (state) => state._hasHydrated && !state._hydrationError,
+  );
   const enabled = useFeatureFlag(TASKS_PREWARM_SANDBOX_FLAG);
   const client = useOptionalAuthenticatedClient();
 
@@ -93,6 +97,7 @@ export function useWarmTask({
     claudeModelAccess === "own-subscription" ||
     codexModelAccess === "own-subscription";
   const eligible =
+    settingsReady &&
     enabled &&
     !heldLeaseIsUnusable &&
     isCloud &&

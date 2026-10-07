@@ -7,6 +7,7 @@ import {
   syntheticPiModelSelection,
 } from "@posthog/core/task-detail/configOptions";
 import { preferredRunsOnPi } from "@posthog/core/task-detail/previewConfig";
+import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   type AgentRuntime,
   adapterForModelId,
@@ -17,6 +18,7 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
+import { CloudBillingSummary } from "@posthog/ui/features/settings/CloudBillingSummary";
 import {
   forwardRef,
   useCallback,
@@ -133,6 +135,15 @@ export const ChannelHomeComposer = forwardRef<
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
   // Keep the menu open when a harness switch swaps its ACP/Pi control.
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [billingChoices, setBillingChoices] = useState<
+    Partial<Record<Adapter, ModelAccess>>
+  >({});
+  const taskModelAccess = billingChoices[adapter ?? "claude"];
+  const setTaskModelAccess = (access: ModelAccess): void =>
+    setBillingChoices((choices) => ({
+      ...choices,
+      [adapter ?? "claude"]: access,
+    }));
   const didResolveRuntimeRef = useRef(false);
   const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
     null,
@@ -298,6 +309,7 @@ export const ChannelHomeComposer = forwardRef<
     (task: Task) => {
       // onTaskCreated swaps the real card in; drop the matching "Starting…"
       // row in the same tick so the two never show at once.
+      setBillingChoices({});
       onTaskCreated(task);
       const id = pendingIdsRef.current.shift();
       if (id) onPendingEnd(id);
@@ -320,6 +332,7 @@ export const ChannelHomeComposer = forwardRef<
     editorIsEmpty,
     adapter,
     runtime,
+    modelAccess: taskModelAccess,
     executionMode: runtime === "pi" ? undefined : currentExecutionMode,
     model: taskModel,
     reasoningLevel: taskReasoningLevel,
@@ -555,6 +568,19 @@ export const ChannelHomeComposer = forwardRef<
         }}
       />
 
+      {workspaceMode === "cloud" && (
+        <CloudBillingSummary
+          modelAccess={
+            runtime === "pi"
+              ? undefined
+              : (taskModelAccess ??
+                subscriptionModelAccess(
+                  adapter === "codex" ? codexSubscription : claudeSubscription,
+                  workspaceMode,
+                ))
+          }
+        />
+      )}
       <PromptInput
         ref={editorRef}
         sessionId={sessionId}
@@ -620,10 +646,14 @@ export const ChannelHomeComposer = forwardRef<
               onConfigOptionChange={setConfigOption}
               menuOpen={modelMenuOpen}
               onMenuOpenChange={setModelMenuOpen}
-              modelAccess={subscriptionModelAccess(
-                adapter === "codex" ? codexSubscription : claudeSubscription,
-                workspaceMode,
-              )}
+              onModelAccessChange={setTaskModelAccess}
+              modelAccess={
+                taskModelAccess ??
+                subscriptionModelAccess(
+                  adapter === "codex" ? codexSubscription : claudeSubscription,
+                  workspaceMode,
+                )
+              }
               showBillingMenu
               workspaceMode={workspaceMode}
               disabled={isBusy}

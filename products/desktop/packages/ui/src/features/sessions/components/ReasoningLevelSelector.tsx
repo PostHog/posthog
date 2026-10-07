@@ -89,6 +89,7 @@ interface ReasoningLevelSelectorProps {
   disabled?: boolean;
   isLoading?: boolean;
   modelAccess?: ModelAccess;
+  onModelAccessChange?: (access: ModelAccess) => void;
   showBillingMenu?: boolean;
   /** Workspace mode of the task being composed; cloud disables plan billing. */
   workspaceMode?: WorkspaceModeForAccess;
@@ -166,6 +167,7 @@ export function ReasoningLevelSelector({
   disabled,
   isLoading,
   modelAccess,
+  onModelAccessChange,
   showBillingMenu,
   workspaceMode,
   isDefaultSelection,
@@ -646,6 +648,8 @@ export function ReasoningLevelSelector({
                   <SubscriptionSubmenu
                     adapter={adapter}
                     workspaceMode={workspaceMode}
+                    modelAccess={modelAccess}
+                    onModelAccessChange={onModelAccessChange}
                   />
                 )}
                 {hasEffort && (

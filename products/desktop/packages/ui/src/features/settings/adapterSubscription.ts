@@ -212,8 +212,7 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
 
   return {
     cloudFlagEnabled: localWorkspaces && cloudFlagEnabled,
-    cloudSubscriptionOn:
-      localWorkspaces && cloudFlagEnabled && cloudSubscriptionOn,
+    cloudSubscriptionOn: localWorkspaces && cloudSubscriptionOn,
     setCloudSubscriptionOn: (on) => setCloudSubscriptionOn(adapter, on),
     flagEnabled,
     subscriptionOn,

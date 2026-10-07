@@ -22,9 +22,34 @@ import {
 } from "@posthog/ui/features/settings/tipKeys";
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { type PersistStorage, persist } from "zustand/middleware";
 
 const MAX_EFFECTIVE_CUSTOM_INSTRUCTIONS_LENGTH = 20_000;
+
+let settingsWritable = false;
+const settingsStorage: PersistStorage<Partial<SettingsStore>> = {
+  getItem: async (name) => {
+    settingsWritable = false;
+    if (!electronStorage) throw new Error("Settings storage is unavailable.");
+    const value = await electronStorage.getItem(name);
+    if (
+      value &&
+      (!value.state ||
+        typeof value.state !== "object" ||
+        Array.isArray(value.state))
+    ) {
+      throw new Error("Saved settings could not be read.");
+    }
+    settingsWritable = true;
+    return value as Awaited<
+      ReturnType<PersistStorage<Partial<SettingsStore>>["getItem"]>
+    >;
+  },
+  setItem: (name, value) => {
+    return settingsWritable ? electronStorage?.setItem(name, value) : undefined;
+  },
+  removeItem: (name) => electronStorage?.removeItem(name),
+};
 
 // ---------- Types ----------
 
@@ -370,6 +395,7 @@ export interface SettingsStore {
   setTipsEnabled: (enabled: boolean) => void;
 
   _hasHydrated: boolean;
+  _hydrationError: boolean;
   setHasHydrated: (hydrated: boolean) => void;
 }
 
@@ -702,11 +728,12 @@ export const useSettingsStore = create<SettingsStore>()(
       setTipsEnabled: (enabled) => set({ tipsEnabled: enabled }),
 
       _hasHydrated: false,
+      _hydrationError: false,
       setHasHydrated: (hydrated) => set({ _hasHydrated: hydrated }),
     }),
     {
       name: "settings-storage",
-      storage: electronStorage,
+      storage: settingsStorage,
       version: 1,
       // v1 ships the merged model/reasoning control: bust everyone's saved
       // selection state once so all users start on the new defaults.
@@ -814,12 +841,11 @@ export const useSettingsStore = create<SettingsStore>()(
         hints: state.hints,
         tipsEnabled: state.tipsEnabled,
       }),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          useSettingsStore.getState().setHasHydrated(true);
-        } else {
-          state?.setHasHydrated(true);
-        }
+      onRehydrateStorage: () => (_state, error) => {
+        useSettingsStore.setState({
+          _hasHydrated: true,
+          _hydrationError: !!error,
+        });
       },
       merge: (persisted, current) => {
         const merged = {

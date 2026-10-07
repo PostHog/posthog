@@ -227,4 +227,13 @@ describe("SecureStoreService", () => {
     const service = new SecureStoreService(backend);
     expect(service.getItem("k")).toBeNull();
   });
+  it("preserves unreadable settings across reads and writes", () => {
+    const { backend, data } = makeFakeBackend({
+      "settings-storage": "invalid-ciphertext",
+    });
+    const service = new SecureStoreService(backend);
+    expect(() => service.getItem("settings-storage")).toThrow();
+    service.setItem("settings-storage", "defaults");
+    expect(data.get("settings-storage")).toBe("invalid-ciphertext");
+  });
 });

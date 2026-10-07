@@ -1,3 +1,4 @@
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +43,7 @@ describe("useWarmTask", () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
     flagState.enabled = true;
+    useSettingsStore.setState({ _hasHydrated: true, _hydrationError: false });
     mockClient.warmTask.mockResolvedValue({
       task_id: "task-1",
       run_id: "run-1",
@@ -113,6 +115,19 @@ describe("useWarmTask", () => {
       rerender(cloudTyping);
       await flushDebounce();
       expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([false, true])(
+    "does not warm before settings are readable (hydrated: %s)",
+    async (hydrated) => {
+      useSettingsStore.setState({
+        _hasHydrated: hydrated,
+        _hydrationError: hydrated,
+      });
+      renderHook(() => useWarmTask(cloudTyping));
+      await flushDebounce();
+      expect(mockClient.warmTask).not.toHaveBeenCalled();
     },
   );
 

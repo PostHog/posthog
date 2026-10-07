@@ -4,8 +4,10 @@ import {
   contentToXml,
   textToContent,
 } from "@posthog/core/message-editor/content";
+import type { ModelAccess } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useTaskInputHistoryStore } from "@posthog/ui/features/message-editor/taskInputHistoryStore";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import {
   pendingTaskPromptStoreApi,
@@ -164,6 +166,7 @@ function renderTaskCreation(
   content: EditorContent,
   workspaceMode: "local" | "worktree" | "cloud" = "local",
   runtime: "acp" | "pi" = "acp",
+  modelAccess?: ModelAccess,
 ) {
   return renderHook(
     () =>
@@ -174,6 +177,7 @@ function renderTaskCreation(
         allowNoRepo: true,
         workspaceMode,
         runtime,
+        modelAccess,
         adapter: "claude",
         editorIsEmpty: false,
       }),
@@ -186,6 +190,8 @@ describe("useTaskCreation prompt records", () => {
     vi.clearAllMocks();
     createTaskMock.mockReset();
     cloudSubscription.cloudSubscriptionOn = false;
+    cloudSubscription.cloudFlagEnabled = true;
+    useSettingsStore.setState({ _hasHydrated: true, _hydrationError: false });
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
     useTaskInputHistoryStore.setState({ entries: [] });
@@ -272,6 +278,47 @@ describe("useTaskCreation prompt records", () => {
     } finally {
       addPrompt.mockRestore();
     }
+  });
+
+  it.each(["unreadable", "loading", "rollout-off"])(
+    "blocks cloud starts when billing is %s",
+    async (state) => {
+      useSettingsStore.setState({
+        _hasHydrated: state !== "loading",
+        _hydrationError: state === "unreadable",
+      });
+      cloudSubscription.cloudSubscriptionOn = true;
+      cloudSubscription.cloudFlagEnabled = state !== "rollout-off";
+      const { result } = renderTaskCreation(
+        textToContent("Check the build"),
+        "cloud",
+      );
+      await act(async () => {
+        expect(await result.current.handleSubmit()).toBe(false);
+      });
+      expect(createTaskMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses an explicit task credit choice without changing the subscription default", async () => {
+    cloudSubscription.cloudSubscriptionOn = true;
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+    const { result } = renderTaskCreation(
+      textToContent("Check the build"),
+      "cloud",
+      "acp",
+      "posthog-gateway",
+    );
+    await act(async () => {
+      expect(await result.current.handleSubmit()).toBe(true);
+    });
+    expect(createTaskMock.mock.calls[0][0]).toMatchObject({
+      claudeCloudModelAccess: "posthog-gateway",
+    });
+    expect(cloudSubscription.cloudSubscriptionOn).toBe(true);
   });
 
   it("omits subscription billing when Pi is selected", async () => {
