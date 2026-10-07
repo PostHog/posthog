@@ -152,8 +152,10 @@ class TestUnstorableColumns(SimpleTestCase):
     @parameterized.expand(
         [
             ("variant", "Variant(Int64, UInt64)", True),
-            ("nullable_variant", "Nullable(Variant(Int64, UInt64))", True),
+            ("variant_inside_map", "Map(String, Variant(Int64, UInt64))", True),
             ("variant_inside_array", "Array(Variant(Int64, UInt64))", True),
+            ("enum_label", "Enum8('Variant(' = 1)", False),
+            ("tuple_field_name", "Tuple(`Variant(` Int64)", False),
             ("supported", "Nullable(Int64)", False),
         ]
     )

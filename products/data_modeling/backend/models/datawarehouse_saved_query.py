@@ -42,6 +42,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
+from products.data_modeling.backend.facade.contracts import UnstorableColumnTypeError
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -294,14 +295,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         alternative is a query that reports itself materialized while nothing is scheduled to
         materialize it.
         """
-        from products.data_modeling.backend.facade.contracts import ClickHouseColumn, UnstorableColumnTypeError
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
-        from products.data_modeling.backend.logic.materialized_column_types import unstorable_columns
+        from products.data_modeling.backend.logic.materialized_column_types import (  # noqa: PLC0415 -- the validator reads this model
+            check_saved_query_column_types,
+        )
         from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-        from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
@@ -309,15 +310,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
-        unstorable = unstorable_columns(
-            ClickHouseColumn(name=name, clickhouse_type=clickhouse_type)
-            for name, clickhouse_type in get_saved_query_columns(self.team_id, self.id).items()
-        )
-        if unstorable:
-            raise UnstorableColumnTypeError(unstorable)
-
         node: Node | None = None
         try:
+            check_saved_query_column_types(self.team_id, self.pk)
             # If this query's DAG runs on cadence tiers, those tiers materialize it. A bare whole-DAG
             # schedule does not count: reconcile refuses to add tiers beside one, so bootstrap sweeps it.
             # This Temporal lookup stays inside the try so that, if it fails, we honor the failure
@@ -372,9 +367,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 return
 
             raise NoSchedulableDagError(f"Saved query {self.id} has no DAG that can schedule it")
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
-            # The query is fine — the requested frequency is not. Surface it to the caller
-            # instead of silently disabling materialization.
+        except (UnstorableColumnTypeError, UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+            # Refusing the query or cadence must leave the caller's previous materialization intact.
             raise
         except Exception as e:
             capture_exception(

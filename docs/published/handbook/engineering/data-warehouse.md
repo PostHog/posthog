@@ -22,6 +22,11 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+Materialized views cannot store ClickHouse Variant columns, including Variants inside arrays, maps, or tuples.
+Enabling materialization, setting a cadence, or editing a materialized view rejects known Variant output columns and names the column to fix.
+Cast the expression to a single type, such as with `toInt(...)` or `toFloat(...)`, before materializing it.
+Every materialization run checks the actual output types before reading rows, so missing or stale saved types cannot bypass the check.
+
 ## Choosing data in Business intelligence
 
 **Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.

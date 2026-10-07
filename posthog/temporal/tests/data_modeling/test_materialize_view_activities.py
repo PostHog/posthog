@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 import unittest.mock
+from posthog.test.base import BaseTest
 
 from django.conf import settings
 from django.test import override_settings
@@ -17,6 +18,7 @@ import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
+from asgiref.sync import async_to_sync
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -2054,11 +2056,16 @@ class TestHogqlTableDuplicateOutputColumns:
         assert isinstance(error.value, NonReportableError)
 
 
-class TestHogqlTableUnstorableColumnTypes:
-    async def test_a_variant_column_is_refused_before_the_query_runs(self, ateam: Team) -> None:
-        astream_query_as_arrow = unittest.mock.MagicMock()
+class TestHogqlTableUnstorableColumnTypes(BaseTest):
+    def test_a_variant_column_is_refused_before_the_query_runs(self) -> None:
+        astream_query_as_arrow = unittest.mock.MagicMock(
+            side_effect=AssertionError("Rows were streamed before refusal")
+        )
         # ClickHouse has no common type for Int64 (toInt) and UInt64 (length), so the column is a Variant
         query = "SELECT if(1 = 1, toInt(1), length('a')) AS compared"
+
+        async def read_table() -> None:
+            _ = [batch async for batch in hogql_table(query, self.team, LOGGER.bind())]
 
         with (
             unittest.mock.patch(
@@ -2066,7 +2073,7 @@ class TestHogqlTableUnstorableColumnTypes:
             ),
             pytest.raises(UnstorableOutputColumnError) as error,
         ):
-            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+            async_to_sync(read_table)()
 
         assert error.value.columns == [ClickHouseColumn(name="compared", clickhouse_type="Variant(Int64, UInt64)")]
         astream_query_as_arrow.assert_not_called()
