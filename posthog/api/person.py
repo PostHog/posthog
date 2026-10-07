@@ -62,7 +62,7 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
-from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.missing_person import MissingPerson, splitTargetUuid
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_by_distinct_id,
@@ -347,10 +347,20 @@ class PersonSplitRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "List of distinct_ids to **move off** this person onto new single-id persons. "
-            "The original person keeps every other distinct_id and its properties. New persons "
-            "are created with deterministic UUIDs derived from `(team_id, distinct_id)`. "
+            "The original person keeps every other distinct_id and its properties. "
+            "The response reports the person each one lands on. "
             "Cannot be combined with `main_distinct_id`."
         ),
+    )
+
+
+class PersonSplitResultSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(help_text="A distinct_id this split moves off the original person.")
+    new_person_uuid = serializers.UUIDField(
+        help_text=(
+            "UUID of the person this distinct_id lands on. Stable, so a caller can address the "
+            "new person before the async split completes."
+        )
     )
 
 
@@ -361,6 +371,13 @@ class PersonSplitResponseSerializer(serializers.Serializer):
             "asynchronously — a 201 response means the task was accepted, not that the "
             "merge state has already been updated."
         )
+    )
+    splits = PersonSplitResultSerializer(
+        many=True,
+        help_text=(
+            "One entry per distinct_id this split moves, in request order. Lets a caller "
+            "locate the new persons without polling or deriving their UUIDs."
+        ),
     )
 
 
@@ -1311,11 +1328,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "The original person always retains its properties. To clear individual "
             "properties afterward, use the `delete_property` endpoint.\n\n"
             "The split runs asynchronously: a 201 response means the task was enqueued. "
-            "Newly-created split-off persons get a deterministic UUID derived from "
-            "`(team_id, distinct_id)`, so they can be located client-side without polling. "
-            "If you need to delete a split-off person after this call, prefer looking it up by "
-            "that deterministic UUID rather than by distinct_id, since the latter still "
-            "resolves to the original merged person until the async task completes."
+            "The response lists each distinct_id the split moves and the UUID of the person "
+            "it lands on, so a caller can address the new persons without polling. "
+            "If you need to delete a split-off person after this call, look it up by that "
+            "UUID rather than by distinct_id, since the latter still resolves to the "
+            "original merged person until the async task completes."
         ),
         request=PersonSplitRequestSerializer,
         responses={201: PersonSplitResponseSerializer},
@@ -1341,6 +1358,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            moving = list(dict.fromkeys(distinct_ids_to_split))
+        else:
+            # Resolve the kept distinct_id here rather than leaving it to the task, which
+            # would otherwise keep the first id of its own fetch. That fetch can order
+            # differently, so the response below would name the wrong persons.
+            if main_distinct_id is None and distinct_ids:
+                main_distinct_id = distinct_ids[0]
+            moving = [did for did in distinct_ids if did != main_distinct_id]
+
+        splits = [
+            {"distinct_id": did, "new_person_uuid": splitTargetUuid(person.team_id, did, person.uuid)} for did in moving
+        ]
 
         split_person.delay(
             person.id,
@@ -1374,7 +1403,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         )
 
-        return response.Response({"success": True}, status=201)
+        return response.Response(PersonSplitResponseSerializer({"success": True, "splits": splits}).data, status=201)
 
     @extend_schema(request=PersonUpdatePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])

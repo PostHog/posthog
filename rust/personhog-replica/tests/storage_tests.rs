@@ -2936,6 +2936,68 @@ async fn test_split_person_deterministic_uuids() {
 }
 
 #[tokio::test]
+async fn test_split_person_extracts_the_distinct_id_that_seeded_the_person_uuid() {
+    let ctx = TestContext::new().await;
+    // The person was created for "seed_split@example.com", so it carries the
+    // UUID a split of that distinct id regenerates; "seed_keeper@example.com"
+    // merged into it later. Reusing that UUID would hand the distinct id back
+    // to the person it is being split from.
+    let person_id = rand::thread_rng().gen_range(1_000_000i64..100_000_000);
+    let seeded_uuid = personhog_common::persons::person_uuid(ctx.team_id, "seed_split@example.com");
+    sqlx::query(
+        r#"INSERT INTO posthog_person
+        (id, uuid, team_id, properties, properties_last_updated_at,
+         properties_last_operation, created_at, version, is_identified, is_user_id, is_deleted)
+        VALUES ($1, $2, $3, '{}'::jsonb, '{}', '{}', NOW(), 0, false, NULL, false)"#,
+    )
+    .bind(person_id)
+    .bind(seeded_uuid)
+    .bind(ctx.team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    ctx.add_distinct_id_to_person(person_id, "seed_split@example.com")
+        .await
+        .unwrap();
+    ctx.add_distinct_id_to_person(person_id, "seed_keeper@example.com")
+        .await
+        .unwrap();
+
+    let results = ctx
+        .storage
+        .split_person(
+            ctx.team_id,
+            person_id,
+            &["seed_split@example.com".to_string()],
+        )
+        .await
+        .expect("Split should succeed");
+
+    assert_eq!(
+        results[0].new_person_uuid,
+        personhog_common::persons::split_person_uuid(ctx.team_id, "seed_split@example.com")
+    );
+
+    let split_off = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "seed_split@example.com")
+        .await
+        .unwrap()
+        .expect("The split mapping reads as live");
+    assert_ne!(split_off.id, person_id);
+
+    let keeper = ctx
+        .storage
+        .get_person_by_distinct_id(ctx.team_id, "seed_keeper@example.com")
+        .await
+        .unwrap()
+        .expect("The keeper mapping reads as live");
+    assert_eq!(keeper.id, person_id);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_split_person_idempotent() {
     let ctx = TestContext::new().await;
     let person = ctx

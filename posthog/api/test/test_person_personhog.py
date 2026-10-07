@@ -131,11 +131,16 @@ class TestSplitPerson(PersonhogTestMixin, APIBaseTest):
         resp = self.client.post(f"/api/person/{person.uuid}/split/")
 
         assert resp.status_code == status.HTTP_201_CREATED
-        assert resp.json() == {"success": True}
+        body = resp.json()
+        assert body["success"] is True
+        # The default split keeps the first distinct_id and names a fresh person for each
+        # of the rest, never the person they are moving off.
+        assert [split["distinct_id"] for split in body["splits"]] == ["did-2", "did-3"]
+        assert str(person.uuid) not in [split["new_person_uuid"] for split in body["splits"]]
         mock_split.delay.assert_called_once_with(
             person.pk,
             self.team.pk,
-            None,
+            "did-1",
             None,
             distinct_ids_to_split=None,
         )

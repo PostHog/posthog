@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_pb2
 
-from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.models.person.missing_person import splitPersonUuid, uuidFromDistinctId
 from posthog.utils import is_anonymous_id
 
 
@@ -814,6 +814,8 @@ class FakePersonHogClient:
         """Stateful mirror of the real RPC: validates ownership, creates new
         persons with deterministic UUIDv5s (preserving created_at for
         pre-existing ones), moves the distinct_ids, and bumps versions by 101.
+        A distinct_id that seeded the source person's UUID gets the salted
+        derivation, so it lands on a person of its own.
         Results are returned in request order, like the real service.
         """
         self.calls.append(_Call("split_person", request))
@@ -835,6 +837,8 @@ class FakePersonHogClient:
         splits: list[person_pb2.SplitResult] = []
         for did in request.distinct_ids_to_split:
             new_uuid = str(uuidFromDistinctId(request.team_id, did))
+            if new_uuid == source.uuid:
+                new_uuid = str(splitPersonUuid(request.team_id, did))
 
             existing = self._persons_by_uuid.get((request.team_id, new_uuid))
             if existing is not None:

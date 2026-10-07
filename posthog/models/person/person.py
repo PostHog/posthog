@@ -367,7 +367,9 @@ class Person(models.Model):
         The server creates each new person with a deterministic UUIDv5
         (matching ``uuidFromDistinctId``) and bumps versions by 101, higher
         than delete events (which use version + 100) so the split overrides
-        any deleted rows. Keep in sync with:
+        any deleted rows. A distinct_id that seeded the UUID of the person it
+        is split off gets the salted ``splitPersonUuid`` derivation instead,
+        because the plain one regenerates that same person. Keep in sync with:
         posthog/models/person/util.py (_delete_person) and
         rust/personhog-replica/src/storage/postgres/person.rs (SPLIT_VERSION_OFFSET).
         """

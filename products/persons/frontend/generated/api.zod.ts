@@ -54,7 +54,7 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *
- * The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
+ * The split runs asynchronously: a 201 response means the task was enqueued. The response lists each distinct_id the split moves and the UUID of the person it lands on, so a caller can address the new persons without polling. If you need to delete a split-off person after this call, look it up by that UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
  */
 export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
     main_distinct_id: zod
@@ -67,7 +67,7 @@ export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            'List of distinct_ids to \*\*move off\*\* this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.'
+            'List of distinct_ids to \*\*move off\*\* this person onto new single-id persons. The original person keeps every other distinct_id and its properties. The response reports the person each one lands on. Cannot be combined with `main_distinct_id`.'
         ),
 })
 

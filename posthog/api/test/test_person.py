@@ -1360,10 +1360,48 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertNotIn(person1.pk, moved.values())
             self.assertNotEqual(moved["move1"], moved["move2"])
 
+            # The response addresses the person each moved id actually lands on.
+            self.assertEqual(
+                {split["distinct_id"]: split["new_person_uuid"] for split in response.json()["splits"]},
+                {did: fake._persons_by_distinct_id[(self.team.id, did)].uuid for did in ["move1", "move2"]},
+            )
+
         # The partial-split guarantee: the original person keeps its properties.
         original = get_person_by_id(self.team.id, person1.pk)
         assert original is not None
         self.assertEqual(original.properties, {"$browser": "whatever", "$os": "Mac OS X"})
+
+    def test_split_people_reports_the_person_a_seeding_distinct_id_lands_on(self) -> None:
+        # This person carries the uuid a split of "creator" regenerates, so naming the new
+        # person by that plain derivation would hand the caller the person it split from.
+        person1 = _create_person(
+            team=self.team,
+            distinct_ids=["creator", "other"],
+            properties={},
+            uuid=uuidFromDistinctId(self.team.id, "creator"),
+            immediate=True,
+        )
+
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.id,
+                person_id=person1.pk,
+                uuid=str(person1.uuid),
+                distinct_ids=["creator", "other"],
+            )
+
+            response = self.client.post(
+                "/api/person/{}/split/".format(person1.pk),
+                {"distinct_ids_to_split": ["creator"]},
+            )
+            self.assertEqual(response.status_code, 201, response.content)
+
+            landed_on = fake._persons_by_distinct_id[(self.team.id, "creator")]
+            self.assertNotEqual(landed_on.id, person1.pk)
+            self.assertEqual(
+                response.json()["splits"],
+                [{"distinct_id": "creator", "new_person_uuid": landed_on.uuid}],
+            )
 
     def test_split_people_partial_rejects_unknown_distinct_id(self) -> None:
         person1 = _create_person(

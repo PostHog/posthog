@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.models import Person
-from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.models.person.missing_person import splitPersonUuid, uuidFromDistinctId
 from posthog.models.person.util import get_person_by_distinct_id, get_person_by_id
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person
@@ -28,11 +28,13 @@ class TestSplitPerson(BaseTest):
         mock_create_person,
         properties: dict | None = None,
         version: int = 0,
+        uuid: str | None = None,
     ) -> Person:
         person = create_person(
             team=self.team,
             properties=properties or {},
             version=version,
+            uuid=uuid,
         )
         for distinct_id in distinct_ids:
             add_distinct_id(person=person, distinct_id=distinct_id)
@@ -150,6 +152,26 @@ class TestSplitPerson(BaseTest):
             person.split_person(main_distinct_id="id1")
 
         expected_uuid = str(uuidFromDistinctId(self.team.id, "id2"))
+        assert mock_create_person.call_args.kwargs["uuid"] == expected_uuid
+        assert mock_create_pdi.call_args.kwargs["person_id"] == expected_uuid
+
+    def test_split_extracts_the_distinct_id_that_seeded_the_person_uuid(
+        self, mock_create_pdi, mock_create_person
+    ) -> None:
+        # The person was created for "id2", so it carries the UUID a split of
+        # "id2" regenerates. Reusing that UUID would move "id2" onto the person
+        # it is split off, and the split would do nothing at all.
+        seeded_uuid = str(uuidFromDistinctId(self.team.id, "id2"))
+
+        with fake_personhog_client() as fake:
+            person = self._setup_person(fake, ["id1", "id2"], mock_create_pdi, mock_create_person, uuid=seeded_uuid)
+
+            person.split_person(main_distinct_id="id1")
+
+            assert fake._persons_by_distinct_id[(self.team.id, "id2")].id != person.id
+            assert fake._persons_by_distinct_id[(self.team.id, "id1")].id == person.id
+
+        expected_uuid = str(splitPersonUuid(self.team.id, "id2"))
         assert mock_create_person.call_args.kwargs["uuid"] == expected_uuid
         assert mock_create_pdi.call_args.kwargs["person_id"] == expected_uuid
 

@@ -973,9 +973,9 @@ impl PersonLookup for PostgresStorage {
         // No FOR UPDATE on the source person: deletes lock PDI rows before person
         // rows, so locking the person first here would invert that order and risk
         // deadlock. The PDI locks below are what guard the reassignment.
-        let person_version: i64 = sqlx::query_scalar!(
+        let source = sqlx::query!(
             r#"
-            SELECT COALESCE(version, 0)::bigint as "version!"
+            SELECT uuid as "uuid!", COALESCE(version, 0)::bigint as "version!"
             FROM posthog_person
             WHERE team_id = $1 AND id = $2
             "#,
@@ -987,6 +987,7 @@ impl PersonLookup for PostgresStorage {
         .ok_or_else(|| {
             StorageError::NotFound(format!("person_id={person_id} (team_id={team_id})"))
         })?;
+        let person_version = source.version;
 
         // Lock the PDI rows and validate ownership under the lock: any requested
         // distinct_id that didn't lock either doesn't exist or belongs to another
@@ -1028,9 +1029,17 @@ impl PersonLookup for PostgresStorage {
             .map(|pdi| (pdi.distinct_id.as_str(), pdi.version))
             .collect();
         let dids: Vec<String> = distinct_ids_to_split.to_vec();
+        // Salt the one distinct id whose plain derivation regenerates the source person.
         let new_uuids: Vec<Uuid> = dids
             .iter()
-            .map(|did| personhog_common::persons::person_uuid(team_id, did))
+            .map(|did| {
+                let uuid = personhog_common::persons::person_uuid(team_id, did);
+                if uuid == source.uuid {
+                    personhog_common::persons::split_person_uuid(team_id, did)
+                } else {
+                    uuid
+                }
+            })
             .collect();
         let pdi_versions: Vec<i64> = dids
             .iter()
