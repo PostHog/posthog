@@ -1100,11 +1100,14 @@ from = [
     "products.experiments",
 ]
 
-# Billing alerts registers product-owned workflows and a schedule with the shared billing worker.
+# Billing alerts registers product-owned workflows and a schedule with the shared billing worker,
+# and its platform evaluation with the alerts platform's evaluation worker.
 
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.PLATFORM_EVALUATION_ACTIVITIES",
+    "backend\\.temporal\\.PLATFORM_EVALUATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
 ]

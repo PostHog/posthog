@@ -345,6 +345,13 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# Billing batch keys the platform starts per tick, across every team. Each key makes at most one
+# billing service call per organization, so this bounds the platform's load on that service.
+ALERTS_PLATFORM_BILLING_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_BILLING_KEYS_PER_TICK", 5, type_cast=int)
+if ALERTS_PLATFORM_BILLING_KEYS_PER_TICK <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_BILLING_KEYS_PER_TICK must be a positive integer, or no platform billing check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
