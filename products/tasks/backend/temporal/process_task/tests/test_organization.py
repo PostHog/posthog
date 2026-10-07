@@ -1,5 +1,7 @@
 import pytest
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.tasks.backend.exceptions import ComputeBillingLimitError, OrganizationExecutionError
 from products.tasks.backend.temporal.process_task.organization import check_organization_execution
 
@@ -29,3 +31,4 @@ def test_organization_execution_uses_current_state(team, pending_deletion, activ
             check_organization_execution(team.id)
         assert error.value.context["reason"] == reason
         assert error.value.non_retryable is True
+        assert is_expected_activity_failure(error.value)
