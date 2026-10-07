@@ -358,7 +358,7 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
-   Some clients use `render-ui` to display interactive apps alongside `exec` results. These apps fetch data through permitted read-only tools such as `query-trends` and `query-funnel`, advertised with `ui.visibility: ["app"]` to keep them hidden from the model. App tools use compact discovery schemas and full validation when called. Analytics metadata is optional for app calls and captured when supplied; model-facing tools still require it. Refresh the client's tool list and start a new conversation after changing tool descriptors.
+   Some clients display interactive apps with `render-ui`. Apps fetch data through read-only tools such as `query-trends` and `query-funnel`, which stay hidden from the model. After changing tools, refresh the client's tool list and start a new conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
