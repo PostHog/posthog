@@ -51,6 +51,18 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         other_project_team = Team.objects.create(organization=self.organization)
         return FeatureFlag.objects.create(team=other_project_team, created_by=self.user, key="replay-gate-v2")
 
+    def _store_gate(self, team: Team, location: str, reference: dict[str, Any]) -> None:
+        if location == "linked_flag":
+            set_linked_flag(team, reference)
+        else:
+            set_trigger_groups(team, {"flag": reference})
+
+    def _stored_gate(self, location: str) -> Any:
+        self.team.refresh_from_db()
+        if location == "linked_flag":
+            return self.team.session_recording_linked_flag
+        return self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"]
+
     def test_repairs_a_stale_key_and_is_idempotent(self) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-v2")
         set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
@@ -134,13 +146,14 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
 
-    def test_a_rename_landing_mid_scan_is_not_written_back(self) -> None:
+    @parameterized.expand([("linked_flag",), ("trigger_group",)])
+    def test_a_rename_landing_mid_scan_is_not_written_back(self, location: str) -> None:
         # Every flag key is read once per chunk, before the first team row of that chunk is
         # locked. A rename in that window relinks the team on its own, so writing the key the
         # chunk read leaves the team gating on a key no flag holds, which is the failure this
         # command exists to repair.
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-b")
-        set_linked_flag(self.team, {"id": flag.id, "key": "gate-a"})
+        self._store_gate(self.team, location, {"id": flag.id, "key": "gate-a"})
 
         def rename() -> None:
             flag.key = "gate-c"
@@ -149,15 +162,20 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
         report = self._run_live_with_edit_before_write(rename)
 
-        self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
+        assert self._stored_gate(location) == {"id": flag.id, "key": "gate-c"}
         # The relink did the write, so this run has nothing left to repair and claims none.
         assert report["repairs"] == []
         assert report["outcomes"] == {"already_correct": 1}
 
-    @parameterized.expand([("a_current_key", "other-current"), ("a_stale_key", "other-stale")])
+    @parameterized.expand(
+        [
+            (f"{location}_to_{name}", location, repointed_key)
+            for location in ("linked_flag", "trigger_group")
+            for name, repointed_key in (("a_current_key", "other-current"), ("a_stale_key", "other-stale"))
+        ]
+    )
     def test_a_repoint_mid_scan_is_reported_as_changed_rather_than_repaired(
-        self, _name: str, repointed_key: str
+        self, _name: str, location: str, repointed_key: str
     ) -> None:
         # An admin can send the gate to a different flag between the chunk read and the lock.
         # That edit is not this command's to touch. Reporting a repair here would name a key the
@@ -167,18 +185,17 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         # recording.
         stale_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
         other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-current")
-        set_linked_flag(self.team, {"id": stale_flag.id, "key": "gate-stale"})
+        self._store_gate(self.team, location, {"id": stale_flag.id, "key": "gate-stale"})
         repointed = {"id": other_flag.id, "key": repointed_key}
 
         report = self._run_live_with_edit_before_write(
-            lambda: set_linked_flag(Team.objects.get(pk=self.team.pk), repointed)
+            lambda: self._store_gate(Team.objects.get(pk=self.team.pk), location, repointed)
         )
 
-        self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == repointed
+        assert self._stored_gate(location) == repointed
         assert report["repairs"] == []
         assert report["outcomes"] == {"changed_mid_scan": 1}
-        assert report["unrepairable"][0]["location"] == "linked_flag"
+        assert report["unrepairable"][0]["location"] == location
 
     def test_a_flag_hard_deleted_at_write_time_writes_nothing(self) -> None:
         # The key is read again inside the team's row lock. A hard delete landing in that window
@@ -356,6 +373,18 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
 
         assert self._run("--live-run", teams=[self.team])["outcomes"] == expected_outcomes
 
+    def test_a_key_live_in_another_project_does_not_resolve_this_projects_group(self) -> None:
+        # One run scans both teams, so the key probe returns the other project's flag too.
+        other_project_team = Team.objects.create(organization=self.organization)
+        FeatureFlag.objects.create(team=other_project_team, created_by=self.user, key="replay-gate")
+        set_trigger_groups(self.team, {"flag": "replay-gate"})
+        set_trigger_groups(other_project_team, {"flag": "replay-gate"})
+
+        report = self._run(teams=[self.team, other_project_team])
+
+        assert report["outcomes"] == {"already_correct": 1, "key_unresolvable": 1}
+        assert [row["team_id"] for row in report["unrepairable"]] == [self.team.id]
+
     def test_repairs_one_group_without_moving_a_sibling_it_could_not_resolve(self) -> None:
         # Both groups name the same stale key, but only one stores an id to repair from. Moving the
         # other would rewrite a reference the report hands to a human as untouched.
@@ -399,7 +428,7 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         # The trigger group classifier checks the id only after the stored key fails to resolve.
         # The linked flag column checks the id first, so this order needs its own test.
         flag = self._create_unusable_flag(outcome)
-        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "replay-gate"}})
+        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": flag.key}})
         stored_before = self.team.session_recording_trigger_groups
 
         report = self._run("--live-run", teams=[self.team])

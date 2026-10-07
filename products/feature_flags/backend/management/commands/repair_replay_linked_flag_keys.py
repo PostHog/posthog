@@ -23,7 +23,7 @@ from collections import Counter
 from collections.abc import Iterator
 from dataclasses import fields, replace
 from enum import Enum, StrEnum, auto
-from typing import Any, assert_never
+from typing import Any, TypedDict, assert_never
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import QuerySet
@@ -129,10 +129,16 @@ class _Finding:
             case Location.TRIGGER_GROUPS_COLUMN:
                 where = "trigger groups column"
             case Location.TRIGGER_GROUP:
-                where = f"trigger group {self.group_id!r}"
+                where = f"trigger group {self.group_index} (id {self.group_id!r})"
             case _:
                 assert_never(self.location)
         return f"team {self.team_id} (project {self.project_id}) {where}"
+
+
+class _Resolution(TypedDict, total=False):
+    flag_id: int
+    old_key: str | None
+    new_key: str
 
 
 def _iter_team_chunks(queryset: QuerySet[Team], chunk_size: int) -> Iterator[list[Team]]:
@@ -281,14 +287,14 @@ class Command(BaseCommand):
 
     def _classify_linked_flag(
         self, linked_flag: Any, project_id: int, flags: _FlagIndex
-    ) -> tuple[Outcome, dict[str, Any]]:
+    ) -> tuple[Outcome, _Resolution]:
         # This column always stores an id, so the classification starts from it. The id names the
         # flag the team meant even after the key has moved on.
         stored_id = stored_flag_id(linked_flag)
         if stored_id is None:
             return Outcome.MALFORMED, {}
 
-        resolved: dict[str, Any] = {"flag_id": stored_id}
+        resolved: _Resolution = {"flag_id": stored_id}
         if (blocked := self._blocked_by(flag_id=stored_id, project_id=project_id, flags=flags)) is not None:
             return blocked, resolved
 
@@ -334,8 +340,8 @@ class Command(BaseCommand):
 
     def _classify_trigger_group_ref(
         self, ref: TriggerGroupFlagRef, project_id: int, flags: _FlagIndex
-    ) -> tuple[Outcome, dict[str, Any]]:
-        resolved: dict[str, Any] = {"flag_id": ref.flag_id} if ref.flag_id is not None else {}
+    ) -> tuple[Outcome, _Resolution]:
+        resolved: _Resolution = {"flag_id": ref.flag_id} if ref.flag_id is not None else {}
 
         if ref.key is None:
             return Outcome.MALFORMED, resolved
@@ -363,12 +369,12 @@ class Command(BaseCommand):
         which is the failure this command exists to repair. Reading inside the lock converges on
         the value `relink_teams` writes, because that relink takes this same row lock.
 
-        The write leaves a reference that an admin edited since the scan for the next run. The scan
-        classified the finding from a copy that the column no longer holds, so rewriting it would
-        put the pre-edit reference back and publish it to the SDKs. The report files it as
-        `changed_mid_scan` rather than counting it correct, because this run has checked the newly
-        stored reference against no flag key. That reference can be as stale as the one the scan
-        classified.
+        When an admin edited a reference after the scan, the write skips it and leaves it for the
+        next run. The scan classified the finding from a copy that the column no longer holds, so
+        rewriting it would put the pre-edit reference back and publish it to the SDKs. The report
+        files it as `changed_mid_scan` rather than counting it correct, because this run has
+        checked the newly stored reference against no flag key. That reference can be as stale as
+        the one the scan classified.
         """
         repairs = [
             (index, finding, finding.flag_id)
@@ -414,6 +420,15 @@ class Command(BaseCommand):
                     linked_flag = rewritten_linked_flag(locked_linked_flag, flag_id=flag_id, new_key=current_key)
                 else:
                     ref = locked_refs.get(finding.group_index) if isinstance(finding.group_index, int) else None
+                    if (
+                        ref is not None
+                        and ref.group_id == finding.group_id
+                        and ref.flag_id == flag_id
+                        and ref.key == current_key
+                    ):
+                        # A relink rewrites the stored reference, so this check runs before the match below.
+                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
+                        continue
                     # The match checks the group id and the stored reference as well as the index,
                     # so a group added, removed or reordered since the scan cannot shift a rewrite
                     # onto its neighbour. That holds even for a neighbour with a byte-identical
@@ -421,10 +436,6 @@ class Command(BaseCommand):
                     # and two groups can hold the same reference.
                     if ref is None or ref.group_id != finding.group_id or ref.stored_flag != finding.stored_flag:
                         written[index] = finding.written(Outcome.CHANGED_MID_SCAN)
-                        continue
-                    if ref.key == current_key:
-                        # A rename has moved the flag back onto the key this group already holds.
-                        written[index] = finding.written(Outcome.ALREADY_CORRECT)
                         continue
                     renames[ref.group_index] = current_key
 
