@@ -165,7 +165,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
-from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -2255,7 +2255,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         insight = existing.insight
         if became_live and insight is not None:
             check_can_add_insight_to_shared_dashboard(user, instance, insight.query)
-            check_can_add_insight_to_subscribed_dashboard(user, instance, insight.query)
+            if error := blocked_access_for_subscribed_dashboard_tile(user, instance, insight.query):
+                raise serializers.ValidationError(error)
 
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
@@ -3079,9 +3080,10 @@ class DashboardsViewSet(
             check_can_add_insight_to_shared_dashboard(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
             )
-            check_can_add_insight_to_subscribed_dashboard(
+            if error := blocked_access_for_subscribed_dashboard_tile(
                 cast(User, request.user), to_dashboard_obj, tile.insight.query, self.user_access_control
-            )
+            ):
+                raise serializers.ValidationError(error)
         try:
             with transaction.atomic():
                 tile.prepare_move_to_dashboard(to_dashboard)
@@ -3160,9 +3162,10 @@ class DashboardsViewSet(
             check_can_add_insight_to_shared_dashboard(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
             )
-            check_can_add_insight_to_subscribed_dashboard(
+            if error := blocked_access_for_subscribed_dashboard_tile(
                 cast(User, request.user), destination, tile.insight.query, user_access_control
-            )
+            ):
+                raise serializers.ValidationError(error)
         elif tile.text is not None:
             if DashboardTile.objects.filter(dashboard=destination, text=tile.text).exists():
                 raise exceptions.ValidationError("This text card is already on the destination dashboard.")

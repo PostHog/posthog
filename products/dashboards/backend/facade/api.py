@@ -28,7 +28,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 
 if TYPE_CHECKING:
     from products.product_analytics.backend.facade.models import Insight
@@ -238,7 +238,8 @@ def plan_insight_tile_placement(
             raise DashboardNotFound
         # The dashboard's public link must not expose a query the editor can't run.
         check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
-        check_can_add_insight_to_subscribed_dashboard(user, dashboard, query, user_access_control)
+        if error := blocked_access_for_subscribed_dashboard_tile(user, dashboard, query, user_access_control):
+            raise serializers.ValidationError(error)
     return InsightTilePlacement(dashboards)
 
 
@@ -289,7 +290,8 @@ def update_insight_dashboard_membership(
 
         # The dashboard's public link must not expose a query the editor can't run.
         check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
-        check_can_add_insight_to_subscribed_dashboard(user, dashboard, query, user_access_control)
+        if error := blocked_access_for_subscribed_dashboard_tile(user, dashboard, query, user_access_control):
+            raise serializers.ValidationError(error)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:

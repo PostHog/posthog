@@ -17,7 +17,7 @@ from posthog.utils import pluralize
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.facade.api import check_can_add_insight_to_subscribed_dashboard
+from products.exports.backend.facade.api import blocked_access_for_subscribed_dashboard_tile
 from products.product_analytics.backend.facade.api import (
     get_or_create_saved_insight,
     insights_including_soft_deleted_for_team,
@@ -377,9 +377,10 @@ class UpsertDashboardTool(MaxTool):
                     created_insights.append((artifact, insight))
 
             check_can_add_insight_to_shared_dashboard(self._user, dashboard, insight.query, self.user_access_control)
-            check_can_add_insight_to_subscribed_dashboard(
+            if error := blocked_access_for_subscribed_dashboard_tile(
                 self._user, dashboard, insight.query, self.user_access_control
-            )
+            ):
+                raise ValidationError(error)
 
             tile, created = DashboardTile.objects_including_soft_deleted.get_or_create(
                 dashboard=dashboard,
