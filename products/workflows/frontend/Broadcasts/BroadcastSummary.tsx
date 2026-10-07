@@ -19,7 +19,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -264,6 +264,8 @@ export function BroadcastSummary(): JSX.Element {
         broadcast,
         broadcastId,
         audienceProperties,
+        recipientListId,
+        recipientList,
         email,
         scheduleSummary,
         batchJobs,
@@ -429,7 +431,14 @@ export function BroadcastSummary(): JSX.Element {
                                         )}
                                     >
                                         <SummaryRow label="Audience">
-                                            {audienceProperties.length > 0 ? (
+                                            {recipientListId ? (
+                                                <span>
+                                                    Uploaded list
+                                                    {recipientList
+                                                        ? ` (${pluralize(recipientList.row_count, 'recipient')})`
+                                                        : ''}
+                                                </span>
+                                            ) : audienceProperties.length > 0 ? (
                                                 <div className="flex flex-col gap-2">
                                                     {nonCohortAudience.length > 0 ? (
                                                         <PropertyFiltersDisplay filters={nonCohortAudience} />

@@ -1,11 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconWarning } from '@posthog/icons'
+import { IconUpload, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { Scene } from 'scenes/sceneTypes'
@@ -18,10 +20,13 @@ import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
+import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
+import { BroadcastRecipientList } from '../audience/BroadcastRecipientList'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
-    const { blastRadius, blastRadiusLoading } = useValues(broadcastWizardLogic)
+    const { blastRadius, blastRadiusLoading, recipientListId } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -42,13 +47,15 @@ function AudienceSizePreview(): JSX.Element | null {
     return (
         <div className="text-muted">
             <span className={exceeded ? 'text-danger font-semibold' : undefined}>
-                approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} people.
+                {recipientListId
+                    ? `${humanFriendlyNumber(affected)} people from your list.`
+                    : `approximately ${humanFriendlyNumber(affected)} of ${humanFriendlyNumber(total)} people.`}
             </span>
             {exceeded && (
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
                     This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now. The limit
-                    can rise as the project keeps sending with low bounce and spam complaint rates. Add filters to
-                    narrow the audience, or{' '}
+                    can rise as the project keeps sending with low bounce and spam complaint rates.{' '}
+                    {recipientListId ? 'Upload a shorter list' : 'Add filters to narrow the audience'}, or{' '}
                     <Link
                         to={urls.workflows('reputation')}
                         target="_blank"
@@ -141,16 +148,39 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 }
 
 export function BroadcastRecipientsStep(): JSX.Element {
-    const { audienceProperties } = useValues(broadcastWizardLogic)
+    const { audienceProperties, recipientListId } = useValues(broadcastWizardLogic)
     const { setAudienceProperties } = useActions(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { openListModal } = useActions(broadcastAudienceListLogic(props))
     const [audienceListOpen, setAudienceListOpen] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canUploadList = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_BROADCAST_RECIPIENT_LISTS]
+
+    // A recipient list is the whole audience, so the filters and cohorts do not apply to it.
+    if (recipientListId) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div>
+                    <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
+                    <p className="m-0 text-secondary">Each row of your uploaded list gets one email.</p>
+                </div>
+                <div>
+                    <span className="font-semibold">This broadcast will reach</span> <AudienceSizePreview />
+                </div>
+                <BroadcastRecipientList />
+                <MessageCategoryPicker />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">
             <div>
                 <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.
+                    {canUploadList
+                        ? 'Filter by person properties or cohorts, or upload a list. Without filters, the broadcast goes to everyone.'
+                        : 'Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.'}
                 </p>
             </div>
             <div className="flex items-start justify-between gap-2">
@@ -191,7 +221,21 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
+            {canUploadList ? (
+                <div>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconUpload />}
+                        onClick={openListModal}
+                        data-attr="broadcast-audience-add-list"
+                    >
+                        Upload a list
+                    </LemonButton>
+                </div>
+            ) : null}
             <BroadcastAudienceCohorts />
+            {canUploadList ? <BroadcastAudienceListModal /> : null}
             <MessageCategoryPicker />
         </div>
     )

@@ -176,7 +176,9 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         type: z.literal('batch'),
         filters: z.object({
             // 'accounts' fans out one run per customer analytics account instead of per person
-            audience_type: z.enum(['persons', 'accounts']).optional(),
+            // 'recipient_list' fans out one run per row of the uploaded list in recipient_list_id
+            audience_type: z.enum(['persons', 'accounts', 'recipient_list']).optional(),
+            recipient_list_id: z.string().optional(),
             properties: z.array(z.any()),
             tag_names: z.array(z.string()).optional(),
             assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),

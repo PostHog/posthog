@@ -727,10 +727,12 @@ function StepTriggerConfigurationBatch({
         !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] &&
         currentTeam?.customer_analytics_config?.account_group_type_index != null
     const isAccountAudience = config.filters.audience_type === 'accounts'
+    const isRecipientList = config.filters.audience_type === 'recipient_list'
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
-            {(accountAudienceAvailable || isAccountAudience) && (
+            {/* Choosing People or Accounts replaces the filters, which would drop a recipient list without a warning. */}
+            {(accountAudienceAvailable || isAccountAudience) && !isRecipientList && (
                 <LemonSegmentedButton
                     size="small"
                     value={isAccountAudience ? 'accounts' : 'persons'}
@@ -753,6 +755,12 @@ function StepTriggerConfigurationBatch({
             </div>
             {isAccountAudience ? (
                 <StepTriggerBatchAccountFilters actionId={action.id} filters={config.filters} />
+            ) : isRecipientList ? (
+                // Person filters would read as "everyone" here, and saving them would replace the list.
+                <span className="text-secondary text-sm">
+                    This batch goes to an uploaded recipient list. Each row gets one run, and its columns are available
+                    as <code>{'{{ variables.<column> }}'}</code>.
+                </span>
             ) : (
                 <div>
                     <PropertyFilters

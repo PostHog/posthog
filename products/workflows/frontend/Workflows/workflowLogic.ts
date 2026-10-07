@@ -778,8 +778,9 @@ export interface workflowLogicActions {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
                                           assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                                           properties: any[]
+                                          recipient_list_id?: string | undefined
                                           tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
@@ -1054,8 +1055,9 @@ export interface workflowLogicActions {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
                                 assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                                audience_type?: 'accounts' | 'persons' | undefined
+                                audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                                 properties: any[]
+                                recipient_list_id?: string | undefined
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
@@ -1643,8 +1645,9 @@ export interface workflowLogicActions {
                                           all_roles_unassigned?: boolean | undefined
                                           assigned_to_user_ids?: number[] | undefined
                                           assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                                           properties: any[]
+                                          recipient_list_id?: string | undefined
                                           tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
@@ -1919,8 +1922,9 @@ export interface workflowLogicActions {
                                 all_roles_unassigned?: boolean | undefined
                                 assigned_to_user_ids?: number[] | undefined
                                 assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                                audience_type?: 'accounts' | 'persons' | undefined
+                                audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                                 properties: any[]
+                                recipient_list_id?: string | undefined
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
@@ -2104,8 +2108,9 @@ export interface workflowLogicActions {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
                       assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                      audience_type?: 'accounts' | 'persons' | undefined
+                      audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                       properties: any[]
+                      recipient_list_id?: string | undefined
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
@@ -2495,8 +2500,9 @@ export interface workflowLogicActions {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
                       assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                      audience_type?: 'accounts' | 'persons' | undefined
+                      audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                       properties: any[]
+                      recipient_list_id?: string | undefined
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
@@ -2831,8 +2837,9 @@ export interface workflowLogicActions {
             all_roles_unassigned?: boolean | undefined
             assigned_to_user_ids?: number[] | undefined
             assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-            audience_type?: 'accounts' | 'persons' | undefined
+            audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
             properties: any[]
+            recipient_list_id?: string | undefined
             tag_names?: string[] | undefined
         }
         variables: Record<string, any>
@@ -2901,8 +2908,9 @@ export interface workflowLogicMeta {
                                     all_roles_unassigned?: boolean | undefined
                                     assigned_to_user_ids?: number[] | undefined
                                     assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                                    audience_type?: 'accounts' | 'persons' | undefined
+                                    audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                                     properties: any[]
+                                    recipient_list_id?: string | undefined
                                     tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
@@ -3777,7 +3785,13 @@ export const workflowLogic = kea<workflowLogicType>([
                             } else if (action.config.type === 'batch') {
                                 // Accounts audiences may legitimately target every account — the
                                 // blast-radius preview and confirm token guard the send instead.
-                                if (
+                                // A recipient list is its own audience and takes no property filters.
+                                if (action.config.filters.audience_type === 'recipient_list') {
+                                    if (!action.config.filters.recipient_list_id) {
+                                        result.valid = false
+                                        result.errors = { filters: 'A recipient list is required' }
+                                    }
+                                } else if (
                                     action.config.filters.audience_type !== 'accounts' &&
                                     !action.config.filters.properties?.length
                                 ) {
@@ -4218,7 +4232,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     (config.type === 'event' &&
                         (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
                     config.type === 'schedule' ||
-                    (config.type === 'batch' && config.filters?.properties?.length > 0)
+                    (config.type === 'batch' &&
+                        (config.filters?.properties?.length > 0 || !!config.filters?.recipient_list_id))
                 if (hasValidTrigger) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
                 }

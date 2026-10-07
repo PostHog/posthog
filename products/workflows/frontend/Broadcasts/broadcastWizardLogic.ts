@@ -28,6 +28,8 @@ import {
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
     hogFlowsUserBlastRadiusCreate,
+    workflowRecipientListsCreate,
+    workflowRecipientListsRetrieve,
 } from 'products/workflows/frontend/generated/api'
 import type {
     BlastRadiusApi,
@@ -36,6 +38,7 @@ import type {
     HogFlowConversionApi,
     HogFlowEmailSendingRateLimitApi,
     HogFlowScheduleApi,
+    RecipientListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import {
@@ -67,6 +70,7 @@ import {
     saveComposerDraft,
     snapshotBroadcast,
 } from './broadcastUsage'
+import { parseRecipientCsv } from './recipientListCsv'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -85,6 +89,9 @@ export const BROADCAST_WIZARD_STEP_LABELS: Record<BroadcastWizardStep, string> =
 }
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
+
+// An uploaded list carries each recipient's address as the `email` column.
+const LIST_RECIPIENT_EMAIL = '{{ variables.email }}'
 
 // The value stored in the email action's `inputs.email.value`, mirroring the
 // `template-email` hog function template's default input shape.
@@ -179,6 +186,31 @@ function readAudience(broadcast: HogFlowApi): AnyPropertyFilter[] | undefined {
     return findAction(broadcast, 'trigger')?.config?.filters?.properties as AnyPropertyFilter[] | undefined
 }
 
+function readRecipientListId(broadcast: HogFlowApi): string | null {
+    return (findAction(broadcast, 'trigger')?.config?.filters?.recipient_list_id as string | undefined) ?? null
+}
+
+// A list sends to its own email column. Leaving a list restores the default address only when the list's
+// address is still set, so an address the user typed is kept.
+function withRecipientAddress(email: BroadcastEmailValue, recipientListId: string | null): BroadcastEmailValue {
+    if (recipientListId) {
+        return { ...email, to: { ...email.to, email: LIST_RECIPIENT_EMAIL } }
+    }
+    return email.to.email === LIST_RECIPIENT_EMAIL
+        ? { ...email, to: { ...email.to, email: DEFAULT_BROADCAST_EMAIL.to.email } }
+        : email
+}
+
+/** The batch trigger's filters: the uploaded list when there is one, otherwise the person filters. */
+export function buildAudienceFilters(
+    audienceProperties: AnyPropertyFilter[],
+    recipientListId: string | null | undefined
+): Record<string, any> {
+    return recipientListId
+        ? { audience_type: 'recipient_list', recipient_list_id: recipientListId, properties: [] }
+        : { properties: audienceProperties }
+}
+
 // Compares two server copies, so derived keys the server adds (such as bytecode) match on both sides.
 // A field the other edit changed must follow the saved copy, or the next save sends the stale value back
 // under a fresh base and overwrites that edit without a conflict. A field it did not change keeps the
@@ -199,6 +231,7 @@ export interface broadcastWizardLogicValues {
     integrationsLoading: boolean // integrationsLogic
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    audienceFilters: Record<string, any>
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
@@ -230,6 +263,9 @@ export interface broadcastWizardLogicValues {
     movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
+    recipientList: RecipientListApi | null
+    recipientListId: string | null
+    recipientListLoading: boolean
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
@@ -340,6 +376,21 @@ export interface broadcastWizardLogicActions {
     loadExternalEdit: () => {
         value: true
     }
+    loadRecipientList: () => any
+    loadRecipientListFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecipientListSuccess: (
+        recipientList: RecipientListApi | null,
+        payload?: any
+    ) => {
+        recipientList: RecipientListApi | null
+        payload?: any
+    }
     moveToDraft: () => {
         value: true
     }
@@ -351,6 +402,21 @@ export interface broadcastWizardLogicActions {
     }
     prevStep: () => {
         value: true
+    }
+    removeRecipientList: () => any
+    removeRecipientListFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    removeRecipientListSuccess: (
+        recipientList: null,
+        payload?: any
+    ) => {
+        recipientList: null
+        payload?: any
     }
     replayDeferredEdit: () => {
         value: true
@@ -432,6 +498,21 @@ export interface broadcastWizardLogicActions {
     showSavedDraftUrl: () => {
         value: true
     }
+    uploadRecipientList: (file: File) => File
+    uploadRecipientListFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    uploadRecipientListSuccess: (
+        recipientList: RecipientListApi,
+        payload?: File
+    ) => {
+        recipientList: RecipientListApi
+        payload?: File
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -446,7 +527,8 @@ export interface broadcastWizardLogicMeta {
             conversion: HogFlowConversionApi,
             email: BroadcastEmailValue,
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-            emailSettings: BroadcastEmailSettings
+            emailSettings: BroadcastEmailSettings,
+            recipientListId: string | null
         ) => HogFlowApi | null
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
         expandedRunIds: (expandedRunOverride: string[] | null, batchJobs: HogFlowBatchJobApi[]) => string[]
@@ -464,6 +546,10 @@ export interface broadcastWizardLogicMeta {
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         selectedSender: (email: BroadcastEmailValue, integrations: IntegrationType[] | null) => IntegrationType | null
+        audienceFilters: (
+            audienceProperties: AnyPropertyFilter[],
+            recipientListId: string | null
+        ) => Record<string, any>
         stepValidationErrors: (
             goalEnabled: boolean,
             conversion: HogFlowConversionApi,
@@ -587,10 +673,25 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         return null
                     }
                     return await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
-                        filters: { properties: values.audienceProperties },
+                        filters: values.audienceFilters,
                         dedupe_key: 'email',
                     })
                 },
+            },
+        ],
+        recipientList: [
+            null as RecipientListApi | null,
+            {
+                uploadRecipientList: async (file: File) => {
+                    return await workflowRecipientListsCreate(String(values.currentProjectId), {
+                        rows: parseRecipientCsv(await file.text()),
+                    })
+                },
+                loadRecipientList: async () =>
+                    values.recipientListId && values.currentProjectId
+                        ? await workflowRecipientListsRetrieve(String(values.currentProjectId), values.recipientListId)
+                        : null,
+                removeRecipientList: () => null,
             },
         ],
         batchJobs: [
@@ -659,6 +760,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 },
                 applyExternalEdit: (state, { broadcast, base }) =>
                     changedElsewhere(broadcast, base, readAudience) ? (readAudience(broadcast) ?? state) : state,
+            },
+        ],
+        recipientListId: [
+            null as string | null,
+            {
+                uploadRecipientListSuccess: (state, { recipientList }) => recipientList?.id ?? state,
+                removeRecipientList: () => null,
+                hydrateFromBroadcast: (_, { broadcast }) => readRecipientListId(broadcast),
+                applyExternalEdit: (state, { broadcast, base }) =>
+                    changedElsewhere(broadcast, base, readRecipientListId) ? readRecipientListId(broadcast) : state,
             },
         ],
         goalEnabled: [
@@ -841,6 +952,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.email,
                 s.emailRateLimit,
                 s.emailSettings,
+                s.recipientListId,
             ],
             (
                 broadcast: HogFlowApi | null,
@@ -850,7 +962,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 conversion: HogFlowConversionApi,
                 email: BroadcastEmailValue,
                 emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-                emailSettings: BroadcastEmailSettings
+                emailSettings: BroadcastEmailSettings,
+                recipientListId: string | null
             ): HogFlowApi | null =>
                 broadcast
                     ? ({
@@ -858,6 +971,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                           ...buildBroadcastPayload({
                               name,
                               audienceProperties,
+                              recipientListId,
                               goalEnabled,
                               conversion,
                               email,
@@ -927,6 +1041,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 integrations?.find(
                     (integration) => integration.kind === 'email' && integration.id === email.from?.integrationId
                 ) ?? null,
+        ],
+        audienceFilters: [
+            (s) => [s.audienceProperties, s.recipientListId],
+            (audienceProperties: AnyPropertyFilter[], recipientListId: string | null): Record<string, any> =>
+                buildAudienceFilters(audienceProperties, recipientListId),
         ],
         stepValidationErrors: [
             (s) => [
@@ -1085,6 +1204,37 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             await breakpoint(500)
             actions.loadBlastRadius()
         },
+        uploadRecipientListSuccess: ({ recipientList }) => {
+            if (!recipientList) {
+                return
+            }
+            actions.setEmail(withRecipientAddress(values.email, recipientList.id))
+            actions.loadBlastRadius()
+            // pinned: analytics event name
+            posthog.capture('broadcast recipient list uploaded', {
+                broadcast_id: values.broadcastId,
+                row_count: recipientList.row_count,
+                column_count: recipientList.columns.length,
+                dropped_rows:
+                    recipientList.dropped_invalid_email +
+                    recipientList.dropped_duplicate_email +
+                    recipientList.dropped_too_large,
+            })
+        },
+        uploadRecipientListFailure: ({ error, errorObject }) => {
+            // pinned: analytics event name
+            posthog.capture('broadcast recipient list upload failed', {
+                broadcast_id: values.broadcastId,
+                reason: errorObject?.detail || error,
+            })
+        },
+        removeRecipientList: () => {
+            const email = withRecipientAddress(values.email, null)
+            if (email !== values.email) {
+                actions.setEmail(email)
+            }
+            actions.loadBlastRadius()
+        },
         setStep: ({ step }) => {
             if (step === 'review') {
                 // A fresh preview mints the confirm token launch needs and shows an up-to-date count.
@@ -1132,8 +1282,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         },
         applyExternalEdit: ({ broadcast, base }) => {
             // PostHog AI can change the recipients, so the audience size shown must follow.
-            if (changedElsewhere(broadcast, base, readAudience)) {
+            if (changedElsewhere(broadcast, base, readRecipientListId)) {
+                actions.loadRecipientList()
                 actions.loadBlastRadius()
+            } else if (changedElsewhere(broadcast, base, readAudience)) {
+                actions.loadBlastRadius()
+            }
+            // The email reducer took the saved address, which belongs to the saved audience. An unsaved upload
+            // or removal of a list survives the edit, so the address that goes with it must survive too.
+            if (values.recipientListId !== readRecipientListId(broadcast)) {
+                actions.setEmail(withRecipientAddress(values.email, values.recipientListId))
             }
             const composerDraft = loadComposerDraft(broadcast.id)
             if (!composerDraft) {
@@ -1438,7 +1596,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                 // A fresh audience preview mints the confirm token the batch dispatch expects.
                 const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
-                    filters: { properties: values.audienceProperties },
+                    filters: values.audienceFilters,
                     dedupe_key: 'email',
                 })
 
@@ -1453,7 +1611,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     lemonToast.error(
                         `This project can send a broadcast to up to ${humanFriendlyNumber(
                             blastRadius.limit
-                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        )} people right now. ${
+                            values.recipientListId ? 'Upload a shorter list' : 'Add filters to narrow the audience'
+                        }, then launch again.`,
                         {
                             button: {
                                 label: 'See sending limits',
@@ -1525,6 +1685,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
+                    audience_source: values.recipientListId ? 'recipient_list' : 'filters',
                     has_goal: values.goalEnabled,
                     seconds_since_created: activated
                         ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
@@ -1652,6 +1813,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             actions.hydrateFromBroadcast(broadcast)
+            if (values.recipientListId) {
+                actions.loadRecipientList()
+            }
             if (broadcast.status !== 'draft') {
                 actions.loadBatchJobs()
             }
@@ -1801,6 +1965,7 @@ export function getMissingSenderIds(
 export function buildBroadcastPayload(values: {
     name: string
     audienceProperties: AnyPropertyFilter[]
+    recipientListId?: string | null
     goalEnabled: boolean
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
@@ -1822,7 +1987,11 @@ export function buildBroadcastPayload(values: {
                           ...action,
                           config: {
                               ...action.config,
-                              filters: { ...action.config?.filters, properties: values.audienceProperties },
+                              // A list replaces the filters outright, and so does leaving one.
+                              filters:
+                                  values.recipientListId || action.config?.filters?.recipient_list_id
+                                      ? buildAudienceFilters(values.audienceProperties, values.recipientListId)
+                                      : { ...action.config?.filters, properties: values.audienceProperties },
                           },
                       }
                     : action.type === 'function_email'
@@ -1859,7 +2028,7 @@ export function buildBroadcastPayload(values: {
                 updated_at: 0,
                 config: {
                     type: 'batch',
-                    filters: { properties: values.audienceProperties },
+                    filters: buildAudienceFilters(values.audienceProperties, values.recipientListId),
                 },
             },
             {

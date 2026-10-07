@@ -21,7 +21,7 @@ import {
 } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings, recipientList } =
         useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -126,7 +126,11 @@ export function BroadcastContentStep(): JSX.Element {
                 value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
-                variables={buildSampleGlobals({ type: 'batch' }, null)}
+                variables={buildSampleGlobals(
+                    { type: 'batch' },
+                    // Offers the uploaded list's columns as {{ variables.<column> }} in the editor.
+                    recipientList?.columns.map((key) => ({ key, type: 'string' })) ?? null
+                )}
                 fieldErrors={fieldErrors}
             />
             {email.to?.email && !email.to.email.includes('{{') ? (

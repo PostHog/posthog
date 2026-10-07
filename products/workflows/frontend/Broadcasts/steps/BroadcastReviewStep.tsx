@@ -61,6 +61,7 @@ function ReviewRow({
 export function BroadcastReviewStep(): JSX.Element {
     const {
         audienceProperties,
+        recipientListId,
         blastRadius,
         blastRadiusLoading,
         goalEnabled,
@@ -106,13 +107,16 @@ export function BroadcastReviewStep(): JSX.Element {
                         <Spinner />
                     ) : blastRadius ? (
                         <span>
-                            Approximately {humanFriendlyNumber(blastRadius.affected)} of{' '}
-                            {humanFriendlyNumber(blastRadius.total)} people
+                            {recipientListId
+                                ? `${humanFriendlyNumber(blastRadius.affected)} people from your uploaded list`
+                                : `Approximately ${humanFriendlyNumber(blastRadius.affected)} of ${humanFriendlyNumber(
+                                      blastRadius.total
+                                  )} people`}
                         </span>
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
                     )}
-                    {audienceProperties.length > 0 ? (
+                    {recipientListId ? null : audienceProperties.length > 0 ? (
                         <div className="flex flex-col gap-2">
                             {nonCohortAudience.length > 0 ? (
                                 <PropertyFiltersDisplay filters={nonCohortAudience} />

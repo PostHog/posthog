@@ -200,8 +200,9 @@ export interface stepDelayLogicActions {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
                       assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                      audience_type?: 'accounts' | 'persons' | undefined
+                      audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                       properties: any[]
+                      recipient_list_id?: string | undefined
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'
@@ -522,8 +523,9 @@ export interface stepDelayLogicActions {
                       all_roles_unassigned?: boolean | undefined
                       assigned_to_user_ids?: number[] | undefined
                       assignment_status?: 'all' | 'assigned' | 'unassigned' | undefined
-                      audience_type?: 'accounts' | 'persons' | undefined
+                      audience_type?: 'accounts' | 'persons' | 'recipient_list' | undefined
                       properties: any[]
+                      recipient_list_id?: string | undefined
                       tag_names?: string[] | undefined
                   }
                   type: 'batch'

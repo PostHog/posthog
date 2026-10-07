@@ -15,6 +15,17 @@ const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
 ]
 
+const LIST_FILTERS = { audience_type: 'recipient_list', recipient_list_id: 'list-1', properties: [] }
+
+const RECIPIENT_LIST = {
+    id: 'list-1',
+    row_count: 1,
+    columns: ['email', 'org'],
+    dropped_invalid_email: 0,
+    dropped_duplicate_email: 0,
+    dropped_too_large: 0,
+}
+
 function savedBroadcast(overrides: { name: string; subject: string; updatedAt: string }): HogFlowApi {
     return {
         id: 'broadcast-1',
@@ -371,6 +382,104 @@ describe('broadcastWizardLogic', () => {
             .toDispatchActions(['hydrateFromBroadcast', 'setStep'])
             .toMatchValues({ currentStep: 'content' })
         expect(router.values.searchParams).toEqual({ other: 'kept' })
+        draftLogic.unmount()
+    })
+
+    it('sends to an uploaded list at its email column, and goes back to filters when the list is removed', async () => {
+        let uploadedRows: unknown
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_recipient_lists/': async ({ request }) => {
+                    uploadedRows = ((await request.json()) as { rows: unknown }).rows
+                    return [201, RECIPIENT_LIST]
+                },
+            },
+        })
+
+        const file = new File(['email,org\nada@example.com,Hedgebox\n'], 'list.csv')
+        await expectLogic(logic, () => {
+            logic.actions.uploadRecipientList(file)
+        }).toDispatchActions(['uploadRecipientListSuccess'])
+
+        expect(uploadedRows).toEqual([{ email: 'ada@example.com', org: 'Hedgebox' }])
+        expect(logic.values.audienceFilters).toEqual(LIST_FILTERS)
+        expect(logic.values.email.to.email).toEqual('{{ variables.email }}')
+
+        logic.actions.removeRecipientList()
+        expect(logic.values.audienceFilters).toEqual({ properties: [] })
+        expect(logic.values.email.to.email).toEqual(DEFAULT_BROADCAST_EMAIL.to.email)
+    })
+
+    it.each([
+        {
+            case: 'an unsaved upload',
+            savedFilters: { properties: [] },
+            savedTo: DEFAULT_BROADCAST_EMAIL.to.email,
+            removeList: false,
+            expectedTo: '{{ variables.email }}',
+        },
+        {
+            case: 'an unsaved list removal',
+            savedFilters: LIST_FILTERS,
+            savedTo: '{{ variables.email }}',
+            removeList: true,
+            expectedTo: DEFAULT_BROADCAST_EMAIL.to.email,
+        },
+    ])(
+        'an edit saved elsewhere keeps the address that goes with $case',
+        async ({ savedFilters, savedTo, removeList, expectedTo }) => {
+            const withAudience = (broadcast: HogFlowApi): HogFlowApi => {
+                ;(broadcast.actions[0] as any).config.filters = savedFilters
+                ;(broadcast.actions[1] as any).config.inputs.email.value.to = { email: savedTo }
+                return broadcast
+            }
+            const base = withAudience(
+                savedBroadcast({ name: 'Incident update', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+            )
+            latest = withAudience(
+                savedBroadcast({
+                    name: 'Incident update',
+                    subject: 'Service restored',
+                    updatedAt: '2026-09-24T10:00:05Z',
+                })
+            )
+            logic.actions.uploadRecipientListSuccess(RECIPIENT_LIST)
+            logic.actions.draftAutosaved(base)
+            if (removeList) {
+                logic.actions.removeRecipientList()
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.resourceEdited({
+                    notification_type: 'resource_edited',
+                    team_id: 1,
+                    resource_type: 'HogFlow',
+                    resource_id: base.id,
+                    updated_at: latest.updated_at,
+                    actor_user_id: null,
+                })
+            })
+                .toDispatchActions(['applyExternalEdit'])
+                .toFinishAllListeners()
+
+            expect(logic.values.email).toMatchObject({ subject: 'Service restored', to: { email: expectedTo } })
+        }
+    )
+
+    it('reopens a draft that sends to a list without falling back to its filters', async () => {
+        latest = savedBroadcast({ name: 'Incident update', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+        ;(latest.actions[0] as any).config.filters = LIST_FILTERS
+        useMocks({
+            get: { '/api/projects/:team_id/workflow_recipient_lists/:id/': () => [200, RECIPIENT_LIST] },
+        })
+        const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+
+        await expectLogic(draftLogic, () => {
+            draftLogic.mount()
+        })
+            .toDispatchActions(['hydrateFromBroadcast', 'loadRecipientListSuccess'])
+            .toMatchValues({ recipientListId: 'list-1', recipientList: RECIPIENT_LIST })
+        expect((draftLogic.values.broadcastAsWorkflow?.actions[0] as any).config.filters).toEqual(LIST_FILTERS)
         draftLogic.unmount()
     })
 })
