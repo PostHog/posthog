@@ -511,6 +511,12 @@ describe('marketingAnalyticsLogic', () => {
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
+        const search = searchPerformanceLogic()
+        search.mount()
+        search.actions.setBreakdown('page')
+        search.actions.setMetrics('conversions')
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Configure a conversion goal')
         await expectLogic(logic, () =>
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...teamLogic.values.currentTeam!,
@@ -528,6 +534,12 @@ describe('marketingAnalyticsLogic', () => {
             })
         ).toFinishAllListeners()
         expect(logic.values.includeConversionGoals).toBe(true)
+        expect(search.values.displayMetrics).toBe('conversions')
+        expect(search.values.conversionsDisabledReason).toBeNull()
+        logic.actions.setAdPerformanceConversionGoals(false)
+        expect(search.values.displayMetrics).toBe('traffic')
+        expect(search.values.conversionsDisabledReason).toContain('Include conversion goals')
+        search.unmount()
     })
 
     it('separates an ad source missing its required tables from having no source at all', async () => {

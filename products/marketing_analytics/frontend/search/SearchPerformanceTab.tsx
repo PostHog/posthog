@@ -28,7 +28,7 @@ export function SearchPerformanceTab(): JSX.Element {
         sourceNotices,
         readySources,
         displayMetrics,
-        hasPaidSources,
+        conversionsDisabledReason,
         showPosition,
         canShowPosition,
         search,
@@ -120,10 +120,7 @@ export function SearchPerformanceTab(): JSX.Element {
                                             {
                                                 value: 'conversions',
                                                 label: 'Conversions',
-                                                disabledReason:
-                                                    !hasPaidSources && breakdown !== 'page'
-                                                        ? 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
-                                                        : undefined,
+                                                disabledReason: conversionsDisabledReason ?? undefined,
                                             },
                                         ]}
                                     />

@@ -9,6 +9,7 @@ import {
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
+    ConversionGoalFilter,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsSearchRow,
     MarketingAnalyticsSearchSource,
@@ -35,9 +36,11 @@ export interface searchPerformanceLogicValues extends Pick<
     | 'compareFilter'
     | 'integrationFilter'
     | 'includeConversionGoals'
+    | 'conversion_goals'
 > {
     metrics: SearchMetrics
     hasPaidSources: boolean
+    conversionsDisabledReason: string | null
     displayMetrics: SearchMetrics
     showPosition: boolean
     canShowPosition: boolean
@@ -91,6 +94,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 'compareFilter',
                 'integrationFilter',
                 'includeConversionGoals',
+                'conversion_goals',
             ],
         ],
         actions: [
@@ -187,10 +191,29 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             (sources: MarketingAnalyticsSearchSource[]): boolean =>
                 sources.some((source) => source.sourceType !== 'GoogleSearchConsole'),
         ],
+        conversionsDisabledReason: [
+            (s) => [s.hasPaidSources, s.breakdown, s.includeConversionGoals, s.conversion_goals],
+            (
+                hasPaidSources: boolean,
+                breakdown: SearchBreakdown,
+                includeConversionGoals: boolean,
+                conversionGoals: ConversionGoalFilter[]
+            ): string | null => {
+                if (hasPaidSources || (breakdown === 'page' && includeConversionGoals)) {
+                    return null
+                }
+                if (breakdown !== 'page') {
+                    return 'Reported conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
+                }
+                return conversionGoals.length > 0
+                    ? 'Turn on "Include conversion goals" to see PostHog conversions for organic landing pages.'
+                    : 'Configure a conversion goal in marketing analytics settings to see PostHog conversions for organic landing pages.'
+            },
+        ],
         displayMetrics: [
-            (s) => [s.hasPaidSources, s.metrics, s.breakdown],
-            (hasPaidSources: boolean, metrics: SearchMetrics, breakdown): SearchMetrics =>
-                hasPaidSources || breakdown === 'page' ? metrics : 'traffic',
+            (s) => [s.conversionsDisabledReason, s.metrics],
+            (conversionsDisabledReason: string | null, metrics: SearchMetrics): SearchMetrics =>
+                conversionsDisabledReason ? 'traffic' : metrics,
         ],
         canShowPosition: [
             (s) => [s.readySources, s.metrics],
