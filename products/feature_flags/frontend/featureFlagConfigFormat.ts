@@ -2,7 +2,15 @@ import { isApprovalRequiredError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config, TeamPublicType, TeamType } from '~/types'
+import {
+    FeatureFlagConfig,
+    FeatureFlagFilters,
+    FeatureFlagRulesV2Config,
+    FeatureFlagRulesV2ReturnType,
+    FeatureFlagRulesV2Rule,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 export type FeatureFlagConfigFormat = 'v1' | 'v2' | 'unsupported'
 
@@ -74,13 +82,46 @@ export function rulesV2CreateDisabledReason(
         : null
 }
 
-/** Whether the rules v2 editor is on and can edit this document: boolean return type, person assignment, no experiment rules. */
+export const RULES_V2_EDITABLE_RETURN_TYPES: FeatureFlagRulesV2ReturnType[] = ['boolean', 'string']
+
+export function isRulesV2Value(value: unknown, returnType: FeatureFlagRulesV2ReturnType): boolean {
+    switch (returnType) {
+        case 'boolean':
+            return typeof value === 'boolean'
+        case 'string':
+            return typeof value === 'string' && value !== ''
+        default:
+            return false
+    }
+}
+
+function isRulesV2EditableRule(rule: FeatureFlagRulesV2Rule, returnType: FeatureFlagRulesV2ReturnType): boolean {
+    switch (rule.rule_type) {
+        case 'targeted_release':
+        case 'percentage_rollout':
+            return isRulesV2Value(rule.value, returnType)
+        case 'experiment':
+            // A linked experiment and a shared holdout are managed with their experiment, not here.
+            return (
+                rule.experiment_id === null &&
+                (rule.holdout == null || rule.holdout.id === null) &&
+                rule.variants.every((variant) => isRulesV2Value(variant.value, returnType))
+            )
+        default:
+            return false
+    }
+}
+
+/**
+ * Whether the rules v2 editor is on and can edit this document: a return type it authors, person assignment, and
+ * rules it can show. Anything else stays read-only, so a save never rewrites what the editor cannot represent.
+ */
 export function isRulesV2EditableConfig(filters: FeatureFlagConfig, enabledFeatures: FeatureFlagsSet): boolean {
     return (
         !!enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR] &&
         isRulesV2FeatureFlagConfig(filters) &&
-        filters.return_type === 'boolean' &&
+        RULES_V2_EDITABLE_RETURN_TYPES.includes(filters.return_type) &&
         filters.aggregation_group_type_index == null &&
-        filters.rules.every((rule) => rule.rule_type !== 'experiment' && typeof rule.value === 'boolean')
+        filters.rules.every((rule) => isRulesV2EditableRule(rule, filters.return_type))
     )
 }

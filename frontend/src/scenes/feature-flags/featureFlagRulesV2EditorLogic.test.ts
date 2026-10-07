@@ -15,9 +15,17 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    FeatureFlagRulesV2Config,
+    FeatureFlagRulesV2DraftExperimentRule,
+    FeatureFlagRulesV2DraftRule,
+    FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
+import { moved, newVariant, rulesV2DraftErrors, withEqualWeights } from './featureFlagRulesV2Draft'
 import {
     NEW_TARGETED_RELEASE_RULE,
     featureFlagRulesV2EditorLogic,
@@ -31,6 +39,48 @@ jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
     ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
     refreshTreeItem: jest.fn(),
 }))
+
+// A variant split with fields the editor does not render: they must survive a save unchanged.
+const SPLIT_RULE = {
+    id: 'rule-split',
+    rule_type: 'experiment',
+    description: 'Layout test',
+    targeting: { properties: [] },
+    metadata: { owner: 'growth' },
+    experiment_id: null,
+    paused: false,
+    rollout_percentage: 50,
+    on_rollout_miss: 'continue',
+    assignment_algorithm: 'sha1_60_v1',
+    assign_by: 'person',
+    seed: 'split-seed',
+    variants: [
+        { key: 'control', weight: 33.34, value: 'standard' },
+        { key: 'compact', weight: 33.33, value: 'compact' },
+        { key: 'spacious', weight: 33.33, value: 'spacious' },
+    ],
+    holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 5 },
+    some_future_field: { kept: true },
+}
+
+const STRING_FLAG_RULES = [
+    { id: 'rule-beta', rule_type: 'targeted_release', targeting: { properties: [] }, value: 'compact' },
+    SPLIT_RULE,
+]
+
+const STRING_FLAG = {
+    ...NEW_FLAG,
+    id: 9,
+    key: 'checkout-layout',
+    name: 'Checkout layout',
+    version: 5,
+    filters: {
+        version: 2,
+        return_type: 'string',
+        default_value: null,
+        rules: STRING_FLAG_RULES,
+    },
+} as unknown as FeatureFlagType
 
 const V2_FLAG = {
     ...NEW_FLAG,
@@ -71,6 +121,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, V2_FLAG],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/9/`]: () => [200, STRING_FLAG],
             },
         })
         initKeaTests()
@@ -82,7 +133,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
     })
 
     describe('rules v2 editor documents', () => {
-        it('keeps stored rule ids, never holds a seed, and sends new rules without an id', () => {
+        it('echoes stored rule ids and seeds, and sends new rules without either', () => {
             const draft = rulesV2DraftFromFlag(V2_FLAG)
             const body = rulesV2WriteBody({
                 ...draft,
@@ -90,14 +141,23 @@ describe('featureFlagRulesV2EditorLogic', () => {
             })
 
             expect(body.filters.rules.map((rule) => rule.id)).toEqual(['rule-beta', 'rule-rollout', undefined])
-            expect(JSON.stringify(body)).not.toContain('seed')
+            expect(body.filters.rules.map((rule) => ('seed' in rule ? rule.seed : null))).toEqual([
+                null,
+                'stored-seed',
+                null,
+            ])
             expect(body).toMatchObject({ key: 'new-checkout', name: 'Checkout redesign', version: 3 })
             expect(body.filters).toMatchObject({ version: 2, return_type: 'boolean', default_value: false })
         })
 
+        it('sends a stored variant split back unchanged, seeds and unrendered fields included', () => {
+            const draft = rulesV2DraftFromFlag(STRING_FLAG)
+            expect(rulesV2WriteBody(draft).filters).toEqual(STRING_FLAG.filters)
+        })
+
         it('adds the rollout fields when a rule becomes a percentage rollout and drops them when it stops', () => {
             const rule = { ...NEW_TARGETED_RELEASE_RULE, id: 'rule-beta', description: 'Beta users' }
-            const rollout = withRuleType(rule, 'percentage_rollout')
+            const rollout = withRuleType(rule, 'percentage_rollout', 'boolean')
             expect(rollout).toEqual({
                 ...rule,
                 rule_type: 'percentage_rollout',
@@ -106,7 +166,101 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 assignment_algorithm: 'sha1_60_v1',
                 assign_by: 'person',
             })
-            expect(withRuleType(rollout, 'targeted_release')).toEqual(rule)
+            expect(withRuleType(rollout, 'targeted_release', 'boolean')).toEqual(rule)
+        })
+
+        it.each([
+            {
+                from: 'a targeted release',
+                rule: {
+                    id: 'rule-beta',
+                    rule_type: 'targeted_release',
+                    targeting: { properties: [] },
+                    value: 'compact',
+                },
+                rollout: { rollout_percentage: 100, on_rollout_miss: 'continue' },
+            },
+            {
+                from: 'a percentage rollout',
+                rule: {
+                    id: 'rule-rollout',
+                    rule_type: 'percentage_rollout',
+                    targeting: { properties: [] },
+                    value: 'compact',
+                    rollout_percentage: 30,
+                    on_rollout_miss: 'return_default',
+                    assignment_algorithm: 'sha1_60_v1',
+                    seed: 'stored-seed',
+                },
+                rollout: { rollout_percentage: 30, on_rollout_miss: 'return_default' },
+            },
+        ] as { from: string; rule: FeatureFlagRulesV2DraftRule; rollout: Record<string, unknown> }[])(
+            'turns $from into a variant split with no experiment and no client seed',
+            ({ rule, rollout }) => {
+                const split = withRuleType(rule, 'experiment', 'string') as FeatureFlagRulesV2DraftExperimentRule
+                expect(split).toMatchObject({
+                    id: rule.id,
+                    rule_type: 'experiment',
+                    experiment_id: null,
+                    paused: false,
+                    assignment_algorithm: 'sha1_60_v1',
+                    ...rollout,
+                    variants: [
+                        { key: 'control', weight: 50, value: 'control' },
+                        { key: 'test', weight: 50, value: 'test' },
+                    ],
+                })
+                expect(split).not.toHaveProperty('value')
+                expect(split.seed).toBeUndefined()
+                expect(split.holdout).toBeUndefined()
+            }
+        )
+
+        it('turns a variant split into a percentage rollout that keeps its rollout but not its seed', () => {
+            const rollout = withRuleType(
+                SPLIT_RULE as FeatureFlagRulesV2DraftExperimentRule,
+                'percentage_rollout',
+                'string'
+            )
+            expect(rollout).toEqual({
+                id: 'rule-split',
+                rule_type: 'percentage_rollout',
+                description: 'Layout test',
+                targeting: { properties: [] },
+                metadata: { owner: 'growth' },
+                value: '',
+                rollout_percentage: 50,
+                on_rollout_miss: 'continue',
+                assignment_algorithm: 'sha1_60_v1',
+                assign_by: 'person',
+            })
+        })
+
+        // As floats these add up to 100.00000000000001; the server totals them exactly.
+        it('accepts weights that total exactly 100 in hundredths', () => {
+            const variants = [
+                { key: 'control', weight: 64.04, value: 'standard' },
+                { key: 'compact', weight: 35.95, value: 'compact' },
+                { key: 'spacious', weight: 0.01, value: 'spacious' },
+            ]
+            const config = STRING_FLAG.filters as FeatureFlagRulesV2Config
+            expect(
+                rulesV2DraftErrors({ ...config, rules: [{ ...SPLIT_RULE, variants } as FeatureFlagRulesV2DraftRule] })
+            ).toEqual({})
+        })
+
+        it('adds, moves and removes variants, and distributes their weights to exactly 100', () => {
+            const variants = [...SPLIT_RULE.variants, newVariant('string', 3)]
+            expect(variants[3]).toEqual({ key: '', weight: 0, value: '' })
+            expect(moved(variants, 2, 0).map((variant) => variant.key)).toEqual(['spacious', 'control', 'compact', ''])
+            expect(withEqualWeights(variants).map((variant) => variant.weight)).toEqual([25, 25, 25, 25])
+            expect(withEqualWeights(variants.slice(0, 3)).map((variant) => variant.weight)).toEqual([
+                33.34, 33.33, 33.33,
+            ])
+            expect(withEqualWeights([...variants, ...variants, ...variants]).map((v) => v.weight)).toEqual([
+                ...Array(4).fill(8.34),
+                ...Array(8).fill(8.33),
+            ])
         })
 
         it.each([
@@ -129,6 +283,73 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 { detail: 'filters.rules[2].id: Rule ids are server-assigned.' },
                 'filters.rules[2]',
                 'filters.rules[2].id: Rule ids are server-assigned.',
+            ],
+            [
+                { detail: 'filters.rules[1].variants[2].weight: Must have at most 2 decimal places.' },
+                'filters.rules[1].variants[2].weight',
+                'Must have at most 2 decimal places.',
+            ],
+            [
+                { detail: 'filters.rules[1].variants[0].key: Variant keys must be unique.' },
+                'filters.rules[1].variants[0].key',
+                'Variant keys must be unique.',
+            ],
+            [
+                {
+                    detail: 'filters.rules[0].variants[1].value: Must be a non-empty string other than $false or $true.',
+                },
+                'filters.rules[0].variants[1].value',
+                'Must be a non-empty string other than $false or $true.',
+            ],
+            [
+                { detail: 'filters.rules[0].variants[1].label: Unknown field.' },
+                'filters.rules[0].variants[1]',
+                'filters.rules[0].variants[1].label: Unknown field.',
+            ],
+            [
+                { detail: 'filters.rules[0].variants: Variant weights must total exactly 100.' },
+                'filters.rules[0].variants',
+                'Variant weights must total exactly 100.',
+            ],
+            [
+                { detail: 'filters.rules[3].holdout.exclusion_percentage: Must be between 0 and 100.' },
+                'filters.rules[3].holdout.exclusion_percentage',
+                'Must be between 0 and 100.',
+            ],
+            [
+                { detail: 'filters.rules[3].holdout.id: Must be null.' },
+                'filters.rules[3].holdout',
+                'filters.rules[3].holdout.id: Must be null.',
+            ],
+            [
+                { detail: 'filters.rules[3].holdout.seed: Assignment seeds are server-assigned.' },
+                'filters.rules[3].holdout.seed',
+                'Assignment seeds are server-assigned.',
+            ],
+            [
+                { detail: 'filters.rules[2].seed: Cannot be changed; resetting assignment is a separate operation.' },
+                'filters.rules[2].seed',
+                'Cannot be changed; resetting assignment is a separate operation.',
+            ],
+            [
+                { detail: 'filters.rules[2].paused: Must be true or false.' },
+                'filters.rules[2].paused',
+                'Must be true or false.',
+            ],
+            [
+                { detail: 'filters.rules[2].experiment_id: Linking an experiment is not available yet.' },
+                'filters.rules[2]',
+                'filters.rules[2].experiment_id: Linking an experiment is not available yet.',
+            ],
+            [
+                { detail: 'filters.return_type: Cannot be changed after the flag is created.' },
+                'filters.return_type',
+                'Cannot be changed after the flag is created.',
+            ],
+            [
+                { detail: 'filters: This flag cannot be updated through this API.' },
+                null,
+                'filters: This flag cannot be updated through this API.',
             ],
             [
                 { attr: 'tags', detail: 'Add at least one tag. This project requires new feature flags to be tagged.' },
@@ -170,6 +391,53 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '8')
     })
 
+    it('creates a string flag with a variant split that carries no seed and no experiment', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 10 })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+
+        logic.actions.setDraft({ key: 'checkout-layout' })
+        logic.actions.setReturnType('string')
+        logic.actions.addRule()
+        expect(logic.values.draft.config).toMatchObject({ return_type: 'string', default_value: null })
+        expect(logic.values.saveDisabledReason).toBe('Rule 1: Enter a value.')
+        logic.actions.updateRule(0, withRuleType(logic.values.draft.config.rules[0], 'experiment', 'string'))
+        logic.actions.updateRule(0, {
+            ...(logic.values.draft.config.rules[0] as FeatureFlagRulesV2DraftExperimentRule),
+            paused: true,
+            holdout: { id: null, exclusion_percentage: 10 },
+        })
+        expect(logic.values.saveDisabledReason).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+            .toDispatchActions(['saveRulesV2FlagSuccess'])
+            .toFinishAllListeners()
+
+        const body = create.mock.calls[0][1] as Record<string, any>
+        expect(body.filters).toEqual({
+            version: 2,
+            return_type: 'string',
+            default_value: null,
+            rules: [
+                {
+                    rule_type: 'experiment',
+                    targeting: { properties: [] },
+                    experiment_id: null,
+                    paused: true,
+                    rollout_percentage: 100,
+                    on_rollout_miss: 'continue',
+                    assignment_algorithm: 'sha1_60_v1',
+                    assign_by: 'person',
+                    variants: [
+                        { key: 'control', weight: 50, value: 'control' },
+                        { key: 'test', weight: 50, value: 'test' },
+                    ],
+                    holdout: { id: null, exclusion_percentage: 10 },
+                },
+            ],
+        })
+        expect(JSON.stringify(body)).not.toContain('seed')
+    })
+
     it('blocks a create in a project that requires evaluation contexts, which a rules v2 create cannot set', () => {
         enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, require_evaluation_contexts: true })
@@ -209,8 +477,8 @@ describe('featureFlagRulesV2EditorLogic', () => {
 
             const body = update.mock.calls[0][1] as Record<string, any>
             expect(body.version).toBe(3)
-            expect(body.filters.rules.map((rule: { id: string }) => rule.id)).toEqual(['rule-rollout', 'rule-beta'])
-            expect(JSON.stringify(body)).not.toContain('seed')
+            const [stored0, stored1] = (V2_FLAG.filters as FeatureFlagRulesV2Config).rules
+            expect(body.filters.rules).toEqual([stored1, stored0])
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '7')
             expect(pageLogic.values).toMatchObject({ isEditingFlag: false, featureFlag: { version: 4 } })
         })
@@ -404,6 +672,156 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 isEditingFlag: false,
                 featureFlag: { name: 'Renamed elsewhere', version: 4 },
             })
+        })
+    })
+    describe('editing a variant split', () => {
+        let logic: ReturnType<typeof featureFlagRulesV2EditorLogic.build>
+
+        const split = (): FeatureFlagRulesV2DraftExperimentRule =>
+            logic.values.draft.config.rules[1] as FeatureFlagRulesV2DraftExperimentRule
+        const setSplit = (fields: Partial<FeatureFlagRulesV2DraftExperimentRule>): void =>
+            logic.actions.updateRule(1, { ...split(), ...fields })
+        const setVariant = (index: number, fields: Record<string, unknown>): void =>
+            setSplit({ variants: split().variants.map((v, i) => (i === index ? { ...v, ...fields } : v)) })
+
+        beforeEach(async () => {
+            const pageLogic = featureFlagLogic({ id: 9 })
+            pageLogic.mount()
+            await expectLogic(pageLogic, () => pageLogic.actions.editFeatureFlag(true))
+                .toDispatchActions(['loadFeatureFlagSuccess'])
+                .toFinishAllListeners()
+            logic = featureFlagRulesV2EditorLogic({ id: 9 })
+            logic.mount()
+        })
+
+        it('changes another rule and moves the split without touching any field of the split', async () => {
+            const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
+
+            logic.actions.updateRule(0, { ...STRING_FLAG_RULES[0], value: 'spacious' } as FeatureFlagRulesV2DraftRule)
+            logic.actions.moveRule(1, 0)
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+                .toDispatchActions(['saveRulesV2FlagSuccess'])
+                .toFinishAllListeners()
+
+            const body = update.mock.calls[0][1] as Record<string, any>
+            expect(body.version).toBe(5)
+            expect(body.filters.rules).toEqual([
+                SPLIT_RULE,
+                { id: 'rule-beta', rule_type: 'targeted_release', targeting: { properties: [] }, value: 'spacious' },
+            ])
+        })
+
+        it('edits variants and the holdout, echoing both seeds and keeping fields it does not show', async () => {
+            const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
+
+            setSplit({ variants: moved(split().variants, 2, 0) })
+            setSplit({ variants: split().variants.filter((variant) => variant.key !== 'compact') })
+            setVariant(0, { weight: 50 })
+            setVariant(1, { weight: 50 })
+            setSplit({ holdout: { ...split().holdout!, exclusion_percentage: 7.5 }, paused: true })
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+                .toDispatchActions(['saveRulesV2FlagSuccess'])
+                .toFinishAllListeners()
+
+            const sent = (update.mock.calls[0][1] as Record<string, any>).filters.rules[1]
+            expect(sent).toEqual({
+                ...SPLIT_RULE,
+                paused: true,
+                variants: [
+                    { key: 'spacious', weight: 50, value: 'spacious' },
+                    { key: 'control', weight: 50, value: 'standard' },
+                ],
+                holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 7.5 },
+            })
+        })
+
+        it('removes the holdout with its seed, and adds one back without a seed', () => {
+            const { holdout: _holdout, ...withoutHoldout } = split()
+            logic.actions.updateRule(1, withoutHoldout)
+            expect(split()).not.toHaveProperty('holdout')
+
+            setSplit({ holdout: { id: null, exclusion_percentage: 10 } })
+            expect(rulesV2WriteBody(logic.values.draft).filters.rules[1]).toMatchObject({
+                seed: 'split-seed',
+                holdout: { id: null, exclusion_percentage: 10 },
+            })
+            expect(JSON.stringify(split().holdout)).not.toContain('seed')
+        })
+
+        it.each([
+            {
+                check: 'weights that do not total 100',
+                edit: () => setVariant(0, { weight: 23.34 }),
+                field: 'filters.rules[1].variants',
+                error: 'Variant weights must total 100% (now 90%).',
+            },
+            {
+                check: 'a weight with three decimal places',
+                edit: () => setVariant(1, { weight: 33.333 }),
+                field: 'filters.rules[1].variants[1].weight',
+                error: 'Must have at most two decimal places.',
+            },
+            {
+                check: 'a duplicate key',
+                edit: () => setVariant(2, { key: 'control' }),
+                field: 'filters.rules[1].variants[2].key',
+                error: 'Variant keys must be unique.',
+            },
+            {
+                check: 'a key with a dot',
+                edit: () => setVariant(2, { key: 'layout.v2' }),
+                field: 'filters.rules[1].variants[2].key',
+                error: 'Only letters, numbers, hyphens (-) and underscores (_) are allowed.',
+            },
+            {
+                check: 'an empty key',
+                edit: () => setVariant(2, { key: '' }),
+                field: 'filters.rules[1].variants[2].key',
+                error: 'Enter a key.',
+            },
+            {
+                check: 'an empty string value',
+                edit: () => setVariant(0, { value: '' }),
+                field: 'filters.rules[1].variants[0].value',
+                error: 'Enter a value.',
+            },
+            {
+                check: 'a value of another type',
+                edit: () => setVariant(0, { value: true }),
+                field: 'filters.rules[1].variants[0].value',
+                error: 'Enter a value.',
+            },
+            {
+                check: 'a single variant',
+                edit: () => setSplit({ variants: [{ key: 'control', weight: 100, value: 'standard' }] }),
+                field: 'filters.rules[1].variants',
+                error: 'Add at least 2 variants.',
+            },
+            {
+                check: 'a holdout above 100%',
+                edit: () => setSplit({ holdout: { id: null, exclusion_percentage: 101 } }),
+                field: 'filters.rules[1].holdout.exclusion_percentage',
+                error: 'Must be between 0 and 100.',
+            },
+        ])('flags $check against its field and blocks the save', ({ edit, field, error }) => {
+            expect(logic.values.saveDisabledReason).toBeNull()
+            edit()
+            expect(logic.values.fieldError(field)).toBe(error)
+            expect(logic.values.saveDisabledReason).toBe(`Rule 2: ${error}`)
+        })
+
+        it('shows a server error on the variant field it names', async () => {
+            jest.spyOn(api, 'update').mockRejectedValue({
+                status: 400,
+                detail: 'filters.rules[1].variants[2].value: Must be a non-empty string other than $false or $true.',
+            })
+
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag()).toDispatchActions([
+                'saveRulesV2FlagFailure',
+            ])
+            expect(logic.values.fieldError('filters.rules[1].variants[2].value')).toBe(
+                'Must be a non-empty string other than $false or $true.'
+            )
         })
     })
 })

@@ -4566,42 +4566,47 @@ describe('the editor a flag opens in', () => {
         expect(await editorKind(id, editorEnabled, search)).toBe(expected)
     })
 
-    // The editor builds its draft from the stored rules and would throw on, or drop, what it cannot represent.
+    const V2_FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`
+    const SPLIT_RULE = {
+        id: 'rule-split',
+        rule_type: 'experiment',
+        targeting: { properties: [] },
+        experiment_id: null,
+        paused: false,
+        variants: [
+            { key: 'control', weight: 50, value: false },
+            { key: 'test', weight: 50, value: true },
+        ],
+        rollout_percentage: 100,
+        on_rollout_miss: 'continue',
+        assignment_algorithm: 'sha1_60_v1',
+        assign_by: 'person',
+        seed: 'stored-seed',
+    }
+
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
-        ['group assignment', { aggregation_group_type_index: 0 }],
+        ['a variant split without an experiment', { rules: [SPLIT_RULE] }],
         [
-            'an experiment rule',
-            {
-                rules: [
-                    {
-                        id: 'rule-experiment',
-                        rule_type: 'experiment',
-                        targeting: { properties: [] },
-                        experiment_id: 12,
-                        paused: false,
-                        variants: [
-                            { key: 'control', weight: 50, value: false },
-                            { key: 'test', weight: 50, value: true },
-                        ],
-                        rollout_percentage: 100,
-                        on_rollout_miss: 'continue',
-                        assignment_algorithm: 'sha1_60_v1',
-                        assign_by: 'person',
-                        seed: 'stored-seed',
-                    },
-                ],
-            },
+            'a variant split with a holdout of its own',
+            { rules: [{ ...SPLIT_RULE, holdout: { id: null, seed: 'holdout-seed', exclusion_percentage: 5 } }] },
+        ],
+    ])('a v2 flag with %s opens the rules v2 editor', async (_label, filters) => {
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
+        expect(await editorKind(7, true)).toBe('rules_v2')
+    })
+
+    // The editor would drop, or rewrite on save, what it cannot represent.
+    it.each([
+        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['group assignment', { aggregation_group_type_index: 0 }],
+        ['a linked experiment', { rules: [{ ...SPLIT_RULE, experiment_id: 12 }] }],
+        [
+            'a shared holdout',
+            { rules: [{ ...SPLIT_RULE, holdout: { id: 3, seed: 'holdout-seed', exclusion_percentage: 5 } }] },
         ],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [
-                    200,
-                    { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } },
-                ],
-            },
-        })
+        useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })
         expect(await editorKind(7, true)).toBeNull()
     })
 })
