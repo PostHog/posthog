@@ -6,7 +6,9 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -217,7 +219,8 @@ describe('firstRunGalleryLogic', () => {
                 recommended,
                 ready,
             })
-            expect(router.values.searchParams).toMatchObject({ templateId })
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.workflows())
+            expect(router.values.searchParams).toEqual({ template: templateId })
         } else {
             expect(capture).not.toHaveBeenCalledWith('workflows first run template picked', expect.anything())
             expect(router.values.searchParams).toEqual(originalSearchParams)

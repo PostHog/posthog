@@ -1,5 +1,5 @@
-import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
-import { findTestSendSkipReason } from './broadcastTestSendLogic'
+import { findTestSendSkipReason } from './findTestSendSkipReason'
+import { HogflowTestResult } from './steps/types'
 
 const result = (partial: Partial<HogflowTestResult>): HogflowTestResult =>
     ({ status: 'success', nextActionId: null, ...partial }) as HogflowTestResult
