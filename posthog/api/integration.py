@@ -2737,8 +2737,8 @@ class IntegrationViewSet(
 
         return Response(IntegrationSerializer(email.integration).data)
 
-    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @extend_schema(responses={200: EmailDomainConnectCheckSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
     def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         domain = request.query_params.get("domain", "")
