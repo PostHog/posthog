@@ -941,6 +941,56 @@ describe('ActionFilterRow', () => {
                 })
             }
         )
+
+        it('reopens a flag calls series on the event and picks it again in the rebuilt menu', async () => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
+            try {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+                })
+                const flagCallsNode: SeriesNode = {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'posthog.flag_evaluations',
+                    table_name: 'posthog.flag_evaluations',
+                    name: 'Feature flag called',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                }
+                const { logic, onChange } = setup([flagCallsNode])
+                renderRow(logic, {
+                    ...INLINE_CONTEXT,
+                    node: flagCallsNode,
+                    flagCallsFromFlagEvaluations: true,
+                    actionsTaxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                        TaxonomicFilterGroupType.DataWarehouse,
+                    ],
+                })
+
+                await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+                await userEvent.type(await screen.findByTestId('menu-filter-search'), '$feature_flag_called')
+                const options = await screen.findAllByRole('option')
+                const flagCalledOption = options.find((option) => option.textContent?.includes('Feature flag called'))
+                await userEvent.click(flagCalledOption!)
+
+                await waitFor(() => {
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                    expect(lastCall?.[0]).toEqual(
+                        expect.objectContaining({
+                            kind: NodeKind.DataWarehouseNode,
+                            table_name: 'posthog.flag_evaluations',
+                        })
+                    )
+                })
+            } finally {
+                // The flag persists across tests, so the classic-picker tests after this one need it off.
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            }
+        })
     })
 
     describe('all events entity filter', () => {

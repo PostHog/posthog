@@ -170,6 +170,8 @@ export function ActionFilterRow({
     const { allTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
     const isDataWarehouseFilter = isWarehouseSeriesNode(node)
+    // A flag calls series stands in for the event, so the picker reopens on the event row, not on the table.
+    const isFlagCallsSeries = isDataWarehouseFilter && node.table_name === FLAG_EVALUATIONS_TABLE
     // The data warehouse map leaves out PostHog tables, which a flag calls series reads.
     const seriesTable = isDataWarehouseFilter ? allTablesMap[node.table_name] : undefined
     useEffect(() => {
@@ -385,7 +387,11 @@ export function ActionFilterRow({
         name = node.name || String(nodeKey)
         // The node's own key is the event actually queried — `name` can be a rename (e.g. set via
         // the API), and committing it as the taxonomic value would select a non-existent event.
-        value = nodeKey != null && nodeKey !== '' ? nodeKey : (node.name ?? null)
+        value = isFlagCallsSeries
+            ? FEATURE_FLAG_CALLED_EVENT
+            : nodeKey != null && nodeKey !== ''
+              ? nodeKey
+              : (node.name ?? null)
     }
 
     const seriesIndicator =
@@ -408,13 +414,15 @@ export function ActionFilterRow({
     // affordance (selected row floats to the top, with the series' rename applied).
     // The picker still opens on the suggested-filters surface either way. All-events
     // and inline-group series have no single committed row to promote.
-    const initialGroupType = isDataWarehouseFilter
-        ? dataWarehouseGroupType
-        : isActionsSeriesNode(node)
-          ? TaxonomicFilterGroupType.Actions
-          : isEventsSeriesNode(node) && !isAllEventsSeriesNode(node) && nodeKey != null && nodeKey !== ''
-            ? TaxonomicFilterGroupType.Events
-            : TaxonomicFilterGroupType.SuggestedFilters
+    const initialGroupType = isFlagCallsSeries
+        ? TaxonomicFilterGroupType.Events
+        : isDataWarehouseFilter
+          ? dataWarehouseGroupType
+          : isActionsSeriesNode(node)
+            ? TaxonomicFilterGroupType.Actions
+            : isEventsSeriesNode(node) && !isAllEventsSeriesNode(node) && nodeKey != null && nodeKey !== ''
+              ? TaxonomicFilterGroupType.Events
+              : TaxonomicFilterGroupType.SuggestedFilters
 
     // DWH events are not supported in inline events yet
     const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
@@ -770,9 +778,7 @@ export function ActionFilterRow({
                                 : undefined
                         }
                         // Without static values, a flag calls filter looks up its values in events instead.
-                        staticValueOptions={
-                            isDataWarehouseFilter && node.table_name === FLAG_EVALUATIONS_TABLE ? () => [] : undefined
-                        }
+                        staticValueOptions={isFlagCallsSeries ? () => [] : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
