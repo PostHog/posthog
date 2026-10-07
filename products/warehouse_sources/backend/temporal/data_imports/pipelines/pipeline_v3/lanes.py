@@ -91,6 +91,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         models: ImportJobModels,
         source_cursor_manager: SourceCursorManager[Any] | None = None,
         incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_run_uuid: str | None = None,
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
     ) -> None:
@@ -108,6 +109,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             models=models,
             source_cursor_manager=source_cursor_manager,
             incremental_checkpoints_allowed=incremental_checkpoints_allowed,
+            resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
         )

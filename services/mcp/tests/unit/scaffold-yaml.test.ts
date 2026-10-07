@@ -2,7 +2,14 @@ import path from 'path'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 
-import { buildAddedTool, findCandidates, mergeWithExisting, renderCategoryYaml } from '../../scripts/scaffold-yaml'
+import {
+    buildAddedTool,
+    findCandidates,
+    formatAddNextSteps,
+    formatCandidates,
+    mergeWithExisting,
+    renderCategoryYaml,
+} from '../../scripts/scaffold-yaml'
 import type { Claims, OpenApiSpec } from '../../scripts/scaffold-yaml'
 import { CategoryConfigSchema } from '../../scripts/yaml-config-schema'
 import type { CategoryConfig } from '../../scripts/yaml-config-schema'
@@ -43,8 +50,18 @@ function validIds(product: string): Set<string> {
 }
 
 const thingsOps = [
-    { operationId: 'things_list', method: 'GET', path: '/api/projects/{project_id}/things/' },
-    { operationId: 'things_create', method: 'POST', path: '/api/projects/{project_id}/things/' },
+    {
+        operationId: 'things_list',
+        method: 'GET',
+        path: '/api/projects/{project_id}/things/',
+        needsExplicitScopes: false,
+    },
+    {
+        operationId: 'things_create',
+        method: 'POST',
+        path: '/api/projects/{project_id}/things/',
+        needsExplicitScopes: false,
+    },
 ]
 
 describe('scaffold-yaml', () => {
@@ -125,6 +142,65 @@ describe('scaffold-yaml', () => {
         expect(CategoryConfigSchema.parse(parseYaml(content)).tools).toEqual({
             'things-create': { operation: 'things_create', enabled: true },
         })
+    })
+
+    it.each([
+        {
+            name: 'the spec lists scopes',
+            operation: { security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+            asks: false,
+        },
+        { name: 'the spec lists no scopes', operation: {}, asks: true },
+        {
+            name: 'the API picks the scopes per request',
+            operation: { security: [{ PersonalAPIKeyAuth: ['thing:read'] }], 'x-request-dependent-scopes': true },
+            asks: true,
+        },
+        {
+            name: 'only the named variant lacks spec scopes',
+            operation: {},
+            asks: true,
+            otherVariant: { security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+        },
+    ])('asks for scopes after an add when $name', ({ operation, asks, otherVariant }) => {
+        // Dedup prefers the /api/projects/ variant, so the add below names the other one.
+        const scopedSpec: OpenApiSpec = {
+            paths: {
+                '/api/environments/{project_id}/things/': {
+                    get: { operationId: 'things_list', 'x-product': ['things'], ...operation },
+                },
+                '/api/projects/{project_id}/things/': {
+                    get: { operationId: 'things_list_2', 'x-product': ['things'], ...(otherVariant ?? operation) },
+                },
+            },
+        }
+
+        const { op } = buildAddedTool(scopedSpec, 'things', 'things_list', claims())
+
+        expect(formatAddNextSteps(op).includes('add "scopes"')).toBe(asks)
+    })
+
+    it.each([
+        { name: 'only the default file', files: ['/repo/products/things/mcp/tools.yaml'], fileHint: null },
+        {
+            name: 'several files',
+            files: ['/repo/products/things/mcp/extras.yaml', '/repo/products/things/mcp/tools.yaml'],
+            fileHint: 'Add --file <path> to write it to another file',
+        },
+        {
+            name: 'one file that is not the default',
+            files: ['/repo/products/things/mcp/extras.yaml'],
+            fileHint: 'has no tools.yaml, so add --file <path>',
+        },
+    ])('offers --file in the candidate list for a product with $name', ({ files, fileHint }) => {
+        const defaultFile = files.find((file) => file.endsWith('/tools.yaml'))
+
+        const output = formatCandidates(findCandidates(spec, 'things', new Set()), 'things', files, defaultFile)
+
+        expect(output.includes('--file')).toBe(fileHint !== null)
+        if (fileHint) {
+            expect(output).toContain(fileHint)
+        }
     })
 
     it.each([

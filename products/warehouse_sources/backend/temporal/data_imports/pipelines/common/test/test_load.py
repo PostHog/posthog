@@ -61,10 +61,16 @@ def _make_schema(
 
 
 def _make_helper(
-    *, file_uris: list[str] | None = None, live_row_count: int | None = None, live_size_mib: float | None = None
+    *,
+    file_uris: list[str] | None = None,
+    live_row_count: int | None = None,
+    live_size_mib: float | None = None,
+    file_sizes: dict[str, int] | None = None,
 ) -> MagicMock:
+    delta_table = MagicMock()
+    delta_table._table.get_add_file_sizes.return_value = file_sizes or {}
     return MagicMock(
-        get_delta_table=AsyncMock(return_value=MagicMock()),
+        get_delta_table=AsyncMock(return_value=delta_table),
         get_file_uris=AsyncMock(return_value=file_uris or []),
         get_live_row_count=AsyncMock(return_value=live_row_count),
         get_live_size_mib=AsyncMock(return_value=live_size_mib),
@@ -159,13 +165,30 @@ class TestRunPostLoadDeltaMaintenance:
         # was called with that stale snapshot, raising FileNotFoundError on files maintenance just removed.
         schema = _make_schema(is_cdc=is_cdc)
         post_maintenance_uris = ["s3://bucket/orders/compacted.parquet"]
-        helper = _make_helper(file_uris=post_maintenance_uris)
+        helper = _make_helper(file_uris=post_maintenance_uris, file_sizes={"compacted.parquet": 123})
 
         _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental" if is_cdc else None)
 
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
+        assert prepare_s3.await_args.kwargs["file_sizes"] == {"compacted.parquet": 123}
+
+    @pytest.mark.asyncio
+    async def test_a_refreshed_file_listing_also_refreshes_the_file_sizes(self) -> None:
+        # A retry after a vanished source file copies the files a compaction just wrote. Their sizes
+        # must reach the copy step with them, or the old snapshot's sizes select the copy path.
+        helper = _make_helper(file_uris=["s3://bucket/orders/p0.parquet"], file_sizes={"p0.parquet": 1})
+
+        _, prepare_s3 = await _run_post_load(_make_schema(is_cdc=False), helper)
+
+        assert prepare_s3.await_args is not None
+        helper.get_file_uris.return_value = ["s3://bucket/orders/compacted.parquet"]
+        helper.get_delta_table.return_value._table.get_add_file_sizes.return_value = {"compacted.parquet": 2}
+        refreshed = await prepare_s3.await_args.kwargs["refresh_file_uris"]()
+
+        assert refreshed == ["s3://bucket/orders/compacted.parquet"]
+        assert prepare_s3.await_args.kwargs["file_sizes"] == {"compacted.parquet": 2}
 
 
 class TestRegisterTableRowCount:

@@ -218,7 +218,9 @@ class PipelineV3(Generic[ResumableData]):
             or source_response.cdc_write_mode is not None
         )
 
-        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
+        self._delta_table_ref = DeltaTableRef(
+            self._resource_name, self._job, self._logger, expect_missing=models.table is None
+        )
 
         attempt = current_import_attempt()
         self._attempt = attempt
