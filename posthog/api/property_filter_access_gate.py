@@ -1,10 +1,11 @@
-"""Save-time table-access check for property filters that scheduled jobs run without a user.
+"""Table-access check for property filters at save time.
 
-An action's step filters and a team's test-account filters are evaluated by background jobs
-that have no acting user, such as the web analytics weekly digest and the achievements sweep.
-Those jobs run with warehouse access control bypassed, so the person who saves a filter must be
-able to read every warehouse table it reaches. Otherwise the filter would be an escalation
-channel: point it at a restricted table through a join, and read the effect in the output.
+Background jobs evaluate the step filters of an action and the test-account filters of a team.
+The web analytics weekly digest and the achievements sweep are two of these jobs. These jobs
+have no user, so they bypass warehouse access control. The person who saves a filter must
+therefore have read access to each warehouse table that the filter reaches. Without this check,
+a person could point a filter at a denied table through a join and read the effect in the
+output of the job.
 """
 
 from typing import Any
@@ -20,10 +21,14 @@ from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User
 
+# The only filter types that can reach a warehouse table. Event and person property filters cannot.
+_WAREHOUSE_REACHING_TYPES = frozenset({"data_warehouse", "data_warehouse_person_property", "hogql"})
+
 
 def table_blocking_property_filters(user: User, team: Team, filters: list[dict[str, Any]]) -> str | None:
     """The first warehouse table the user cannot read among those the filters reach, or None
     when the filters pass the check."""
+    filters = [f for f in filters if f.get("type") in _WAREHOUSE_REACHING_TYPES]
     if not filters:
         return None
     # No access rule can deny a table in an organization without the feature, so the filters are
@@ -53,7 +58,3 @@ def table_blocking_property_filters(user: User, team: Team, filters: list[dict[s
         except Exception:
             continue
     return None
-
-
-def access_denied_message(table_name: str) -> str:
-    return f"This filter uses the table '{table_name}', which you don't have access to."
