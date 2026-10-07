@@ -117,7 +117,7 @@ export interface mcpStoreLogicValues {
     installationsLoading: boolean
     installedServerUrls: Set<string>
     installedTemplateIds: Set<string>
-    installingTemplateId: string | null
+    installingTemplateIds: string[]
     isCustomServerFormSubmitting: boolean
     isCustomServerFormValid: boolean
     recommendedServers: MCPServerTemplateApi[]
@@ -145,8 +145,8 @@ export interface mcpStoreLogicActions {
     installTemplate: ({ templateId }: { templateId: string }) => {
         templateId: string
     }
-    installTemplateFinished: () => {
-        value: true
+    installTemplateFinished: ({ templateId }: { templateId: string }) => {
+        templateId: string
     }
     loadInstallationTools: ({ installationId }: { installationId: string }) => {
         installationId: string
@@ -439,7 +439,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         setInstallations: (installations: MCPServerInstallationApi[]) => ({ installations }),
         connectTemplate: (template: MCPServerTemplateApi) => ({ template }),
         installTemplate: ({ templateId }: { templateId: string }) => ({ templateId }),
-        installTemplateFinished: true,
+        installTemplateFinished: ({ templateId }: { templateId: string }) => ({ templateId }),
         loadInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
         refreshInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
         setToolApprovalState: ({
@@ -520,11 +520,11 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 },
             },
         ],
-        installingTemplateId: [
-            null as string | null,
+        installingTemplateIds: [
+            [] as string[],
             {
-                installTemplate: (_, { templateId }) => templateId,
-                installTemplateFinished: () => null,
+                installTemplate: (state, { templateId }) => [...state, templateId],
+                installTemplateFinished: (state, { templateId }) => state.filter((id) => id !== templateId),
             },
         ],
         sceneView: [
@@ -814,7 +814,7 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
             } catch (e: any) {
                 lemonToast.error(e.detail || 'Failed to install server')
             }
-            actions.installTemplateFinished()
+            actions.installTemplateFinished({ templateId })
         },
         setToolApprovalState: async ({ installationId, toolName, approvalState }) => {
             // Optimistic update already applied in the reducer. Reload from server on failure.

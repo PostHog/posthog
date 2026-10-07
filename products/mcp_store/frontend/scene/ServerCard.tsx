@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function ServerCard({ server }: Props): JSX.Element {
-    const { installedServerUrls, installations, installingTemplateId } = useValues(mcpStoreLogic)
+    const { installedServerUrls, installations, installingTemplateIds } = useValues(mcpStoreLogic)
     const { connectTemplate, selectServer, uninstallServer } = useActions(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -54,7 +54,7 @@ export function ServerCard({ server }: Props): JSX.Element {
                         size="small"
                         type="primary"
                         onClick={() => connectTemplate(server)}
-                        loading={installingTemplateId === server.id}
+                        loading={installingTemplateIds.includes(server.id)}
                         disabledReason={restrictedReason}
                         stopPropagation
                     >

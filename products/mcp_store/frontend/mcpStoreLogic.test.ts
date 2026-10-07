@@ -110,20 +110,28 @@ describe('mcpStoreLogic', () => {
         ])
     })
 
-    it('shows the template as installing until the install request fails', async () => {
-        let rejectInstall: (error: unknown) => void = () => {}
-        mocked.mcpServerInstallationsInstallTemplateCreate.mockReturnValue(
-            new Promise((_, reject) => {
-                rejectInstall = reject
-            })
+    it('shows each template as installing until its own install request fails', async () => {
+        const rejectInstall: Record<string, (error: unknown) => void> = {}
+        mocked.mcpServerInstallationsInstallTemplateCreate.mockImplementation(
+            (_projectId, { template_id }) =>
+                new Promise((_, reject) => {
+                    rejectInstall[template_id] = reject
+                })
         )
 
         logic.actions.connectTemplate(template('linear', 'oauth'))
-        expect(logic.values.installingTemplateId).toEqual('linear')
+        logic.actions.connectTemplate(template('notion', 'oauth'))
+        expect(logic.values.installingTemplateIds).toEqual(['linear', 'notion'])
 
-        rejectInstall({ detail: 'OAuth discovery failed.' })
+        rejectInstall.linear({ detail: 'OAuth discovery failed.' })
+        await expectLogic(logic).toDispatchActions([
+            logic.actionCreators.installTemplateFinished({ templateId: 'linear' }),
+        ])
+        expect(logic.values.installingTemplateIds).toEqual(['notion'])
+
+        rejectInstall.notion({ detail: 'OAuth discovery failed.' })
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.installingTemplateId).toBeNull()
+        expect(logic.values.installingTemplateIds).toEqual([])
     })
 
     it('asks for the API key of an api_key template instead of sending a request without it', async () => {
