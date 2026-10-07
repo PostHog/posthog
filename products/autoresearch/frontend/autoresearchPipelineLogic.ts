@@ -655,8 +655,8 @@ export interface autoresearchPipelineLogicMeta {
             champion: AutoresearchModelApi | null,
             runs: AutoresearchRunApi[],
             onlinePerformanceRows: OnlinePerformanceRow[],
-            modelsLoaded: any,
-            runsLoaded: any
+            modelsLoaded: boolean,
+            runsLoaded: boolean
         ) => LifecycleStep[] | null
     }
 }
