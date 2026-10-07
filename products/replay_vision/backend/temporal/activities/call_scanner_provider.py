@@ -886,6 +886,19 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await _generate(convo)
+        except ValueError as exc:
+            if not _is_runaway_number(exc):
+                record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
+                raise
+            # The SDK parses the JSON answer inside `generate_content`, so a number the model never stopped writing
+            # raises here instead of reaching validation. It is bad output, so re-prompt rather than re-run inline.
+            last_error = "a number in the response had thousands of digits"
+            last_was_empty = False
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
+            logger.warning("replay_vision.call_scanner_provider.runaway_number", step=step.name, attempt=attempt + 1)
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                convo.append(types.Part(text=_RUNAWAY_NUMBER_CORRECTION))
+            continue
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
@@ -949,6 +962,16 @@ async def _run_step(
         provider_refused=last_was_empty,
     )
     return _StepResult(output=None, provider_refused=last_was_empty)
+
+
+_RUNAWAY_NUMBER_CORRECTION = (
+    "\n\nYour previous attempt failed: a number in it ran on for thousands of digits. Write every number as a "
+    "short value, such as whole seconds of video time. Respond with raw JSON only."
+)
+
+
+def _is_runaway_number(exc: ValueError) -> bool:
+    return "integer string conversion" in str(exc)
 
 
 def _hit_output_cap(response: Any) -> bool:

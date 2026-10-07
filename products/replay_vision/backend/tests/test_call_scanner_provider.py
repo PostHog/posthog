@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import pytest
@@ -60,7 +60,7 @@ class _Resp:
 
 
 class _FakeModels:
-    def __init__(self, responses: list[_Resp]) -> None:
+    def __init__(self, responses: Sequence[_Resp | Exception]) -> None:
         self._it = iter(responses)
         self.calls: list[dict[str, Any]] = []
 
@@ -68,11 +68,14 @@ class _FakeModels:
         # Snapshot `contents` — the driver mutates the same list across turns, so a live reference would
         # show every call the final length.
         self.calls.append({**kwargs, "contents": list(kwargs["contents"])})
-        return next(self._it)
+        response = next(self._it)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class _FakeClient:
-    def __init__(self, responses: list[_Resp]) -> None:
+    def __init__(self, responses: Sequence[_Resp | Exception]) -> None:
         self.models = _FakeModels(responses)
 
 
@@ -243,9 +246,16 @@ async def test_step_survives_a_response_with_no_candidates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_step_re_prompts_once_on_invalid_json() -> None:
+@pytest.mark.parametrize(
+    "first",
+    [
+        _Resp(text="not json"),
+        ValueError("Exceeds the limit (4300 digits) for integer string conversion: value has 16266 digits"),
+    ],
+)
+async def test_step_re_prompts_once_on_invalid_json(first: _Resp | Exception) -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
-    client = _FakeClient([_Resp(text="not json"), _Resp(text='{"verdict":"yes"}')])
+    client = _FakeClient([first, _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
     assert len(client.models.calls) == 2  # initial + one re-prompt
