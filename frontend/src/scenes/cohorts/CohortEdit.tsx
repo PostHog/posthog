@@ -312,8 +312,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
 
                         <ButtonPrimitive
                             onClick={() => {
+                                if (typeof cohort.id !== 'number') {
+                                    return
+                                }
                                 captureMessageAudienceClicked('cohort', 'broadcast')
-                                router.actions.push(urlForCohortBroadcast(cohort))
+                                router.actions.push(urlForCohortBroadcast({ id: cohort.id, name: cohort.name }))
                             }}
                             disabledReasons={broadcastDisabledReason ? { [broadcastDisabledReason]: true } : {}}
                             data-attr={`${RESOURCE_TYPE}-send-broadcast`}

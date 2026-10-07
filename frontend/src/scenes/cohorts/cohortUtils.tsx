@@ -733,9 +733,6 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
     return null
 }
 
-export function urlForCohortBroadcast(cohort: CohortType): string {
-    return messageAudienceUrl(
-        { properties: cohortAudienceProperties({ id: cohort.id as number, name: cohort.name }), source: 'cohort' },
-        'broadcast'
-    )
+export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
+    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
 }

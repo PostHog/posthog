@@ -67,7 +67,9 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                             <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')
-                                    router.actions.push(urlForCohortBroadcast(cohort))
+                                    router.actions.push(
+                                        urlForCohortBroadcast({ id: cohortIdNumber, name: cohort.name })
+                                    )
                                 }}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason ?? undefined}
