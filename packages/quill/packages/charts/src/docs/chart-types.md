@@ -97,6 +97,7 @@ There is no `series` or `labels`.
 - Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
 - The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
   It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
+  Links resolve their endpoints by array index by default; for links that name string node ids, call `sankeyLayout().nodeId((node) => node.id)` first.
 
 ## Sparkline
 

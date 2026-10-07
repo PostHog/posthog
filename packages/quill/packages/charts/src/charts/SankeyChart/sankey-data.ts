@@ -295,6 +295,9 @@ export function sankeyHitAt(
     let best: { index: number; distance: number } | null = null
     for (let i = 0; i < layout.links.length; i++) {
         const link = layout.links[i]
+        if (link.value === 0) {
+            continue
+        }
         const startX = link.source.x1
         const endX = link.target.x0
         if (cursor.x < startX || cursor.x > endX || endX <= startX) {

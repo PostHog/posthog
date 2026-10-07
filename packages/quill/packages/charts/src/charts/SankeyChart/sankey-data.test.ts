@@ -143,6 +143,20 @@ describe('sankeyHitAt', () => {
         expect(sankeyHitAt(thin, cursor)).toEqual({ kind: 'link', index })
     })
 
+    it('does not hit a zero-value ribbon', () => {
+        const withZero = layoutOf({
+            nodes: [{ id: 'start' }, { id: 'a' }, { id: 'b' }],
+            links: [
+                { source: 'start', target: 'a', value: 30 },
+                { source: 'start', target: 'b', value: 0 },
+            ],
+        })
+        const index = withZero.links.findIndex((l) => l.target.id === 'b')
+        const link = withZero.links[index]
+        const cursor = { x: (link.source.x1 + link.target.x0) / 2, y: (link.y0 + link.y1) / 2 }
+        expect(sankeyHitAt(withZero, cursor)).toBeNull()
+    })
+
     it('hits a zero-value node across the 1px the draw code floors it to', () => {
         const withOrphan = layoutOf({ nodes: [...NODES, { id: 'orphan' }], links: LINKS })
         const orphan = withOrphan.nodes.find((n) => n.id === 'orphan')!

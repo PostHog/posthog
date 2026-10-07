@@ -48,6 +48,9 @@ function graphKey(
     ])
 }
 
+/** Used when `theme.colors` is empty, as `Heatmap` does for its accent. */
+const FALLBACK_NODE_COLOR = '#1d4aff'
+
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onError,
     ...rest
@@ -108,10 +111,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const label = node.label ?? node.id
             if (!slots.has(label)) {
-                slots.set(label, theme.colors[slots.size % theme.colors.length])
+                slots.set(label, theme.colors[slots.size % theme.colors.length] || FALLBACK_NODE_COLOR)
             }
         }
-        return (label: string): string => slots.get(label) ?? theme.colors[0]
+        return (label: string): string => slots.get(label) ?? (theme.colors[0] || FALLBACK_NODE_COLOR)
     }, [nodes, theme.colors])
 
     const layout = useMemo<SankeyChartLayout<NodeMeta, LinkMeta>>(

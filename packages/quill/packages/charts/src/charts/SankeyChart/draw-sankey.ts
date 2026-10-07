@@ -25,6 +25,10 @@ function traceLink(ctx: CanvasRenderingContext2D, link: SankeyLinkDatum): void {
 }
 
 function strokeLink(ctx: CanvasRenderingContext2D, link: SankeyLinkDatum, color: string, opacity: number): void {
+    // A zero-valued link carries no flow, so the 1px floor below must not draw it.
+    if (link.value === 0) {
+        return
+    }
     traceLink(ctx, link)
     ctx.save()
     ctx.globalAlpha *= opacity
