@@ -38,7 +38,7 @@ QUIZZES_PARENT = KlausFanOutParent(
 )
 
 
-@dataclass
+@dataclass(frozen=False)
 class KlausEndpointConfig:
     name: str
     # Path under https://{subdomain}.zendesk.com/qa. Fan-out paths carry the parent's path_param placeholder.

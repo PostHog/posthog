@@ -39,7 +39,7 @@ class KlausRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class KlausResumeConfig:
     # Next page number to request, in the server's own page indexing. None means
     # "start the stream at its first page" — used when the fan-out bookmark advances
