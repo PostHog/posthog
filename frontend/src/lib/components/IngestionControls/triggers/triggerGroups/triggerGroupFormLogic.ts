@@ -23,9 +23,9 @@ function isValidRegex(pattern: string): boolean {
     }
 }
 
-export type UrlPatternResult = { url: string } | { error: 'empty' | 'invalid' | 'duplicate' }
+type UrlPatternResult = { url: string } | { error: 'empty' | 'invalid' | 'duplicate' }
 
-export function prepareUrlPattern(raw: string, existing: UrlTriggerConfig[]): UrlPatternResult {
+function prepareUrlPattern(raw: string, existing: UrlTriggerConfig[]): UrlPatternResult {
     const trimmedUrl = raw.trim()
     if (!trimmedUrl) {
         return { error: 'empty' }
