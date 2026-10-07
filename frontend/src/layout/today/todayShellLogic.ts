@@ -38,7 +38,7 @@ function isUnder(path: string, root: string): boolean {
 const RAIL_PANE_HOME: Record<TodayRailPane, () => string> = {
     home: () => urls.projectHomepage(),
     spaces: () => urls.ai(),
-    views: () => urls.viewsNew(),
+    views: () => urls.views(),
     products: () => urls.tools(),
 }
 

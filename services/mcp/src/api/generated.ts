@@ -11273,6 +11273,57 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface AddSourcesRequest {
+      /**
+         * IDs of up to 50 existing sources to attach to this destination.
+         * @maxItems 50
+         */
+      source_ids: string[];
+      /** Start a full resync for each enabled table newly attached. */
+      resync?: boolean;
+    }
+
+    /**
+     * One source that writes to a destination. Shape only — never used to deserialize.
+     */
+    export interface SyncedSource {
+      /** The source's id. */
+      id: string;
+      /** How the source is labelled in the UI, prefix included. */
+      name: string;
+      /** Which connector this is, e.g. Stripe or Postgres. */
+      source_type: string;
+      /** True when only some of the source's tables reach this destination, through their own override. */
+      via_table_override: boolean;
+    }
+
+    export interface SkippedSource {
+      /** ID of the source that was not attached. */
+      id: string;
+      /** Name of the source that was not attached. */
+      name: string;
+      /** Why the source was not attached. */
+      reason: string;
+    }
+
+    export interface ResyncFailure {
+      /** ID of the table whose resync did not start. */
+      schema_id: string;
+      /** Why the resync did not start. */
+      detail: string;
+    }
+
+    export interface AddSourcesResponse {
+      /** Sources newly attached to this destination. */
+      attached: SyncedSource[];
+      /** Sources that were not attached and their reasons. */
+      skipped: SkippedSource[];
+      /** Number of tables sent for a full resync. */
+      tables_resyncing: number;
+      /** Tables whose resync did not start. The sources are still attached. */
+      resync_failures: ResyncFailure[];
+    }
+
     export interface AddSuppressionRequest {
       /**
          * The email address to suppress. Will not receive any messages until removed.
@@ -46055,20 +46106,6 @@ export namespace Schemas {
       S3: 'S3',
     } as const;
 
-    /**
-     * One source that writes to a destination. Shape only — never used to deserialize.
-     */
-    export interface SyncedSource {
-      /** The source's id. */
-      id: string;
-      /** How the source is labelled in the UI, prefix included. */
-      name: string;
-      /** Which connector this is, e.g. Stripe or Postgres. */
-      source_type: string;
-      /** True when only some of the source's tables reach this destination, through their own override. */
-      via_table_override: boolean;
-    }
-
     export interface ExternalDataDestination {
       readonly id: string;
       /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
@@ -61203,6 +61240,117 @@ export namespace Schemas {
 
     /**
      * * `log` - log
+     * * `log_attribute` - log_attribute
+     * * `log_resource_attribute` - log_resource_attribute
+     */
+    export type _LogPropertyFilterTypeEnum = typeof _LogPropertyFilterTypeEnum[keyof typeof _LogPropertyFilterTypeEnum];
+
+
+    export const _LogPropertyFilterTypeEnum = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    /**
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `lt` - lt
+     * * `is_date_exact` - is_date_exact
+     * * `is_date_before` - is_date_before
+     * * `is_date_after` - is_date_after
+     * * `is_set` - is_set
+     * * `is_not_set` - is_not_set
+     */
+    export type _LogPropertyFilterOperatorEnum = typeof _LogPropertyFilterOperatorEnum[keyof typeof _LogPropertyFilterOperatorEnum];
+
+
+    export const _LogPropertyFilterOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      StartsWith: 'starts_with',
+      NotStartsWith: 'not_starts_with',
+      EndsWith: 'ends_with',
+      NotEndsWith: 'not_ends_with',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      IsDateExact: 'is_date_exact',
+      IsDateBefore: 'is_date_before',
+      IsDateAfter: 'is_date_after',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface _LogPropertyFilter {
+      /** Attribute key. For type "log", use "message" for the body text, or a log column: "pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", "trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
+      key: string;
+      /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
+       *
+       * * `log` - log
+       * * `log_attribute` - log_attribute
+       * * `log_resource_attribute` - log_resource_attribute */
+      type: _LogPropertyFilterTypeEnum;
+      /** Comparison operator.
+       *
+       * * `exact` - exact
+       * * `is_not` - is_not
+       * * `icontains` - icontains
+       * * `not_icontains` - not_icontains
+       * * `starts_with` - starts_with
+       * * `not_starts_with` - not_starts_with
+       * * `ends_with` - ends_with
+       * * `not_ends_with` - not_ends_with
+       * * `regex` - regex
+       * * `not_regex` - not_regex
+       * * `gt` - gt
+       * * `lt` - lt
+       * * `is_date_exact` - is_date_exact
+       * * `is_date_before` - is_date_before
+       * * `is_date_after` - is_date_after
+       * * `is_set` - is_set
+       * * `is_not_set` - is_not_set */
+      operator: _LogPropertyFilterOperatorEnum;
+      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
+      value?: unknown;
+    }
+
+    export interface _LogsFilterInnerGroup {
+      /** How to combine the filters in `values`.
+       *
+       * * `AND` - AND
+       * * `OR` - OR */
+      type: PropertyGroupOperatorEnum;
+      /** Property filters in this group. */
+      values: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFilterGroup {
+      /** How to combine the groups in `values`.
+       *
+       * * `AND` - AND
+       * * `OR` - OR */
+      type: PropertyGroupOperatorEnum;
+      /** Groups of property filters. */
+      values: _LogsFilterInnerGroup[];
+    }
+
+    export type LogsFilterGroupInput = _LogPropertyFilter[] | _LogsFilterGroup;
+
+    /**
+     * * `log` - log
      * * `resource` - resource
      * * `column` - column
      */
@@ -72138,7 +72286,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -82284,7 +82432,7 @@ export namespace Schemas {
       readonly insight_short_id?: string | null;
       /** @nullable */
       readonly resource_name?: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -103860,7 +104008,7 @@ export namespace Schemas {
       readonly insight_short_id: string | null;
       /** @nullable */
       readonly resource_name: string | null;
-      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20. */
       dashboard_export_insights?: number[];
       /**
          * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
@@ -110990,14 +111138,21 @@ export namespace Schemas {
       trace_id: string;
       /** Span ID. Returns "0000000000000000" when not set (padding, not null). */
       span_id: string;
-      /** OpenTelemetry trace flags. */
-      trace_flags?: number;
       /** Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns). */
       attributes: _LogEntryAttributes;
       /** Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host. */
       resource_attributes: _LogEntryResourceAttributes;
       /** OpenTelemetry event name, if set. */
       event_name?: string;
+      /** OpenTelemetry instrumentation scope name. Empty when not set. */
+      instrumentation_scope: string;
+      /** Hash of the resource attributes. Logs from the same pod or host share it. */
+      resource_fingerprint: string;
+      /**
+         * Latest timestamp up to which ingestion is known to be complete. The same on every row. Logs newer than it can still arrive.
+         * @nullable
+         */
+      live_logs_checkpoint: string | null;
     }
 
     export interface _LogFacetValue {
@@ -111108,95 +111263,6 @@ export namespace Schemas {
          * @nullable
          */
       baseline_volume_share_pct: number | null;
-    }
-
-    /**
-     * * `log` - log
-     * * `log_attribute` - log_attribute
-     * * `log_resource_attribute` - log_resource_attribute
-     */
-    export type _LogPropertyFilterTypeEnum = typeof _LogPropertyFilterTypeEnum[keyof typeof _LogPropertyFilterTypeEnum];
-
-
-    export const _LogPropertyFilterTypeEnum = {
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-    } as const;
-
-    /**
-     * * `exact` - exact
-     * * `is_not` - is_not
-     * * `icontains` - icontains
-     * * `not_icontains` - not_icontains
-     * * `starts_with` - starts_with
-     * * `not_starts_with` - not_starts_with
-     * * `ends_with` - ends_with
-     * * `not_ends_with` - not_ends_with
-     * * `regex` - regex
-     * * `not_regex` - not_regex
-     * * `gt` - gt
-     * * `lt` - lt
-     * * `is_date_exact` - is_date_exact
-     * * `is_date_before` - is_date_before
-     * * `is_date_after` - is_date_after
-     * * `is_set` - is_set
-     * * `is_not_set` - is_not_set
-     */
-    export type _LogPropertyFilterOperatorEnum = typeof _LogPropertyFilterOperatorEnum[keyof typeof _LogPropertyFilterOperatorEnum];
-
-
-    export const _LogPropertyFilterOperatorEnum = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      StartsWith: 'starts_with',
-      NotStartsWith: 'not_starts_with',
-      EndsWith: 'ends_with',
-      NotEndsWith: 'not_ends_with',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Lt: 'lt',
-      IsDateExact: 'is_date_exact',
-      IsDateBefore: 'is_date_before',
-      IsDateAfter: 'is_date_after',
-      IsSet: 'is_set',
-      IsNotSet: 'is_not_set',
-    } as const;
-
-    export interface _LogPropertyFilter {
-      /** Attribute key. For type "log", use "message" for the body text, or a log column: "pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", "trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
-      key: string;
-      /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
-       *
-       * * `log` - log
-       * * `log_attribute` - log_attribute
-       * * `log_resource_attribute` - log_resource_attribute */
-      type: _LogPropertyFilterTypeEnum;
-      /** Comparison operator.
-       *
-       * * `exact` - exact
-       * * `is_not` - is_not
-       * * `icontains` - icontains
-       * * `not_icontains` - not_icontains
-       * * `starts_with` - starts_with
-       * * `not_starts_with` - not_starts_with
-       * * `ends_with` - ends_with
-       * * `not_ends_with` - not_ends_with
-       * * `regex` - regex
-       * * `not_regex` - not_regex
-       * * `gt` - gt
-       * * `lt` - lt
-       * * `is_date_exact` - is_date_exact
-       * * `is_date_before` - is_date_before
-       * * `is_date_after` - is_date_after
-       * * `is_set` - is_set
-       * * `is_not_set` - is_not_set */
-      operator: _LogPropertyFilterOperatorEnum;
-      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-      value?: unknown;
     }
 
     export interface _LogsAttributesResponse {
@@ -111593,8 +111659,8 @@ export namespace Schemas {
       orderBy?: OrderByEnum;
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
-      /** Property filters for the query. */
-      filterGroup?: _LogPropertyFilter[];
+      /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+      filterGroup?: LogsFilterGroupInput;
       /** Max results (1-1000). */
       limit?: number;
       /** Pagination cursor from previous response. */
@@ -111727,8 +111793,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
       searchTerm?: string;
-      /** Property filters for the query. */
-      filterGroup?: _LogPropertyFilter[];
+      /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
+      filterGroup?: LogsFilterGroupInput;
       /** Break down sparkline by "severity" (default) or "service".
        *
        * * `severity` - severity
@@ -111752,6 +111818,7 @@ export namespace Schemas {
       severity?: string;
       /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
       service?: string;
+      /** Number of log entries in the bucket. */
       count: number;
       /** Sum of uncompressed bytes for the bucket. */
       bytes_uncompressed?: number;
@@ -111760,11 +111827,6 @@ export namespace Schemas {
     export interface _LogsSparklineRequest {
       /** The sparkline query to execute. */
       query: _LogsSparklineBody;
-    }
-
-    export interface _LogsSparklineResponse {
-      /** Time-bucketed log counts. Each bucket carries either `severity` or `service` depending on breakdown. */
-      results: _LogsSparklineBucket[];
     }
 
     export interface _LogsValuesResponse {
