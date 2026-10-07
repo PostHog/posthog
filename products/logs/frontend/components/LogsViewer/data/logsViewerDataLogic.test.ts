@@ -131,16 +131,26 @@ describe('logsViewerDataLogic', () => {
         })
 
         it('retries a fast failure once before giving up', async () => {
-            const querySpy = jest
-                .spyOn(api.logs, 'query')
-                .mockRejectedValueOnce(new Error('Network error'))
-                .mockResolvedValueOnce({ results: [], hasMore: false, maxExportableLogs: 5000 })
+            const create = api.create.bind(api)
+            let queryCalls = 0
+            const createSpy = jest.spyOn(api, 'create').mockImplementation(((url: string, ...rest: any[]) => {
+                if (url.includes('/logs/query/')) {
+                    queryCalls += 1
+                    if (queryCalls === 1) {
+                        return Promise.reject(new Error('Network error'))
+                    }
+                }
+                return create(url, ...rest)
+            }) as typeof api.create)
 
-            await logic.asyncActions.fetchLogs()
+            try {
+                await logic.asyncActions.fetchLogs()
+            } finally {
+                createSpy.mockRestore()
+            }
 
-            expect(querySpy).toHaveBeenCalledTimes(2)
+            expect(queryCalls).toBe(2)
             expect(logic.values.logsError).toBeNull()
-            querySpy.mockRestore()
         })
 
         it.each([
