@@ -1761,7 +1761,8 @@ async fn move_cohort_membership(
 
 /// Hash-key overrides move target-wins: the target's existing override
 /// for a flag beats any source's. The cookieless sentinel is not a real
-/// key and never wins.
+/// key. The merge drops a source's sentinel row. A source's real key
+/// replaces a sentinel on the target.
 async fn move_hash_key_overrides(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,

@@ -2484,7 +2484,8 @@ export class PostgresPersonRepository
         await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             // On a conflict the target's override wins, because the most recent person's override is hard
-            // to determine. The cookieless sentinel is not a real key and never wins. Postgres rejects an
+            // to determine. The cookieless sentinel is not a real key. The merge drops a source's sentinel
+            // row. A source's real key replaces a sentinel on the target. Postgres rejects an
             // ON CONFLICT DO UPDATE statement that changes the same row twice, so DISTINCT ON keeps one
             // row per flag.
             `WITH cohort_update AS (
