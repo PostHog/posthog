@@ -1315,9 +1315,6 @@ export interface featureFlagLogicActions {
         editing: boolean
         expandAdvanced: boolean
     }
-    enrichUsageDashboard: () => {
-        value: true
-    }
     loadCopyDependencyRequirements: () => {
         value: true
     }
@@ -2330,7 +2327,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             expandAdvanced: options?.expandAdvanced ?? false,
         }),
         distributeVariantsEqually: true,
-        enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setAlsoCreateInProjects: (projectIds: number[]) => ({ projectIds }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
@@ -3956,15 +3952,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
-        enrichUsageDashboard: async (_, breakpoint) => {
-            if (props.id) {
-                await breakpoint(1000) // in ms
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                await api.create(
-                    `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
-                )
-            }
-        },
         submitFeatureFlagFailure: async () => {
             // Collapsed LemonCollapse panels don't render their children, so any inline error
             // and its `.Field--error` scroll target won't exist in the DOM until the panel is open.
