@@ -172,12 +172,17 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_CODE_PATTERN = re.compile(r"\bCode:\s*(\d+)\b")
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
-    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+    def __init__(self, error_message: str, query: str | None = None, query_id: str | None = None):
         self.query = query
         self.query_id = query_id
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        self.code = int(code_match.group(1)) if code_match else None
         super().__init__(error_message)
 
 
@@ -469,11 +474,9 @@ class ClickHouseClient:
             if error_code in error_message:
                 raise exc_class(error_message, query=query, query_id=query_id)
 
-        code_match = re.search(r"\bCode:\s*(\d+)\b", error_message)
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
         if code_match:
             code = int(code_match.group(1))
-            if code == 8:  # THERE_IS_NO_COLUMN from the rewritten DESCRIBE probe
-                raise ClickHouseQueryPlanningError(error_message, query=query, query_id=query_id)
             server_error = ServerException(error_message, code=code)
             if classify_query_error(server_error) == QueryErrorCategory.USER_ERROR:
                 raise ClickHouseUserQueryError(error_message, query=query, query_id=query_id)

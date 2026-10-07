@@ -37,7 +37,9 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
+    ClickHouseError,
     ClickHouseQueryPlanningError,
+    ClickHouseUserQueryError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -159,15 +161,21 @@ async def _describe_columns(
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
-            query_parameters=query_parameters,
-            query_id=str(uuid.uuid4()),
-            settings=query_settings,
-            external_tables=external_tables,
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
+    try:
+        async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+            async with client.apost_query(
+                query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+                query_parameters=query_parameters,
+                query_id=str(uuid.uuid4()),
+                settings=query_settings,
+                external_tables=external_tables,
+            ) as ch_response:
+                table_describe_response = await ch_response.content.read()
+    except ClickHouseError as error:
+        if error.code != 8:
+            raise
+        error_class = ClickHouseQueryPlanningError if query_settings is not None else ClickHouseUserQueryError
+        raise error_class(str(error), query=error.query, query_id=error.query_id) from error
     columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
@@ -825,24 +833,29 @@ async def hogql_table(
             nonlocal arrow_schema
             arrow_schema = schema
 
-        with tags_context(**context.read_tags()):
-            async for batch in client.astream_query_as_arrow(
-                arrow_printed,
-                query_parameters=context.values,
-                on_schema=capture_arrow_schema,
-                external_tables=list(context.external_tables.values()),
-            ):
-                batches_size = batches_size + batch.nbytes
-                batches.append(batch)
+        try:
+            with tags_context(**context.read_tags()):
+                async for batch in client.astream_query_as_arrow(
+                    arrow_printed,
+                    query_parameters=context.values,
+                    on_schema=capture_arrow_schema,
+                    external_tables=list(context.external_tables.values()),
+                ):
+                    batches_size = batches_size + batch.nbytes
+                    batches.append(batch)
 
-                if batches_size >= MB_100_IN_BYTES:
-                    await logger.adebug(
-                        f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
-                    )
-                    yield (_combine_batches(batches), ch_typings_pairs)
-                    yielded_results = True
-                    batches_size = 0
-                    batches = []
+                    if batches_size >= MB_100_IN_BYTES:
+                        await logger.adebug(
+                            f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
+                        )
+                        yield (_combine_batches(batches), ch_typings_pairs)
+                        yielded_results = True
+                        batches_size = 0
+                        batches = []
+        except ClickHouseError as error:
+            if error.code == 8:
+                raise ClickHouseUserQueryError(str(error), query=error.query, query_id=error.query_id) from error
+            raise
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")

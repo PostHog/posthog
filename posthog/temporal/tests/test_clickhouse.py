@@ -15,7 +15,6 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
-    ClickHouseQueryPlanningError,
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
@@ -192,7 +191,7 @@ def _mock_internal_session_post(return_value):
         ),
         (
             "Code: 8. DB::Exception: Cannot find column in source stream. (THERE_IS_NO_COLUMN) (version x.x.x.x (official build))",
-            ClickHouseQueryPlanningError,
+            ClickHouseError,
         ),
         (
             "Code: 215. DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys. (NOT_AN_AGGREGATE) (version x.x.x.x (official build))",
@@ -213,9 +212,10 @@ def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, 
     """Server-side ClickHouse error codes map to the matching client exception class."""
     mock_response = MagicMock(status_code=500, text=error_text)
     with _mock_internal_session_post(mock_response):
-        with pytest.raises(expected_exception):
+        with pytest.raises(ClickHouseError) as error_info:
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
+    assert type(error_info.value) is expected_exception
 
 
 def test_post_query_disables_http_compression(clickhouse_client):
