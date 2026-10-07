@@ -5,7 +5,7 @@ from posthog.migration_helpers import untrack_field
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0113_drop_untracked_columns"),
+        ("replay_vision", "0114_drop_replayobservation_media_render_columns"),
     ]
 
     operations = [

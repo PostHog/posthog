@@ -217,18 +217,18 @@ Rules:
 - Output strictly matches the provided JSON schema."""
 
 
-def _assemble_grounding_evidence(
+def suggest_classifier_tags(
     *,
     team: Team,
+    user: User,
     prompt: str,
     current_tags: list[str],
     multi_label: bool,
     allow_freeform_tags: bool,
     scanner: ReplayScanner | None,
     user_access_control: UserAccessControl,
-) -> str:
-    """Gather the emitted-tag, product-taxonomy, and sibling-vocabulary evidence and format it as briefing
-    text."""
+) -> list[TagSuggestion]:
+    """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
     freeform: list[tuple[str, int]] = []
     reasoning_samples: list[str] = []
     if scanner is not None:
@@ -242,7 +242,7 @@ def _assemble_grounding_evidence(
     taxonomy = _product_taxonomy(team)
     sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
 
-    return _build_user_content(
+    user_content = _build_user_content(
         prompt=prompt,
         current_tags=current_tags,
         multi_label=multi_label,
@@ -252,29 +252,6 @@ def _assemble_grounding_evidence(
         events=taxonomy.events,
         screens=taxonomy.screens,
         sibling_tags=sibling_tags,
-    )
-
-
-def suggest_classifier_tags(
-    *,
-    team: Team,
-    user: User,
-    prompt: str,
-    current_tags: list[str],
-    multi_label: bool,
-    allow_freeform_tags: bool,
-    scanner: ReplayScanner | None,
-    user_access_control: UserAccessControl,
-) -> list[TagSuggestion]:
-    """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
-    user_content = _assemble_grounding_evidence(
-        team=team,
-        prompt=prompt,
-        current_tags=current_tags,
-        multi_label=multi_label,
-        allow_freeform_tags=allow_freeform_tags,
-        scanner=scanner,
-        user_access_control=user_access_control,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
     return _finalize(parsed, current_tags)

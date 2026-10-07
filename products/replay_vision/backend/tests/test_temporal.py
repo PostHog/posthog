@@ -2729,6 +2729,7 @@ async def _run_workflow(
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
+        patch("temporalio.workflow.deprecate_patch"),
     ):
         await ApplyScannerWorkflow().run(inputs)
 

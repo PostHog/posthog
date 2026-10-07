@@ -62,6 +62,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
+        workflow.deprecate_patch("sync-schedules-before-reapers-2026-08")
         # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
         # that never gets a sweep schedule silently never scans. The reapers only settle rows that
         # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
@@ -84,11 +85,13 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
+        workflow.deprecate_patch("reap-childless-inline-scanners-2026-08")
         try:
             await self._run_reaper(reap_childless_inline_scanners_activity)
         except Exception:
             workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
 
+        workflow.deprecate_patch("reap-backfill-schedules-2026-08")
         try:
             # A full schedule listing outlives the short reaper attempt, so this one keeps a long
             # attempt and leans on heartbeats to detect a dead worker.
@@ -101,6 +104,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
+        workflow.deprecate_patch("start-launched-scanners-2026-10")
         try:
             await self._run_reaper(start_launched_scanners_activity)
         except Exception:

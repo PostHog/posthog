@@ -81,6 +81,7 @@ class VisionAlertCheckWorkflow(PostHogWorkflow):
                     output.alerts_resolved += result.alerts_resolved
                     output.alerts_errored += result.alerts_errored
 
+        workflow.deprecate_patch("vision-alert-match-drain-2026-08")
         try:
             await workflow.execute_activity(
                 drain_vision_alert_matches_activity,

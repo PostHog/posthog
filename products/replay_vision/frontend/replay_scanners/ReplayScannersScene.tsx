@@ -111,6 +111,8 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
     )
 }
 
+const KNOWN_TABS: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
+
 export const scene: SceneExport = {
     component: ReplayScannersScene,
     logic: replayScannersLogic,
@@ -142,9 +144,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const knownTabs: string[] = ['watch', 'scanners', ReplayScannerTab.Search, 'usage']
-    const defaultTab = 'watch'
-    const activeTab = knownTabs.includes(searchParams.tab) ? searchParams.tab : defaultTab
+    const activeTab = KNOWN_TABS.includes(searchParams.tab) ? searchParams.tab : 'watch'
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
