@@ -715,23 +715,19 @@ describe('experimentMetricsLogic', () => {
 
         it('clears the recalculating marks when the create request is rejected', async () => {
             // The marks are set before the POST so the shown values read as refreshing; a rejected POST
-            // (a 429 from the refresh window, or any error) never reaches the poll that would clear them.
+            // never reaches the poll that would clear them. A 429 takes the window path, tested below. The
+            // latest run finished outside the window, so the manual trigger is not blocked locally.
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                         200,
-                        completedRecalculation,
-                    ],
-                },
-                post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
-                        429,
                         {
-                            code: 'recalculation_rate_limited',
-                            detail: 'Metrics were recalculated less than 5 minutes ago.',
+                            ...completedRecalculation,
+                            completed_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
                         },
                     ],
                 },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
             })
             mountLogic()
             await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
@@ -745,7 +741,7 @@ describe('experimentMetricsLogic', () => {
 
             expect(logic.values.recalculatingMetricUuids).toEqual([])
             expect(logic.values.isRecalculating).toBe(false)
-            expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to trigger metrics recalculation')
         })
 
         it('keeps the marks of a run already being polled when a retry request is rejected', async () => {
@@ -762,15 +758,7 @@ describe('experimentMetricsLogic', () => {
                         { ...pendingRecalculation, id: 'recalc-2', status: 'in_progress' },
                     ],
                 },
-                post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
-                        429,
-                        {
-                            code: 'recalculation_rate_limited',
-                            detail: 'Metrics were recalculated less than 5 minutes ago.',
-                        },
-                    ],
-                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [500, {}] },
             })
             // Real timers: the poll's first tick is two seconds out, and the by-id mock stays in progress with
             // no results, so a tick that lands keeps the marks either way.
@@ -791,7 +779,7 @@ describe('experimentMetricsLogic', () => {
             ])
 
             expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
-            expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to trigger metrics recalculation')
         })
 
         it('does not restore marks a completed poll already cleared while the retry request was pending', async () => {
@@ -830,6 +818,8 @@ describe('experimentMetricsLogic', () => {
             releasePost()
             await expectLogic(logic).toDispatchActions(['setRecalculationLoading', 'setRecalculatingMetricUuids'])
             expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
         describe('manual refresh window', () => {
             // query_to stays old, as on a stopped experiment, so the window can only come from completed_at.
             const finishedMinutesAgo = <T extends object>(
