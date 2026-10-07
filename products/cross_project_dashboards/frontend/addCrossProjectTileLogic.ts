@@ -285,6 +285,7 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                 return
             }
             const projectId = values.projectId
+            const usedSearch = !!values.insightSearch.trim()
             try {
                 await crossProjectDashboardsTilesCreate(organizationId, props.dashboardId, {
                     project_id: projectId,
@@ -295,7 +296,7 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                 crossProjectDashboardTracking.insightAdded(
                     props.dashboardId,
                     [...tilesBefore, { project_id: projectId }],
-                    !!values.insightSearch.trim()
+                    usedSearch
                 )
                 actions.closeModal()
                 // findMounted, not a direct reference: referencing another logic's actions
