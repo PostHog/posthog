@@ -607,7 +607,9 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
 class VerifiedIdJagAccessToken:
     user: User
     organization_id: str
-    claims: dict[str, Any]
+    client_id: str
+    scopes: list[str]
+    expires_at: int
 
 
 class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
@@ -628,7 +630,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     keyword = "Bearer"
     activity_credential_type = "id_jag"
 
-    id_jag_claims: dict[str, Any]
+    client_id: str
     scopes: list[str]
     organization_id: str
 
@@ -742,7 +744,13 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
             raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
 
-        return VerifiedIdJagAccessToken(user=user, organization_id=organization_id, claims=claims)
+        return VerifiedIdJagAccessToken(
+            user=user,
+            organization_id=organization_id,
+            client_id=str(claims["client_id"]),
+            scopes=str(claims["scope"]).split(),
+            expires_at=int(claims["exp"]),
+        )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
@@ -754,8 +762,8 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
             verified = self.verify_access_token(token)
             refuse_blocked_account(request, verified.user, call_site="id_jag_token", impersonated=False)
-            self.id_jag_claims = verified.claims
-            self.scopes = str(verified.claims.get("scope") or "").split()
+            self.client_id = verified.client_id
+            self.scopes = verified.scopes
             self.organization_id = verified.organization_id
 
             tag_authentication(
@@ -764,7 +772,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 access_method=AccessMethod.ID_JAG,
             )
 
-            self.record_activity_actor(verified.user, str(verified.claims["client_id"]))
+            self.record_activity_actor(verified.user, verified.client_id)
             record_agent_intent(request)
 
             return verified.user, None
