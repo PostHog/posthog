@@ -315,14 +315,8 @@ const SeriesSelectLabel = ({
 }
 
 const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: number }): JSX.Element => {
-    const {
-        columns,
-        numericalColumns,
-        responseLoading,
-        dataVisualizationProps,
-        showTableSettings,
-        effectiveVisualizationType,
-    } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
+        useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
@@ -332,7 +326,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const isPieChart = PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -367,19 +360,11 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
         ),
     }))
 
-    const settingsTabs = isPieChart
-        ? [
-              {
-                  label: Y_SERIES_SETTINGS_TABS[YSeriesSettingsTab.Formatting].label,
-                  key: YSeriesSettingsTab.Formatting,
-                  content: <YSeriesFormattingTab ySeriesLogicProps={seriesLogicProps} />,
-              },
-          ]
-        : Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
-              label: label,
-              key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
-              content: <Component ySeriesLogicProps={seriesLogicProps} />,
-          }))
+    const settingsTabs = Object.values(Y_SERIES_SETTINGS_TABS).map(({ label, Component }, index) => ({
+        label: label,
+        key: Object.keys(Y_SERIES_SETTINGS_TABS)[index],
+        content: <Component ySeriesLogicProps={seriesLogicProps} />,
+    }))
 
     return (
         <div className="flex gap-1 mb-1">
@@ -418,6 +403,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number | null>; index: 
                     key="seriesSettings"
                     icon={<IconGear />}
                     noPadding
+                    data-attr="y-series-settings"
                     onClick={() => setSettingsOpen(true)}
                     disabledReason={!canOpenSettings && 'Select a column first'}
                 />

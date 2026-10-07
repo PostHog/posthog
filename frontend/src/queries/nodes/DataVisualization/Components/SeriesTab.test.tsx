@@ -13,6 +13,51 @@ import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisu
 import { SeriesTab, YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
 import { YSeriesLogicProps } from './ySeriesLogic'
 
+const renderPartOfWholeSeriesTab = (
+    display: ChartDisplayType,
+    xAxis: { column: string } | undefined,
+    valueColumns: string[],
+    seriesBreakdownColumn?: string
+): ReturnType<typeof render> => {
+    initKeaTests()
+    const cachedResults: HogQLQueryResponse = {
+        results: [['Mon', 3, 5, 'US']],
+        columns: ['day', 'signups', 'logins', 'country'],
+        types: [
+            ['day', 'String'],
+            ['signups', 'Float64'],
+            ['logins', 'Float64'],
+            ['country', 'String'],
+        ],
+    }
+    const query: VisualizationNode = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins, country from daily' },
+        display,
+        chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })), seriesBreakdownColumn },
+    }
+    const props: DataVisualizationLogicProps = {
+        key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}`,
+        query,
+        cachedResults,
+        dataNodeCollectionId: 'series-tab-part-of-whole',
+        setQuery: jest.fn(),
+    }
+    dataNodeLogic({
+        key: props.key,
+        query: query.source,
+        cachedResults,
+        dataNodeCollectionId: props.dataNodeCollectionId,
+    }).mount()
+    dataVisualizationLogic(props).mount()
+
+    return render(
+        <BindLogic logic={dataVisualizationLogic} props={props}>
+            <SeriesTab />
+        </BindLogic>
+    )
+}
+
 describe('SeriesTab', () => {
     afterEach(() => {
         cleanup()
@@ -69,49 +114,24 @@ describe('SeriesTab', () => {
             labelDisabled: false,
         },
     ])('$name', ({ display, xAxis, valueColumns, seriesBreakdownColumn, listsEveryValueColumn, labelDisabled }) => {
-        initKeaTests()
-        const cachedResults: HogQLQueryResponse = {
-            results: [['Mon', 3, 5, 'US']],
-            columns: ['day', 'signups', 'logins', 'country'],
-            types: [
-                ['day', 'String'],
-                ['signups', 'Float64'],
-                ['logins', 'Float64'],
-                ['country', 'String'],
-            ],
-        }
-        const query: VisualizationNode = {
-            kind: NodeKind.DataVisualizationNode,
-            source: { kind: NodeKind.HogQLQuery, query: 'select day, signups, logins, country from daily' },
-            display,
-            chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })), seriesBreakdownColumn },
-        }
-        const props: DataVisualizationLogicProps = {
-            key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}`,
-            query,
-            cachedResults,
-            dataNodeCollectionId: 'series-tab-part-of-whole',
-            setQuery: jest.fn(),
-        }
-        dataNodeLogic({
-            key: props.key,
-            query: query.source,
-            cachedResults,
-            dataNodeCollectionId: props.dataNodeCollectionId,
-        }).mount()
-        dataVisualizationLogic(props).mount()
-
-        const { container } = render(
-            <BindLogic logic={dataVisualizationLogic} props={props}>
-                <SeriesTab />
-            </BindLogic>
-        )
+        const { container } = renderPartOfWholeSeriesTab(display, xAxis, valueColumns, seriesBreakdownColumn)
 
         expect(screen.queryAllByText('Values').length > 0).toBe(listsEveryValueColumn)
         expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
             String(labelDisabled)
         )
         expect(screen.queryByRole('button', { name: 'Delete series breakdown' }) !== null).toBe(!!seriesBreakdownColumn)
+    })
+
+    it('lets each value column of a part-of-whole chart edit its label and color', async () => {
+        const { container } = renderPartOfWholeSeriesTab(ChartDisplayType.ActionsProportionBar, undefined, [
+            'signups',
+            'logins',
+        ])
+
+        await userEvent.click(container.querySelector<HTMLElement>('[data-attr="y-series-settings"]')!)
+
+        expect(await screen.findByText('Display')).toBeInTheDocument()
     })
 
     it('persists table column formatting changes immediately', async () => {
