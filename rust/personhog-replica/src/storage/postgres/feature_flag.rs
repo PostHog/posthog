@@ -184,6 +184,10 @@ impl FeatureFlagStorage for PostgresStorage {
         sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
             .execute(&mut *tx)
             .await?;
+        // Kept under the router's 5 s backend deadline so the caller sees an error, not a timeout.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
         // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
