@@ -13,6 +13,7 @@ import {
     experimentSceneLogic,
 } from 'scenes/experiments/experimentSceneLogic'
 import { DistributionModal, DistributionTable } from 'scenes/experiments/ExperimentView/DistributionTable'
+import { ExperimentFlagCalledBanner } from 'scenes/experiments/ExperimentView/ExperimentFlagCalledBanner'
 import { ExperimentWarningBanner } from 'scenes/experiments/ExperimentView/ExperimentWarningBanners'
 import { LoadingState } from 'scenes/experiments/ExperimentView/LoadingState'
 import { PageHeaderCustom } from 'scenes/experiments/ExperimentView/PageHeader'
@@ -202,6 +203,7 @@ export function LegacyExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <ExperimentWarningBanner />
+                        <ExperimentFlagCalledBanner />
 
                         {showDeprecationNotice && (
                             <LemonBanner

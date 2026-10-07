@@ -27,6 +27,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { cohortFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -846,6 +848,16 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                             ) : (
                                 <>
                                     <SceneDivider />
+                                    {!isNewCohort && (
+                                        <FlagCalledRebuildBanner
+                                            artifactType="cohort"
+                                            references={cohortFlagCalledReferences(cohort)}
+                                        >
+                                            This cohort has a criterion on Feature flag called, directly or through an
+                                            action. It won't add people from new flag calls once your organization's
+                                            flag calls move out of the events table, so remove that criterion.
+                                        </FlagCalledRebuildBanner>
+                                    )}
                                     {!isNewCohort && cohort.experiment_set && cohort.experiment_set.length > 0 && (
                                         <LemonBanner type="info">
                                             This cohort manages exposure for an experiment. Editing this cohort may

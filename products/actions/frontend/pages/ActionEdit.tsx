@@ -7,6 +7,8 @@ import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { actionFlagCalledReferences } from 'lib/components/FlagCalledRebuildBanner/flagCalledDependencies'
+import { FlagCalledRebuildBanner } from 'lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -307,6 +309,17 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                         </>
                     }
                 />
+
+                {loadedAction && (
+                    <FlagCalledRebuildBanner
+                        artifactType="action"
+                        references={actionFlagCalledReferences(loadedAction)}
+                    >
+                        This action has a step on Feature flag called, which won't match new flag calls once your
+                        organization's flag calls move out of the events table. Remove the step, and chart flag calls in
+                        insights with Feature flag called instead.
+                    </FlagCalledRebuildBanner>
+                )}
 
                 <LemonCollapse
                     defaultActiveKey="match-groups"
