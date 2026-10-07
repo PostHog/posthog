@@ -894,7 +894,8 @@ export interface insightVizDataLogicMeta {
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
-                | null
+                | null,
+            insightData: Record<string, any>
         ) => boolean | null | undefined
         legendPosition: (
             querySource:
