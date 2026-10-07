@@ -10746,6 +10746,14 @@ export namespace Schemas {
       Number50000: 50000,
     } as const;
 
+    export type MissingDates = typeof MissingDates[keyof typeof MissingDates];
+
+
+    export const MissingDates = {
+      Gap: 'gap',
+      Zero: 'zero',
+    } as const;
+
     export type Operator1 = typeof Operator1[keyof typeof Operator1];
 
 
@@ -10841,6 +10849,8 @@ export namespace Schemas {
     export interface BITableCalculation {
       /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
       computeUsing?: string | null;
+      /** Require a complete window of non-null values before displaying a moving average. */
+      requireFullWindow?: boolean | null;
       type: BITableCalculationType;
       /** Number of points, including the current point, in a trailing moving average. */
       window?: number | null;
@@ -10865,6 +10875,8 @@ export namespace Schemas {
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
+      missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;
       resultFilters?: BIResultFilter[] | null;
       rowFilterGroup?: BIConditionGroup | null;
@@ -43061,6 +43073,104 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flag_off_while_running` - Flag Off While Running
+     * * `variant_shipped_while_running` - Variant Shipped While Running
+     * * `flag_live_after_end` - Flag Live After End
+     * * `flag_live_before_launch` - Flag Live Before Launch
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `no_metric` - No Metric
+     */
+    export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
+
+
+    export const ExperimentHealthFindingCodeEnum = {
+      FlagOffWhileRunning: 'flag_off_while_running',
+      VariantShippedWhileRunning: 'variant_shipped_while_running',
+      FlagLiveAfterEnd: 'flag_live_after_end',
+      FlagLiveBeforeLaunch: 'flag_live_before_launch',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      NoMetric: 'no_metric',
+    } as const;
+
+    /**
+     * * `critical` - Critical severity
+     * * `warning` - Warning severity
+     * * `info` - Info severity
+     */
+    export type ExperimentHealthFindingSeverityEnum = typeof ExperimentHealthFindingSeverityEnum[keyof typeof ExperimentHealthFindingSeverityEnum];
+
+
+    export const ExperimentHealthFindingSeverityEnum = {
+      Critical: 'critical',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `open_feature_flag` - Open Feature Flag
+     * * `adjust_distribution` - Adjust Distribution
+     * * `use_first_seen_variant` - Use First Seen Variant
+     * * `add_primary_metric` - Add Primary Metric
+     * * `add_secondary_metric` - Add Secondary Metric
+     */
+    export type ExperimentHealthFindingActionKindEnum = typeof ExperimentHealthFindingActionKindEnum[keyof typeof ExperimentHealthFindingActionKindEnum];
+
+
+    export const ExperimentHealthFindingActionKindEnum = {
+      OpenFeatureFlag: 'open_feature_flag',
+      AdjustDistribution: 'adjust_distribution',
+      UseFirstSeenVariant: 'use_first_seen_variant',
+      AddPrimaryMetric: 'add_primary_metric',
+      AddSecondaryMetric: 'add_secondary_metric',
+    } as const;
+
+    /**
+     * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
+     */
+    export type ExperimentHealthFindingEvidence = {[key: string]: string | number | null};
+
+    export interface ExperimentHealthFinding {
+      /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
+       *
+       * * `flag_off_while_running` - Flag Off While Running
+       * * `variant_shipped_while_running` - Variant Shipped While Running
+       * * `flag_live_after_end` - Flag Live After End
+       * * `flag_live_before_launch` - Flag Live Before Launch
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `no_metric` - No Metric */
+      code: ExperimentHealthFindingCodeEnum;
+      /**
+         * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
+         * @nullable
+         */
+      subcode: string | null;
+      /** How much the problem affects the results: critical, warning, or info.
+       *
+       * * `critical` - Critical severity
+       * * `warning` - Warning severity
+       * * `info` - Info severity */
+      severity: ExperimentHealthFindingSeverityEnum;
+      /** One-line summary of the problem. */
+      title: string;
+      /** What is wrong, what it does to the experiment, and how to fix it. */
+      detail: string;
+      /** The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code. */
+      evidence: ExperimentHealthFindingEvidence;
+      /** The actions that fix the problem, in order of preference, for example 'open_feature_flag' or 'add_primary_metric'. */
+      actions: ExperimentHealthFindingActionKindEnum[];
+      /**
+         * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
+         * @nullable
+         */
+      diagnostic_ref: string | null;
+    }
+
+    export interface ExperimentHealth {
+      /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed. */
+      findings: ExperimentHealthFinding[];
+    }
+
+    /**
      * Full experiment representation for the detail, create, and update endpoints.
      *
      * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
@@ -43192,6 +43302,8 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -45603,6 +45715,8 @@ export namespace Schemas {
       readonly can_freeze_exposure: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -69382,12 +69496,14 @@ export namespace Schemas {
 
     /**
      * * `logs` - Logs
+     * * `insight` - Insight
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
 
     export const PlatformAlertConfigurationSourceKindEnum = {
       Logs: 'logs',
+      Insight: 'insight',
     } as const;
 
     export interface PlatformAlert {
@@ -69421,7 +69537,7 @@ export namespace Schemas {
     }
 
     /**
-     * Source-specific query settings. The shape depends on source_kind.
+     * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
      */
     export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
 
@@ -69434,16 +69550,11 @@ export namespace Schemas {
       readonly enabled: boolean;
       /** Product whose data the alert evaluates.
        *
-       * * `logs` - Logs */
+       * * `logs` - Logs
+       * * `insight` - Insight */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
-      /** Source-specific query settings. The shape depends on source_kind. */
+      /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
-      /** Count the evaluated value is compared against. */
-      readonly threshold_count: number;
-      /** Comparison operator applied between the value and threshold_count. */
-      readonly threshold_operator: string;
-      /** Length of the evaluated time window, in minutes. */
-      readonly window_minutes: number;
       /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
       readonly check_interval_minutes: number;
       /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.
@@ -78128,6 +78239,8 @@ export namespace Schemas {
       readonly can_freeze_exposure?: boolean;
       /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
       readonly resolved_exposure_event?: string;
+      /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+      readonly health?: ExperimentHealth | null;
       /**
          * The effective access level the user has for this object
          * @nullable
