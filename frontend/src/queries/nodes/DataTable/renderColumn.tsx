@@ -17,6 +17,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { formatCurrency } from 'lib/utils/currency'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { isURL } from 'lib/utils/url'
+import { insightUrlForEvent } from 'scenes/insights/utils'
 import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
 
@@ -215,8 +216,16 @@ export function renderColumn(
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
         const $sentry_url = eventRecord?.properties?.$sentry_url
-        return $sentry_url ? (
-            <Link to={$sentry_url} target="_blank">
+        if ($sentry_url) {
+            return (
+                <Link to={$sentry_url} target="_blank">
+                    {content}
+                </Link>
+            )
+        }
+        const insightUrl = eventRecord ? insightUrlForEvent(eventRecord) : undefined
+        return insightUrl ? (
+            <Link to={insightUrl} target="_blank" title="Open as new insight" data-attr="events-table-event-name-link">
                 {content}
             </Link>
         ) : (
