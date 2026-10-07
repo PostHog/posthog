@@ -707,7 +707,7 @@ Note: The developer hub serves a Swagger UI whose visible initializer points at 
 
 ## BambooHR — **thin**
 
-Today (22): `applicant_statuses`, `application_details`, `applications`, `ats_locations`, `employee_compensation`, `employee_employment_status`, `employee_goal_comments`, `employee_goals`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `job_openings`, `locations`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`, `whos_out`
+Today (28): `applicant_statuses`, `application_details`, `applications`, `archived_custom_fields`, `ats_locations`, `clock_entries`, `custom_fields`, `employee_compensation`, `employee_employment_status`, `employee_goal_comments`, `employee_goals`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `holidays`, `hour_entries`, `job_openings`, `locations`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`, `timesheets`, `whos_out`
 
 Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 
@@ -723,6 +723,11 @@ Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 - [ ] `GET company benefits, employee benefits, benefit coverages, deduction types` — benefits enrollment and its lookup tables - a major HRIS reporting area (medium)
 - [ ] `GET list datasets + get data from dataset (Workforce Analytics)` — the vendor's own analytics datasets, discoverable at sync time (medium)
 - [ ] `GET list reports + get report by id / get company report` — saved company reports, the shape most BambooHR admins already think in (medium)
+- [x] `GET /api/v1/time-tracking/timesheets` — pay-period timesheets with hour totals and approval state, from the newer time-tracking API (high)
+- [x] `GET /api/v1/time-tracking/hour-entries` — hour entries per timesheet, from the newer time-tracking API (high)
+- [x] `GET /api/v1/time-tracking/clock-entries` — clock-in/clock-out entries per timesheet, from the newer time-tracking API (high)
+- [x] `GET /api/v1/holidays` — company holidays with audience and pay treatment; before this they only appeared as rows inside whos_out (medium)
+- [x] `GET /api/v1/hris/custom-fields (plus /archived)` — custom field and custom table definitions, active and archived (medium)
 
 Note: documentation.bamboohr.com is a ReadMe site with no public OpenAPI download (the /reference slug in the source config 404s), but its sitemap enumerates all 312 reference pages, which is what I diffed against. Six tables against roughly 130 GET endpoints spanning employees, time off, time tracking, scheduling, benefits, goals, training, ATS, compensation benchmarks and reports. Also below the cut: employee dependents, scheduling shifts/schedules, compensation benchmarks, bank holidays, break policies.
 
