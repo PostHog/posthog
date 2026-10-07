@@ -507,7 +507,6 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
     const conditionReachesNobodyNew =
         scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
-        featureFlag.active &&
         servedToEveryone !== null &&
         scheduledConditionRollout !== null &&
         // An untouched form starts at 0%, where nobody has said what they want yet.
@@ -994,12 +993,16 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             {/* These values move while the banner stays up. Each one is therefore its own element
                                 rather than a bare text node among siblings. A page-translation extension swaps such a
                                 node for a <font>. React then writes the new value to the detached node. */}
-                            This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
+                            <span>
+                                {featureFlag.active
+                                    ? 'This flag already serves'
+                                    : 'This flag is disabled, but it is already set to serve'}
+                            </span>{' '}
+                            <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
                             <span>{aggregationLabel(scheduledAggregationTarget, true).plural}</span>, and release
                             conditions are combined with OR. A condition at{' '}
                             <span translate="no">{`${scheduledConditionRollout}%`}</span> will not change who sees the
-                            flag when this change runs. To stage a rollout, lower the existing condition first, then
-                            schedule the increases.
+                            flag. To stage a rollout, lower the existing condition first, then schedule the increases.
                         </LemonBanner>
                     )}
 

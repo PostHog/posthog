@@ -255,6 +255,7 @@ describe('expandScheduleOccurrences', () => {
             { active: false, rolloutPercentage: 10, variantCount: null },
             { active: false, rolloutPercentage: 10, variantCount: 2 },
         ])
+        expect(occurrences.map((o) => o.rolloutUnchanged)).toEqual([false, true, false])
     })
 
     it.each([

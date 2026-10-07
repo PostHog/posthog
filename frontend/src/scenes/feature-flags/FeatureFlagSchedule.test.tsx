@@ -244,7 +244,7 @@ describe('FeatureFlagSchedule', () => {
             scheduledRollout: 25,
             expectWarning: true,
         },
-        { name: 'on a disabled flag', active: false, currentRollout: 100, scheduledRollout: 25, expectWarning: false },
+        { name: 'on a disabled flag', active: false, currentRollout: 100, scheduledRollout: 25, expectWarning: true },
     ]
 
     it.each(conditionAddCases)(
@@ -270,19 +270,35 @@ describe('FeatureFlagSchedule', () => {
                 scheduleConditionAdd(scheduledRollout, scheduledGroupTypeIndex)
             })
 
-            const warning = screen.queryByText(/This flag already serves/)
+            const warning = screen.queryByText(/^This flag (already serves|is disabled)/)
             expect(!!warning).toEqual(expectWarning)
         }
     )
 
     it.each([
-        { name: 'persons', flagAggregationGroupTypeIndex: undefined, expectedTarget: 'users' },
-        { name: 'a group type', flagAggregationGroupTypeIndex: 0, expectedTarget: 'organizations' },
+        {
+            name: 'an active flag aggregating on persons',
+            active: true,
+            flagAggregationGroupTypeIndex: undefined,
+            expectedText: 'This flag already serves 100% of all users,',
+        },
+        {
+            name: 'an active flag aggregating on a group type',
+            active: true,
+            flagAggregationGroupTypeIndex: 0,
+            expectedText: 'This flag already serves 100% of all organizations,',
+        },
+        {
+            name: 'a disabled flag',
+            active: false,
+            flagAggregationGroupTypeIndex: undefined,
+            expectedText: 'This flag is disabled, but it is already set to serve 100% of all users,',
+        },
     ])(
-        'condition add warning on a flag aggregating on $name counts $expectedTarget',
-        ({ flagAggregationGroupTypeIndex, expectedTarget }) => {
+        'condition add warning on $name reads "$expectedText"',
+        ({ active, flagAggregationGroupTypeIndex, expectedText }) => {
             renderSchedule(
-                buildFeatureFlag({ active: true, rolloutPercentage: 100, flagAggregationGroupTypeIndex }),
+                buildFeatureFlag({ active, rolloutPercentage: 100, flagAggregationGroupTypeIndex }),
                 ScheduledChangeOperationType.AddReleaseCondition
             )
 
@@ -291,9 +307,9 @@ describe('FeatureFlagSchedule', () => {
                 scheduleConditionAdd(25)
             })
 
-            expect(screen.getByText(/This flag already serves/)).toHaveTextContent(
-                `This flag already serves 100% of all ${expectedTarget},`
-            )
+            expect(
+                screen.getByText(/^This flag (already serves|is disabled)/).closest('.LemonBanner')
+            ).toHaveTextContent(expectedText)
         }
     )
 
