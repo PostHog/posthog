@@ -14,7 +14,6 @@ export type WarehouseItemKey =
     | 'models'
     | 'warehouse_destinations'
     | 'notebooks'
-    | 'endpoints'
     | 'sql_variables'
     | 'data_ops'
 
@@ -105,15 +104,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         sceneKey: 'Notebooks',
         group: 'primary',
         ownsRoute: false,
-    },
-    {
-        key: 'endpoints',
-        label: 'Endpoints',
-        href: urls.endpoints(),
-        iconType: 'endpoints',
-        sceneKey: 'EndpointsScene',
-        group: 'primary',
-        ownsRoute: true,
     },
     {
         key: 'sql_variables',

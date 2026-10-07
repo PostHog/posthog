@@ -46,7 +46,6 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/sources/abc/schemas', 'warehouse', true],
         ['/project/1/data-warehouse/new-source', 'warehouse', true],
         ['/project/1/models/abc', 'warehouse', true],
-        ['/project/1/endpoints/my-endpoint', 'warehouse', true],
         ['/project/1/notebooks', 'views', true],
         ['/project/1/warehouses', null, true],
         ['/project/1/views', 'views', true],
