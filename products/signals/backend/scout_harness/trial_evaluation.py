@@ -39,6 +39,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 )
 from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
+    MAX_EVIDENCE_BYTES,
     ScoutTrialLaunchError,
     TrialContext,
     TrialLaunch,
@@ -46,6 +47,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_work_enabled,
     load_trial_context,
     read_trial_launch,
+    trial_context_evidence,
 )
 from products.signals.backend.scout_harness.trial_result import (
     get_trial_workflow_status,
@@ -58,7 +60,6 @@ from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
-MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 JUDGE_MODEL = "gpt-6-astra"
 _Document = TypeVar("_Document", bound=BaseModel)
 
@@ -461,14 +462,7 @@ def _run_evidence(
     authored = [
         TrialEvidenceSource(id="instructions", kind="instructions", text=launch.skill_body),
         TrialEvidenceSource(id="launch-note", kind="instructions", text=launch.note),
-        TrialEvidenceSource(
-            id="context",
-            kind="context",
-            text=json.dumps(
-                {"memory": context.memory, "notes": context.notes, "recent_runs": context.recent_runs},
-                ensure_ascii=False,
-            ),
-        ),
+        TrialEvidenceSource(id="context", kind="context", text=trial_context_evidence(context)),
     ]
     summary = result.get("summary")
     if isinstance(summary, str) and summary:

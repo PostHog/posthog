@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+    PostLoadResult,
     run_post_load_operations,
     supports_partial_data_loading,
 )
@@ -405,7 +406,7 @@ async def _handle_partial_data_loading(
     )
 
 
-def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> PostLoadResult:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
     Two deliveries land here: a redelivered final row whose earlier attempt committed the write
@@ -416,10 +417,10 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
 
-    Returns the prepared queryable_folder, or None if post-load couldn't run.
+    Returns the post-load result, with no queryable folder if post-load couldn't run.
     """
 
-    async def _run() -> str | None:
+    async def _run() -> PostLoadResult:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
             id=export_signal.job_id
         )
@@ -440,7 +441,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
                 external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
-            return None
+            return PostLoadResult(queryable_folder=None)
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
@@ -449,7 +450,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         table_schema_dict = internal_schema.to_hogql_types()
         del pa_table
 
-        prepared_queryable_folder = await run_post_load_operations(
+        post_load_result = await run_post_load_operations(
             job=job,
             schema=schema,
             source=schema.source,
@@ -462,7 +463,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
-        return prepared_queryable_folder
+        return post_load_result
 
     return async_to_sync(_run)()
 
@@ -641,7 +642,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         capture_exception(e)
 
 
-def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
+def _trigger_post_import_workflow(export_signal: ExportSignalMessage, table_size_written: bool = False) -> None:
     """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
 
     V2 starts the same workflow from `external-data-job` after the COMPLETED status
@@ -686,6 +687,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
                     job_id=export_signal.job_id,
                     schema_id=export_signal.schema_id,
                     source_id=export_signal.source_id,
+                    table_size_written=table_size_written,
                 ),
                 id=build_post_import_workflow_id(export_signal.job_id),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -806,18 +808,18 @@ def _record_post_load_phases(run_signal: ExportSignalMessage) -> AbstractContext
     )
 
 
-def _complete_run(run_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
+def _complete_run(run_signal: ExportSignalMessage, post_load_result: PostLoadResult) -> None:
     """Mark the job completed, then start the DuckLake registration and post-import workflows."""
     report_phase("finalize")
     with post_load_phase("job_completion"):
         _mark_job_completed(run_signal)
 
-    if prepared_queryable_folder:
+    if post_load_result.queryable_folder:
         with post_load_phase("ducklake_trigger"):
-            _trigger_ducklake_register_data_imports(run_signal, prepared_queryable_folder)
+            _trigger_ducklake_register_data_imports(run_signal, post_load_result.queryable_folder)
 
     with post_load_phase("post_import_trigger"):
-        _trigger_post_import_workflow(run_signal)
+        _trigger_post_import_workflow(run_signal, post_load_result.table_size_written)
 
 
 def _load_job(job_id: str) -> ExternalDataJob:
@@ -856,7 +858,7 @@ def _finalize_run(
 
     with _record_post_load_phases(run_signal):
         report_phase("post_load")
-        prepared_queryable_folder = async_to_sync(run_post_load_operations)(
+        post_load_result = async_to_sync(run_post_load_operations)(
             job=job,
             schema=schema,
             source=schema.source,
@@ -873,7 +875,7 @@ def _finalize_run(
         if verify_ownership is not None:
             verify_ownership()
 
-        _complete_run(run_signal, prepared_queryable_folder)
+        _complete_run(run_signal, post_load_result)
 
     logger.debug("post_load_operations_complete", external_data_job_id=run_signal.job_id)
 
@@ -1076,6 +1078,8 @@ def _process_message_reported(
             job=job,
             logger=logger,
             is_first_sync=export_signal.is_first_ever_sync,
+            # Batch 0 of a first sync writes the table, so only that batch expects to find none.
+            expect_missing=export_signal.is_first_ever_sync and export_signal.batch_index == 0,
         )
 
         if not warehouse_is_a_destination(export_signal):
@@ -1138,12 +1142,12 @@ def _process_message_reported(
                 verify_ownership()
             with _record_post_load_phases(export_signal):
                 report_phase("post_load")
-                prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
+                post_load_result = _run_post_load_for_already_processed_batch(export_signal)
                 # Post-load can run minutes (compaction, S3 prep) — re-check before
                 # completion promotes the cursor and releases the lock under a new owner.
                 if verify_ownership is not None:
                     verify_ownership()
-                _complete_run(export_signal, prepared_queryable_folder)
+                _complete_run(export_signal, post_load_result)
             return
 
         logger.debug(

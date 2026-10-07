@@ -224,6 +224,7 @@ def hydrate_for_serialization(
             scanner_origin=F("scanner__origin"),
             scanner_prompt_question=F("scanner__prompt_question"),
             scanner_prompt_question_source=F("scanner__prompt_question_source"),
+            scanner_prompt_valence=F("scanner__prompt_valence"),
             viewed=viewed,
         )
     )

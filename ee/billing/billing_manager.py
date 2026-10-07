@@ -27,7 +27,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -107,6 +106,16 @@ class BillingManagedByPartnerError(PermissionDenied):
             f"Contact {partner_name} to change your plan or payment details."
         )
 
+
+def get_billing_lock_partner(organization: Organization) -> OAuthApplication | None:
+    if organization.provisioning_application_id is None:
+        return None
+    applications = OAuthApplication.objects.all()
+    if not organization.billing_has_payer:
+        if organization.customer_id:
+            return None
+        applications = applications.filter(_provisioning_config__pays_for_customers=True)
+    return applications.filter(pk=organization.provisioning_application_id).first()
 
 def raise_if_billing_managed_by_partner(organization: Organization) -> None:
     partner = get_billing_lock_partner(organization)

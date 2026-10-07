@@ -3,7 +3,7 @@ import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter
+from temporalio.common import MetricCounter, MetricHistogram
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
@@ -85,6 +85,19 @@ def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter
         .create_counter(
             "warehouse_worker_shutdown_handoff_total",
             "Imports that raised WorkerShuttingDownError so another worker could continue them.",
+        )
+    )
+
+
+def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogram:
+    # One observation per workflow run that can hand off for free, zero included. Compare it with
+    # the attempt histogram to tell runs that worker restarts moved from runs that failed.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_histogram(
+            "warehouse_import_handoffs_per_run",
+            "Worker-shutdown hand-offs of the import activity in one workflow run.",
         )
     )
 

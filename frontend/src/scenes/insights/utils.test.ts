@@ -21,6 +21,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
+import { initKeaTests } from '~/test/init'
 import { BaseMathType, CompareLabelType, Entity, EntityFilter, FilterType, InsightType, TeamType } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -704,6 +705,10 @@ describe('getTrendDatasetKey()', () => {
 })
 
 describe('compareTopLevelSections()', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     it('compares top-level sections', () => {
         const obj1: InsightQueryNode = {
             kind: NodeKind.TrendsQuery,
