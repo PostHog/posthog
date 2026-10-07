@@ -592,15 +592,20 @@ _TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
 MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
 
 
-def _apply_email_template_content(config: dict, team: Team, strict: bool, context: dict) -> None:
+def _is_programmatic_save(context: dict) -> bool:
+    return context.get("event_source") not in (None, EventSource.WEB)
+
+
+def _apply_email_template_content(config: dict, team: Team, context: dict) -> None:
     """Materialize a referenced saved template's email body into the step's inputs at save,
     mirroring what the web editor does when a template is picked (snapshot semantics: later
-    template edits don't propagate). Only fires when the caller supplied no body at all — a
-    caller-authored body always wins, and then template_uuid is provenance only. Under strict
-    (programmatic) validation an unresolvable reference is a 400; lenient web/internal saves
-    skip it so re-saves of already-accepted drafts can't start failing."""
+    template edits don't propagate). Only fires for a programmatic (API key, MCP, CLI) request
+    whose step has no body at all. A caller-authored body always wins, and then template_uuid
+    is provenance only. An unresolvable reference is a 400."""
     template_uuid = config.get("template_uuid")
     if not template_uuid:
+        return
+    if not _is_programmatic_save(context):
         return
     inputs = config.get("inputs")
     email_input = inputs.get("email") if isinstance(inputs, dict) else None
@@ -626,21 +631,17 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
         email_content = get_email_template_content(team.id, parsed_uuid)
         template_cache[cache_key] = email_content
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
-        if strict:
-            raise serializers.ValidationError(
-                {
-                    "template_uuid": (
-                        f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
-                        "this project. List templates with workflows-list-email-templates, or author the email "
-                        "inline in config.inputs.email.value."
-                    )
-                }
-            )
-        return
+        raise serializers.ValidationError(
+            {
+                "template_uuid": (
+                    f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
+                    "this project. List templates with workflows-list-email-templates, or author the email "
+                    "inline in config.inputs.email.value."
+                )
+            }
+        )
 
     body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
-    # Applies on lenient saves too: the lenient path is caller-selectable (a request header),
-    # so a strict-only cap would leave the amplification open.
     materialized_bytes = context.get("_materialized_template_bytes", 0) + len(json.dumps(body))
     if materialized_bytes > MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES:
         raise serializers.ValidationError(
@@ -737,8 +738,7 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # stay lenient.
     if not is_draft:
         return True
-    source = context.get("event_source")
-    return source is not None and source != EventSource.WEB
+    return _is_programmatic_save(context)
 
 
 def _normalize_slack_channel_filters(filters: dict) -> None:
@@ -1634,7 +1634,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # re-saves, direct construction) - no team to resolve against, so skip.
                 get_team = self.context.get("get_team")
                 if get_team is not None:
-                    _apply_email_template_content(config, get_team(), strict, self.context)
+                    _apply_email_template_content(config, get_team(), self.context)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
