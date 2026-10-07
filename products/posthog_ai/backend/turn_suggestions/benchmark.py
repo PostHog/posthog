@@ -20,10 +20,12 @@ import yaml
 import requests
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.llm.system_one import SystemOneRequestFailed, build_system_one_body, parse_system_one_response
 
 from products.posthog_ai.backend.turn_suggestions.classifier import pick_offer
 from products.posthog_ai.backend.turn_suggestions.judgment import (
+    JUDGE_MODEL,
     TurnJudgment,
     build_judge_questions,
     build_judge_state,
@@ -105,18 +107,6 @@ class SystemOneEndpoint:
         """Basic auth over http to a host off this machine, where anyone on the path can read it."""
         parts = urlsplit(self.url)
         return bool(self.username) and parts.scheme == "http" and not _is_loopback(parts.hostname or "")
-
-
-@frozen
-class GatewayModel:
-    """A model on the configured ai-gateway, asked the way production asks Jev. The gateway translates
-    the System One request for any decision model it routes, so a vendor's model compares with Jev here."""
-
-    model: str
-
-    @property
-    def label(self) -> str:
-        return f"ai-gateway {self.model}"
 
 
 def _is_loopback(host: str) -> bool:
@@ -289,14 +279,23 @@ def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> Turn
     return read_judgment(parse_system_one_response(response.json(), questions), case.transcript, case.available)
 
 
-def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | GatewayModel | None) -> CaseResult:
+def _on_configured_gateway(endpoint: SystemOneEndpoint) -> bool:
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return False
+    configured, candidate = urlsplit(gateway.url), urlsplit(endpoint.url)
+    return (configured.scheme, configured.netloc) == (candidate.scheme, candidate.netloc)
+
+
+def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | None) -> CaseResult:
     started = time.monotonic()
     judgment: TurnJudgment | None = None
     failure: str | None = None
     if endpoint is None:
         judgment = judge_turn(case.transcript, available=case.available)
-    elif isinstance(endpoint, GatewayModel):
-        judgment = judge_turn(case.transcript, available=case.available, model=endpoint.model)
+    elif _on_configured_gateway(endpoint):
+        # The gateway takes its own key, not basic auth, so its entries go the way production calls Jev.
+        judgment = judge_turn(case.transcript, available=case.available, model=endpoint.model or JUDGE_MODEL)
     else:
         try:
             judgment = _judge_at_endpoint(case, endpoint)
@@ -317,11 +316,11 @@ def run_cases(
     *,
     workers: int,
     on_result: Callable[[CaseResult], None],
-    endpoint: SystemOneEndpoint | GatewayModel | None = None,
+    endpoint: SystemOneEndpoint | None = None,
 ) -> list[CaseResult]:
     """Judge every case, calling ``on_result`` as each answer arrives so a caller can print it live.
-    ``endpoint`` sends the judgments to that server, or to that model on the configured gateway, instead of
-    Jev. The results come back in the order of ``cases``."""
+    ``endpoint`` sends the judgments to that server instead of the configured one. The results come back in
+    the order of ``cases``."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in as_completed([pool.submit(_judge, case, endpoint) for case in cases]):

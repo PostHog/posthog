@@ -49,6 +49,7 @@ http[s]://[username:password@]host[:port][/path][#model]
 - The credentials, when present, go out as HTTP basic auth.
 - The path defaults to `/v1/systemone`.
 - The part after `#` names the model to send in the request body. Without it, the request names no model. A URL fragment never reaches the server.
+- An entry on the configured `AI_GATEWAY_URL` host goes through the gateway the way production calls Jev, with `AI_GATEWAY_API_KEY`. Use it to compare another decision model the gateway routes, such as `https://<gateway host>#openai/gpt-6-luna`.
 - Separate entries with spaces, commas, or semicolons.
 - Percent-encode a `:`, `@`, or `#` inside a username or password, for example `%40` for `@`.
 
@@ -62,7 +63,6 @@ Do not pass credentials in `--endpoint`, because the shell keeps them in its his
 To choose the judges for one run:
 
 - `--endpoint URL` judges with that URL instead of the variable. Repeat it to add more.
-- `--gateway-model MODEL` also judges with that model on the configured ai-gateway, such as `openai/gpt-6-luna`. The gateway translates the request for any decision model it routes. Repeat it to add more.
 - `--skip-jev` judges with the endpoints only.
 - `--jev-only` ignores the variable and judges with Jev alone, which gives the single-judge output above.
 

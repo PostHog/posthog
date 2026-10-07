@@ -19,7 +19,6 @@ from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
     CaseResult,
     Expectation,
-    GatewayModel,
     JudgeRun,
     Outcome,
     SystemOneEndpoint,
@@ -62,9 +61,8 @@ ENDPOINTS_VARIABLE = "TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS"
 _SERVER_SETTINGS = ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY")
 DEFAULT_TARGET_OFFER_RATE = 0.45
 
-# A judge is Jev through the configured System One server (no endpoint), another model on that server,
-# or one candidate endpoint.
-type Judge = tuple[str, SystemOneEndpoint | GatewayModel | None]
+# A judge is Jev through the configured System One server (no endpoint) or one candidate endpoint.
+type Judge = tuple[str, SystemOneEndpoint | None]
 
 
 def _from_env_local(name: str) -> str | None:
@@ -88,13 +86,6 @@ def _judges(options: dict[str, Any], jev_label: str | None) -> list[Judge]:
         judges.append((jev_label, None))
     if options["jev_only"]:
         return judges
-    if options["gateway_model"] and jev_label is None:
-        raise CommandError(
-            "--gateway-model needs AI_GATEWAY_URL and AI_GATEWAY_API_KEY in the environment or in .env.local."
-        )
-    for model in options["gateway_model"]:
-        gateway_model = GatewayModel(model=model)
-        judges.append((gateway_model.label, gateway_model))
     # Flags replace the variable, so one run can try an endpoint without editing the environment.
     value = " ".join(options["endpoint"]) or os.environ.get(ENDPOINTS_VARIABLE) or _from_env_local(ENDPOINTS_VARIABLE)
     try:
@@ -109,7 +100,7 @@ def _judges(options: dict[str, Any], jev_label: str | None) -> list[Judge]:
             label = next(f"{label} #{index}" for index in range(2, len(judges) + 2) if f"{label} #{index}" not in taken)
         judges.append((label, endpoint))
     if not judges:
-        raise CommandError(f"--skip-jev needs --gateway-model, or an endpoint in {ENDPOINTS_VARIABLE} or --endpoint.")
+        raise CommandError(f"--skip-jev needs at least one endpoint in {ENDPOINTS_VARIABLE} or --endpoint.")
     if len(judges) > 1 and (options["state"] or options["draft"]):
         raise CommandError("--state and --draft work with one judge only.")
     return judges
@@ -151,16 +142,6 @@ class Command(BaseCommand):
                 f"{ENDPOINTS_VARIABLE}. Repeat it to compare several. It replaces the variable for this run."
             ),
         )
-        parser.add_argument(
-            "--gateway-model",
-            action="append",
-            default=[],
-            metavar="MODEL",
-            help=(
-                "Also judge with this model on the configured ai-gateway, such as openai/gpt-6-luna. "
-                "Repeat it to compare several."
-            ),
-        )
         judge_choice = parser.add_mutually_exclusive_group()
         judge_choice.add_argument("--skip-jev", action="store_true", help="Judge with the endpoints only.")
         judge_choice.add_argument(
@@ -187,7 +168,7 @@ class Command(BaseCommand):
         with override_settings(**servers):
             judges = _judges(options, judge_model())
             for label, endpoint in judges:
-                if isinstance(endpoint, SystemOneEndpoint) and endpoint.sends_credentials_in_clear:
+                if endpoint is not None and endpoint.sends_credentials_in_clear:
                     self.stderr.write(
                         self.style.WARNING(f"{label} gets its username and password over plain http. Use https:// ")
                         + self.style.WARNING("unless the network to that host is trusted.")
