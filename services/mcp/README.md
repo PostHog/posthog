@@ -406,34 +406,11 @@ Then replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in t
 
 The server defaults to port **8787**, reads config from `.env` (see `.env.example`), and expects a local Redis on port `6379` for session state; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint.
 
-`render-ui` is available in production for Claude UI hosts and OpenAI's MCP
-transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client
-receives it too, so the cached plugin tool list includes the app tools.
+`render-ui` is available in production for Claude UI hosts and OpenAI's MCP transport used by ChatGPT and Codex. OpenAI's generic plugin-discovery client receives it too, so the cached plugin tool list includes the app tools.
 
-To test MCP Apps locally, run `pnpm run build:ui-apps`. For clients outside those
-hosts, set `POSTHOG_MCP_FORCE_RENDER_UI=true` in `.env`.
-This override is honored only when `NODE_ENV=development`, which `pnpm run dev`
-sets by default. Connect the client to `http://localhost:8787/mcp?mode=cli` and
-start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to
-resolve an existing entity before calling `render-ui` with its read-only tool
-and input. Verify that the interactive app renders and fetches its data, as well
-as that the tool call succeeds. `MCP_APPS_BASE_URL` must point to the local MCP
-server so its UI assets can load. For ChatGPT web or desktop, expose the MCP
-server and local PostHog through HTTPS development tunnels. Set
-`MCP_APPS_BASE_URL` to the MCP tunnel, and `POSTHOG_PUBLIC_URL` to the PostHog
-tunnel. The local backend's `SITE_URL` must also use the PostHog tunnel so OAuth
-discovery advertises reachable endpoints. Its development frontend assets must
-be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP
-tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat
-with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog.
-Remove the override if used, and stop the tunnels after testing. Refresh the
-plugin's tools after changing the advertised roster, then start a fresh chat.
+To test MCP Apps locally, run `pnpm run build:ui-apps`. For clients outside those hosts, set `POSTHOG_MCP_FORCE_RENDER_UI=true` in `.env`. This override is honored only when `NODE_ENV=development`, which `pnpm run dev` sets by default. Connect the client to `http://localhost:8787/mcp?mode=cli` and start a fresh chat so it discovers both `exec` and `render-ui`. Use `exec` to resolve an existing entity before calling `render-ui` with its read-only tool and input. Verify that the interactive app renders and fetches its data, as well as that the tool call succeeds. `MCP_APPS_BASE_URL` must point to the local MCP server so its UI assets can load. For ChatGPT web or desktop, expose the MCP server and local PostHog through HTTPS development tunnels. Set `MCP_APPS_BASE_URL` to the MCP tunnel, and `POSTHOG_PUBLIC_URL` to the PostHog tunnel. The local backend's `SITE_URL` must also use the PostHog tunnel so OAuth discovery advertises reachable endpoints. Its development frontend assets must be available over HTTPS. Create a custom MCP plugin in ChatGPT using the MCP tunnel's `/mcp?mode=cli&readonly=true` URL, complete OAuth, and start a fresh chat with that plugin selected. Keep `POSTHOG_API_BASE_URL` pointing to local PostHog. Remove the override if used, and stop the tunnels after testing. Refresh the plugin's tools after changing the advertised roster, then start a fresh chat.
 
-In single-exec mode, UI hosts also discover the connection's permitted read-only
-tools with `ui.visibility: ["app"]`. These tools load data and support drill-down
-inside the visualization; the model continues to use `exec` and `render-ui`.
-Refresh the custom plugin's tool list after changing these descriptors, then
-start a fresh chat.
+In single-exec mode, UI hosts also discover the connection's permitted read-only tools with `ui.visibility: ["app"]`. These tools load data and support drill-down inside the visualization; the model continues to use `exec` and `render-ui`. Refresh the custom plugin's tool list after changing these descriptors, then start a fresh chat.
 
 ### Session cache
 

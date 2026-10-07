@@ -358,17 +358,7 @@ Product teams own their definitions and control which operations are exposed as 
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
-   `render-ui` is enabled for Claude UI hosts and OpenAI's MCP transport in
-   production, including ChatGPT, Codex, and generic OpenAI plugin discovery.
-   In single-exec mode, these hosts receive `exec` and `render-ui` as model tools,
-   plus the connection's permitted read-only tools with `ui.visibility: ["app"]`.
-   App-only descriptors let the host authorize visualization data fetches and
-   drill-down calls without exposing those tools to the model. These descriptors
-   use compact input schemas; direct calls still validate against the full tool schema.
-   Model analytics arguments are optional on app-only descriptors because browser
-   data fetches may have no model context. The analytics SDK still captures intent
-   and model metadata when supplied; model-facing tools keep those arguments required.
-   After changing descriptors, refresh the client's tool list and start a fresh conversation.
+   `render-ui` is enabled for Claude UI hosts and OpenAI's MCP transport in production, including ChatGPT, Codex, and generic OpenAI plugin discovery. In single-exec mode, these hosts receive `exec` and `render-ui` as model tools, plus the connection's permitted read-only tools with `ui.visibility: ["app"]`. App-only descriptors let the host authorize visualization data fetches and drill-down calls without exposing those tools to the model. These descriptors use compact input schemas; direct calls still validate against the full tool schema. Model analytics arguments are optional on app-only descriptors because browser data fetches may have no model context. The analytics SDK still captures intent and model metadata when supplied; model-facing tools keep those arguments required. After changing descriptors, refresh the client's tool list and start a fresh conversation.
 
    A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
