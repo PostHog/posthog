@@ -494,9 +494,6 @@ class TestDemandDiscovery(APIBaseTest):
                 enabled=enabled,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
                 source_config={},
-                threshold_count=1,
-                threshold_operator="above",
-                window_minutes=5,
                 check_interval_minutes=5,
                 next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
             )

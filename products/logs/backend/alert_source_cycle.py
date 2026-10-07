@@ -74,6 +74,7 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -113,6 +114,54 @@ _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
 }
 
 
+@frozen
+class LogsAlertCondition:
+    """The logs bound, which the platform keeps under `source_config["condition"]`."""
+
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+
+    def __post_init__(self) -> None:
+        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
+        # decide the alert against the wrong side of its bound instead of failing.
+        if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
+            raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
+        # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.
+        for name, minimum in (("threshold_count", 0), ("window_minutes", 1)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer of at least {minimum}, got {value!r}")
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
+        condition = check.condition
+        return cls(
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+        )
+
+    def as_source_config(self) -> dict[str, int | str]:
+        return {
+            "threshold_count": self.threshold_count,
+            "threshold_operator": self.threshold_operator,
+            "window_minutes": self.window_minutes,
+        }
+
+
+def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
+    """A bound the cohort query cannot read. Caught here, because the cohort key reads it for
+    every check in the batch, so one malformed row would otherwise stop the whole batch."""
+    try:
+        LogsAlertCondition.of(check)
+    except (KeyError, TypeError):
+        return "The alert's threshold is missing from its configuration"
+    except ValueError as error:
+        return f"The alert's threshold is invalid: {error}"
+    return None
+
+
 _WINDOW_MARKER = "window:"
 
 
@@ -148,7 +197,7 @@ def window_end_of(evaluation_key: str) -> datetime | None:
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
-        check.window_minutes,
+        LogsAlertCondition.of(check).window_minutes,
         check.evaluation_periods,
         check.check_interval_minutes,
         is_projection_eligible(check.source_config),
@@ -378,8 +427,9 @@ _EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
 def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
+    condition = LogsAlertCondition.of(check)
     current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
+        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -512,7 +562,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
-        broken_reason = _detect_broken_filter_config(check.source_config)
+        broken_reason = _detect_broken_filter_config(check.source_config) or _broken_condition(check)
         if broken_reason is not None:
             logger.warning(
                 "Marking a logs alert BROKEN for an invalid filter config",

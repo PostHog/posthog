@@ -112,10 +112,9 @@ export const PlatformAlertConfigurationApi = zod.object({
         .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs'),
     source_config: zod
         .record(zod.string(), zod.unknown())
-        .describe('Source-specific query settings. The shape depends on source_kind.'),
-    threshold_count: zod.number().describe('Count the evaluated value is compared against.'),
-    threshold_operator: zod.string().describe('Comparison operator applied between the value and threshold_count.'),
-    window_minutes: zod.number().describe('Length of the evaluated time window, in minutes.'),
+        .describe(
+            'Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.'
+        ),
     check_interval_minutes: zod
         .number()
         .describe('Minutes between scheduled checks. Applies when recurrence_unit is null.'),
@@ -230,12 +229,9 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
                 .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs'),
             source_config: zod
                 .record(zod.string(), zod.unknown())
-                .describe('Source-specific query settings. The shape depends on source_kind.'),
-            threshold_count: zod.number().describe('Count the evaluated value is compared against.'),
-            threshold_operator: zod
-                .string()
-                .describe('Comparison operator applied between the value and threshold_count.'),
-            window_minutes: zod.number().describe('Length of the evaluated time window, in minutes.'),
+                .describe(
+                    'Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.'
+                ),
             check_interval_minutes: zod
                 .number()
                 .describe('Minutes between scheduled checks. Applies when recurrence_unit is null.'),

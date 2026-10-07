@@ -48,10 +48,10 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     source_kind = models.CharField(max_length=32, choices=SourceKind.choices)
     source_config = models.JSONField(default=dict)
 
-    threshold_count = models.PositiveIntegerField()
-    threshold_operator = models.CharField(max_length=16)
-
-    window_minutes = models.PositiveIntegerField()
+    # Retired, because a source keeps its bound in `source_config["condition"]`. Nothing reads these.
+    threshold_count = models.PositiveIntegerField(null=True, blank=True)
+    threshold_operator = models.CharField(max_length=16, null=True, blank=True)
+    window_minutes = models.PositiveIntegerField(null=True, blank=True)
 
     check_interval_minutes = models.PositiveIntegerField()
 

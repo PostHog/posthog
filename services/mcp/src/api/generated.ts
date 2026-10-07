@@ -69523,7 +69523,7 @@ export namespace Schemas {
     }
 
     /**
-     * Source-specific query settings. The shape depends on source_kind.
+     * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
      */
     export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
 
@@ -69538,14 +69538,8 @@ export namespace Schemas {
        *
        * * `logs` - Logs */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
-      /** Source-specific query settings. The shape depends on source_kind. */
+      /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
-      /** Count the evaluated value is compared against. */
-      readonly threshold_count: number;
-      /** Comparison operator applied between the value and threshold_count. */
-      readonly threshold_operator: string;
-      /** Length of the evaluated time window, in minutes. */
-      readonly window_minutes: number;
       /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
       readonly check_interval_minutes: number;
       /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.

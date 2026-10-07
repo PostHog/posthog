@@ -61,16 +61,10 @@ class PlatformAlertConfigurationSerializer(serializers.Serializer):
     source_config = serializers.DictField(
         child=serializers.JSONField(),
         read_only=True,
-        help_text="Source-specific query settings. The shape depends on source_kind.",
-    )
-    threshold_count = serializers.IntegerField(
-        read_only=True, help_text="Count the evaluated value is compared against."
-    )
-    threshold_operator = serializers.CharField(
-        read_only=True, help_text="Comparison operator applied between the value and threshold_count."
-    )
-    window_minutes = serializers.IntegerField(
-        read_only=True, help_text="Length of the evaluated time window, in minutes."
+        help_text=(
+            "Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated "
+            "against is under the condition key."
+        ),
     )
     check_interval_minutes = serializers.IntegerField(
         read_only=True,
