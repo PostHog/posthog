@@ -8,6 +8,7 @@ uuids between activities and re-resolve the definition at the point of use.
 from typing import Any, Literal
 
 from posthog.schema import (
+    ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
@@ -183,3 +184,17 @@ def find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict[str, Any]
 
 def build_metric(metric_dict: dict[str, Any]) -> ExperimentMetric:
     return METRIC_BUILDERS[metric_dict["metric_type"]](**metric_dict)
+
+
+def metric_reads_data_warehouse(metric: ExperimentMetric) -> bool:
+    """True when any side of the metric reads a data warehouse table. These metrics never precompute
+    (the precomputed table lacks the join keys). The event side of each shape is None or an events node."""
+    if isinstance(metric, ExperimentMeanMetric):
+        nodes: list[Any] = [metric.source]
+    elif isinstance(metric, ExperimentFunnelMetric):
+        nodes = list(metric.series)
+    elif isinstance(metric, ExperimentRatioMetric):
+        nodes = [metric.numerator, metric.denominator]
+    else:
+        nodes = [metric.start_event, metric.completion_event]
+    return any(isinstance(node, ExperimentDataWarehouseNode) for node in nodes)

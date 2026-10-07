@@ -61,6 +61,7 @@ from products.experiments.backend.metric_resolution import (
     ExperimentMetric,
     build_metric,
     find_metric_dict,
+    metric_reads_data_warehouse,
     scheduled_metric_definitions,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -161,17 +162,14 @@ def _experiment_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
 
 def _uses_data_warehouse(metric_dict: dict[str, Any]) -> bool:
     """True when any side of the metric reads a data warehouse table. These metrics never precompute
-    (the precomputed table lacks the join keys), so sampling one buys a guaranteed path flip. The
-    fields cover every metric shape; a field absent on a shape is simply None."""
-    nodes = [
-        metric_dict.get("source"),
-        *(metric_dict.get("series") or []),
-        metric_dict.get("numerator"),
-        metric_dict.get("denominator"),
-        metric_dict.get("start_event"),
-        metric_dict.get("completion_event"),
-    ]
-    return any(isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode" for node in nodes)
+    (the precomputed table lacks the join keys), so sampling one buys a guaranteed path flip. Delegates
+    to the runner's shared check so the two stay in step; an unparseable dict can't be confirmed and is
+    left for the per-metric run to skip with a precise reason."""
+    try:
+        metric = build_metric(metric_dict)
+    except Exception:
+        return False
+    return metric_reads_data_warehouse(metric)
 
 
 def _forensics_targets(experiment_id: int, metric_uuids: list[str] | None) -> list[CanaryMetricTarget]:
