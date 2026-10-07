@@ -674,9 +674,6 @@ export interface batchExportConfigFormLogicActions {
     touchConfigurationField: (key: string) => {
         key: string
     }
-    updateBatchExportConfig: (formdata: Record<string, any>) => {
-        formdata: Record<string, any>
-    }
     updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => {
         batchExportConfig: BatchExportConfiguration
     }
@@ -804,7 +801,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
         deleteBatchExport: () => true,
-        updateBatchExportConfig: (formdata: Record<string, any>) => ({ formdata }),
         updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
     loaders(({ props, values, actions }) => ({
@@ -1049,57 +1045,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             },
         ],
     })),
-    listeners(({ props, values, actions }) => ({
-        updateBatchExportConfig: async ({ formdata }) => {
-            const interval = formdata.interval
-            const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
-                paused: formdata.paused,
-                name: formdata.name,
-                interval,
-                timezone: interval === 'day' || interval === 'week' ? formdata.timezone : null,
-                offset_day: interval === 'week' ? formdata.offset_day : null,
-                offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
-                model: formdata.model,
-                // The backend rejects `hogql_query` for every model but 'hogql'
-                hogql_query: formdata.model === BatchExportModelEnumApi.Hogql ? formdata.hogql_query : undefined,
-                // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
-                filters: formdata.model === BatchExportModelEnumApi.Events ? formdata.filters : undefined,
-                destination: buildDestinationPayload(formdata) as any,
-            } as any
-
-            try {
-                if (props.id) {
-                    const res = await api.batchExports.update(props.id, data)
-                    lemonToast.success('Batch export configuration updated successfully')
-                    void addProductIntent({
-                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                        intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
-                    })
-                    actions.setBatchExportConfig(res)
-                    actions.updateBatchExportConfigSuccess(res)
-                    return
-                }
-                const res = await api.batchExports.create(data)
-                actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
-
-                void addProductIntent({
-                    product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
-                    intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
-                })
-
-                router.actions.replace(urls.batchExport(res.id))
-                lemonToast.success('Batch export created successfully')
-                actions.updateBatchExportConfigSuccess(res)
-            } catch (error: any) {
-                // Not rethrown, matching `deleteBatchExport` below: the unsaved values stay on the
-                // form either way, and a rejecting listener escapes kea as an unhandled rejection.
-                lemonToast.error(error.detail || error.message || 'Could not save the batch export. Try again.')
-                // The toast can be far from the field at fault, such as the query editor, so the error also shows under it
-                if (error.attr && error.detail && error.attr in values.configuration) {
-                    actions.setConfigurationManualErrors({ [error.attr]: error.detail })
-                }
-            }
-        },
+    listeners(({ values, actions }) => ({
         updateBatchExportConfigSuccess: ({ batchExportConfig }) => {
             if (!batchExportConfig) {
                 return
@@ -1232,7 +1178,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             }
         },
     })),
-    forms(({ asyncActions, values }) => ({
+    forms(({ actions, props, values }) => ({
         configuration: {
             errors: (formdata) => {
                 const requiredFieldErrors = Object.fromEntries(
@@ -1311,11 +1257,53 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     }
                 }
 
-                await asyncActions.updateBatchExportConfig(formdata)
-                // Submitting needs a form without errors, so a manual error now came from this save's API response.
-                // kea-forms hides form errors after a successful submit, so the submit has to fail to keep it visible.
-                if (Object.keys(values.configurationManualErrors).length > 0) {
-                    throw new Error('The batch export could not be saved')
+                const interval = formdata.interval
+                const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
+                    paused: formdata.paused,
+                    name: formdata.name,
+                    interval,
+                    timezone: interval === 'day' || interval === 'week' ? formdata.timezone : null,
+                    offset_day: interval === 'week' ? formdata.offset_day : null,
+                    offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
+                    model: formdata.model,
+                    // The backend rejects `hogql_query` for every model but 'hogql'
+                    hogql_query: formdata.model === BatchExportModelEnumApi.Hogql ? formdata.hogql_query : undefined,
+                    // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
+                    filters: formdata.model === BatchExportModelEnumApi.Events ? formdata.filters : undefined,
+                    destination: buildDestinationPayload(formdata) as any,
+                } as any
+
+                try {
+                    if (props.id) {
+                        const res = await api.batchExports.update(props.id, data)
+                        lemonToast.success('Batch export configuration updated successfully')
+                        void addProductIntent({
+                            product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                            intent_context: ProductIntentContext.BATCH_EXPORT_UPDATED,
+                        })
+                        actions.setBatchExportConfig(res)
+                        actions.updateBatchExportConfigSuccess(res)
+                        return
+                    }
+                    const res = await api.batchExports.create(data)
+                    actions.resetConfiguration(getConfigurationFromBatchExportConfig(res))
+
+                    void addProductIntent({
+                        product_type: ProductKey.PIPELINE_BATCH_EXPORTS,
+                        intent_context: ProductIntentContext.BATCH_EXPORT_CREATED,
+                    })
+
+                    router.actions.replace(urls.batchExport(res.id))
+                    lemonToast.success('Batch export created successfully')
+                    actions.updateBatchExportConfigSuccess(res)
+                } catch (error: any) {
+                    lemonToast.error(error.detail || error.message || 'Could not save the batch export. Try again.')
+                    // The toast can be far from the field at fault, such as the query editor, so the error also shows under it
+                    if (error.attr && error.detail && error.attr in values.configuration) {
+                        actions.setConfigurationManualErrors({ [error.attr]: error.detail })
+                    }
+                    // kea-forms hides form errors after a successful submit, so a failed save has to fail the submit
+                    throw error
                 }
             },
         },

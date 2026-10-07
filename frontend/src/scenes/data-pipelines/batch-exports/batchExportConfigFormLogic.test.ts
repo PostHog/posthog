@@ -906,7 +906,7 @@ describe('batchExportConfigFormLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
             })
-                .toDispatchActions(['submitConfiguration', 'submitConfigurationSuccess'])
+                .toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
                 .toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith(SAVE_FAILS_DETAIL)
