@@ -408,6 +408,33 @@ describe('insightVizDataLogic', () => {
 
             expect(builtInsightVizDataLogic.values.querySource).toMatchObject({ samplingFactor: undefined })
         })
+
+        it.each([
+            ['an event breakdown', { breakdown_type: 'event', breakdown: '$browser' }, undefined],
+            [
+                'multiple breakdowns with an event one',
+                {
+                    breakdowns: [
+                        { type: 'data_warehouse', property: 'status' },
+                        { type: 'event', property: '$browser' },
+                    ],
+                },
+                undefined,
+            ],
+            [
+                'a data warehouse breakdown',
+                { breakdown_type: 'data_warehouse', breakdown: 'status' },
+                { breakdown_type: 'data_warehouse', breakdown: 'status' },
+            ],
+        ])('handles %s when a trends series changes to a data warehouse series', (_, breakdownFilter, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ breakdownFilter } as TrendsQuery)
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                series: [{ ...warehouseSeries, kind: NodeKind.DataWarehouseNode }],
+            } as TrendsQuery)
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual(expected)
+        })
     })
 
     describe('updateDateRange', () => {

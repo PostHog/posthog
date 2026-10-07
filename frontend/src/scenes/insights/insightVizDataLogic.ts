@@ -2899,6 +2899,21 @@ export function dateRangeZoomEnd(bucketStart: string, interval: IntervalType | n
     return start.add(1, interval).subtract(1, 'day').format('YYYY-MM-DD')
 }
 
+// The only breakdown types the trends backend resolves against a data warehouse series.
+const DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES = new Set<string>(['data_warehouse', 'hogql'])
+
+function hasEventBasedBreakdown(breakdownFilter: BreakdownFilter | null | undefined): boolean {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some(
+            (breakdown) => !DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES.has(breakdown.type ?? '')
+        )
+    }
+    return (
+        breakdownFilter?.breakdown != null &&
+        !DATA_WAREHOUSE_SERIES_BREAKDOWN_TYPES.has(breakdownFilter.breakdown_type ?? '')
+    )
+}
+
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode,
@@ -3109,6 +3124,19 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
         mergedUpdate['properties'] = []
+    }
+
+    // The trends backend rejects an event-based breakdown on a data warehouse series.
+    if (
+        kind === NodeKind.TrendsQuery &&
+        maybeChangedSeries?.some((series) => isDataWarehouseNode(series)) &&
+        hasEventBasedBreakdown(
+            'breakdownFilter' in mergedUpdate
+                ? (mergedUpdate as TrendsQuery).breakdownFilter
+                : (currentState as TrendsQuery).breakdownFilter
+        )
+    ) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
