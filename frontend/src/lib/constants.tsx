@@ -465,7 +465,7 @@ export const FEATURE_FLAGS = {
     PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
-    PI_WEB_SESSIONS: 'pi-web-sessions', // owner: #team-ai-observability, shows Pi task runs on the web run surface
+    PI_WEB_SESSIONS: 'pi-web-sessions', // owner: #team-agent-infrastructure, shows Pi task runs on the web run surface
     PIPELINE_STATUS_PAGE: 'pipeline-status-page', // owner: @clr182 #team-support
     PLATFORM_ALERTS: 'platform-alerts', // owner: #team-apm, gates the shared alerts platform read API and UI
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai

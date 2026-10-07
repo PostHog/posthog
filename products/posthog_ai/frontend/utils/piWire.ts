@@ -19,7 +19,8 @@ const PI_BUILTIN_TOOL_NAMES: Record<string, string> = {
     ls: 'LS',
 }
 
-const PI_FILE_PATH_TOOLS = new Set(['read', 'edit', 'write'])
+const PI_MCP_PROXY_TOOL = 'mcp'
+const PI_MCP_SEARCH_TOOL_NAME = 'ToolSearch'
 
 const PI_WIRE_TYPES = new Set([
     'pi_event',
@@ -63,88 +64,62 @@ export function isPiWireEntry(value: unknown): value is Record<string, unknown> 
     return isRecord(value) && typeof value.type === 'string' && PI_WIRE_TYPES.has(value.type)
 }
 
-function mcpToolParts(name: string): { server: string; tool: string } | undefined {
-    if (!name.startsWith('mcp_') && !name.includes('__') && !name.endsWith('_exec')) {
-        return undefined
-    }
+function mcpToolParts(name: string, separator: string): { server: string; tool: string } | undefined {
     const bare = name.replace(/^mcp_+/, '')
-    const separator = bare.indexOf('__')
-    if (separator > 0) {
-        return { server: bare.slice(0, separator), tool: bare.slice(separator + 2) }
-    }
     if (bare.endsWith('_exec') && bare.length > '_exec'.length) {
         return { server: bare.slice(0, -'_exec'.length), tool: 'exec' }
     }
-    return undefined
+    const split = bare.includes('__') ? '__' : separator
+    const at = bare.indexOf(split)
+    return at > 0 ? { server: bare.slice(0, at), tool: bare.slice(at + split.length) } : undefined
 }
 
-function piToolMeta(name: string | undefined, meta: unknown): Record<string, unknown> | undefined {
-    const existing = isRecord(meta) ? meta : undefined
+function mcpToolMeta(mcp: { server: string; tool: string }): Record<string, unknown> {
+    return { toolName: `mcp__${mcp.server}__${mcp.tool}`, mcp }
+}
+
+function posthogToolMeta(name: string, details: unknown): Record<string, unknown> | undefined {
+    if (name !== PI_MCP_PROXY_TOOL) {
+        const builtin = PI_BUILTIN_TOOL_NAMES[name]
+        const mcp = builtin ? undefined : mcpToolParts(name, '__')
+        return mcp ? mcpToolMeta(mcp) : { toolName: builtin ?? name }
+    }
+    if (!isRecord(details)) {
+        return undefined
+    }
+    if (details.kind === 'search') {
+        return { toolName: PI_MCP_SEARCH_TOOL_NAME }
+    }
+    const proxied = details.kind === 'tool' ? optionalString(details.name) : undefined
+    const mcp = proxied ? mcpToolParts(proxied, '_') : undefined
+    return mcp ? mcpToolMeta(mcp) : undefined
+}
+
+function piToolMeta(toolCall: Record<string, unknown>): Record<string, unknown> | undefined {
+    const existing = isRecord(toolCall._meta) ? toolCall._meta : undefined
+    const name = optionalString(toolCall.name)
     if (!name || (existing && isRecord(existing.posthog))) {
         return existing
     }
-    const builtin = PI_BUILTIN_TOOL_NAMES[name]
-    const mcp = builtin ? undefined : mcpToolParts(name)
-    const posthog = mcp ? { toolName: `mcp__${mcp.server}__${mcp.tool}`, mcp } : { toolName: builtin ?? name }
-    return { ...existing, posthog }
-}
-
-function mcpToolLabel(value: string): string {
-    const label = value.replace(/[_-]+/g, ' ').trim()
-    return label.charAt(0).toUpperCase() + label.slice(1)
-}
-
-function piMcpProxyTitle(details: unknown, meta: unknown): string | undefined {
-    const posthog = isRecord(meta) && isRecord(meta.posthog) ? meta.posthog : undefined
-    const proxy = isRecord(details) && typeof details.kind === 'string' ? details : posthog?.mcpProxy
-    if (!isRecord(proxy)) {
-        return undefined
-    }
-    if (proxy.kind === 'search') {
-        return 'Search MCP tools'
-    }
-    const descriptor = isRecord(posthog?.mcp) ? posthog.mcp : undefined
-    if (typeof descriptor?.server === 'string' && typeof descriptor.tool === 'string') {
-        const title = optionalString(descriptor.title)
-        return `${descriptor.server} - ${title ?? mcpToolLabel(descriptor.tool)}`
-    }
-    const name = optionalString(proxy.name)?.replace(/^mcp_+/, '')
-    if (proxy.kind !== 'tool' || !name) {
-        return undefined
-    }
-    const [server, ...tool] = name.split(name.includes('__') ? '__' : '_')
-    return server && tool.length > 0 ? `${server} - ${mcpToolLabel(tool.join('_'))}` : mcpToolLabel(name)
-}
-
-function piToolInput(name: string | undefined, rawInput: unknown): unknown {
-    if (!name || !PI_FILE_PATH_TOOLS.has(name) || !isRecord(rawInput) || typeof rawInput.path !== 'string') {
-        return rawInput
-    }
-    return rawInput.file_path === undefined ? { ...rawInput, file_path: rawInput.path } : rawInput
+    const posthog = posthogToolMeta(name, toolCall.details)
+    return posthog ? { ...existing, posthog } : existing
 }
 
 function toolCallUpdate(sessionUpdate: 'tool_call' | 'tool_call_update', toolCall: unknown): Notification | null {
     if (!isRecord(toolCall) || typeof toolCall.id !== 'string' || !toolCall.id) {
         return null
     }
-    const name = optionalString(toolCall.name)
     const update: Record<string, unknown> = { sessionUpdate, toolCallId: toolCall.id }
-    for (const field of ['title', 'kind', 'status', 'content', 'locations', 'rawOutput'] as const) {
+    for (const field of ['kind', 'status', 'content', 'locations', 'rawInput', 'rawOutput'] as const) {
         if (toolCall[field] !== undefined && toolCall[field] !== null) {
             update[field] = toolCall[field]
         }
     }
-    if (name && PI_BUILTIN_TOOL_NAMES[name] && update.title === name) {
-        delete update.title
+    const title = optionalString(toolCall.title)
+    if (title && title !== toolCall.name) {
+        update.title = title
     }
-    const mcpProxyTitle = name === 'mcp' || !name ? piMcpProxyTitle(toolCall.details, toolCall._meta) : undefined
-    if (mcpProxyTitle) {
-        update.title = mcpProxyTitle
-    }
-    if (toolCall.rawInput !== undefined) {
-        update.rawInput = piToolInput(name, toolCall.rawInput)
-    }
-    const meta = piToolMeta(name, toolCall._meta)
+    const meta = piToolMeta(toolCall)
     if (meta) {
         update._meta = meta
     }

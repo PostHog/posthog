@@ -3887,6 +3887,14 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
             ("acp_team_default_is_ignored", ACP_RUN_DEFAULT, None, {}, None, None),
             (
+                "pi_team_default_applies",
+                {"runtime": "pi", "runtime_adapter": None, "model": "gpt-5.6-terra", "reasoning_effort": "low"},
+                None,
+                {},
+                "gpt-5.6-terra",
+                "low",
+            ),
+            (
                 "explicit_effort_survives_acp_team_default",
                 ACP_RUN_DEFAULT,
                 None,
@@ -3937,7 +3945,6 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("runtime_adapter", {"runtime_adapter": "codex"}),
             ("initial_permission_mode", {"initial_permission_mode": "plan"}),
-            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
             ("model", {"model": "not-a-listed-model"}),
         ]
     )
@@ -4528,7 +4535,6 @@ class TestTaskAPI(BaseTaskAPITest):
             ("context_window", {"context_window": "1m"}),
             ("fast_mode", {"fast_mode": True}),
             ("initial_permission_mode", {"initial_permission_mode": "plan"}),
-            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
             ("claude_model_access", {"claude_model_access": "own-subscription"}),
         ]
     )

@@ -81,6 +81,20 @@ logger = logging.getLogger(__name__)
 
 TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
+PI_TASK_INCOMPATIBLE_RUN_FIELDS = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
+
+
+def _pi_task_run_request_errors(attrs: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    if attrs.get("claude_model_access") == "own-subscription":
+        errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
+    if attrs.get("codex_model_access") == "own-subscription":
+        errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
+    for field in PI_TASK_INCOMPATIBLE_RUN_FIELDS:
+        if attrs.get(field) is not None:
+            errors[field] = "This field cannot be used with a Pi task."
+    return errors
+
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     if "task_runtime" in context:
@@ -3649,10 +3663,7 @@ class TaskRunCreateRequestSerializer(
         choices=REASONING_EFFORT_CHOICES,
         required=False,
         default=None,
-        help_text=(
-            "Reasoning effort to request for models that expose an effort control. "
-            "A Pi task sets it as the Pi thinking level and does not accept 'ultracode'."
-        ),
+        help_text="Reasoning effort to request for models that expose an effort control.",
     )
     context_window = serializers.ChoiceField(
         choices=CONTEXT_WINDOW_CHOICES,
@@ -3714,11 +3725,7 @@ class TaskRunCreateRequestSerializer(
             elif not is_pi_task:
                 attrs["runtime_adapter"] = model_runtime_adapter
         if is_pi_task:
-            for field in ("runtime_adapter", "initial_permission_mode"):
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task. Remove it and try again."
-            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
-                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
+            errors.update(_pi_task_run_request_errors(attrs))
         if collision_error := get_relayed_imported_mcp_name_collision_error(attrs):
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
@@ -3728,10 +3735,6 @@ class TaskRunCreateRequestSerializer(
 
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
-        if attrs.get("claude_model_access") == "own-subscription" and is_pi_task:
-            errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-        if attrs.get("codex_model_access") == "own-subscription" and is_pi_task:
-            errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
         if pending_user_message is not None:
             trimmed_message = pending_user_message.strip()
             attrs["pending_user_message"] = trimmed_message or None
@@ -3911,19 +3914,8 @@ class TaskRunBootstrapCreateRequestSerializer(
             errors["relayed_mcp_servers"] = collision_error
         initial_permission_mode = attrs.get("initial_permission_mode")
         runtime_adapter = attrs.get("runtime_adapter")
-        is_pi_task = _is_pi_task_run_request(self.context)
-        if is_pi_task:
-            if attrs.get("claude_model_access") == "own-subscription":
-                errors["claude_model_access"] = "Pi tasks cannot use a Claude subscription."
-            if attrs.get("codex_model_access") == "own-subscription":
-                errors["codex_model_access"] = "Pi tasks cannot use a ChatGPT plan."
-            pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
-            for field in pi_incompatible_fields:
-                if attrs.get(field) is not None:
-                    errors[field] = "This field cannot be used with a Pi task."
-            if attrs.get("reasoning_effort") == ReasoningEffort.ULTRACODE:
-                errors["reasoning_effort"] = "This reasoning effort cannot be used with a Pi task."
-
+        if _is_pi_task_run_request(self.context):
+            errors.update(_pi_task_run_request_errors(attrs))
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs

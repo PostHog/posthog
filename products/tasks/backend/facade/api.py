@@ -8066,7 +8066,14 @@ def readonly_github_integration_id(team_id: int) -> int | None:
     return integration.integration.id if integration is not None else None
 
 
-def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | None, internal: bool = False) -> dict:
+def _with_ai_run_defaults(
+    data: dict,
+    *,
+    team_id: int,
+    acting_user_id: int | None,
+    internal: bool = False,
+    runtime: str = Task.Runtime.ACP,
+) -> dict:
     """A copy of ``data`` with the team/user default AI run triple filled in when it pins
     no runtime selection (see ``resolve_ai_run_selection``).
 
@@ -8082,7 +8089,7 @@ def _with_ai_run_defaults(data: dict, *, team_id: int, acting_user_id: int | Non
     )
 
     updated = dict(data)
-    apply_ai_run_defaults(updated, team_id, acting_user_id)
+    apply_ai_run_defaults(updated, team_id, acting_user_id, runtime=runtime)
     return updated
 
 
@@ -8950,7 +8957,7 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not is_pi_task and (not resume_from_run_id or previous_is_import_run):
+    if not resume_from_run_id or previous_is_import_run:
         # Fill team/user default AI run preferences before warm matching: a warm run
         # provisioned under the default triple must still match a submit that pinned
         # nothing. Resumes instead carry the previous run's selection (below), except from
@@ -8960,6 +8967,7 @@ def run_task(
             team_id=task.team_id,
             acting_user_id=user_id if user_id is not None else task.created_by_id,
             internal=task.internal,
+            runtime=task.runtime,
         )
 
     access_state = {
