@@ -19,6 +19,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, is_reserved_models_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -61,7 +62,11 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
@@ -467,6 +472,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         ]
 
     def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        self._validate_models_namespace()
         if not internally_computed_url_pattern:
             self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
         super().save(*args, **kwargs)
@@ -479,7 +485,24 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # error. save()'s check stays the enforcement of record for every other caller (DRF, a
         # management command, a future endpoint), since nothing but ModelForm calls full_clean().
         super().clean()
+        self._validate_models_namespace()
         self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _validate_models_namespace(self) -> None:
+        # A materialized model stores its rows in a private backing table that has the model's name.
+        # The HogQL schema never exposes that table, so it does not claim the namespace.
+        if self.created_via == self.CreatedVia.MATERIALIZED_VIEW:
+            return
+        if not is_reserved_models_name(self.name):
+            return
+        source = self.external_data_source
+        if source is not None and source.access_method == ExternalDataSourceAccessMethod.DIRECT:
+            return
+        # A table saved with this name before the reservation existed must stay editable and deletable.
+        # soft_delete() calls save(), so rejecting an unchanged name would leave the table stuck.
+        if not self._state.adding and type(self).raw_objects.filter(pk=self.pk, name=self.name).exists():
+            return
+        raise ValidationError({"name": MODELS_NAMESPACE_TABLE_ERROR})
 
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the

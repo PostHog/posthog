@@ -52,9 +52,12 @@ def test_paginated_full_refresh(
     response = sim_source(config, inputs, manager, "v2")
     pages = iter(cast(Iterable[Any], response.items()))
     assert next(pages) == [first]
+    manager.confirm()
     assert not manager.has_staged_state()
     assert next(pages) == [last]
+    manager.confirm()
     assert manager.has_staged_state()
+    manager.confirm()
     manager.commit()
     assert json.loads(redis_client.set.call_args.args[1]) == {"cursor": "next-page"}
     assert list(pages) == []

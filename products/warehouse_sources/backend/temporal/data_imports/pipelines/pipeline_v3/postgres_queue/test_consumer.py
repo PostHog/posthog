@@ -1,10 +1,11 @@
 import math
+import time
 import asyncio
 from datetime import UTC, datetime
 from typing import Any, NamedTuple, cast
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError as DjangoOperationalError
 from django.test import override_settings
@@ -25,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DestinationConfigurationError,
     DestinationDeliveryError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    GROUP_TABLE_HANDLES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -64,6 +69,8 @@ from products.warehouse_sources_queue.backend.core.metrics import (
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
     CLAIMABLE_GROUPS,
+    DEPTH_PROBE_TIMEOUTS_TOTAL,
+    DEPTH_SAMPLE_AGE_SECONDS,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     QUEUE_SAMPLE_GAUGES,
@@ -439,6 +446,9 @@ class TestProcessGroup:
         consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
 
         batches = [_make_batch()]
+        GROUP_TABLE_HANDLES.retain(
+            ExportSignalMessage.from_dict(batches[0].to_export_signal()), MagicMock(), last_batch_index=0
+        )
 
         with (
             patch(
@@ -460,6 +470,7 @@ class TestProcessGroup:
             await consumer._process_group((1, "schema-1"), batches)
 
         mock_unlock.assert_called_once()
+        assert len(GROUP_TABLE_HANDLES) == 0
 
     @pytest.mark.asyncio
     async def test_halts_group_when_batch_does_not_succeed(self):
@@ -1047,6 +1058,71 @@ class TestAdminShutdownErrorClassification:
         mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_queue_gauges_are_probed_before_the_first_poll(self):
+        consumer = _make_consumer()
+        calls: list[str] = []
+
+        async def probe(*args: Any, **kwargs: Any) -> bool:
+            calls.append("probe")
+            return True
+
+        async def first_poll(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            calls.append("poll")
+            consumer._shutdown.set()
+            return []
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch.object(consumer._adapter, "observe_queue_gauges", side_effect=probe),
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer_module.BatchQueue, "get_unprocessed_and_lock", side_effect=first_poll),
+            patch.object(consumer_module.BatchQueue, "release_all_owned_leases", new_callable=AsyncMock),
+        ):
+            await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+        assert calls[:2] == ["probe", "poll"]
+        assert consumer._holds_gauge_slot is True
+
+    @pytest.mark.parametrize(
+        "holds_slot, in_warmup, expect_probe",
+        [
+            (False, True, True),
+            (True, True, False),
+            (False, False, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_recovery_loop_retries_the_gauge_slot_only_while_a_new_pod_lacks_it(
+        self, holds_slot, in_warmup, expect_probe
+    ):
+        consumer = _make_consumer(recovery_interval_seconds=0.01)
+        consumer._holds_gauge_slot = holds_slot
+        consumer._gauge_warmup_deadline = time.monotonic() + (60 if in_warmup else -1)
+        second_tick = asyncio.Event()
+        sweeps = 0
+
+        async def sweep() -> None:
+            nonlocal sweeps
+            sweeps += 1
+            if sweeps == 2:
+                second_tick.set()
+
+        with (
+            patch.object(consumer, "_recovery_sweep_with_timeout", side_effect=sweep),
+            patch.object(consumer, "_reconcile_failed_runs", new_callable=AsyncMock),
+            patch.object(
+                consumer._adapter, "observe_queue_gauges", new_callable=AsyncMock, return_value=False
+            ) as probe,
+        ):
+            loop_task = asyncio.create_task(consumer._recovery_loop())
+            await asyncio.wait_for(second_tick.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(loop_task, timeout=5.0)
+
+        assert (probe.await_count > 0) is expect_probe
+
+    @pytest.mark.asyncio
     async def test_recovery_sweep_does_not_report_admin_shutdown_error(self):
         # Same self-healing admin-initiated disconnect, but hit by the periodic recovery
         # sweep's own OperationalError branch rather than the reconcile sweep.
@@ -1581,7 +1657,10 @@ class TestStatementTimeoutBackstop:
             await consumer._ensure_poll_conn()
 
         assert "options" not in mock_connect.call_args.kwargs
-        fresh.execute.assert_awaited_once_with("SET statement_timeout = 210000")
+        assert [call.args[0] for call in fresh.execute.await_args_list] == [
+            "SET statement_timeout = 210000",
+            "SET jit = off",
+        ]
 
 
 class TestPollBackoff:
@@ -2402,6 +2481,95 @@ class TestReconcileFailedRuns:
         assert _same(CLAIMABLE_BATCHES._value.get(), expected_claimable)
         assert mock_depth.await_count == int(depth_awaited)
         mock_failed_runs.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "second_round_failure",
+        ["depth_count_timeout", "depth_breakdown_timeout", "freshness_timeout"],
+    )
+    async def test_depth_gauges_keep_the_last_good_sample_when_a_probe_times_out(self, second_round_failure):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        good = _depth(
+            12_000,
+            claimable_groups=9,
+            top_groups_claimable_share=0.5,
+            slot_waiting_batches=10_000,
+            serialized_batches=2_000,
+        )
+        no_breakdown = QueueDepth(
+            claimable_batches=13_000,
+            claimable_groups=None,
+            top_groups_claimable_share=None,
+            slot_waiting_batches=None,
+            serialized_batches=None,
+        )
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_freshness",
+                new_callable=AsyncMock,
+                side_effect=[
+                    _freshness(42.0),
+                    canceled if second_round_failure == "freshness_timeout" else _freshness(43.0),
+                ],
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=[
+                    good,
+                    canceled if second_round_failure == "depth_count_timeout" else no_breakdown,
+                ],
+            ),
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            assert DEPTH_SAMPLE_AGE_SECONDS._value.get() < 1
+            timeouts_before = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get()
+            await consumer._reconcile_failed_runs()
+
+        expected_batches = 13_000 if second_round_failure == "depth_breakdown_timeout" else 12_000
+        assert CLAIMABLE_BATCHES._value.get() == expected_batches
+        assert CLAIMABLE_GROUPS._value.get() == 9
+        assert SLOT_WAITING_BATCHES._value.get() == 10_000
+        assert SERIALIZED_BATCHES._value.get() == 2_000
+        assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.5
+        assert DEPTH_SAMPLE_AGE_SECONDS._value.get() >= 0
+        counted = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get() - timeouts_before
+        assert counted == (1 if second_round_failure == "depth_count_timeout" else 0)
+
+    @pytest.mark.asyncio
+    async def test_a_pod_that_lost_the_gauge_slot_never_exports_a_depth_sample_or_zero(self):
+        consumer = _make_consumer()
+        canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with (
+            patch.object(
+                consumer_module.BatchQueue,
+                "try_acquire_queue_gauges_slot",
+                new_callable=AsyncMock,
+                side_effect=[True, False, True],
+            ),
+            patch.object(
+                consumer_module.BatchQueue, "get_queue_freshness", new_callable=AsyncMock, return_value=_freshness(1.0)
+            ),
+            patch.object(
+                consumer_module.BatchQueue,
+                "get_queue_depth",
+                new_callable=AsyncMock,
+                side_effect=[_depth(12_000, claimable_groups=3), canceled],
+            ),
+            patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
+        ):
+            await consumer._reconcile_failed_runs()
+            await consumer._reconcile_failed_runs()
+            assert all(math.isnan(gauge._value.get()) for gauge in QUEUE_SAMPLE_GAUGES)
+            await consumer._reconcile_failed_runs()
+
+        # Re-acquired after a gap: the old sample is gone, so a timeout leaves NaN rather than a stale value.
+        assert math.isnan(CLAIMABLE_BATCHES._value.get())
+        assert math.isnan(DEPTH_SAMPLE_AGE_SECONDS._value.get())
 
     @pytest.mark.asyncio
     async def test_hung_freshness_probe_saturates_gauge_and_reconcile_still_runs(self):
@@ -3867,6 +4035,10 @@ class TestIsRetryableError:
             ("Primary key required for incremental syncs", False),
             ("ExternalDataSchema matching query does not exist.", False),
             ("ExternalDataJob matching query does not exist.", False),
+            (
+                "Role-based AWS access is not available: BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN is not set.",
+                False,
+            ),
             ("connection reset by peer", True),
         ],
     )

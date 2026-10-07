@@ -89,6 +89,28 @@ class TestIsTransientObjectStoreError:
                 PermissionError("The difference between the request time and the current time is too large."),
                 True,
             ),
+            (
+                # S3 omits the usual XML error body on some 5xx responses, so the AWS SDK for C++
+                # (pyarrow's S3FileSystem) can't classify the response and reports it as the fixed
+                # "UNKNOWN" code instead of a specific, permanent one like AccessDenied.
+                "bodyless_5xx_reported_as_unknown",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+                ),
+                True,
+            ),
+            (
+                # AWS omits the error body for every HeadObject response regardless of status, so a
+                # permanent 403/404 reports the same "UNKNOWN" code as the 5xx case above. Only the
+                # status in the message tells them apart, and this one must not be retried.
+                "bodyless_4xx_reported_as_unknown_not_transient",
+                OSError(
+                    "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+                    "AWS Error UNKNOWN (HTTP status 404) during HeadObject operation: No response body."
+                ),
+                False,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

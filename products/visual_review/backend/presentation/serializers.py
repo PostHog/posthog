@@ -655,8 +655,8 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "every run, so its baseline is wrong and quarantining it only hides that. `unstable` "
             "fails some runs and not others, the classic flake. `at_risk` never fails, but its "
             "worst absorbed diff is already touching the threshold, so the next unrelated change "
-            "turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` "
-            "matched its baseline on every run in the window."
+            "turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed "
+            "sits far below the threshold."
         ),
     )
     needs_decision = serializers.BooleanField(
@@ -696,11 +696,10 @@ class FlakinessTotalsSerializer(DataclassSerializer):
     broken = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `broken`.")
     unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
     at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
-    noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
     clean = serializers.IntegerField(
         help_text=(
-            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
-            "variants or older history, and reported here so every listed entry is reachable."
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a "
+            "quarantine or older gate failures, and reported here so every listed entry is reachable."
         )
     )
     by_run_type = serializers.DictField(

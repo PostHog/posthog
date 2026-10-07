@@ -42,14 +42,11 @@
 # - Artifact uploads, run-scoped sharding plans, and the failing-test rollup
 #   require side effects, including duration writes. Depot stores these separately
 #   from GitHub Actions.
-# - Hourly scheduled master run: canonical no longer runs the test matrices on master push
-#   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
-#   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
-#   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
-#   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
-#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
-#   exclusion, the paths-filter schedule skip, and build_django_matrix's RUN_JSON_TARGETS
-#   check of the EVENTS_JSON_SCHEDULE cron) are depot-exempt.
+# - Hourly scheduled master run: only this workflow has the `schedule` trigger, so the run
+#   needs no hand-off and `wait-for-handoff` accepts it outright. Every `schedule` arm
+#   here is depot-only: the paths-filter skip, the `!= 'schedule'` gates on the per-commit
+#   checks, the events_json cron in build_django_matrix, the events schema recording and
+#   its upload, and POSTHOG_PYTEST_HARD_EXIT.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -145,9 +142,19 @@ name: Backend CI on Depot
 # `Hand off backend tests to Depot CI` check from .github/workflows/ci-backend.yml and
 # `changes` (root of the needs graph) only runs when that check succeeded, so the whole
 # workflow cascades off otherwise. A manual run needs that check on its commit too.
+# The hourly master run is the exception: only this workflow has a schedule trigger, so that
+# run starts here with no hand-off.
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
 # with canonical; it runs whenever either file changes, independent of the percent.
 on:
+    schedule:
+        # Hourly full-matrix run against the newest master state. The merge queue's
+        # trunk-merge/** run already gated every commit before it landed, so this is where
+        # master's matrix coverage, flaky-test baseline, and per-test timing data come from.
+        # GitHub Actions has no schedule trigger for Backend CI, so this run needs no hand-off.
+        # Keep the events_json cadence tied to the trigger, even when a job starts late.
+        - cron: '23 */3 * * *'
+        - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
@@ -202,6 +209,8 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
+    # Scheduled runs test master even when Depot does not populate github.ref.
+    IS_MASTER: ${{ github.event_name == 'schedule' || github.ref == 'refs/heads/master' }}
     # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
     # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
     # diverges from test assertions. Blank it to match the GHA environment. Depot also injects
@@ -306,6 +315,10 @@ jobs:
                   if [ "$IS_FORK" = true ]; then
                       # The fork controls its own copy of the GitHub Actions workflow, so its hand-off is not trusted.
                       echo "::notice::Fork pull requests never run on Depot CI."
+                  elif [ "$EVENT" = schedule ]; then
+                      # Only this workflow has the hourly trigger, so no other engine can run it.
+                      handed_off=true
+                      echo "::notice::The hourly master run belongs to Depot CI."
                   elif [ "$EVENT" != pull_request ] && [ "$EVENT" != workflow_dispatch ] && [ "$EVENT" != api ]; then
                       # A reused commit can still carry a pull request's hand-off, and GitHub Actions
                       # runs every non-PR event itself.
@@ -443,12 +456,11 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.depot/actions/paths-filter
               id: filter
-              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
-              # trigger (depot-exempt, see the header), so there is no cron run whose
-              # filter could narrow to a single commit. Canonical's reason for the extra
-              # arm is "The hourly master lane" in
-              # .agents/skills/authoring-ci-workflows/SKILL.md.
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -1462,7 +1474,7 @@ jobs:
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
-                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                      ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && env.IS_MASTER == 'true' && '--store-durations' || '' }}
                       ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && '--junitxml=junit-product.xml' || '' }}
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.event_name == 'pull_request' && '--cov=backend --cov-report=' || '' }}
@@ -1573,7 +1585,7 @@ jobs:
               # timings either. Its artifact would hold only the restored map, and the timing
               # refresh then rejects the whole Products slice because the timing and JUnit shard
               # sets differ.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (env.IS_MASTER == 'true' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -1651,7 +1663,7 @@ jobs:
     # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
     sdk-major-guard:
         needs: [changes]
-        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push'
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push' && github.event_name != 'schedule'
         timeout-minutes: 5
         permissions: {}
         name: SDK major-version guard (depot-ubuntu-24.04)
@@ -1664,7 +1676,7 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'push' && github.event_name != 'schedule'
         timeout-minutes: 10
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1708,6 +1720,13 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+            # Above the boundary for the same reason. product:lint compares the crossings ledger
+            # with the merge commit's first parent, so the clone needs one more level of history.
+            - name: Fetch the pull request base
+              if: github.event_name == 'pull_request'
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1720,6 +1739,8 @@ jobs:
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
+              env:
+                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
@@ -1856,7 +1877,7 @@ jobs:
         # products/db_routing.yaml is neither Python nor under a backend/ directory, and
         # a migration in a future top-level app matches none of them. Without it the
         # replay gate could be on while the job that runs it never starts.
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.migration_replay == 'true') && github.event_name != 'schedule'
         # On master this job replays the full migration history from scratch to
         # produce the schema dump every PR job restores, and a merge queue batch that
         # changes a Django migration replays it a second time onto an empty database.
@@ -1908,7 +1929,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2567,7 +2588,7 @@ jobs:
     check-openapi-types:
         needs: [changes]
         # Not on master push: master only primes the schema cache.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push' && github.event_name != 'schedule'
         timeout-minutes: 20
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -2615,7 +2636,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2824,6 +2845,7 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
@@ -3135,6 +3157,11 @@ jobs:
                       json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
 
+                  if [[ "$RUN_JSON_TARGETS" != "true" ]]; then
+                      echo "Skipping the events_json rows on this hourly run"
+                      json_targets_count=0
+                  fi
+
                   # The events_json rows: Core jobs over the listed paths with the
                   # native-JSON events table. They keep Core's person-on-events default.
                   json_targets=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$json_targets_count" '
@@ -3287,7 +3314,7 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
             - name: Save Python tool cache
-              if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
+              if: env.IS_MASTER == 'true' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3300,7 +3327,7 @@ jobs:
                   version: '0.12.13'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  save-cache: ${{ env.IS_MASTER == 'true' }}
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash
@@ -3881,7 +3908,7 @@ jobs:
               # cache miss must never red a green run.
               continue-on-error: true
               if: |
-                  github.ref == 'refs/heads/master' &&
+                  env.IS_MASTER == 'true' &&
                   matrix.segment == 'Core' &&
                   matrix.group == 1 &&
                   !matrix.person-on-events &&
@@ -3943,7 +3970,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Upload on master, or on PRs that change timing/sharding scripts (for validation)
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((github.ref == 'refs/heads/master' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && ((env.IS_MASTER == 'true' || needs.changes.outputs.timing_scripts == 'true') && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.new-events-schema && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image) }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -4615,6 +4642,7 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             (needs.django.result != 'skipped' || needs.turbo-tests.result != 'skipped') &&
             (
+            github.event_name == 'schedule' ||
             (github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master') ||
             (github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog')

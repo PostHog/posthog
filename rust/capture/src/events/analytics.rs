@@ -130,11 +130,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = DataType::from_event_name(
-        &event.event,
-        context.historical_migration,
-        context.ai_lane_predicate,
-    );
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -379,8 +375,8 @@ async fn process_events_inner(
     // abort path emits an `invalid_ai_event` ingestion warning alongside the
     // 400, so the project owner sees it too.
     //
-    // Lane membership follows the deployment's `AiLanePredicate`, the same
-    // answer `DataType::from_event_name` stamped on each event above.
+    // Lane membership is the same answer `DataType::from_event_name` stamped on
+    // each event above.
     if context.capture_mode == crate::config::CaptureMode::Ai {
         if let Some(offender) = events
             .iter()
@@ -663,7 +659,7 @@ mod tests {
     use super::*;
     use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
-    use crate::v0_request::{AiLanePredicate, OverflowReason, ProcessingContext};
+    use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
@@ -690,7 +686,6 @@ mod tests {
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
             ai_max_event_bytes: 0,
-            ai_lane_predicate: AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1340,7 +1335,7 @@ mod tests {
     }
 
     /// The AI lane assignment holds across capture modes: `Events` and
-    /// `Import` both divert every allowlisted AI event (only the AI lane has AI
+    /// `Import` both divert every AI event (only the AI lane has AI
     /// processing, so imports must divert too), winning over historical.
     /// Non-AI events stay on their normal route in every mode. The topic
     /// itself is resolved in the kafka sink from `DataType::AiEvents`, not
@@ -1667,41 +1662,24 @@ mod tests {
     /// second event is the one under test.
     struct AiLaneGateCase {
         second_event: &'static str,
-        predicate: AiLanePredicate,
         rejected: bool,
     }
 
     #[rstest]
     #[case::analytics_event_is_rejected(AiLaneGateCase {
         second_event: "$pageview",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::analytics_event_is_rejected_under_prefix(AiLaneGateCase {
-        second_event: "$pageview",
-        predicate: AiLanePredicate::Prefix,
-        rejected: true,
-    })]
-    // Under `Allowlist` a prefixed-but-unlisted name resolves to AnalyticsMain,
-    // so it is rejected too; under `Prefix` the same name is on the lane.
-    #[case::prefixed_but_unlisted_name_is_rejected(AiLaneGateCase {
+    #[case::any_ai_prefixed_name_passes(AiLaneGateCase {
         second_event: "$ai_call",
-        predicate: AiLanePredicate::Allowlist,
-        rejected: true,
-    })]
-    #[case::prefixed_but_unlisted_name_passes_under_prefix(AiLaneGateCase {
-        second_event: "$ai_call",
-        predicate: AiLanePredicate::Prefix,
         rejected: false,
     })]
     #[case::exception_is_rejected(AiLaneGateCase {
         second_event: "$exception",
-        predicate: AiLanePredicate::Allowlist,
         rejected: true,
     })]
-    #[case::second_allowlisted_event_passes(AiLaneGateCase {
+    #[case::second_ai_event_passes(AiLaneGateCase {
         second_event: "$ai_span",
-        predicate: AiLanePredicate::Allowlist,
         rejected: false,
     })]
     #[tokio::test]
@@ -1713,7 +1691,6 @@ mod tests {
             .with_timezone(&Utc);
         let mut context = create_test_context(now, None);
         context.capture_mode = crate::config::CaptureMode::Ai;
-        context.ai_lane_predicate = case.predicate;
 
         let events = vec![
             create_test_event_with_name("$ai_generation", None, None, None),
@@ -1855,7 +1832,7 @@ mod tests {
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
             &*records[0].topic, ai_topic,
-            "an allowlisted AI event diverts to the AI lane under Ai mode too"
+            "an AI event diverts to the AI lane under Ai mode too"
         );
     }
 

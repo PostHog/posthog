@@ -1,7 +1,8 @@
-"""Run a scanner as a multi-turn, tool-using Gemini conversation over the cached video.
+"""Run a scanner as a multi-turn Gemini conversation over the cached video.
 
 Each scan is a shared preamble plus the scanner's ordered `mission_steps` (one structured turn each). The video
-is cached once so the steps don't re-process it; the model pulls analytics events on demand via `get_events_around`.
+is cached once so the steps don't re-process it. Before the core step answers, the model gets one lookup round:
+it lists the moments it wants analytics events and network requests for, and the next turn carries all of them.
 Each step validates its own output and re-prompts once on failure; required steps abort the scan, best-effort steps
 (signals) just contribute nothing.
 """
@@ -13,7 +14,7 @@ import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -40,43 +41,34 @@ from products.replay_vision.backend.consent import is_ai_data_processing_approve
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.conversation import (
-    DEFAULT_MAX_TOOL_ITERATIONS,
-    function_calls,
-    run_tool_loop,
-)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
-from products.replay_vision.backend.temporal.events_tool import (
-    GET_EVENTS_TOOL_NAME,
-    build_events_index,
-    dispatch_events_tool,
-    events_tool,
-)
+from products.replay_vision.backend.temporal.events_tool import build_events_index
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.lookups import (
+    LookupPlan,
+    render_lookup_results,
+    render_lookups_unavailable,
+    render_plan_instruction,
+    run_lookups,
+)
 from products.replay_vision.backend.temporal.metrics import (
     record_events_tool_call,
+    record_lookup_plan,
     record_mission_pass,
     record_network_state,
     record_network_tool_call,
     record_provider_call,
     record_tool_round,
-    record_unknown_tool_call,
 )
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
-from products.replay_vision.backend.temporal.network_tool import (
-    GET_NETWORK_TOOL_NAME,
-    NetworkIndex,
-    build_network_index,
-    dispatch_network_tool,
-    network_tool,
-)
+from products.replay_vision.backend.temporal.network_tool import NetworkIndex, build_network_index
 from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
+    STEP_LOOKUPS,
     STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
@@ -88,6 +80,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
     TextSegment,
+    render_signals_instruction,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
@@ -108,17 +101,6 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 # One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
 # where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
 _MAX_MISSION_ATTEMPTS = 2
-
-# Event lookups a step may spend before the forced tool-free answer. Gemini 3.8 Flash follows "look it up"
-# far more eagerly than earlier Flash models, and each extra round-trip appends an uncached tool response and
-# another reasoning pass, so its scans cost more at the same list price. Cap it lower than the loop default.
-_MAX_TOOL_ITERATIONS_BY_MODEL: dict[str, int] = {ScannerModel.GEMINI_3_8_FLASH: 3}
-
-
-def _tool_budget(model: str) -> int:
-    """Event lookups per step for `model`, accepting either the bare id or the `models/` form the API takes."""
-    return _MAX_TOOL_ITERATIONS_BY_MODEL.get(model.removeprefix("models/"), DEFAULT_MAX_TOOL_ITERATIONS)
-
 
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
@@ -293,8 +275,8 @@ async def run_scan(
     before calling this; any other caller must do the same before recording data reaches the provider (the eval
     suite is covered because dataset collection is consent-gated and time-boxed).
     """
-    # Built before the preamble so one object decides both the wording and the tool list, which keeps the
-    # prompt from describing a tool the conversation does not carry.
+    # Built before the preamble so one object decides both the wording and what a network lookup returns, which
+    # keeps the prompt from promising network data the scan does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     scanner = scanner.bind_session(video_clock, duration_ms)
@@ -309,7 +291,6 @@ async def run_scan(
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
-        tool_budget=_tool_budget(snapshot.model),
         network_state=network_index.state(),
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
@@ -356,7 +337,7 @@ def _identity_values(identity: SessionIdentity) -> list[str]:
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
-    """LLM analytics trace id for one scan: the observation id, so every step, tool round-trip, and retry of
+    """LLM analytics trace id for one scan: the observation id, so every step, the lookup round, and retry of
     a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
     re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
     if inputs.snapshot_override is not None:
@@ -618,7 +599,8 @@ async def _run_mission(
     trace_id: str,
     network_index: NetworkIndex | None = None,
 ) -> _MissionOutcome:
-    """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
+    """Cache the video, run every mission step (the core step after its lookup round), then assemble the output +
+    side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
     cached run that fails for a non-validation reason is retried inline once before giving up.
@@ -646,50 +628,40 @@ async def _run_mission(
 
     events_index = build_events_index(llm_inputs, video_clock)
     network_index = network_index if network_index is not None else NetworkIndex(offsets=[], requests=[])
-
-    # The network tool is offered only when the recording has requests to return. Otherwise every lookup
-    # would be a dead call against the budget the events tool shares.
     scanner_type = snapshot.scanner_type.value
     record_network_state(scanner_type, network_index.state())
-    counters: dict[str, Callable[[str, str], None]] = {
-        GET_EVENTS_TOOL_NAME: record_events_tool_call,
-        GET_NETWORK_TOOL_NAME: record_network_tool_call,
-    }
-    handlers: dict[str, Callable[[Any], dict[str, Any]]] = {
-        GET_EVENTS_TOOL_NAME: lambda call: dispatch_events_tool(call, events_index),
-    }
-    tools = [events_tool()]
-    if network_index.has_requests():
-        handlers[GET_NETWORK_TOOL_NAME] = lambda call: dispatch_network_tool(call, network_index)
-        tools.append(network_tool())
 
-    def dispatch(call: Any) -> dict[str, Any]:
-        raw_name = getattr(call, "name", None)
-        name = raw_name if isinstance(raw_name, str) else ""
-        counters.get(name, record_unknown_tool_call)(scanner_type, snapshot.model)
-        handler = handlers.get(name)
-        if handler is None:
-            # An unoffered or hallucinated name must not fall through to a lookup that returns
-            # plausible data for a question the model did not ask.
-            return {"error": f"unknown tool: {name}"}
-        return handler(call)
+    def look_up(plan: LookupPlan | None) -> list[dict[str, Any]]:
+        if plan is None:
+            record_lookup_plan(scanner_type, snapshot.model, "failed")
+            return []
+        record_lookup_plan(scanner_type, snapshot.model, "planned" if plan.lookups else "empty")
+        if plan.lookups:
+            record_tool_round(scanner_type, snapshot.model, len(plan.lookups))
+        for lookup in plan.lookups:
+            record = record_network_tool_call if lookup.source == "network" else record_events_tool_call
+            record(scanner_type, snapshot.model)
+        return run_lookups(plan, events_index=events_index, network_index=network_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text, tools=tools)
-    steps = [
-        replace(
-            step,
-            validate=functools.partial(
-                _validate_signal_timestamps,
-                duration_seconds=video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds),
-            ),
-        )
-        if step.name == STEP_SIGNALS
-        else step
-        for step in scanner.mission_steps()
-    ]
-
-    def on_round(calls: int) -> None:
-        record_tool_round(scanner_type, snapshot.model, calls)
+    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
+    signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
+    network_available = network_index.has_requests()
+    steps: list[MissionStep] = []
+    for step in scanner.mission_steps():
+        if step.name == STEP_CORE:
+            step = replace(
+                step,
+                plan_instruction=render_plan_instruction(
+                    step.instruction, network_available=network_available, emits_signals=scanner.emits_signals
+                ),
+            )
+        elif step.name == STEP_SIGNALS:
+            step = replace(
+                step,
+                instruction=render_signals_instruction(_last_video_second(signal_duration_s)),
+                validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
+            )
+        steps.append(step)
 
     run = functools.partial(
         _run_steps,
@@ -698,12 +670,10 @@ async def _run_mission(
         steps=steps,
         video_part=video_part,
         preamble_text=preamble_text,
-        dispatch=dispatch,
         team_id=team_id,
         metric_labels=metric_labels,
         trace_id=trace_id,
-        tools=tools,
-        on_round=on_round,
+        look_up=look_up,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -719,6 +689,13 @@ async def _run_mission(
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
         core_response=step_outputs.get(STEP_CORE),
     )
+
+
+def _last_video_second(duration_seconds: float | None) -> int | None:
+    """The largest whole second `_validate_signal_timestamps` accepts, or None when it accepts none."""
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return None
+    return math.floor(duration_seconds)
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
@@ -790,36 +767,34 @@ async def _run_steps(
     video_part: types.Part,
     preamble_text: str,
     cache_name: str | None,
-    dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    tools: list[types.Tool],
-    on_round: Callable[[int], None] | None = None,
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
     convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
     step_outputs: dict[str, BaseModel] = {}
+    run_step = functools.partial(
+        _run_step,
+        client=client,
+        model=model,
+        cache_name=cache_name,
+        team_id=team_id,
+        metric_labels=metric_labels,
+        trace_id=trace_id,
+    )
     for step in steps:
         checkpoint = len(convo)
-        convo.append(types.Part(text=step.instruction))
         try:
-            result = await _run_step(
-                client=client,
-                model=model,
-                step=step,
-                convo=convo,
-                cache_name=cache_name,
-                video_part=video_part,
-                preamble_text=preamble_text,
-                dispatch=dispatch,
-                team_id=team_id,
-                tools=tools,
-                metric_labels=metric_labels,
-                trace_id=trace_id,
-                on_round=on_round,
-            )
+            instruction = step.instruction
+            if step.plan_instruction:
+                instruction = await _run_lookup_round(
+                    run_step, step=step, plan_instruction=step.plan_instruction, convo=convo, look_up=look_up
+                )
+            convo.append(types.Part(text=instruction))
+            result = await run_step(step=step, convo=convo)
         except Exception as exc:
             if step.required:
                 raise
@@ -829,13 +804,44 @@ async def _run_steps(
             continue
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
-            # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
+            # model turn, not a dangling correction (which would leave two user turns in a row).
             del convo[checkpoint:]
             if step.required:
                 raise _exhausted_step_error(step, result)
             continue
         step_outputs[step.name] = result.output
     return step_outputs
+
+
+async def _run_lookup_round(
+    run_step: Callable[..., Awaitable["_StepResult"]],
+    *,
+    step: MissionStep,
+    plan_instruction: str,
+    convo: list[Any],
+    look_up: Callable[[LookupPlan | None], list[dict[str, Any]]],
+) -> str:
+    """Ask the model which moments to look up for `step`, answer them, and return the instruction for `step`'s turn.
+
+    A plan that fails validation costs the lookups, not the scan: the conversation rolls back and `step` runs
+    without them. A provider error propagates, because the answer turn would send the same request.
+    """
+    plan_step = MissionStep(name=STEP_LOOKUPS, instruction=plan_instruction, response_model=LookupPlan)
+    checkpoint = len(convo)
+    convo.append(types.Part(text=plan_step.instruction))
+    result = await run_step(step=plan_step, convo=convo)
+    if not isinstance(result.output, LookupPlan):
+        logger.warning("replay_vision.call_scanner_provider.lookup_plan_failed", step=step.name)
+        look_up(None)
+        del convo[checkpoint:]
+        return step.instruction
+    try:
+        results = look_up(result.output)
+    except Exception:
+        # A bug in our lookup code must not cost the provider calls already paid for.
+        logger.exception("replay_vision.call_scanner_provider.lookups_failed", step=step.name)
+        return render_lookups_unavailable()
+    return render_lookup_results(results)
 
 
 def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:
@@ -860,31 +866,22 @@ async def _run_step(
     step: MissionStep,
     convo: list[Any],
     cache_name: str | None,
-    video_part: types.Part,
-    preamble_text: str,
-    dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
-    tools: list[types.Tool],
-    on_round: Callable[[int], None] | None = None,
 ) -> "_StepResult":
-    """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
+    """Run one step's turn with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
     On success the model's answer is appended to `convo` so the next step sees it; on failure a correction is
     appended and we retry.
     """
-    config = _step_config(step, cache_name, tools=tools)
-    forced_config = _step_config(step, cache_name, allow_tools=False)
-    # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
-    # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
-    forced_prefix = [video_part, types.Part(text=preamble_text)] if cache_name else []
+    config = _step_config(step, cache_name)
 
-    async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
+    async def _generate(c: list[Any]) -> Any:
         return await client.models.generate_content(
             model=model,
             contents=c,
-            config=cfg,
+            config=config,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=trace_id,
             posthog_properties={"$ai_span_name": step.name},
@@ -898,29 +895,20 @@ async def _run_step(
     for attempt in range(_MAX_LLM_ATTEMPTS):
         started = time.monotonic()
         try:
-            response = await run_tool_loop(
-                generate=_generate,
-                convo=convo,
-                dispatch=dispatch,
-                max_tool_iterations=_tool_budget(model),
-                on_round=on_round,
-            )
-            if function_calls(response):
-                # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
-                # round-trip and force one final tool-free turn so it answers from what it has already seen.
-                record_provider_call(
-                    **metric_labels, outcome="tool_budget_exhausted", seconds=time.monotonic() - started
-                )
-                logger.warning(
-                    "replay_vision.call_scanner_provider.tool_budget_exhausted", step=step.name, attempt=attempt + 1
-                )
-                started = time.monotonic()
-                response = await _force_final_answer(
-                    generate=lambda c: _generate(forced_prefix + c, forced_config),
-                    convo=convo,
-                    exhausted=response,
-                    dispatch=dispatch,
-                )
+            response = await _generate(convo)
+        except ValueError as exc:
+            if not _is_runaway_number(exc):
+                record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
+                raise
+            # The SDK parses the JSON answer inside `generate_content`, so a number the model never stopped writing
+            # raises here instead of reaching validation. It is bad output, so re-prompt rather than re-run inline.
+            last_error = "a number in the response had thousands of digits"
+            last_was_empty = False
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
+            logger.warning("replay_vision.call_scanner_provider.runaway_number", step=step.name, attempt=attempt + 1)
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                convo.append(types.Part(text=_RUNAWAY_NUMBER_CORRECTION))
+            continue
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
@@ -961,8 +949,7 @@ async def _run_step(
         )
         if attempt < _MAX_LLM_ATTEMPTS - 1:
             # Keep turn roles alternating on retry: the model's rejected answer is a model turn, then our
-            # correction is the user turn. Without this, a turn that called a tool then returned bad JSON
-            # would leave two consecutive user turns (the tool response and the correction).
+            # correction is the user turn.
             # Thinking can consume the whole output cap and leave a candidate with no parts, which the API
             # rejects on resend, so only a turn that carries something goes back into the conversation.
             rejected = response.candidates[0].content
@@ -987,29 +974,14 @@ async def _run_step(
     return _StepResult(output=None, provider_refused=last_was_empty)
 
 
-_OUT_OF_LOOKUPS_NUDGE = (
-    "You've used all of your event lookups. Don't call the tool again — answer now using only what you've already "
-    "seen in the video and the events you've retrieved."
+_RUNAWAY_NUMBER_CORRECTION = (
+    "\n\nYour previous answer could not be read: a number in it ran on for thousands of digits. Write every "
+    "number as a short value, such as whole seconds of video time. Respond with raw JSON only."
 )
 
 
-async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any, dispatch: Any) -> Any:
-    """Budget spent mid-tool-use: answer the model's last pending calls, tell it lookups are done, and force one
-    tool-free turn. Completing the call→response round-trip avoids leaving a dangling `function_call` in `convo`."""
-    convo.append(exhausted.candidates[0].content)  # the model's pending-call turn (carries thought signatures)
-    convo.append(
-        types.Content(
-            role="user",
-            parts=[
-                *(
-                    types.Part(function_response=types.FunctionResponse(name=call.name, response=dispatch(call)))
-                    for call in function_calls(exhausted)
-                ),
-                types.Part(text=_OUT_OF_LOOKUPS_NUDGE),
-            ],
-        )
-    )
-    return await generate(convo)
+def _is_runaway_number(exc: ValueError) -> bool:
+    return "integer string conversion" in str(exc)
 
 
 def _hit_output_cap(response: Any) -> bool:
@@ -1017,18 +989,8 @@ def _hit_output_cap(response: Any) -> bool:
     return bool(candidates) and getattr(candidates[0], "finish_reason", None) == types.FinishReason.MAX_TOKENS
 
 
-def _step_config(
-    step: MissionStep, cache_name: str | None, *, allow_tools: bool = True, tools: list[types.Tool] | None = None
-) -> types.GenerateContentConfig:
-    """Generation config for one step: its JSON schema, plus the lookup tools (from the cache when cached).
-
-    Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
-    inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
-    what it has, so no tool is offered. It never references the cache: Gemini rejects a `GenerateContent` request
-    that sets `tools`, `tool_config`, or `system_instruction` alongside `cached_content`, so there's no way to
-    disable the cached tool per-request. That turn always runs inline with the tool simply absent — the caller
-    re-supplies the video + preamble inline for it (see `forced_prefix` in `_run_step`).
-    """
+def _step_config(step: MissionStep, cache_name: str | None) -> types.GenerateContentConfig:
+    """Generation config for one step: its JSON schema, plus the cached video + preamble when there is a cache."""
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
@@ -1037,12 +999,8 @@ def _step_config(
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
         "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
-    if not allow_tools:
-        return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
     if cache_name:
-        kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
-    else:
-        kwargs["tools"] = tools or [events_tool()]
+        kwargs["cached_content"] = cache_name
     return types.GenerateContentConfig(**kwargs)
 
 
@@ -1066,16 +1024,13 @@ async def _maybe_create_video_cache(
     model: str,
     video_part: types.Part,
     preamble_text: str,
-    *,
-    tools: list[types.Tool],
 ) -> Any | None:
-    """Cache the video + preamble + lookup tools once so the steps reuse them. None on any failure (e.g. too short to cache)."""
+    """Cache the video + preamble once so the steps reuse them. None on any failure (e.g. too short to cache)."""
     try:
         return await cache_client.aio.caches.create(
             model=model,
             config=types.CreateCachedContentConfig(
                 contents=[types.Content(role="user", parts=[video_part, types.Part(text=preamble_text)])],
-                tools=tools,
                 ttl=_VIDEO_CACHE_TTL,
             ),
         )
