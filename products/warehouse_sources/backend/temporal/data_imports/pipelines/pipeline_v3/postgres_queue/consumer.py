@@ -44,6 +44,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
+    release_group_table_handle,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -768,7 +771,10 @@ class DeltaBatchConsumerAdapter:
                     )
                     capture_exception(e)
 
-    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
+    async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
+        return await self._observe_queue_freshness(conn)
+
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         """Report the age of the oldest batch no consumer has picked up yet, and the queue depth.
 
         This is the loader's data-freshness signal: it rises whenever loading
@@ -792,6 +798,8 @@ class DeltaBatchConsumerAdapter:
         and exports NaN. The whole probe also has a client timeout,
         so it cannot eat the reconcile sweep's budget. Other failures are
         swallowed-with-capture so a broken probe can't take the sweep down.
+
+        Returns True when this pod holds the gauge slot.
         """
         clear_queue_sample_gauges()
         holds_slot = False
@@ -803,7 +811,7 @@ class DeltaBatchConsumerAdapter:
                 if not holds_slot:
                     self._depth_sample = None
                     logger.debug("queue_gauges_slot_held_elsewhere")
-                    return
+                    return False
                 await self._sample_queue_gauges(conn)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
@@ -813,11 +821,12 @@ class DeltaBatchConsumerAdapter:
             OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
             if holds_slot:
                 self._export_last_depth_sample()
-            return
+            return holds_slot
         except Exception as e:
             logger.exception("queue_freshness_probe_failed")
             capture_exception(e)
-            return
+            return holds_slot
+        return True
 
     async def _sample_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> None:
         try:
@@ -1085,6 +1094,14 @@ class BatchConsumer(SharedBatchConsumer):
             health_reporter=health_reporter,
             process_batches=process_set_with_ownership_check if process_batches is not None else None,
         )
+
+    async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
+        try:
+            await super()._process_group(key, batches)
+        finally:
+            # The loader keeps the table handle of the last batch for the next batch of this group
+            # run. No batch follows now, so the handle must not hold its file list in memory.
+            release_group_table_handle(*key)
 
     def _make_verify_ownership(self, batch: PendingBatch) -> Callable[[], None]:
         """Sync ownership check for the worker thread: the engine's lease checks bracket

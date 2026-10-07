@@ -1842,3 +1842,62 @@ class TestDeleteTable(BaseTest):
         assert schema.status is None
         assert schema.last_synced_at is None
         assert DataWarehouseTable.objects.get(id=table_id).deleted is True
+
+
+class TestFailureStreakMarker(SimpleTestCase):
+    # These properties are read on the terminal-status write of every run, so an unparseable
+    # marker must read as "no streak" rather than fail every sync of the schema.
+    @parameterized.expand(
+        [
+            ("no_config", None, 0),
+            ("empty_config", {}, 0),
+            ("marker_absent", {"reset_pipeline": True}, 0),
+            ("marker_is_not_a_dict", {"failure_streak": "7"}, 0),
+            ("runs_missing", {"failure_streak": {}}, 0),
+            ("runs_is_not_an_int", {"failure_streak": {"runs": "7"}}, 0),
+            ("runs_is_negative", {"failure_streak": {"runs": -3}}, 0),
+            ("runs_is_a_count", {"failure_streak": {"runs": 7}}, 7),
+        ]
+    )
+    def test_failed_runs_in_a_row(self, _name: str, config: dict[str, Any] | None, expected: int) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failed_runs_in_a_row == expected
+
+    @parameterized.expand(
+        [
+            ("no_marker", {}, None),
+            ("stamp_missing", {"failure_streak": {"runs": 7}}, None),
+            ("stamp_is_not_a_string", {"failure_streak": {"runs": 7, "last_failed_at": 12345}}, None),
+            ("stamp_is_unparseable", {"failure_streak": {"runs": 7, "last_failed_at": "not a date"}}, None),
+            (
+                "stamp_is_an_aware_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05+00:00"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+            # Read as UTC rather than left naive, so arithmetic against an aware `now` cannot raise.
+            (
+                "stamp_is_a_naive_timestamp",
+                {"failure_streak": {"runs": 7, "last_failed_at": "2026-01-02T03:04:05"}},
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_failure_streak_last_failed_at(self, _name: str, config: dict[str, Any], expected: datetime | None) -> None:
+        assert ExternalDataSchema(sync_type_config=config).failure_streak_last_failed_at == expected
+
+    def test_a_failed_run_adds_to_the_streak_and_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 2}})
+
+        schema.note_failed_run(datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC))
+
+        assert schema.failed_runs_in_a_row == 3
+        assert schema.failure_streak_last_failed_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+        assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_clearing_the_streak_keeps_the_other_keys(self) -> None:
+        schema = ExternalDataSchema(sync_type_config={"incremental_field": "updated_at", "failure_streak": {"runs": 9}})
+
+        schema.clear_failure_streak()
+
+        assert schema.failed_runs_in_a_row == 0
+        assert schema.failure_streak_last_failed_at is None
+        assert schema.sync_type_config == {"incremental_field": "updated_at"}
