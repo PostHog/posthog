@@ -513,6 +513,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: string
     INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_HEATMAPS_TOPIC: string
     INGESTION_OUTPUT_HEATMAPS_PRODUCER: ProducerName
 
@@ -564,6 +567,14 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         // createFlagEvaluationsService.
         INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC: '',
         INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // An empty topic skips the startup topic-existence check. While it is empty, a
+        // FLAG_EVALUATIONS_ONLY team's flag calls reach no realtime destination, so set it
+        // on every lane that sets INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC. Enable
+        // ordering: (1) create the realtime_only_events_json topic, (2) start the CDP
+        // consumers that read it, (3) set INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC. A
+        // consumer group that joins after step 3 can start past the first routed calls.
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_HEATMAPS_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         INGESTION_OUTPUT_HEATMAPS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
