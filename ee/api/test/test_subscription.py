@@ -4683,12 +4683,15 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("a new recipient", {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
-            ("turning it off", {"deleted": True}, status.HTTP_200_OK),
+            ("a new recipient", {}, {"target_value": "attacker@example.com"}, status.HTTP_400_BAD_REQUEST),
+            ("turning it off", {}, {"deleted": True}, status.HTTP_200_OK),
+            ("disabling it", {}, {"enabled": False}, status.HTTP_200_OK),
+            ("restoring it", {"deleted": True}, {"deleted": False}, status.HTTP_400_BAD_REQUEST),
+            ("re-enabling it", {"enabled": False}, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_update_by_a_caller_denied_a_delivered_table_may_only_turn_it_off(self, _name, body, expected):
-        subscription = self._subscription_for(insight=self._insight_over_a_governed_view())
+    def test_update_by_a_caller_denied_a_delivered_table_may_only_turn_it_off(self, _name, state, body, expected):
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), **state)
         self._deny_warehouse_tables()
 
         with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
