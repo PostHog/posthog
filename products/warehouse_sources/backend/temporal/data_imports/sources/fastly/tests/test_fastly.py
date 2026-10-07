@@ -24,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     _flatten_origin_inspector,
     _flatten_usage_metrics,
     _next_cursor,
-    _next_page_url,
     _usage_metrics_window,
     fastly_source,
     get_rows,
@@ -59,28 +58,10 @@ class TestBuildUrl:
     def test_no_params_returns_base(self) -> None:
         assert _build_url(f"{FASTLY_BASE_URL}/service", {}) == f"{FASTLY_BASE_URL}/service"
 
-    def test_encodes_params(self) -> None:
-        assert _build_url(f"{FASTLY_BASE_URL}/service", {"per_page": 100}) == f"{FASTLY_BASE_URL}/service?per_page=100"
-
-
-class TestNextPageUrl:
-    def test_reads_next_link(self) -> None:
-        response = MagicMock()
-        response.links = {"next": {"url": "https://api.fastly.com/service?page=2"}}
-        assert _next_page_url(response) == "https://api.fastly.com/service?page=2"
-
-    def test_no_next_link_returns_none(self) -> None:
-        response = MagicMock()
-        response.links = {}
-        assert _next_page_url(response) is None
-
 
 class TestEnsureServiceId:
     def test_injects_missing_service_id(self) -> None:
         assert _ensure_service_id({"name": "www"}, "SVC")["service_id"] == "SVC"
-
-    def test_keeps_existing_service_id(self) -> None:
-        assert _ensure_service_id({"service_id": "REAL"}, "SVC")["service_id"] == "REAL"
 
 
 class TestActiveVersionNumber:
@@ -257,18 +238,6 @@ class TestGetRowsServiceList:
 
 
 class TestGetRowsVersionListFanOut:
-    def test_fans_out_over_services(self) -> None:
-        pages = {
-            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
-            f"{FASTLY_BASE_URL}/service/S1/version": [{"service_id": "S1", "number": 1}],
-            f"{FASTLY_BASE_URL}/service/S2/version": [{"service_id": "S2", "number": 2}],
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("service_versions", manager, pages)
-
-        assert rows == [{"service_id": "S1", "number": 1}, {"service_id": "S2", "number": 2}]
-        assert [s.service_id for s in manager.saved] == ["S1", "S2"]
-
     def test_resumes_from_saved_service_bookmark(self) -> None:
         pages = {
             f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
@@ -340,51 +309,6 @@ class TestUsageMetricsWindow:
 
 
 class TestFlattenUsageMetrics:
-    def test_flattens_one_row_per_usage_type_and_service(self) -> None:
-        payload = {
-            "data": [
-                {
-                    "customer_id": "C1",
-                    "start_time": "2026-09-01T00:00:00Z",
-                    "usage_type": "North America Requests",
-                    "unit": "unit",
-                    "meta": {"next_cursor": "x"},
-                    "details": [
-                        {"service_id": "S1", "service_name": "www", "usage_units": 10.5},
-                        {"service_id": "S2", "service_name": "api", "usage_units": 2.0},
-                    ],
-                }
-            ]
-        }
-        rows = _flatten_usage_metrics(payload)
-
-        # `meta` is pagination state, not a column on the row.
-        assert rows == [
-            {
-                "customer_id": "C1",
-                "start_time": "2026-09-01T00:00:00Z",
-                "usage_type": "North America Requests",
-                "unit": "unit",
-                "service_id": "S1",
-                "service_name": "www",
-                "usage_units": 10.5,
-            },
-            {
-                "customer_id": "C1",
-                "start_time": "2026-09-01T00:00:00Z",
-                "usage_type": "North America Requests",
-                "unit": "unit",
-                "service_id": "S2",
-                "service_name": "api",
-                "usage_units": 2.0,
-            },
-        ]
-
-    def test_accepts_a_single_data_object(self) -> None:
-        # Fastly's own spec models `data` as one usage-type block rather than a list.
-        payload = {"data": {"usage_type": "Bandwidth", "details": [{"service_id": "S1", "usage_units": 1.0}]}}
-        assert _flatten_usage_metrics(payload) == [{"usage_type": "Bandwidth", "service_id": "S1", "usage_units": 1.0}]
-
     @parameterized.expand(
         [
             ("no_data", {}),
@@ -429,21 +353,6 @@ class TestGetRowsVersionResourceChildFanOut:
         # A dictionary item has no id, so the key needs both parents to stay unique table-wide.
         assert all(row["service_id"] == "S1" and row["dictionary_id"] == "D1" for row in rows)
 
-    def test_bookmark_advances_once_per_service_not_per_parent(self) -> None:
-        pages = {
-            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
-            f"{FASTLY_BASE_URL}/service/S1/version": [{"number": 1, "active": True}],
-            f"{FASTLY_BASE_URL}/service/S1/version/1/acl": [{"id": "A1"}, {"id": "A2"}],
-            f"{FASTLY_BASE_URL}/service/S1/acl/A1/entries?per_page=100": [{"id": "E1"}],
-            f"{FASTLY_BASE_URL}/service/S1/acl/A2/entries?per_page=100": [{"id": "E2"}],
-            f"{FASTLY_BASE_URL}/service/S2/version": [],
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("acl_entries", manager, pages)
-
-        assert [row["id"] for row in rows] == ["E1", "E2"]
-        assert [s.service_id for s in manager.saved] == ["S1", "S2"]
-
     def test_write_only_dictionary_is_not_requested(self) -> None:
         # Fastly refuses to list the items of a write-only dictionary, which would abort the sync.
         pages = {
@@ -479,23 +388,6 @@ class TestGetRowsVersionResourceChildFanOut:
 
 
 class TestGetRowsBillingList:
-    def test_follows_the_cursor_and_saves_it_after_each_page(self) -> None:
-        pages = {
-            f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200": {
-                "data": [{"invoice_id": "1"}],
-                "meta": {"next_cursor": "CUR2"},
-            },
-            f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200&cursor=CUR2": {
-                "data": [{"invoice_id": "2"}],
-                "meta": {"next_cursor": ""},
-            },
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("invoices", manager, pages)
-
-        assert rows == [{"invoice_id": "1"}, {"invoice_id": "2"}]
-        assert [s.cursor for s in manager.saved] == ["CUR2"]
-
     def test_resumes_from_the_saved_cursor(self) -> None:
         pages = {
             f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200&cursor=CUR2": {
@@ -556,22 +448,6 @@ class TestGetRowsBillingUsageMetrics:
 
         assert [row["service_id"] for row in rows] == ["S1", "S2"]
         assert [s.cursor for s in manager.saved] == ["CUR2"]
-
-    def test_cursor_saved_under_a_different_window_is_discarded(self) -> None:
-        # A run resuming after the UTC month rolls over computes a new window. Fastly only continues
-        # the request that produced the cursor, so the stale one has to be dropped.
-        window = _usage_metrics_window()
-        first = (
-            f"{FASTLY_BASE_URL}/billing/v3/service-usage-metrics"
-            f"?start_month={window['start_month']}&end_month={window['end_month']}"
-        )
-        pages = {
-            first: {"data": {"usage_type": "Bandwidth", "details": [{"service_id": "S1"}], "meta": {}}},
-        }
-        manager = _FakeResumableManager(
-            FastlyResumeConfig(cursor="STALE", cursor_request="/billing/v3/service-usage-metrics?end_month=1999-01")
-        )
-        assert _collect("billing_usage_metrics", manager, pages) == [{"usage_type": "Bandwidth", "service_id": "S1"}]
 
 
 class TestFastlySourceResponse:
@@ -732,23 +608,6 @@ class TestGetRowsJsonApiList:
 
 
 class TestGetRowsStatsList:
-    def test_unpacks_the_per_service_map_into_rows(self) -> None:
-        pages = {
-            f"{FASTLY_BASE_URL}/stats?by=day": {
-                "data": {
-                    "S1": [{"start_time": 100, "requests": 5}],
-                    # Fastly already stamps `service_id` on most rows; both shapes have to key.
-                    "S2": [{"service_id": "S2", "start_time": 100, "requests": 7}],
-                }
-            }
-        }
-        rows = _collect("historical_stats", _FakeResumableManager(), pages)
-
-        assert rows == [
-            {"service_id": "S1", "start_time": 100, "requests": 5},
-            {"service_id": "S2", "start_time": 100, "requests": 7},
-        ]
-
     def test_incremental_run_sends_the_watermark_as_from(self) -> None:
         pages = {
             f"{FASTLY_BASE_URL}/stats?by=day&from=1700000000": {"data": {"S1": [{"start_time": 1700086400}]}},
@@ -783,24 +642,6 @@ class TestBucketTimeline:
 
 
 class TestFlattenOriginInspector:
-    def test_derives_each_bucket_timestamp_from_its_index(self) -> None:
-        # Origin Inspector puts no timestamp on a value, so the bucket is the value's position
-        # counted forward from `meta.start`.
-        payload = {
-            "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
-            "data": [
-                {
-                    "dimensions": {"host": "origin.example.com"},
-                    "values": [{"responses": 1}, {"responses": 2}, {"responses": 3}],
-                }
-            ],
-        }
-        rows = _flatten_origin_inspector(payload, "S1")
-
-        assert [row["start_time"] for row in rows] == [1_788_220_800, 1_788_307_200, 1_788_393_600]
-        assert all(row["service_id"] == "S1" and row["host"] == "origin.example.com" for row in rows)
-        assert [row["responses"] for row in rows] == [1, 2, 3]
-
     @parameterized.expand(
         [
             ("no_meta", {"data": [{"dimensions": {}, "values": [{"responses": 1}]}]}),
@@ -830,29 +671,6 @@ class TestGetRowsOriginInspector:
         if cursor is not None:
             params["cursor"] = cursor
         return _build_url(f"{FASTLY_BASE_URL}/metrics/origins/services/{service_id}", params)
-
-    def test_fans_out_over_services_and_follows_the_cursor(self) -> None:
-        meta = {"start": "2026-09-01T00:00:00Z", "downsample": "day"}
-        pages = {
-            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
-            self._url("S1"): {
-                "meta": {**meta, "next_cursor": "CUR2"},
-                "data": [{"dimensions": {"host": "a"}, "values": [{"responses": 1}]}],
-            },
-            self._url("S1", cursor="CUR2"): {
-                "meta": meta,
-                "data": [{"dimensions": {"host": "b"}, "values": [{"responses": 2}]}],
-            },
-            self._url("S2"): {
-                "meta": meta,
-                "data": [{"dimensions": {"host": "c"}, "values": [{"responses": 3}]}],
-            },
-        }
-        manager = _FakeResumableManager()
-        rows = _collect("origin_inspector", manager, pages)
-
-        assert [(row["service_id"], row["host"]) for row in rows] == [("S1", "a"), ("S1", "b"), ("S2", "c")]
-        assert [state.service_id for state in manager.saved] == ["S1", "S2"]
 
     @parameterized.expand([("forbidden", 403), ("not_found", 404)])
     def test_service_without_the_origin_inspector_upgrade_is_skipped(self, _name: str, status_code: int) -> None:

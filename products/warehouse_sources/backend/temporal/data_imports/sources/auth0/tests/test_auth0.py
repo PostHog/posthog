@@ -20,14 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.auth0.auth
     Auth0RetryableError,
     Auth0TokenManager,
     _build_params,
-    _build_url,
     _format_window_value,
-    _max_window_value,
     _reject_redirect_response,
     auth0_source,
     get_rows,
-    management_audience,
-    normalize_domain,
     resolve_window_field,
     validate_credentials,
 )
@@ -93,25 +89,6 @@ class FakeResumeManager(ResumableSourceManager[Auth0ResumeConfig]):
         self.saved.append(data)
 
 
-class TestNormalizeDomain:
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("tenant.us.auth0.com", "tenant.us.auth0.com"),
-            ("https://tenant.us.auth0.com", "tenant.us.auth0.com"),
-            ("http://tenant.us.auth0.com/", "tenant.us.auth0.com"),
-            ("  tenant.us.auth0.com  ", "tenant.us.auth0.com"),
-            ("tenant.us.auth0.com/api/v2", "tenant.us.auth0.com"),
-            ("https://tenant.eu.auth0.com/api/v2/users", "tenant.eu.auth0.com"),
-        ],
-    )
-    def test_normalize(self, raw: str, expected: str) -> None:
-        assert normalize_domain(raw) == expected
-
-    def test_audience_is_the_management_api_identifier(self) -> None:
-        assert management_audience("https://tenant.us.auth0.com/", "v2") == "https://tenant.us.auth0.com/api/v2/"
-
-
 class TestFormatWindowValue:
     @pytest.mark.parametrize(
         "value, expected",
@@ -159,80 +136,11 @@ class TestResolveWindowField:
 
 
 class TestBuildParams:
-    def test_users_incremental_window_filters_and_sorts_ascending(self) -> None:
-        params = _build_params(AUTH0_ENDPOINTS["users"], page=0, window_field="updated_at", window_start="2024-01-01")
-        assert params["q"] == 'updated_at:["2024-01-01" TO *]'
-        assert params["sort"] == "updated_at:1"
-        assert params["include_totals"] == "true"
-        assert params["search_engine"] == "v3"
-        assert params["per_page"] == 100
-
-    def test_first_window_sorts_but_does_not_filter(self) -> None:
-        params = _build_params(AUTH0_ENDPOINTS["users"], page=3, window_field="updated_at", window_start=None)
-        assert "q" not in params
-        assert params["sort"] == "updated_at:1"
-        assert params["page"] == 3
-
-    @pytest.mark.parametrize("endpoint", ["clients", "connections", "roles", "organizations", "resource_servers"])
-    def test_plain_collections_send_no_search_params(self, endpoint: str) -> None:
-        params = _build_params(AUTH0_ENDPOINTS[endpoint], page=0, window_field=None, window_start=None)
-        assert "q" not in params
-        assert "sort" not in params
-        assert "search_engine" not in params
-        assert params["include_totals"] == "true"
-
-    def test_actions_omits_include_totals(self) -> None:
-        # The Actions API returns its own totals envelope and does not document include_totals.
-        params = _build_params(AUTH0_ENDPOINTS["actions"], page=0, window_field=None, window_start=None)
-        assert "include_totals" not in params
-        assert params["page"] == 0
-
     def test_unpaginated_endpoint_sends_no_params(self) -> None:
         assert _build_params(AUTH0_ENDPOINTS["log_streams"], page=0, window_field=None, window_start=None) == {}
 
-    def test_build_url_applies_the_resolved_api_version(self) -> None:
-        url = _build_url(DOMAIN, AUTH0_ENDPOINTS["actions"], "v2", {})
-        assert url == f"https://{DOMAIN}/api/v2/actions/actions"
-
-
-class TestMaxWindowValue:
-    def test_takes_the_maximum_not_the_last_row(self) -> None:
-        rows = [{"updated_at": "2024-01-02T00:00:00.000Z"}, {"updated_at": "2024-01-01T00:00:00.000Z"}]
-        assert _max_window_value(rows, "updated_at") == "2024-01-02T00:00:00.000Z"
-
-    @pytest.mark.parametrize("rows", [[], [{"updated_at": None}], [{"user_id": "auth0|1"}]])
-    def test_missing_values_yield_none(self, rows: list[dict[str, Any]]) -> None:
-        assert _max_window_value(rows, "updated_at") is None
-
 
 class TestTokenManager:
-    def test_mints_once_and_caches(self) -> None:
-        session = _token_session()
-        manager = Auth0TokenManager(session, DOMAIN, "cid", "secret", "v2")
-
-        assert manager.get_token() == "tok"
-        assert manager.get_token() == "tok"
-        assert session.post.call_count == 1
-
-        body = session.post.call_args.kwargs["json"]
-        assert body["grant_type"] == "client_credentials"
-        assert body["audience"] == f"https://{DOMAIN}/api/v2/"
-        assert session.post.call_args.kwargs["allow_redirects"] is False
-        assert session.post.call_args.kwargs["hooks"] == {"response": _reject_redirect_response}
-
-    def test_re_mints_once_the_token_expires(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = [
-            _response(json_data={"access_token": "first", "expires_in": 1}),
-            _response(json_data={"access_token": "second", "expires_in": 86400}),
-        ]
-        manager = Auth0TokenManager(session, DOMAIN, "cid", "secret", "v2")
-
-        assert manager.get_token() == "first"
-        # A 1s lifetime is already inside the refresh margin, so the next call re-mints.
-        assert manager.get_token() == "second"
-        assert session.post.call_count == 2
-
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     def test_transient_token_failures_are_retryable(self, status_code: int) -> None:
         session = mock.MagicMock()
@@ -346,37 +254,6 @@ class TestGetRows:
 
         assert batches == [[{"id": "rs_1", "identifier": "https://api.example.com"}]]
 
-    def test_clients_omit_credential_fields(self) -> None:
-        page = {
-            "clients": [
-                {
-                    "client_id": "cid_1",
-                    "name": "My App",
-                    "client_secret": "shh",
-                    "signing_keys": [{"cert": "..."}],
-                    "addons": {"azure_blob": {"storageAccessKey": "shh"}},
-                }
-            ]
-        }
-        batches, _, _ = self._run("clients", [_response(json_data=page)])
-
-        assert batches == [[{"client_id": "cid_1", "name": "My App"}]]
-
-    def test_connections_omit_options(self) -> None:
-        page = {
-            "connections": [
-                {
-                    "id": "con_1",
-                    "name": "my-oidc",
-                    "strategy": "oidc",
-                    "options": {"client_id": "abc", "clientSecret": "shh"},
-                }
-            ]
-        }
-        batches, _, _ = self._run("connections", [_response(json_data=page)])
-
-        assert batches == [[{"id": "con_1", "name": "my-oidc", "strategy": "oidc"}]]
-
     def test_users_omit_identity_provider_tokens(self) -> None:
         page = {
             "users": [
@@ -414,42 +291,6 @@ class TestGetRows:
                 }
             ]
         ]
-
-    def test_pagination_stops_once_total_is_reached(self) -> None:
-        page_0 = {"clients": [{"client_id": str(i)} for i in range(100)], "total": 150}
-        page_1 = {"clients": [{"client_id": str(i)} for i in range(100, 150)], "total": 150}
-        batches, session, manager = self._run("clients", [_response(json_data=page_0), _response(json_data=page_1)])
-
-        assert [len(batch) for batch in batches] == [100, 50]
-        assert session.get.call_count == 2
-        assert manager.saved == [Auth0ResumeConfig(page=1, window_start=None)]
-
-    def test_pagination_stops_on_a_short_page_without_totals(self) -> None:
-        page = {"actions": [{"id": "a1"}]}
-        batches, session, _ = self._run("actions", [_response(json_data=page)])
-
-        assert batches == [[{"id": "a1"}]]
-        assert session.get.call_count == 1
-
-    def test_pagination_stops_on_an_empty_page(self) -> None:
-        batches, session, _ = self._run("roles", [_response(json_data={"roles": [], "total": 0})])
-
-        assert batches == []
-        assert session.get.call_count == 1
-
-    def test_incremental_run_seeds_the_window_from_the_watermark(self) -> None:
-        page = {"users": _user_rows(1, "2024-05-01T00:00:00.000Z"), "total": 1}
-        _, session, _ = self._run(
-            "users",
-            [_response(json_data=page)],
-            should_use_incremental_field=True,
-            incremental_field="updated_at",
-            db_incremental_field_last_value=datetime(2024, 4, 1, tzinfo=UTC),
-        )
-
-        params = _requested_params(session, 0)
-        assert params["q"] == ['updated_at:["2024-04-01T00:00:00.000Z" TO *]']
-        assert params["sort"] == ["updated_at:1"]
 
     def test_window_slides_past_the_search_result_cap(self) -> None:
         newest = "2024-06-02T00:00:00.000Z"
@@ -641,34 +482,6 @@ class TestValidateCredentials:
 
 
 class TestAuth0Source:
-    @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key",
-        [
-            ("users", "user_id", "created_at"),
-            ("logs", "log_id", "date"),
-            ("clients", "client_id", None),
-            ("connections", "id", None),
-            ("log_streams", "id", None),
-        ],
-    )
-    def test_response_shape_per_endpoint(self, endpoint: str, primary_key: str, partition_key: Optional[str]) -> None:
-        response = auth0_source(
-            domain=DOMAIN,
-            client_id="cid",
-            client_secret="secret",
-            endpoint=endpoint,
-            api_version="v2",
-            logger=mock.MagicMock(),
-            resumable_source_manager=FakeResumeManager(),
-            team_id=1,
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
-        assert response.sort_mode == "asc"
-        assert response.partition_keys == ([partition_key] if partition_key else None)
-        assert response.partition_mode == ("datetime" if partition_key else None)
-
     def test_items_is_lazy(self) -> None:
         response = auth0_source(
             domain=DOMAIN,

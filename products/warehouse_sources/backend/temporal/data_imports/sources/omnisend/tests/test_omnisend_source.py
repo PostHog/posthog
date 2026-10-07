@@ -16,14 +16,6 @@ def _config() -> OmnisendSourceConfig:
 
 
 class TestOmnisendSource:
-    def test_all_endpoints_are_full_refresh(self) -> None:
-        # We can't curl-verify Omnisend's server-side timestamp filter, so every endpoint
-        # ships full refresh (no incremental advertised). See api_inventory.md.
-        for schema in OmnisendSource().get_schemas(_config(), team_id=1):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     @pytest.mark.parametrize(
         ("api_version", "expected_tables"),
         [

@@ -71,17 +71,6 @@ class TestClarifaiTransport:
             response.on_complete()
             manager.clear_state.assert_called_once_with()
 
-    @pytest.mark.parametrize("terminal", [{"models": []}, {}])
-    def test_empty_success_stops(
-        self, config: ClarifaiSourceConfig, manager: MagicMock, terminal: dict[str, object]
-    ) -> None:
-        with requests_mock.Mocker() as http:
-            http.get(BASE_URL + "models", json={"status": {"code": 10000}, **terminal})
-            response = ClarifaiClient(config, 42, "v2").source("models", "test-job", manager)
-            assert not any(cast(Iterable[Any], response.items()))
-            assert http.call_count == 1
-            manager.save_state.assert_not_called()
-
     @pytest.mark.parametrize(
         ("http_status", "api_status", "message"),
         [

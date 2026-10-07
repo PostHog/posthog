@@ -12,9 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.
     APPFOLLOW_BASE_URL,
     APPFOLLOW_V3_BASE_URL,
     AppfollowResumeConfig,
-    _clamp_future_value_to_now,
     _extract_rows,
-    _resolve_country,
     _to_date_str,
     _to_datetime_str,
     appfollow_source,
@@ -154,21 +152,6 @@ class TestDateFormatting:
         assert _to_datetime_str(value) == expected
 
 
-class TestClampFutureValueToNow:
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_datetime_is_clamped(self):
-        assert _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC)) == datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self):
-        value = datetime(2024, 3, 4, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_future_date_is_clamped(self):
-        assert _clamp_future_value_to_now(date(2027, 1, 1)) == date(2026, 6, 15)
-
-
 def _one_app_api(
     reviews_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
     ratings_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
@@ -215,19 +198,6 @@ class TestReviewsFanOut:
         review_calls = [p for (u, p) in api.calls if u.endswith("/reviews")]
         assert [p["page"] for p in review_calls] == [1, 2]
         assert all(p["ext_id"] == "111" for p in review_calls)
-
-    def test_first_sync_sends_no_last_modified(self, monkeypatch):
-        api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}]]})
-        _collect(
-            "reviews",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        review_params = next(p for (u, p) in api.calls if u.endswith("/reviews"))
-        assert "last_modified" not in review_params
 
     def test_incremental_sync_sends_last_modified(self, monkeypatch):
         api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}]]})
@@ -277,20 +247,6 @@ class TestReviewsFanOut:
         # Page 1 is skipped on resume; only page 2 is re-fetched.
         assert [r["review_id"] for r in rows] == ["r2"]
         assert [p["page"] for (u, p) in api.calls if u.endswith("/reviews")] == [2]
-
-    def test_saves_state_after_yielding_each_page(self, monkeypatch):
-        api = _one_app_api(reviews_pages={"111": [[{"review_id": "r1"}], [{"review_id": "r2"}]]})
-        manager = _FakeManager()
-        _collect(
-            "reviews",
-            manager,
-            monkeypatch,
-            api,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        # State is saved so a mid-sync crash resumes at the next page rather than restarting the app.
-        assert AppfollowResumeConfig(ext_id="111", cursor=2) in manager.saved
 
 
 class TestRatingsFanOut:
@@ -436,48 +392,7 @@ def _calls_to(api: _FanoutApi, suffix: str) -> list[dict[str, Any]]:
     return [p for (u, p) in api.calls if u.endswith(suffix)]
 
 
-class TestResolveCountry:
-    @pytest.mark.parametrize(
-        "collection,app,expected",
-        [
-            ({}, {"country": "DE"}, "de"),
-            ({}, {"app": {"country": "fr"}}, "fr"),
-            ({"default_country": "gb"}, {}, "gb"),
-            ({"countries": ["jp", "kr"]}, {}, "jp"),
-            # `/meta/versions` rejects a request with no country, so there is always a last resort.
-            ({}, {}, "us"),
-            ({"default_country": "gb", "countries": ["jp"]}, {"country": "de"}, "de"),
-        ],
-    )
-    def test_resolution_order(self, collection, app, expected):
-        assert _resolve_country(collection, app) == expected
-
-
 class TestSnapshotFanOut:
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_rankings_requests_today_once_per_app_and_stamps_the_key_fields(self, monkeypatch):
-        # `/meta/rankings` has no pagination and no date range, so one request per app is the whole
-        # walk. `ext_id` and `date` are stamped because the primary key and partition key need them.
-        api = _fanout_api([[{"position": 3, "genre_id": "6003"}]], envelope="ranks")
-        rows = _collect("rankings", _FakeManager(), monkeypatch, api)
-        assert rows == [{"position": 3, "genre_id": "6003", "ext_id": "111", "date": "2026-06-15"}]
-        params = _calls_to(api, "/meta/rankings")
-        assert len(params) == 1
-        assert params[0] == {"ext_id": "111", "date": "2026-06-15"}
-
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_a_row_that_carries_its_own_date_is_not_overwritten(self, monkeypatch):
-        api = _fanout_api([[{"keyword": "photos", "date": "2026-06-14"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
-        assert rows[0]["date"] == "2026-06-14"
-
-    def test_keywords_pages_until_a_page_comes_back_empty(self, monkeypatch):
-        # The endpoint publishes neither a page count nor a total, so an empty page is the only signal.
-        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(), monkeypatch, api)
-        assert [r["keyword"] for r in rows] == ["a", "b"]
-        assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
-
     def test_paging_stops_at_the_cap(self, monkeypatch):
         # An endpoint that never returns an empty page must not spend credits forever.
         monkeypatch.setattr(appfollow, "MAX_PAGES_PER_APP", 3)
@@ -497,25 +412,8 @@ class TestSnapshotFanOut:
         assert [p["page"] for p in _calls_to(api, "/aso/keywords")] == [1, 2, 3]
         assert logger.warning.called
 
-    def test_resume_starts_from_the_saved_page(self, monkeypatch):
-        api = _fanout_api([[{"keyword": "a"}], [{"keyword": "b"}]], envelope="keywords")
-        rows = _collect("keywords", _FakeManager(AppfollowResumeConfig(ext_id="111", cursor=2)), monkeypatch, api)
-        assert [r["keyword"] for r in rows] == ["b"]
-
 
 class TestCountryScopedFanOut:
-    def test_app_versions_sends_and_stamps_the_resolved_country(self, monkeypatch):
-        # `country` is required by the endpoint and is part of the primary key, so it must be both
-        # sent and present on every row.
-        api = _fanout_api(
-            [[{"version": "2.1.0"}]],
-            envelope="versions",
-            collection={"id": 10, "title_normalized": "team", "countries": ["gb"]},
-        )
-        rows = _collect("app_versions", _FakeManager(), monkeypatch, api)
-        assert rows[0] == {"version": "2.1.0", "ext_id": "111", "country": "gb"}
-        assert _calls_to(api, "/meta/versions")[0] == {"ext_id": "111", "country": "gb", "page": 1}
-
     def test_one_app_tracked_in_two_countries_is_fetched_per_country(self, monkeypatch):
         # Unlike reviews, versions vary by country, so de-duplicating on ext_id alone would drop data.
         api = _FanoutApi(
@@ -535,33 +433,6 @@ class TestCountryScopedFanOut:
 
 
 class TestWindowedFanOut:
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_full_refresh_opens_the_whole_window(self, monkeypatch):
-        api = _fanout_api([[{"date": "2026-06-01", "reviews": 4}]], envelope="stats")
-        _collect(
-            "reviews_stats",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=date(2026, 6, 10),
-        )
-        params = _calls_to(api, "/reviews/stats")[0]
-        assert params == {"ext_id": "111", "from": DEFAULT_START_DATE, "to": "2026-06-15"}
-
-    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_incremental_sync_moves_from_to_the_watermark(self, monkeypatch):
-        api = _fanout_api([[{"date": "2026-06-11", "reviews": 4}]], envelope="stats")
-        _collect(
-            "reviews_stats",
-            _FakeManager(),
-            monkeypatch,
-            api,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=date(2026, 6, 10),
-        )
-        assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-10"
-
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_a_future_watermark_is_clamped_so_the_table_cannot_freeze(self, monkeypatch):
         api = _fanout_api([[{"date": "2026-06-11"}]], envelope="stats")

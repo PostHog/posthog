@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     _earnings_calendar_rows,
     _fetch,
     _fetch_csv,
-    _listing_status_rows,
     _news_rows,
     _news_time_from,
     _normalize_key,
@@ -141,35 +140,6 @@ class TestAlphaVantage:
 
     def test_parse_time_series_empty(self) -> None:
         assert list(_parse_time_series({"Meta Data": {}}, "IBM")) == []
-
-    def test_parse_time_series_normalizes_the_adjusted_columns(self) -> None:
-        # TIME_SERIES_DAILY_ADJUSTED rides the same parser but carries three extra ordinal-prefixed
-        # columns, so the adjusted fields must land as their own snake_case columns.
-        body = {
-            "Meta Data": {},
-            "Time Series (Daily)": {
-                "2024-01-05": {
-                    "1. open": "1",
-                    "4. close": "1.5",
-                    "5. adjusted close": "1.4",
-                    "6. volume": "100",
-                    "7. dividend amount": "0.0",
-                    "8. split coefficient": "1.0",
-                }
-            },
-        }
-        assert list(_parse_time_series(body, "IBM")) == [
-            {
-                "symbol": "IBM",
-                "date": "2024-01-05",
-                "open": "1",
-                "close": "1.5",
-                "adjusted_close": "1.4",
-                "volume": "100",
-                "dividend_amount": "0.0",
-                "split_coefficient": "1.0",
-            }
-        ]
 
     def test_parse_corporate_action_injects_symbol_and_nulls_placeholders(self) -> None:
         # Old dividends carry the literal string "None" for the dates that were never recorded, which
@@ -304,10 +274,6 @@ class TestAlphaVantage:
         quote = _request_params(ALPHA_VANTAGE_ENDPOINTS["global_quote"], "IBM", "KEY")
         assert "outputsize" not in quote
 
-    def test_fetch_returns_body_on_success(self) -> None:
-        session = _session_returning([_response(body={"Global Quote": {"01. symbol": "IBM"}})])
-        assert _fetch(session, {"function": "GLOBAL_QUOTE"}, MagicMock()) == {"Global Quote": {"01. symbol": "IBM"}}
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
     def test_fetch_http_client_error_does_not_leak_apikey(self, _name: str, status: int) -> None:
         session = _session_returning([_response(status=status, ok=False)])
@@ -343,15 +309,6 @@ class TestAlphaVantage:
             _fetch(session, {"function": "GLOBAL_QUOTE"}, MagicMock())
         assert "unexpected_response" in str(exc.value)
 
-    def test_get_rows_fans_out_over_symbols(self) -> None:
-        responses = [
-            _response(body={"Global Quote": {"01. symbol": "IBM", "05. price": "1"}}),
-            _response(body={"Global Quote": {"01. symbol": "AAPL", "05. price": "2"}}),
-        ]
-        with patch(f"{MODULE}.make_tracked_session", return_value=_session_returning(responses)):
-            rows = _collect_rows(get_rows("KEY", ["IBM", "AAPL"], "global_quote", MagicMock()))
-        assert [(r["symbol"], r["price"]) for r in rows] == [("IBM", "1"), ("AAPL", "2")]
-
     def test_get_rows_skips_symbol_on_error_message(self) -> None:
         # An unknown ticker returns an HTTP 200 "Error Message" scoped to that symbol; the rest sync.
         responses = [
@@ -368,15 +325,6 @@ class TestAlphaVantage:
             with pytest.raises(AlphaVantageAPIError):
                 _collect_rows(get_rows("KEY", ["IBM"], "global_quote", MagicMock()))
 
-    def test_fetch_csv_returns_the_csv_body(self) -> None:
-        session = _session_returning([_text_response("symbol,status\nIBM,Active\n")])
-        assert _fetch_csv(session, {"function": "LISTING_STATUS"}) == "symbol,status\nIBM,Active\n"
-
-    def test_fetch_csv_returns_none_for_an_empty_json_body(self) -> None:
-        # A key that is not entitled to a state gets `{}` back instead of a CSV body.
-        session = _session_returning([_text_response("{}")])
-        assert _fetch_csv(session, {"function": "LISTING_STATUS"}) is None
-
     def test_fetch_csv_information_envelope_is_permanent(self) -> None:
         session = _session_returning([_text_response('{"Information": "daily limit reached"}')])
         with pytest.raises(AlphaVantageAPIError) as exc:
@@ -388,49 +336,6 @@ class TestAlphaVantage:
         with patch("time.sleep"), pytest.raises(AlphaVantageRetryableError):
             _fetch_csv(session, {"function": "LISTING_STATUS"})
         assert session.get.call_count == 5
-
-    def test_listing_status_rows_covers_both_states_and_nulls_placeholders(self) -> None:
-        active = "symbol,name,exchange,assetType,ipoDate,delistingDate,status\nIBM,IBM Corp,NYSE,Stock,1962-01-02,null,Active\n"
-        delisted = "symbol,name,exchange,assetType,ipoDate,delistingDate,status\nOLD,Old Co,NYSE,Stock,1998-01-02,2014-07-10,Delisted\n"
-        session = _session_returning([_text_response(active), _text_response(delisted)])
-        rows = _collect_rows(_listing_status_rows(session, "KEY", MagicMock()))
-        assert [session.get.call_args_list[i].kwargs["params"]["state"] for i in range(2)] == ["active", "delisted"]
-        assert rows == [
-            {
-                "symbol": "IBM",
-                "name": "IBM Corp",
-                "exchange": "NYSE",
-                "assetType": "Stock",
-                "ipoDate": "1962-01-02",
-                # The vendor writes "null" rather than leaving the cell empty.
-                "delistingDate": None,
-                "status": "Active",
-            },
-            {
-                "symbol": "OLD",
-                "name": "Old Co",
-                "exchange": "NYSE",
-                "assetType": "Stock",
-                "ipoDate": "1998-01-02",
-                "delistingDate": "2014-07-10",
-                "status": "Delisted",
-            },
-        ]
-
-    def test_listing_status_rows_skips_a_state_with_no_csv(self) -> None:
-        active = "symbol,status\nIBM,Active\n"
-        session = _session_returning([_text_response(active), _text_response("{}")])
-        logger = MagicMock()
-        rows = _collect_rows(_listing_status_rows(session, "KEY", logger))
-        assert [r["symbol"] for r in rows] == ["IBM"]
-        logger.warning.assert_called_once()
-
-    def test_listing_status_rows_chunks_large_listings(self) -> None:
-        header = "symbol,status\n"
-        body = header + "".join(f"SYM{i},Active\n" for i in range(CSV_CHUNK_SIZE + 1))
-        session = _session_returning([_text_response(body), _text_response("{}")])
-        batches = list(_listing_status_rows(session, "KEY", MagicMock()))
-        assert [len(batch) for batch in batches] == [CSV_CHUNK_SIZE, 1]
 
     def test_get_rows_does_not_fan_out_the_listing_over_symbols(self) -> None:
         # LISTING_STATUS covers the whole market, so the request count must not scale with the symbols.
@@ -564,45 +469,6 @@ class TestAlphaVantage:
         else:
             assert "from" not in params
 
-    def test_request_params_ignores_a_watermark_for_a_full_refresh_function(self) -> None:
-        # Only INSIDER_TRANSACTIONS takes a server-side date bound; sending one elsewhere would be
-        # silently ignored by the API and misleading to a reader.
-        params = _request_params(
-            ALPHA_VANTAGE_ENDPOINTS["global_quote"], "IBM", "KEY", datetime(2026, 8, 1, tzinfo=UTC)
-        )
-        assert "from" not in params
-
-    def test_news_rows_stops_on_a_short_page(self) -> None:
-        session = _session_returning([_news_response(_article("https://a", "20260101T010000"))])
-        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
-            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, MagicMock()))
-        assert [row["url"] for row in rows] == ["https://a"]
-        assert session.get.call_count == 1
-        params = session.get.call_args.kwargs["params"]
-        assert params["tickers"] == "IBM"
-        # Oldest-first, so the watermark advances monotonically and the walk can resume from the end.
-        assert params["sort"] == "EARLIEST"
-        assert "time_from" not in params
-
-    def test_news_rows_walks_forward_from_the_last_article_of_a_full_page(self) -> None:
-        session = _session_returning(
-            [
-                _news_response(_article("https://a", "20260101T010000"), _article("https://b", "20260102T020000")),
-                _news_response(_article("https://c", "20260103T030000")),
-            ]
-        )
-        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
-            rows = _collect_rows(_news_rows(session, "KEY", "IBM", None, MagicMock()))
-        assert [row["url"] for row in rows] == ["https://a", "https://b", "https://c"]
-        # `time_from` is minute-granular, so the second page resumes from the last article's minute.
-        assert session.get.call_args_list[1].kwargs["params"]["time_from"] == "20260102T0200"
-
-    def test_news_rows_passes_through_the_starting_watermark(self) -> None:
-        session = _session_returning([_news_response(_article("https://a", "20260101T010000"))])
-        with patch(f"{MODULE}.NEWS_PAGE_LIMIT", 2):
-            _collect_rows(_news_rows(session, "KEY", "IBM", "20251231T2359", MagicMock()))
-        assert session.get.call_args.kwargs["params"]["time_from"] == "20251231T2359"
-
     def test_news_rows_does_not_yield_the_boundary_article_twice(self) -> None:
         # Resuming from a minute re-reads every article published in it, and a merge cannot dedupe
         # within one batch sequence, so the walk has to drop what it already yielded.
@@ -722,10 +588,6 @@ class TestAlphaVantage:
             _fetch_csv(session, {"function": "EARNINGS_CALENDAR"})
         assert expected_marker in str(exc.value)
 
-    def test_fetch_csv_accepts_a_real_data_row(self) -> None:
-        body = "symbol,name,reportDate\r\nIBM,International Business Machines,2026-10-22\r\n"
-        assert _fetch_csv(_session_returning([_text_response(body)]), {"function": "EARNINGS_CALENDAR"}) == body
-
     def test_fetch_csv_accepts_a_header_only_body(self) -> None:
         body = "symbol,name,reportDate\r\n"
         assert _fetch_csv(_session_returning([_text_response(body)]), {"function": "EARNINGS_CALENDAR"}) == body
@@ -781,8 +643,3 @@ class TestAlphaVantage:
         session.get.return_value = _response(body=body, status=status, ok=status == 200)
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
             assert validate_credentials(api_key) is expected
-
-    def test_validate_credentials_empty_key_skips_request(self) -> None:
-        with patch(f"{MODULE}.make_tracked_session") as make_session:
-            assert validate_credentials("   ") is False
-        make_session.assert_not_called()

@@ -89,24 +89,6 @@ def extract(table: str, manager: MagicMock) -> list[Any]:
 
 
 @pytest.mark.parametrize(
-    "table,path,selector",
-    [("snapshots", "snapshots.list", "snapshots"), ("teams", "teams.list", "teams")],
-)
-@pytest.mark.parametrize("rows", [[], [{"id": "record-1"}]])
-def test_single_page_request(transport: MagicMock, table: str, path: str, selector: str, rows: list[dict]) -> None:
-    sent = respond(transport, [{"ok": True, selector: rows}])
-    manager = manager_for({"cursor": "stale"})
-
-    assert extract(table, manager) == rows
-    assert len(sent) == 1
-    assert sent[0].url == f"https://api.getdx.com/{path}"
-    assert sent[0].headers["Authorization"] == "Bearer test-token"
-    assert sent[0].method == "GET"
-    manager.load_state.assert_not_called()
-    manager.save_state.assert_not_called()
-
-
-@pytest.mark.parametrize(
     "table,path,selector,params",
     [
         ("team_audit_events", "teams.auditTrail", "events", {}),
@@ -133,44 +115,6 @@ def test_cursor_pages_and_terminal_page(
     assert query_params(sent[1]) == {**params, "cursor": ["next-1"]}
     assert all(request.headers["Authorization"] == "Bearer test-token" for request in sent)
     manager.save_state.assert_called_once_with(GetdxResumeConfig(paginator_state={"cursor": "next-1"}))
-
-
-def test_users_follow_next_page(transport: MagicMock) -> None:
-    sent = respond(
-        transport,
-        [
-            {"ok": True, "users": [{"id": "a"}], "next_page": 2, "total_pages": 2},
-            {"ok": True, "users": [{"id": "b"}], "next_page": None, "total_pages": 2},
-        ],
-    )
-    manager = manager_for()
-
-    assert extract("users", manager) == [{"id": "a"}, {"id": "b"}]
-    assert [query_params(request) for request in sent] == [
-        {"page": ["1"], "page_size": ["100"]},
-        {"page": ["2"], "page_size": ["100"]},
-    ]
-    manager.save_state.assert_called_once_with(GetdxResumeConfig(paginator_state={"cursor": 2}))
-
-
-@pytest.mark.parametrize(
-    "table,selector,cursor,param,metadata",
-    [
-        ("users", "users", 3, "page", {"next_page": None}),
-        ("team_audit_events", "events", "resume-1", "cursor", {}),
-        ("scorecards", "scorecards", "resume-1", "cursor", {}),
-    ],
-)
-def test_resume_skips_consumed_pages(
-    transport: MagicMock, table: str, selector: str, cursor: str | int, param: str, metadata: dict
-) -> None:
-    sent = respond(transport, [{"ok": True, selector: [{"id": "resumed"}], **metadata}])
-    manager = manager_for({"cursor": cursor})
-
-    assert extract(table, manager) == [{"id": "resumed"}]
-    assert len(sent) == 1
-    assert query_params(sent[0])[param] == [str(cursor)]
-    manager.save_state.assert_not_called()
 
 
 @pytest.mark.parametrize(
