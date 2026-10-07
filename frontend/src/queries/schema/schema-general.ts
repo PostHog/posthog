@@ -5009,9 +5009,21 @@ export interface MetricsDisplaySettings {
     legendCalcs?: MetricsReducer[]
 }
 
+/** How a metrics query is written. All three run through the metrics query runner, with its caching and limits. */
+export type MetricsQueryLanguage = 'builder' | 'promql' | 'sql'
+
 export interface MetricsQuery extends DataNode<MetricsQueryResponse> {
     kind: NodeKind.MetricsQuery
+    /** Empty when `language` is `promql` or `sql`. */
     clauses: MetricsQueryClause[]
+    /** How the query is written; the builder when unset. */
+    language?: MetricsQueryLanguage
+    /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+    promql?: string
+    /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a
+     * `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and
+     * `{interval_seconds}` are filled in from the date range and interval. */
+    sql?: string
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
     /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */

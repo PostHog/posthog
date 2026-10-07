@@ -15,6 +15,7 @@ from posthog.schema import (
     DashboardFilter,
     DateRange,
     MetricsQuery,
+    MetricsQueryLanguage,
     MetricsQueryPoint,
     MetricsQueryResponse,
     MetricsQuerySeries,
@@ -23,6 +24,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
@@ -36,8 +38,11 @@ from products.metrics.backend.facade.contracts import (
     MetricGroupBy,
     MetricQueryClause,
     MetricQueryRequest,
+    MetricSeries,
 )
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.sql_mode import run_metrics_sql
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -58,6 +63,14 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         # or POST /query with a MetricsQuery bypasses it.
         if not posthog_feature_flag_enabled(
             METRICS_FEATURE_FLAG,
+            str(user.distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise UserAccessControlError("metrics", "viewer")
+        # PromQL runs through Snuffle, which has its own private-alpha flag.
+        if self.query.language == MetricsQueryLanguage.PROMQL and not posthog_feature_flag_enabled(
+            SNUFFLE_API_FEATURE_FLAG,
             str(user.distinct_id),
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
@@ -142,10 +155,21 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             formula=self.query.formula,
         )
 
+    def _run(self) -> list[MetricSeries]:
+        language = self.query.language or MetricsQueryLanguage.BUILDER
+        if language == MetricsQueryLanguage.BUILDER:
+            return run_metric_query(team=self.team, request=self._to_request())
+        date_range = self._query_date_range()
+        text = (self.query.promql if language == MetricsQueryLanguage.PROMQL else self.query.sql) or ""
+        if not text.strip():
+            raise ValueError(f"Write a {'PromQL' if language == MetricsQueryLanguage.PROMQL else 'SQL'} query first.")
+        run = run_promql_range if language == MetricsQueryLanguage.PROMQL else run_metrics_sql
+        return run(self.team, text, date_range.date_from(), date_range.date_to(), self.query.interval)
+
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gate_for_anonymous_viewers()
         try:
-            series = run_metric_query(team=self.team, request=self._to_request())
+            series = self._run()
         except ValueError as exc:
             # The facade signals user errors (bad formula, unknown clause alias, bad
             # quantile) with ValueError; /query only exposes typed errors, so a bare
@@ -166,7 +190,8 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
-        # property filters do not apply. Its date range and label filters do.
+        # property filters do not apply. Its date range and label filters do. Label filters
+        # reach builder clauses only: PromQL and SQL text is not rewritten.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,

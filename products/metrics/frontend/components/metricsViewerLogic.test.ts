@@ -887,10 +887,49 @@ describe('metricsViewerLogic', () => {
 
         // The editor writes this node back to the insight; if it differs from the saved
         // query, merely opening edit mode would mark the insight as changed.
-        it('maps a saved query back to the same node', () => {
-            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+        it.each<[string, MetricsQuery]>([
+            ['builder', SAVED_QUERY],
+            [
+                'PromQL',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum by (job) (rate(requests_total))',
+                    dateRange: { date_from: '-6h' },
+                    display: { type: 'area' },
+                },
+            ],
+            [
+                'SQL',
+                {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'sql',
+                    sql: 'SELECT now() AS time, 1 AS value',
+                    dateRange: { date_from: '-6h' },
+                    interval: 'minute_5',
+                },
+            ],
+        ])('maps a saved %s query back to the same node', (_name, query) => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: query })
             editor.mount()
-            expect(editor.values.metricsQueryNode).toEqual(SAVED_QUERY)
+            expect(editor.values.metricsQueryNode).toEqual(query)
+            editor.unmount()
+        })
+
+        it('changes the PromQL in the query only when the draft runs', () => {
+            const editor = metricsViewerLogic({
+                key: 'editor-test',
+                initialQuery: { kind: NodeKind.MetricsQuery, clauses: [], language: 'promql', promql: 'sum(x)' },
+            })
+            editor.mount()
+            editor.actions.setQueryDraft('sum(y) ')
+            expect(editor.values.metricsQueryNode?.promql).toBe('sum(x)')
+            expect(editor.values.queryTextChanged).toBe(true)
+            editor.actions.runQueryText()
+            expect(editor.values.metricsQueryNode?.promql).toBe('sum(y)')
+            expect(editor.values.queryTextChanged).toBe(false)
             editor.unmount()
         })
 

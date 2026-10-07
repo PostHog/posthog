@@ -39265,6 +39265,7 @@
             "additionalProperties": false,
             "properties": {
                 "clauses": {
+                    "description": "Empty when `language` is `promql` or `sql`.",
                     "items": {
                         "$ref": "#/definitions/MetricsQueryClause"
                     },
@@ -39290,12 +39291,24 @@
                     "const": "MetricsQuery",
                     "type": "string"
                 },
+                "language": {
+                    "$ref": "#/definitions/MetricsQueryLanguage",
+                    "description": "How the query is written; the builder when unset."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "promql": {
+                    "description": "PromQL expression, run as a range query. Used when `language` is `promql`.",
+                    "type": "string"
+                },
                 "response": {
                     "$ref": "#/definitions/MetricsQueryResponse"
+                },
+                "sql": {
+                    "description": "HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -39376,6 +39389,11 @@
             },
             "required": ["key"],
             "type": "object"
+        },
+        "MetricsQueryLanguage": {
+            "description": "How a metrics query is written. All three run through the metrics query runner, with its caching and limits.",
+            "enum": ["builder", "promql", "sql"],
+            "type": "string"
         },
         "MetricsQueryPoint": {
             "additionalProperties": false,

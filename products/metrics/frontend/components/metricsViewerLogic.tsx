@@ -29,6 +29,7 @@ import {
     MetricsQuery,
     MetricsQueryClause,
     MetricsQueryFilter,
+    MetricsQueryLanguage,
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -332,6 +333,9 @@ export interface MetricsViewerLogicProps {
     initialQuery?: MetricsQuery
 }
 
+const initialQueryText = (query: MetricsQuery | undefined): string =>
+    (query?.language === 'promql' ? query.promql : query?.language === 'sql' ? query.sql : '') ?? ''
+
 const FILTER_OP_TO_OPERATOR: Record<MetricsQueryFilter['op'], PropertyOperator> = {
     eq: PropertyOperator.Exact,
     neq: PropertyOperator.IsNot,
@@ -444,6 +448,7 @@ export interface metricsViewerLogicValues {
     histogramQueryNode: MetricsHistogramQuery | null
     interval: string | null
     isAddToDashboardModalOpen: boolean
+    language: MetricsQueryLanguage
     lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
     metricName: string
@@ -453,6 +458,7 @@ export interface metricsViewerLogicValues {
     pendingAddToDashboard: boolean
     pendingAlert: boolean
     queryAbortController: AbortController | null
+    queryDraft: string
     queryError: string | null
     queryFilters: _MetricFilterApi[]
     queryFingerprint: string
@@ -461,6 +467,8 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
+    queryText: string
+    queryTextChanged: boolean
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -602,6 +610,9 @@ export interface metricsViewerLogicActions {
     resetPendingAlert: () => {
         value: true
     }
+    runQueryText: () => {
+        value: true
+    }
     saveAsInsight: () => any
     saveAsInsightFailure: (
         error: string,
@@ -669,6 +680,12 @@ export interface metricsViewerLogicActions {
     setQueryAbortController: (controller: AbortController | null) => {
         controller: AbortController | null
     }
+    setQueryDraft: (queryDraft: string) => {
+        queryDraft: string
+    }
+    setQueryText: (queryText: string) => {
+        queryText: string
+    }
     setRecommendedAggregation: (aggregation: MetricAggregation) => {
         aggregation: MetricAggregation
     }
@@ -727,8 +744,11 @@ export interface metricsViewerLogicMeta {
             dateFrom: string | null,
             dateTo: string | null,
             metricsDisplay: MetricsDisplaySettings | undefined,
-            interval: string | null
+            interval: string | null,
+            language: any,
+            queryText: any
         ) => MetricsQuery | null
+        queryTextChanged: (queryDraft: any, queryText: any) => boolean
         heatmapEligible: (namedClauses: MetricsViewerClause[], formula: string) => boolean
         histogramQueryNode: (
             namedClauses: MetricsViewerClause[],
@@ -842,6 +862,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             key,
             value,
         }),
+        // PromQL and SQL modes: the draft follows each keystroke, and only a run moves it into the
+        // query, so typing does not run a half-written query.
+        setQueryDraft: (queryDraft: string) => ({ queryDraft }),
+        setQueryText: (queryText: string) => ({ queryText }),
+        runQueryText: true,
     }),
     reducers(({ props }) => ({
         // The clause list, active index, and formula live in one reducer so the
@@ -942,6 +967,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                               formula: sanitizeFormulaInput(formula),
                           }
                         : state,
+            },
+        ],
+        // A language switch remounts the editor with the converted query, so nothing sets this.
+        language: [(props.initialQuery?.language ?? 'builder') as MetricsQueryLanguage, {}],
+        queryText: [initialQueryText(props.initialQuery), { setQueryText: (_, { queryText }) => queryText }],
+        queryDraft: [
+            initialQueryText(props.initialQuery),
+            {
+                setQueryDraft: (_, { queryDraft }) => queryDraft,
+                setQueryText: (_, { queryText }) => queryText,
             },
         ],
         dateFrom: [
@@ -1195,6 +1230,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
             saveAsInsightFailure: ({ error }) => {
                 lemonToast.error(`Failed to save insight: ${error}`)
+            },
+            runQueryText: () => {
+                actions.setQueryText(values.queryDraft.trim())
             },
             addToDashboard: () => {
                 if (!canCreateMetricsInsight() || !values.savedQueryNode) {
@@ -1510,22 +1548,27 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         metricsQueryNode: [
-            (s) => [s.namedClauses, s.formula, s.dateFrom, s.dateTo, s.metricsDisplay, s.interval],
+            (s) => [
+                s.namedClauses,
+                s.formula,
+                s.dateFrom,
+                s.dateTo,
+                s.metricsDisplay,
+                s.interval,
+                s.language,
+                s.queryText,
+            ],
             (
                 namedClauses: MetricsViewerClause[],
                 formula: string,
                 dateFrom: string | null,
                 dateTo: string | null,
                 metricsDisplay: MetricsDisplaySettings | undefined,
-                interval: string | null
+                interval: string | null,
+                language: MetricsQueryLanguage,
+                queryText: string
             ): MetricsQuery | null => {
-                if (!namedClauses.length) {
-                    return null
-                }
-                return {
-                    kind: NodeKind.MetricsQuery,
-                    clauses: namedClauses.map(clauseToNodeClause),
-                    ...(formula ? { formula } : {}),
+                const shared = {
                     dateRange: {
                         date_from: dateFrom ?? DEFAULT_DATE_FROM,
                         ...(dateTo ? { date_to: dateTo } : {}),
@@ -1533,7 +1576,29 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     ...(interval ? { interval } : {}),
                     ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
+                if (language !== 'builder') {
+                    return {
+                        kind: NodeKind.MetricsQuery,
+                        clauses: [],
+                        language,
+                        ...(language === 'promql' ? { promql: queryText } : { sql: queryText }),
+                        ...shared,
+                    }
+                }
+                if (!namedClauses.length) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: namedClauses.map(clauseToNodeClause),
+                    ...(formula ? { formula } : {}),
+                    ...shared,
+                }
             },
+        ],
+        queryTextChanged: [
+            (s) => [s.queryDraft, s.queryText],
+            (queryDraft: string, queryText: string): boolean => queryDraft.trim() !== queryText,
         ],
         // The heatmap renders one distribution, so it needs exactly one non-formula clause on a
         // distribution metric. The OTel type is latched at pick time (backfilled from the picker

@@ -2162,6 +2162,12 @@ class MetricsOtelType(StrEnum):
     SUMMARY = "summary"
 
 
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
+
+
 class MetricsReducer(StrEnum):
     LAST = "last"
     MEAN = "mean"

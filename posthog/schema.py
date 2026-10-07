@@ -207,6 +207,7 @@ from posthog.schema_enums import (
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
     MetricsOtelType as MetricsOtelType,
+    MetricsQueryLanguage as MetricsQueryLanguage,
     MetricsReducer as MetricsReducer,
     MetricsStatSummary as MetricsStatSummary,
     MetricSummary as MetricSummary,
@@ -29019,7 +29020,7 @@ class MetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clauses: list[MetricsQueryClause]
+    clauses: list[MetricsQueryClause] = Field(..., description="Empty when `language` is `promql` or `sql`.")
     dateRange: DateRange | None = Field(
         default=None,
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
@@ -29041,8 +29042,24 @@ class MetricsQuery(BaseModel):
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
+    language: MetricsQueryLanguage | None = Field(
+        default=None, description="How the query is written; the builder when unset."
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    promql: str | None = Field(
+        default=None,
+        description=("PromQL expression, run as a range query. Used when `language` is `promql`."),
+    )
     response: MetricsQueryResponse | None = None
+    sql: str | None = Field(
+        default=None,
+        description=(
+            "HogQL SELECT over the posthog.metric* tables. Used when `language` is"
+            " `sql`. It must return a `time` and a `value` column; every other column"
+            " is a series label. `{date_from}`, `{date_to}`, `{interval}` and"
+            " `{interval_seconds}` are filled in from the date range and interval."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
