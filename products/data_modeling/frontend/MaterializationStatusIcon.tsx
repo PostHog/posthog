@@ -1,4 +1,4 @@
-import { IconPauseFilled, IconWarning } from '@posthog/icons'
+import { IconPauseFilled, IconXCircle } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -37,7 +37,7 @@ export function MaterializationStatusIcon({ view }: { view: DataWarehouseSavedQu
                     </div>
                 }
             >
-                <IconWarning className="shrink-0 text-danger" />
+                <IconXCircle className="shrink-0 text-danger" />
             </Tooltip>
         )
     }

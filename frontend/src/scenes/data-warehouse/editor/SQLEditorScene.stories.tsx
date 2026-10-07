@@ -14,7 +14,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTableCertificationStatus,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
@@ -412,6 +416,18 @@ const sidebarStatusView = (
     user_access_level: AccessControlLevel.Editor,
 })
 
+const sidebarSchemaView = (
+    name: string,
+    certification: DatabaseSchemaTableCertificationStatus
+): DatabaseSchemaMaterializedViewTable => ({
+    type: 'materialized_view',
+    id: name,
+    name,
+    fields: {},
+    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+    certification: { status: certification },
+})
+
 export const SidebarMaterializationStatus: Story = {
     parameters: {
         testOptions: {
@@ -420,6 +436,18 @@ export const SidebarMaterializationStatus: Story = {
         },
         msw: {
             mocks: {
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': [
+                        200,
+                        {
+                            tables: {
+                                daily_signups: sidebarSchemaView('daily_signups', 'certified'),
+                                orders_by_region: sidebarSchemaView('orders_by_region', 'deprecated'),
+                                weekly_revenue: sidebarSchemaView('weekly_revenue', 'certified'),
+                            },
+                        },
+                    ],
+                },
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
                     '/api/projects/:team_id/warehouse_saved_queries/': [
