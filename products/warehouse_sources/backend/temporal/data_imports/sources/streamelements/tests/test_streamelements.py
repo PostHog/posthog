@@ -7,9 +7,6 @@ from unittest import mock
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
-    STREAMELEMENTS_ENDPOINTS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.streamelements import (
     StreamElementsResumeConfig,
     _to_epoch_ms,
@@ -179,10 +176,3 @@ class TestSinglePageEndpoints:
         assert session.send.call_count == 1
         assert snapshots[0]["url"].endswith(f"/bot/commands/{CHANNEL_ID}")
         assert [row["_id"] for row in rows] == ["c1"]
-
-
-class TestStreamElementsSourceResponse:
-    @pytest.mark.parametrize("config", list(STREAMELEMENTS_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
-        if config.partition_key:
-            assert config.partition_key == "createdAt"

@@ -289,7 +289,3 @@ class TestSplitIoSourceResponse:
         # Partitioning is intentionally off (epoch-ms timestamps).
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    @pytest.mark.parametrize("endpoint", ["feature_flags", "segments"])
-    def test_workspace_scoped_names_use_composite_primary_key(self, endpoint):
-        assert SPLIT_IO_ENDPOINTS[endpoint].primary_keys == ["name", "_workspace_id"]

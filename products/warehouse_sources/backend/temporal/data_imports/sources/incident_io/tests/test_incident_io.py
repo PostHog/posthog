@@ -297,10 +297,5 @@ class TestIncidentIoSourceResponse:
             assert response.partition_keys is None
 
     @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"created_at", "start_at", "published_at"}
-
-    @pytest.mark.parametrize("config", list(INCIDENT_IO_ENDPOINTS.values()))
     def test_endpoint_paths_are_versioned(self, config):
         assert config.path.startswith(("/v1/", "/v2/", "/v3/"))

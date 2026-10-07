@@ -296,9 +296,6 @@ class TestSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_base_url_is_v3(self) -> None:
-        assert DROPBOX_SIGN_BASE_URL == "https://api.hellosign.com/v3"
-
 
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])

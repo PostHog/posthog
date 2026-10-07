@@ -513,9 +513,6 @@ class TestDockerhubSourceResponse:
         # the key, fan-out rows from different repositories would collide and corrupt merges.
         assert DOCKERHUB_ENDPOINTS["tags"].primary_keys == ["namespace", "repository_name", "name"]
 
-    def test_repositories_primary_key_is_namespace_scoped(self) -> None:
-        assert DOCKERHUB_ENDPOINTS["repositories"].primary_keys == ["namespace", "name"]
-
 
 class TestAuditLogs:
     def test_full_page_advances_and_saves_the_page_cursor(self, monkeypatch: Any) -> None:

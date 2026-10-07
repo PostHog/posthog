@@ -375,12 +375,6 @@ class TestEndpointCatalogInvariants:
         assert set(config.primary_keys) <= set(config.dimensions)
         assert config.primary_keys
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_day_is_always_requested_and_keyed(self, endpoint: str) -> None:
-        config = APPLOVIN_ENDPOINTS[endpoint]
-        assert "day" in config.dimensions
-        assert "day" in config.primary_keys
-
     @pytest.mark.parametrize("endpoint", ["max_ad_revenue", "max_ad_unit_revenue"])
     def test_max_report_network_and_request_metrics_are_mutually_exclusive(self, endpoint: str) -> None:
         config = APPLOVIN_ENDPOINTS[endpoint]

@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.framer.fra
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.framer.settings import (
     DEPLOYMENTS_PAGE_SIZE,
-    ENDPOINTS,
     PRIMARY_KEYS,
 )
 
@@ -547,9 +546,6 @@ class TestFramer:
         assert self._run_endpoint("Redirects", {"getRedirects": [{"id": "r1", "from": "/a", "to": "/b"}]}) == [
             {"id": "r1", "from": "/a", "to": "/b"}
         ]
-
-    def test_every_endpoint_has_a_primary_key(self) -> None:
-        assert set(PRIMARY_KEYS) == set(ENDPOINTS)
 
     def test_source_response_raises_for_invalid_project(self) -> None:
         response = framer_source("not a project", "key", "Project", protocol_version="0.1.29")

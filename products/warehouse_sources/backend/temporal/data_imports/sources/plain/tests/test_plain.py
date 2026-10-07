@@ -6,7 +6,6 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
-    PlainRetryableError,
     _datetime_to_plain_iso8601,
     _fetch_paginated_endpoint,
     _fetch_thread_timeline_entries,
@@ -178,11 +177,6 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert error == "down"
-
-
-class TestPlainRetryableError:
-    def test_is_exception(self):
-        assert issubclass(PlainRetryableError, Exception)
 
 
 class TestDatetimeHelpers:

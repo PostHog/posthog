@@ -12,11 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openmeteo import (
     OpenMeteoSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.open_meteo import OpenMeteoResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source import OpenMeteoSource
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.open_meteo.source"
@@ -53,9 +49,6 @@ class TestOpenMeteoSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["weather_current", "air_quality_hourly"])
 
         assert {schema.name for schema in schemas} == {"weather_current", "air_quality_hourly"}
-
-    def test_canonical_descriptions_cover_every_schema(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "raised_message",

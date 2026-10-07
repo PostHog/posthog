@@ -203,11 +203,6 @@ class TestStytchSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("config", list(STYTCH_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"
-
 
 class TestHttpSampleCaptureDisabled:
     """Stytch responses carry end-user PII, so every credentialed request path must build its

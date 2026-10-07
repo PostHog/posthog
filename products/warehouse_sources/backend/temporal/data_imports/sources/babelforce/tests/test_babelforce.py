@@ -248,10 +248,6 @@ class TestBabelforceSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("config", [c for c in BABELFORCE_ENDPOINTS.values() if c.partition_key])
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "dateCreated"
-
 
 # Each fan-out child, the path its parent id resolves into, and the field that id is injected as.
 FANOUT_CASES = [

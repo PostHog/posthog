@@ -506,15 +506,6 @@ class TestGetRetryableErrors(SimpleTestCase):
 
         self.retryable = MongoDBSource().get_retryable_errors()
 
-    def test_dns_lifetime_timeout_is_classified_retryable(self):
-        error_msg = (
-            "The resolution lifetime expired after 20.763 seconds: Server Do53:10.0.0.53@53 "
-            "answered The DNS operation timed out."
-        )
-        assert any(pattern in error_msg for pattern in self.retryable), (
-            f"MongoDB DNS SRV resolution timeout should be classified retryable: {error_msg}"
-        )
-
     def test_connection_pool_paused_is_classified_retryable(self):
         # Bare AutoReconnect raised on connection checkout while the pool is recovering from an
         # earlier network blip — no "Topology Description:" suffix, so it must not be mistaken

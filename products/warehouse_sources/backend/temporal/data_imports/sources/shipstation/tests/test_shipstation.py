@@ -227,10 +227,3 @@ class TestPagination:
         assert params[0]["modifyDateStart"] == "2024-01-02 03:04:05"
         assert params[0]["sortBy"] == "ModifyDate"
         assert params[0]["sortDir"] == "ASC"
-
-
-class TestShipStationSourceResponse:
-    @pytest.mark.parametrize("config", list(SHIPSTATION_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createDate"

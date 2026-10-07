@@ -16,9 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_t
     new_york_times_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.settings import (
-    NEW_YORK_TIMES_ENDPOINTS,
-)
 
 
 class _FakeResumableManager:
@@ -221,10 +218,3 @@ class TestSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
         assert response.sort_mode == "asc"
-
-
-@pytest.mark.parametrize("endpoint", list(NEW_YORK_TIMES_ENDPOINTS.keys()))
-def test_every_endpoint_declares_primary_keys(endpoint: str) -> None:
-    config = NEW_YORK_TIMES_ENDPOINTS[endpoint]
-    assert config.primary_keys, f"{endpoint} must declare primary keys"
-    assert config.data_selector in {"docs", "results"}

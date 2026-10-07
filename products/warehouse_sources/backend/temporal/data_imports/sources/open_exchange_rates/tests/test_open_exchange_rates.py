@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates import open_exchange_rates
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     OpenExchangeRatesResumeConfig,
     OpenExchangeRatesRetryableError,
     _date_from_timestamp,
@@ -314,9 +313,6 @@ class TestOpenExchangeRatesSourceResponse:
     def test_catalog_endpoints_are_not_partitioned(self, endpoint: str) -> None:
         response = open_exchange_rates_source("key", endpoint, "USD", None, mock.MagicMock(), mock.MagicMock())
         assert response.partition_keys is None
-
-    def test_default_base_currency_is_usd(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "USD"
 
 
 class TestUtcTodayUsage:

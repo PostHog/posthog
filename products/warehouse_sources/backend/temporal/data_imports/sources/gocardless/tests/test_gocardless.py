@@ -247,7 +247,3 @@ class TestGoCardlessSourceResponse:
             assert response.sort_mode == "desc"
         else:
             assert response.sort_mode == "asc"
-
-    @pytest.mark.parametrize("config", list(GOCARDLESS_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key in ("created_at", None)

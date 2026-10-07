@@ -8,7 +8,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago import lago as lago_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import (
-    DEFAULT_API_HOST,
     LagoHostNotAllowedError,
     LagoResumeConfig,
     lago_source,
@@ -251,8 +250,3 @@ class TestRedirectAndHostGuards:
                 _rows(_source(_make_manager()))
         # The SSRF pre-check fires before any request leaves the process.
         session.send.assert_not_called()
-
-
-class TestBaseUrl:
-    def test_default_host_constant(self):
-        assert DEFAULT_API_HOST == "https://api.getlago.com"

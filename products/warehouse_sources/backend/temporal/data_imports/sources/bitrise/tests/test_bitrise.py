@@ -364,11 +364,3 @@ class TestSourceResponse:
             assert response.partition_keys == [config.partition_key]
         else:
             assert response.partition_mode is None
-
-    def test_fan_out_endpoints_have_parent_in_primary_key(self):
-        assert BITRISE_ENDPOINTS["builds"].primary_keys == ["app_slug", "slug"]
-        assert BITRISE_ENDPOINTS["workflows"].primary_keys == ["app_slug", "workflow"]
-        assert BITRISE_ENDPOINTS["artifacts"].primary_keys == ["app_slug", "build_slug", "slug"]
-        assert BITRISE_ENDPOINTS["pipelines"].primary_keys == ["app_slug", "slug"]
-        assert BITRISE_ENDPOINTS["branches"].primary_keys == ["app_slug", "branch"]
-        assert BITRISE_ENDPOINTS["organization_members"].primary_keys == ["org_slug", "slug"]

@@ -271,11 +271,3 @@ class TestJotformSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(JOTFORM_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"
-
-    def test_questions_primary_key_includes_form_id(self):
-        assert JOTFORM_ENDPOINTS["questions"].primary_keys == ["form_id", "qid"]

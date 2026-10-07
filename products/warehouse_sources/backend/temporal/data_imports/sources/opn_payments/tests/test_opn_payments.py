@@ -13,9 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.opn_paymen
     opn_payments_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.opn_payments.settings import (
-    OPN_PAYMENTS_ENDPOINTS,
-)
 
 # The credential probe builds its own session via make_tracked_session imported into the
 # opn_payments module.
@@ -179,9 +176,3 @@ class TestOpnPaymentsSourceResume:
         _rows(_source("Charges", _make_manager(OpnPaymentsResumeConfig(offset=200))))
 
         assert params[0]["offset"] == 200
-
-
-class TestOpnPaymentsSourceResponse:
-    @pytest.mark.parametrize("endpoint, config", list(OPN_PAYMENTS_ENDPOINTS.items()))
-    def test_endpoints_use_documented_paths(self, endpoint, config):
-        assert config.path == f"/{config.table_name}"

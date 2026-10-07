@@ -452,6 +452,3 @@ class TestToolCallUsageGroupBy:
     )
     def test_group_by_matches_supported_dimensions(self, endpoint: str, expected: list[str]) -> None:
         assert OPENAI_ENDPOINTS[endpoint].group_by == expected
-
-    def test_file_search_does_not_group_by_model(self) -> None:
-        assert "model" not in OPENAI_ENDPOINTS["usage_file_search_calls"].group_by

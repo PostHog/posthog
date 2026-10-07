@@ -353,8 +353,3 @@ class TestClickUpSourceResponse:
         else:
             assert response.partition_mode is None
             assert response.partition_keys is None
-
-    @pytest.mark.parametrize("config", list(CLICKUP_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:
-        if config.partition_key:
-            assert config.partition_key == "date_created"

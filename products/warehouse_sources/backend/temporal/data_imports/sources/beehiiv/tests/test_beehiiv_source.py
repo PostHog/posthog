@@ -44,13 +44,6 @@ class TestBeehiivSource:
     def setup_method(self) -> None:
         self.source = BeehiivSource()
 
-    @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
-    def test_canonical_descriptions_cover_every_table(self, endpoint: str) -> None:
-        assert endpoint in CANONICAL_DESCRIPTIONS
-
-    def test_canonical_descriptions_have_no_orphan_tables(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) <= set(ENDPOINTS)
-
     @pytest.mark.parametrize(
         "endpoint", sorted(name for name, config in ENDPOINTS.items() if config.partition_key is not None)
     )

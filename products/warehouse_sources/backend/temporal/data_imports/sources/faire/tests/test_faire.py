@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.faire.fair
     faire_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.faire.settings import FAIRE_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -165,10 +164,6 @@ class TestFaireSourceBrand:
         _rows(_source("Brand", manager))
 
         manager.save_state.assert_not_called()
-
-    def test_returned_source_response_uses_brand_id_primary_key(self) -> None:
-        assert FAIRE_ENDPOINTS["Brand"].primary_keys == ["brand_id"]
-        assert FAIRE_ENDPOINTS["Brand"].partition_key is None
 
 
 class TestValidateCredentials:

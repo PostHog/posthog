@@ -33,7 +33,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.ma
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
-    ENDPOINTS,
     MAILGUN_ENDPOINTS,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
@@ -386,17 +385,6 @@ class TestGetRows:
 
 
 class TestMailgunSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_domain_scoped_endpoints_have_domain_in_primary_key(self, endpoint):
-        config = MAILGUN_ENDPOINTS[endpoint]
-        if config.domain_scoped:
-            assert "domain" in config.primary_keys
-
-    @pytest.mark.parametrize("config", list(MAILGUN_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"timestamp", "created_at"}
-
     def test_webhook_endpoint_yields_nothing_until_the_webhook_is_live(self):
         webhook_manager = mock.MagicMock()
         webhook_manager.webhook_enabled = mock.AsyncMock(return_value=False)

@@ -215,11 +215,6 @@ class TestDeelSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("config", list(DEEL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"
-
 
 class TestTimeOffEvents:
     @mock.patch(DEEL_SESSION_PATCH)

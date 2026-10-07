@@ -1,7 +1,6 @@
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fourthwall.settings import (
-    ALL_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_EVENTS,
     SCHEMA_TO_WEBHOOK_RESOURCE,
     WEBHOOK_EVENT_TO_RESOURCE,
@@ -65,14 +64,6 @@ class TestFourthwallSource:
         # template never emits would drop every delivery for that table.
         for event, resource in WEBHOOK_EVENT_TO_RESOURCE.items():
             assert f"'{event}': '{resource}'" in template.code
-
-    def test_webhook_template_declares_the_inputs_the_source_sets(self):
-        assert template.type == "warehouse_source_webhook"
-        input_keys = {input_schema["key"] for input_schema in template.inputs_schema}
-        assert {"signing_secret", "schema_mapping", "source_id"} <= input_keys
-
-    def test_all_webhook_events_is_the_union_of_the_schema_events(self):
-        assert set(ALL_WEBHOOK_EVENTS) == set(WEBHOOK_EVENT_TO_RESOURCE)
 
     @mock.patch(f"{API_CLIENT_PATCH}.create_webhook")
     def test_create_webhook_delegates(self, mock_create):

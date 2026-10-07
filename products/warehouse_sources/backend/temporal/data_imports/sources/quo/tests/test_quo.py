@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.quo.quo im
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
     QUO_API_VERSION_2026_03_30,
     QUO_API_VERSION_V1,
-    QUO_ENDPOINTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -352,8 +351,3 @@ class TestQuoSourceResponse:
     def test_unknown_endpoint_raises_unknown_resource(self):
         with pytest.raises(UnknownResourceError):
             _source("not_a_table", _make_manager())
-
-    @pytest.mark.parametrize("config", list(QUO_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createdAt"

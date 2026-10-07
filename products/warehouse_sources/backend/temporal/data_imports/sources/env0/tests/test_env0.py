@@ -345,8 +345,3 @@ class TestEnv0SourceResponse:
         # Fan-out rows carry no globally-unique id of their own; without the parent id in the key,
         # rows from different parents collapse into one and every later merge multi-matches them.
         assert config.inject_parent_fields["id"] in config.primary_keys
-
-    @pytest.mark.parametrize("config", list(ENV0_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "createdAt"

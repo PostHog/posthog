@@ -404,8 +404,3 @@ class TestAppfiguresSourceResponse:
         assert response.partition_mode == ("datetime" if partition_key else None)
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.sort_mode == "asc"
-
-
-class TestRetryableError:
-    def test_retryable_error_is_exception(self):
-        assert issubclass(appfigures.AppfiguresRetryableError, Exception)

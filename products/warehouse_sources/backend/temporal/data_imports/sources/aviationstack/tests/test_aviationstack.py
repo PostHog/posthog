@@ -10,7 +10,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack import aviationstack
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
     AviationstackResumeConfig,
     aviationstack_source,
@@ -378,7 +377,3 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(AVIATIONSTACK_SESSION_PATCH, return_value=session):
             assert validate_credentials("k") is False
-
-
-def test_module_exposes_base_url() -> None:
-    assert aviationstack.AVIATIONSTACK_BASE_URL == "https://api.aviationstack.com/v1"

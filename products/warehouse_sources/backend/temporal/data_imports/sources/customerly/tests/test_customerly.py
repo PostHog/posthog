@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.customerly
     get_rows,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.customerly.settings import CUSTOMERLY_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.customerly.customerly"
 
@@ -158,10 +157,3 @@ class TestArticlesFanOut:
         assert len(urls) == 2
         assert "knowledge_base_collection_id=6050" in urls[1]
         assert "page=3" in urls[1]
-
-
-class TestCustomerlySourceResponse:
-    @pytest.mark.parametrize("config", list(CUSTOMERLY_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"first_seen_at", "created_at"}

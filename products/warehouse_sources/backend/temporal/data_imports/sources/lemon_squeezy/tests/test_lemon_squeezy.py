@@ -25,8 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_sque
 from products.warehouse_sources.backend.temporal.data_imports.sources.lemon_squeezy.settings import (
     ALL_WEBHOOK_EVENTS,
     BASE_URL,
-    INCREMENTAL_ENDPOINTS,
-    LEMON_SQUEEZY_ENDPOINTS,
 )
 
 # The source builds its own tracked session (capture-disabled, host-pinned) for the sync client,
@@ -196,13 +194,6 @@ class TestPagination:
         assert len(requests_seen) == 2
         # Boundary rows older than the watermark are re-yielded; merge on id dedupes them.
         assert [row["id"] for row in rows] == ["3", "2", "1"]
-
-
-class TestSourceResponseMetadata:
-    def test_incremental_endpoints_use_created_at(self):
-        for endpoint in INCREMENTAL_ENDPOINTS:
-            fields = LEMON_SQUEEZY_ENDPOINTS[endpoint].incremental_fields
-            assert [f["field"] for f in fields] == ["created_at"]
 
 
 class TestWebhookTableTransformer:

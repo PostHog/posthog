@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong 
     gong_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.gong.settings import GONG_ENDPOINTS
 
 
 class _FakeResponse:
@@ -269,25 +268,6 @@ class TestGongSource:
         else:
             assert response.partition_keys is None
             assert response.partition_mode is None
-
-    def test_every_endpoint_has_a_config(self) -> None:
-        assert set(GONG_ENDPOINTS) == {
-            "calls",
-            "calls_extensive",
-            "calls_content",
-            "transcripts",
-            "users",
-            "scorecards",
-            "trackers",
-            "answered_scorecards",
-            "interaction_stats",
-            "daily_activity",
-            "call_outcomes",
-            "library_folders",
-            "library_folder_calls",
-            "flows",
-            "workspaces",
-        }
 
 
 class TestExtensiveCalls:

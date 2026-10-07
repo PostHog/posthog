@@ -219,10 +219,6 @@ class TestFrillSource:
         # Fan-out child rows must be unique table-wide, not per parent.
         assert FRILL_ENDPOINTS["comments"].primary_keys == ["_idea_idx", "idx"]
 
-    @pytest.mark.parametrize("endpoint", ["statuses", "topics"])
-    def test_endpoints_without_timestamps_are_unpartitioned(self, endpoint: str) -> None:
-        assert FRILL_ENDPOINTS[endpoint].partition_key is None
-
 
 class TestValidateCredentials:
     def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:

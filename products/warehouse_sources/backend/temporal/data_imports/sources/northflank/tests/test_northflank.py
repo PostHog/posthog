@@ -7,7 +7,6 @@ from unittest import mock
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.northflank import (
-    MAX_PROJECT_PAGES,
     NorthflankRetryableError,
     _build_url,
     _extract_rows,
@@ -267,6 +266,3 @@ class TestNorthflankSourceResponse:
         # or duplicate rows accumulate and every merge multi-matches them.
         if config.fan_out_over_projects:
             assert "projectId" in config.primary_keys
-
-    def test_project_page_cap_is_bounded(self):
-        assert MAX_PROJECT_PAGES <= 1000

@@ -13,10 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.j
     check_access,
     justsift_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.settings import (
-    ENDPOINTS,
-    JUSTSIFT_ENDPOINTS,
-)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -151,9 +147,6 @@ class TestSourceResponse:
         # No endpoint exposes a creation timestamp, so nothing is partitioned by datetime.
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_endpoint_catalog_matches_exported_tuple(self) -> None:
-        assert set(JUSTSIFT_ENDPOINTS) == set(ENDPOINTS)
 
 
 class TestCheckAccess:

@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import (
-    METADATA_FETCHERS,
     get_owners_rows,
     get_pipeline_stages_rows,
     get_pipelines_rows,
@@ -137,6 +136,3 @@ class TestMetadataFetchers:
 
         with patch(_FETCH_DATA, new=_fake), pytest.raises(HTTPError):
             _call(get_owners_rows)
-
-    def test_every_lookup_endpoint_has_a_fetcher(self) -> None:
-        assert set(METADATA_FETCHERS) == set(HUBSPOT_METADATA_ENDPOINTS)

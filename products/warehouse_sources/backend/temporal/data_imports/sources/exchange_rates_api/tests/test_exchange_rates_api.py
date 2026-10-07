@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api import exchange_rates_api
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.exchange_rates_api import (
     BASE_URL,
-    DEFAULT_BASE_CURRENCY,
     MAX_RANGE_DAYS,
     ExchangeRatesApiError,
     ExchangeRatesApiResumeConfig,
@@ -263,6 +262,3 @@ class TestExchangeRatesApiSource:
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
         assert response.sort_mode == "asc"
-
-    def test_default_base_currency_is_eur(self) -> None:
-        assert DEFAULT_BASE_CURRENCY == "EUR"

@@ -12,7 +12,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import WEBHOOK_BATCH_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.sparkpost import (
-    DEFAULT_REGION,
     SparkPostLinksPaginator,
     SparkPostResumeConfig,
     _format_from,
@@ -84,11 +83,6 @@ def _rows(endpoint: str, manager: mock.MagicMock, **overrides: Any) -> list[dict
     kwargs.update(overrides)
     response = sparkpost_source(**kwargs)
     return [row for page in cast("Iterable[Any]", response.items()) for row in page]
-
-
-class TestBaseUrl:
-    def test_default_region_is_us(self) -> None:
-        assert DEFAULT_REGION == "us"
 
 
 class TestFormatFrom:

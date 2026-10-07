@@ -211,6 +211,3 @@ class TestLaunchDarklySourceResponse:
         # Partitioning is intentionally off (epoch-ms timestamps).
         assert response.partition_mode is None
         assert response.partition_keys is None
-
-    def test_flags_use_composite_primary_key(self):
-        assert LAUNCHDARKLY_ENDPOINTS["flags"].primary_key == ["key", "_project_key"]

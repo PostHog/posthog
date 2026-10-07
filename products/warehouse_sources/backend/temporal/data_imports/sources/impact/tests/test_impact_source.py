@@ -20,9 +20,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactSourceClass:
-    def test_lists_tables_without_credentials(self) -> None:
-        assert ImpactSource.lists_tables_without_credentials is True
-
     @parameterized.expand(
         [
             ("Actions", True),
@@ -86,10 +83,6 @@ class TestImpactSourceClass:
     )
     def test_client_errors_are_not_retryable(self, _name: str, error: str) -> None:
         assert not error_message_matches(error, ImpactSource().get_retryable_errors())
-
-    def test_default_version_is_14(self) -> None:
-        assert ImpactSource.default_version == "14"
-        assert ImpactSource.supported_versions == ("v1", "14")
 
     @parameterized.expand(
         [

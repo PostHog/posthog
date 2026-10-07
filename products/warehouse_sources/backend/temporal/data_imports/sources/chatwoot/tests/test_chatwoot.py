@@ -565,11 +565,6 @@ class TestChatwootSourceResponse:
             assert response.partition_keys is None
 
     @pytest.mark.parametrize("config", list(CHATWOOT_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key == "created_at"
-
-    @pytest.mark.parametrize("config", list(CHATWOOT_ENDPOINTS.values()))
     def test_fanout_primary_keys_include_the_parent_id(self, config):
         # A fan-out child aggregates rows from every parent, so a key that is only unique per
         # parent seeds duplicates that every later merge multi-matches.

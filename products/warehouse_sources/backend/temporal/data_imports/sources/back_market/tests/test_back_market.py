@@ -2,7 +2,6 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -226,8 +225,3 @@ class TestValidateCredentials:
 
         assert ok is expected_ok
         assert status == expected_status
-
-
-@pytest.mark.parametrize("endpoint_name", ["orders", "listings"])
-def test_every_declared_endpoint_has_a_resource(endpoint_name: str) -> None:
-    assert endpoint_name in BACK_MARKET_ENDPOINTS

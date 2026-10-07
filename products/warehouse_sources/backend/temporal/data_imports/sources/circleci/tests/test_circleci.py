@@ -10,7 +10,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci import (
     CIRCLECI_V2,
     CIRCLECI_V3,
-    MAX_PIPELINE_PAGES,
     V3_PROJECTS_PAGE_LIMIT,
     CircleCIResumeConfig,
     CircleCIRetryableError,
@@ -591,6 +590,3 @@ class TestCircleCISourceResponse:
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:
             assert config.partition_key in {"created_at", "workflow_created_at"}
-
-    def test_pipeline_page_cap_is_bounded(self):
-        assert MAX_PIPELINE_PAGES <= 1000

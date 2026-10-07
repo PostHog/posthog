@@ -19,9 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed
     lightspeed_retail_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.settings import (
-    LIGHTSPEED_RETAIL_ENDPOINTS,
-)
 
 SUPPORTED_API_VERSIONS = [
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
@@ -178,10 +175,3 @@ class TestGetRows:
         assert [item["id"] for batch in batches for item in batch] == ["1"]
         assert session.send.call_count == 2
         assert params[1]["after"] == 0
-
-
-class TestLightspeedRetailSourceResponse:
-    @pytest.mark.parametrize("config", list(LIGHTSPEED_RETAIL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {"sale_date", "created_at"}

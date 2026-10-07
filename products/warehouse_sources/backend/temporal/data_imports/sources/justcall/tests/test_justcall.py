@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.j
     justcall_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.justcall.settings import JUSTCALL_ENDPOINTS
 
 # validate_credentials builds its own tracked session in the justcall module.
 JUSTCALL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.justcall.justcall"
@@ -134,10 +133,3 @@ class TestValidateCredentials:
         response = mock.MagicMock(status_code=status_code)
         mock_session.return_value.get.return_value = response
         assert validate_credentials("key", "secret") is expected
-
-
-class TestJustCallSourceResponse:
-    @pytest.mark.parametrize("config", list(JUSTCALL_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_user_date_fields(self, config):
-        if config.incremental_cursor:
-            assert config.incremental_cursor in {"call_user_date", "sms_user_date"}

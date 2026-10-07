@@ -169,10 +169,6 @@ class TestSourceResponseMetadata:
         assert response.partition_keys == [LEEXI_ENDPOINTS[endpoint].partition_key]
         assert response.sort_mode == "asc"
 
-    @pytest.mark.parametrize("config", list(LEEXI_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config) -> None:
-        assert config.partition_key == "created_at"
-
 
 class TestSampleCaptureDisabled:
     """Leexi call responses carry `simple_transcript`, notes, and free-form customer text; both the

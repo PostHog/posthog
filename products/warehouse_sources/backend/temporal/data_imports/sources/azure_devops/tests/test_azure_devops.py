@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     wire_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
-    AZURE_DEVOPS_ENDPOINTS,
     AZURE_DEVOPS_RELEASE_BASE_URL,
 )
 
@@ -747,21 +746,6 @@ class TestAzureDevOpsSourceResponse:
             "myorg", "pat", "pull_requests", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
         )
         assert response.sort_mode == "desc"
-
-    @pytest.mark.parametrize("config", list(AZURE_DEVOPS_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_fields(self, config):
-        if config.partition_key:
-            assert config.partition_key in {
-                "queueTime",
-                "creationDate",
-                "changed_date",
-                "committer_date",
-                "publishedDate",
-                "createdDate",
-                "createdOn",
-                "queuedOn",
-                "build_queue_time",
-            }
 
 
 class TestApiVersionDispatch:

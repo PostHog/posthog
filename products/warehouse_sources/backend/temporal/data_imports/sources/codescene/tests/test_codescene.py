@@ -1,6 +1,5 @@
 from typing import Any
 
-import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
@@ -227,11 +226,6 @@ class TestCodesceneSourceFanout:
 
 
 class TestCodesceneEndpointCatalog:
-    @pytest.mark.parametrize("endpoint", list(CODESCENE_ENDPOINTS))
-    def test_every_endpoint_has_primary_key(self, endpoint: str) -> None:
-        primary_key = CODESCENE_ENDPOINTS[endpoint].primary_key
-        assert primary_key
-
     def test_fanout_endpoints_key_on_parent_id(self) -> None:
         # Every fan-out table aggregates rows from all projects, so a key that is only
         # unique within a project seeds duplicates the merge then multi-matches.

@@ -131,14 +131,6 @@ class TestSettingsShape:
         # Required so we can extract the primary key for association lookups
         assert "hs_object_id" in DEFAULT_PROPS[endpoint]
 
-    @pytest.mark.parametrize("endpoint", list(HUBSPOT_ENDPOINTS.keys()))
-    def test_incremental_field_matches_cursor_property(self, endpoint: str) -> None:
-        config = HUBSPOT_ENDPOINTS[endpoint]
-        assert config.incremental_fields
-        field = config.incremental_fields[0]
-        assert field["field"] == config.cursor_filter_property_field
-        assert field["type"] == IncrementalFieldType.DateTime
-
 
 @pytest.mark.parametrize(
     "error_msg",

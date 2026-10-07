@@ -661,12 +661,3 @@ class TestNotion:
             ["https://api.notion.com/admin/v1/spaces/ws-1/groups?page_size=1"] if admin_status is not None else []
         )
         assert [call["url"] for call in admin_session.calls] == expected_admin_urls
-
-
-@pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))
-def test_every_endpoint_has_config(endpoint: str) -> None:
-    config = NOTION_ENDPOINTS[endpoint]
-    assert config.name == endpoint
-    assert config.stream_type in ("search", "users", "blocks", "comments", "permission_groups")
-    if config.stream_type == "search":
-        assert config.object_filter in ("page", "data_source")

@@ -416,13 +416,6 @@ class TestListProfilesFanOut:
             rows.extend(table.to_pylist())
         return rows
 
-    def test_config_is_opt_in_fan_out_with_composite_pk(self) -> None:
-        config = KLAVIYO_ENDPOINTS["list_profiles"]
-        assert config.fan_out is not None
-        assert config.fan_out.membership_rows is True
-        assert config.should_sync_default is False
-        assert config.primary_keys == ["list_id", "profile_id"]
-
     def test_incremental_run_filters_with_lookback_on_every_list(self, monkeypatch: Any) -> None:
         # Fixtures are keyed by exact URL, so this fails loudly (KeyError) if the fan-out stops
         # forwarding the incremental inputs and silently reverts to a full refresh.

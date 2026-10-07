@@ -14,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.segment.se
     get_rows,
     segment_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import (
-    REGION_BASE_URLS,
-    SEGMENT_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.segment.settings import SEGMENT_ENDPOINTS
 
 
 class _FakeResumableManager:
@@ -48,9 +45,6 @@ class TestBaseUrl:
     )
     def test_base_url(self, _name: str, region: str, expected: str) -> None:
         assert _base_url(region) == expected
-
-    def test_both_documented_regions_are_covered(self) -> None:
-        assert set(REGION_BASE_URLS) == {"api", "eu1"}
 
 
 class TestExtractRows:

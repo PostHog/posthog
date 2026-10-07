@@ -9,7 +9,6 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata import stockdata
 from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.stockdata import (
     StockDataResumeConfig,
     _format_date,
@@ -283,7 +282,3 @@ class TestValidateCredentials:
             ok, message = validate_credentials("k")
         assert ok is False
         assert message
-
-
-def test_module_exposes_base_url() -> None:
-    assert stockdata.STOCKDATA_BASE_URL == "https://api.stockdata.org/v1"

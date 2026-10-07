@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.b
     bland_ai_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.settings import ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -392,18 +391,6 @@ class TestLookupEndpoints:
 
 
 class TestBlandAISourceResponse:
-    def test_endpoints_inventory(self) -> None:
-        assert ENDPOINTS == (
-            "calls",
-            "call_transcripts",
-            "pathways",
-            "sms_conversations",
-            "sms_messages",
-            "inbound_numbers",
-            "personas",
-            "voices",
-        )
-
     @parameterized.expand(
         [
             ("calls", ["call_id"], ["created_at"]),

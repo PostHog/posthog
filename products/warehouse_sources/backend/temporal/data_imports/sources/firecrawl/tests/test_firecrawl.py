@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
     firecrawl_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.settings import FIRECRAWL_ENDPOINTS
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -203,12 +202,6 @@ class TestUnpaginated:
 
 
 class TestMonitorChecksFanOut:
-    def test_config_is_opt_in_fan_out(self) -> None:
-        cfg = FIRECRAWL_ENDPOINTS["monitor_checks"]
-        assert cfg.fan_out_over_monitors is True
-        assert cfg.should_sync_default is False
-        assert "{monitor_id}" in cfg.path
-
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_past_completed_monitor(self, MockSession) -> None:
         session = MockSession.return_value

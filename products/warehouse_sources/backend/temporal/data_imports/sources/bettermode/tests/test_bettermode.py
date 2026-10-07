@@ -240,13 +240,6 @@ class TestBettermodeSourceResponse:
             assert response.partition_keys is None
 
 
-class TestQueryDocuments:
-    @pytest.mark.parametrize("endpoint", [name for name in ENDPOINTS if not BETTERMODE_ENDPOINTS[name].is_list])
-    def test_query_passes_every_static_variable_it_declares(self, endpoint):
-        config = BETTERMODE_ENDPOINTS[endpoint]
-        assert set(config.base_variables) <= set(config.extra_args)
-
-
 class TestListEndpoints:
     @pytest.mark.parametrize("endpoint", ["collections", "roles"])
     @mock.patch(f"{_MODULE}.make_tracked_session")

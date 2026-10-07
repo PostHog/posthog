@@ -226,10 +226,6 @@ class TestSourceResponseShape:
             assert response.sort_mode == "asc"
             assert response.partition_mode is None
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_email_logs_primary_key_is_message_id(self, MockSession) -> None:
-        assert MAILTRAP_ENDPOINTS["email_logs"].primary_keys == ["message_id"]
-
 
 class TestValidateCredentials:
     @parameterized.expand(

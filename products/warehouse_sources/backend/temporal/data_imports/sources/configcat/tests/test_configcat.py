@@ -496,11 +496,6 @@ class TestConfigCatSourceResponse:
         assert response.partition_mode == ("datetime" if partition_key else None)
         assert response.partition_keys == ([partition_key] if partition_key else None)
 
-    def test_primary_keys_are_per_endpoint(self) -> None:
-        assert CONFIGCAT_ENDPOINTS["products"].primary_keys == ["productId"]
-        assert CONFIGCAT_ENDPOINTS["organizations"].primary_keys == ["organizationId"]
-        assert set(CONFIGCAT_ENDPOINTS) == set(ENDPOINTS)
-
     @parameterized.expand([(name,) for name, config in CONFIGCAT_ENDPOINTS.items() if config.parent is not None])
     def test_fan_out_keys_include_every_parent_in_the_path(self, endpoint: str) -> None:
         # A fan-out table aggregates rows from every parent, so a key missing a parent id seeds

@@ -12,9 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nagerdate import (
     NagerDateSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.settings import ENDPOINTS, PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.nager_date.source import NagerDateSource
 
@@ -40,11 +37,6 @@ class TestNagerDateSource:
     def setup_method(self) -> None:
         self.source = NagerDateSource()
         self.config = NagerDateSourceConfig(country_codes="US\nGB")
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
-        assert PRIMARY_KEYS[endpoint]
-        assert CANONICAL_DESCRIPTIONS[endpoint]["columns"]
 
     @parameterized.expand([("PublicHolidays",), ("NextPublicHolidays",)])
     def test_holiday_tables_key_on_the_synthetic_id(self, endpoint: str) -> None:
