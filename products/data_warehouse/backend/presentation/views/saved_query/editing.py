@@ -23,6 +23,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -64,6 +65,17 @@ def _as_uuid(value: object) -> uuid.UUID | None:
         return uuid.UUID(str(value))
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+class QueryConflict(Conflict):
+    """A query write based on a stale revision. The client reads the current revision off `extra`."""
+
+    default_detail = "The query was modified by someone else."
+    default_code = "query_conflict"
+
+    def __init__(self, latest_history_id: uuid.UUID | None) -> None:
+        super().__init__()
+        self.extra = {"latest_history_id": str(latest_history_id) if latest_history_id else None}
 
 
 def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
@@ -471,7 +483,7 @@ class DataWarehouseSavedQuerySerializer(
         if check_conflict and _as_uuid(edited_history_id) != instance.query_revision:
             # Advisory only: rejects a stale edit before it pays for inference. The check under the
             # row lock below is the one that prevents a lost update.
-            raise serializers.ValidationError("The query was modified by someone else.")
+            raise QueryConflict(instance.query_revision)
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
@@ -529,7 +541,7 @@ class DataWarehouseSavedQuerySerializer(
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
-                    raise serializers.ValidationError("The query was modified by someone else.")
+                    raise QueryConflict(locked_instance.query_revision)
 
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()

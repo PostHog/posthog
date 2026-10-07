@@ -34,6 +34,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { isQueryConflictError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -3325,33 +3326,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     latestView?.latest_history_id != null &&
                     baselineQuery != null &&
                     latestView.query?.query !== baselineQuery
-                if (foreignEdit) {
+                const saveOrReviewConflict = async (editedHistoryId: string | undefined): Promise<void> => {
+                    // The loader swallows its error, so the failure listener below records it here.
+                    cache.viewUpdateError = null
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                        ...view,
+                        edited_history_id: editedHistoryId,
+                    })
+                    const error = cache.viewUpdateError
+                    cache.viewUpdateError = null
+                    if (isQueryConflictError(error)) {
+                        // Someone saved between the read above and this write. The view logic already
+                        // toasts the conflict, so only open the review diff.
+                        reviewConflict(await api.dataWarehouseSavedQueries.get(view.id))
+                    } else if (!error) {
+                        actions.updateViewSuccess(view, draftId, biEditorState)
+                    }
+                }
+                const reviewConflict = (currentView: typeof latestView): void => {
                     actions._setSuggestionPayload({
                         suggestedValue: values.queryInput!,
-                        originalValue: latestView?.query?.query,
+                        originalValue: currentView?.query?.query,
                         acceptText: 'Confirm changes',
                         rejectText: 'Cancel',
                         diffShowRunButton: false,
                         onAccept: async () => {
                             actions.setQueryInput(view.query?.query ?? '')
-                            await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                                ...view,
-                                edited_history_id: latestView?.latest_history_id,
-                            })
-                            actions.updateViewSuccess(view, draftId, biEditorState)
+                            await saveOrReviewConflict(currentView?.latest_history_id)
                         },
                         onReject: () => {},
                     })
+                }
+                if (foreignEdit) {
+                    reviewConflict(latestView)
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        ...view,
-                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
-                    })
-                    actions.updateViewSuccess(view, draftId, biEditorState)
+                    await saveOrReviewConflict(latestView?.latest_history_id ?? view.edited_history_id)
                 }
+            },
+            updateDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+                cache.viewUpdateError = errorObject
             },
             updateViewSuccess: async ({ view, draftId, biEditorState }) => {
                 captureBIEditorQuerySaved(biEditorState, 'view', 'update')

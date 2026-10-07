@@ -98,6 +98,18 @@ export function isScopeNotFoundError(error: unknown): boolean {
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
 export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 
+/**
+ * A saved view's query write refused because someone else changed the query first. The SQL editor
+ * shows its conflict-review diff for it, so it is an expected state and not a defect.
+ */
+export function isQueryConflictError(error: unknown): boolean {
+    const failure = error as { status?: unknown; code?: unknown; data?: { code?: unknown } } | null
+    if (failure === null || typeof failure !== 'object' || failure.status !== 409) {
+        return false
+    }
+    return (failure.code ?? failure.data?.code) === 'query_conflict'
+}
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -222,6 +234,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 409 && failure.data?.current_version !== undefined) {
+        return false
+    }
+    if (isQueryConflictError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)

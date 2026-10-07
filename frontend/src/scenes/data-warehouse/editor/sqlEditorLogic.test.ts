@@ -2039,6 +2039,49 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.suggestionPayload).toBe(null)
         })
 
+        it('opens the conflict review when someone saves between the pre-save read and the write', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                        serverViewQuery = 'SELECT 9'
+                        serverViewHistoryId = 'their-head'
+                        return [
+                            409,
+                            {
+                                type: 'client_error',
+                                code: 'query_conflict',
+                                detail: 'The query was modified by someone else.',
+                                extra: { latest_history_id: 'their-head' },
+                            },
+                        ]
+                    },
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setQueryInput('SELECT 2')
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            await expectLogic(logic)
+                .toDispatchActions(['updateView', '_setSuggestionPayload'])
+                .toNotHaveDispatchedActions(['updateViewSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.suggestionPayload?.originalValue).toBe('SELECT 9')
+            expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 2')
+        })
+
         it.each([
             [false, 'Update view'],
             [true, 'Update and re-materialize view'],
