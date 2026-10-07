@@ -113,10 +113,6 @@ export const Donut: Story = {
         }),
 }
 
-export const ProportionBar: Story = {
-    render: () => renderBreakdownPieWithFilter({ display: ChartDisplayType.ActionsProportionBar }),
-}
-
 function renderBreakdownPieWithFilter(trendsFilter: Record<string, unknown>): JSX.Element {
     return renderTrendsPieChart({
         ...trendsPieBreakdownFixture,

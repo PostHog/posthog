@@ -1,18 +1,8 @@
 import clsx from 'clsx'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo } from 'react'
 
-import {
-    ChartLegend,
-    PieChart,
-    ProportionBar,
-    TooltipSurface,
-    TooltipSwatch,
-    useChartLegend,
-} from '@posthog/quill-charts'
-import type { ChartLegendConfig, PieChartConfig, ProportionBarConfig, TooltipContext } from '@posthog/quill-charts'
-
-import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { ChartLegend, PieChart, TooltipSurface, TooltipSwatch, useChartLegend } from '@posthog/quill-charts'
+import type { PieChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { ChartDisplayType } from '~/types'
 
@@ -20,14 +10,8 @@ import { makeChartErrorHandler } from 'products/product_analytics/frontend/insig
 import { DonutCenterLabel } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/DonutCenterLabel'
 
 import { SqlChartProps } from './SqlChart'
-import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
-import {
-    buildPieSeries,
-    buildPieSlices,
-    formatPieSliceCount,
-    showsLegendByDefault,
-    showsPieTotal,
-} from './sqlPieGraphAdapter'
+import { formatPieSliceCount } from './sqlPieGraphAdapter'
+import { useSqlPartOfWholeChart } from './useSqlPartOfWholeChart'
 
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
 
@@ -45,53 +29,14 @@ export const SqlPieGraph = ({
     presetChartHeight,
     className,
 }: SqlChartProps): JSX.Element => {
-    const theme = useChartTheme()
     const isDonut = visualizationType === ChartDisplayType.ActionsDonut
-    const isProportionBar = visualizationType === ChartDisplayType.ActionsProportionBar
-
-    const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
-    const formattingSettings = yData[0]?.settings
-    const series = useMemo(() => buildPieSeries(slices), [slices])
-
-    // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend
-    // is controlled anyway so the total and the tooltip shares track the slices actually drawn.
-    const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
-    const showLegend = chartSettings.showLegend ?? showsLegendByDefault(isProportionBar, series.length)
-    const visibleHiddenKeySet = useMemo(() => new Set(showLegend ? hiddenKeys : []), [showLegend, hiddenKeys])
-    const total = useMemo(
-        () => series.reduce((sum, s) => (visibleHiddenKeySet.has(s.key) ? sum : sum + (s.data[0] ?? 0)), 0),
-        [series, visibleHiddenKeySet]
-    )
+    const { theme, series, legendConfig, total, showTotal, formattingSettings, valueFormatter } =
+        useSqlPartOfWholeChart({ xData, yData, chartSettings }, false)
 
     // Unset means an existing chart from before the labels option — keep showing values. New pies
     // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
-    const showPieTotal = showsPieTotal(chartSettings, isProportionBar)
-    // The proportion bar has no "show values as" control: its legend and tooltip show both.
-    const asPercent = !isProportionBar && (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
-
-    const absoluteFormatter = useCallback(
-        (value: number) => formatSqlSeriesValue(value, formattingSettings),
-        [formattingSettings]
-    )
-
-    const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
-
-    const legendConfig: ChartLegendConfig = useMemo(
-        () => ({
-            show: showLegend,
-            position: chartSettings.legendPosition ?? (isProportionBar ? 'bottom' : 'right'),
-            interactive: true,
-            hiddenKeys: showLegend ? hiddenKeys : [],
-            onToggleSeries: (key: string) =>
-                setHiddenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])),
-            onSetHiddenSeries: setHiddenKeys,
-            renderItem: legendRenderItem,
-        }),
-        [showLegend, chartSettings.legendPosition, isProportionBar, hiddenKeys, legendRenderItem]
-    )
-
-    const proportionBarConfig: ProportionBarConfig = useChartConfig(() => ({ legend: legendConfig }), [legendConfig])
+    const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
 
@@ -132,50 +77,22 @@ export const SqlPieGraph = ({
         [total, formattingSettings, asPercent]
     )
 
-    if (!slices.length) {
+    if (!series.length) {
         return (
             <div className={clsx(className, 'rounded bg-surface-primary flex flex-1 items-center justify-center p-6')}>
-                <span className="text-secondary text-sm">
-                    {isProportionBar ? 'Proportion bars' : 'Pie charts'} require at least one positive value.
-                </span>
+                <span className="text-secondary text-sm">Pie charts require at least one positive value.</span>
             </div>
         )
     }
 
-    const centerLabel =
-        isDonut && showPieTotal ? <DonutCenterLabel>{absoluteFormatter(total)}</DonutCenterLabel> : undefined
+    const centerLabel = isDonut && showTotal ? <DonutCenterLabel>{valueFormatter(total)}</DonutCenterLabel> : undefined
 
     const totalDisplay =
-        !isDonut && showPieTotal ? (
+        !isDonut && showTotal ? (
             <div className="pt-4 text-center shrink-0">
-                <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
+                <div className="text-5xl font-bold">{valueFormatter(total)}</div>
             </div>
         ) : null
-
-    if (isProportionBar) {
-        return (
-            <div
-                className={clsx(
-                    className,
-                    'rounded bg-surface-primary flex flex-col flex-1 min-h-0 p-4 justify-center',
-                    {
-                        'h-[60vh]': presetChartHeight,
-                        'h-full': !presetChartHeight,
-                    }
-                )}
-            >
-                <ProportionBar
-                    series={series}
-                    theme={theme}
-                    config={proportionBarConfig}
-                    valueFormatter={absoluteFormatter}
-                    dataAttr="sql-proportion-bar"
-                    onError={handleChartError}
-                />
-                {totalDisplay}
-            </div>
-        )
-    }
 
     // For pies, a side legend narrows the chart column, so the total belongs inside it to stay
     // centered under the pie. A top/bottom legend leaves the column full-width, and the total goes below both.
@@ -197,7 +114,7 @@ export const SqlPieGraph = ({
                         theme={theme}
                         config={pieConfig}
                         tooltip={renderTooltip}
-                        valueFormatter={absoluteFormatter}
+                        valueFormatter={valueFormatter}
                         centerLabel={centerLabel}
                         dataAttr="sql-pie-chart"
                         onError={handleChartError}

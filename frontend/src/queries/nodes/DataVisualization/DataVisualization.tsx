@@ -35,7 +35,7 @@ import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
 import { QueryFeature } from '../DataTable/queryFeatures'
-import { PieChart } from './Components/Charts/PieChart'
+import { PartOfWholeChart } from './Components/Charts/PartOfWholeChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
 import { isSqlChartVisualizationType, SqlChart } from './Components/Charts/SqlChart'
 import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
@@ -288,7 +288,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
 
         component = (
-            <PieChart
+            <PartOfWholeChart
                 className="p-3"
                 xData={pieData.xData}
                 yData={pieData.yData}

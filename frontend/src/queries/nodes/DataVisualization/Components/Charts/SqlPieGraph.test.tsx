@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { getHogChart, mockRect, setupJsdom, setupSyncRaf, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -51,11 +51,6 @@ const baseProps = (
     yData: yData(data),
     visualizationType,
     chartSettings,
-})
-
-const proportionBarWithParts = (count: number): SqlChartProps => ({
-    ...baseProps({}, Array(count).fill(100 / count), ChartDisplayType.ActionsProportionBar),
-    xData: { ...xData, data: Array.from({ length: count }, (_, i) => `part ${i}`) },
 })
 
 // On-slice labels are static overlay nodes (not pointer-driven), so they steer clear of the
@@ -106,62 +101,6 @@ describe('SqlPieGraph', () => {
 
         expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
         expect(screen.queryByText('100')).not.toBeInTheDocument()
-    })
-
-    it.each([
-        {
-            name: 'a proportion bar shows its legend shares and the total by default',
-            chartSettings: {},
-            expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
-            showsTotal: true,
-        },
-        {
-            name: 'a proportion bar hides its legend when the user turns it off',
-            chartSettings: { showLegend: false },
-            expectedShares: [],
-            showsTotal: true,
-        },
-        {
-            name: 'a proportion bar hides the total when showTotal is false',
-            chartSettings: { pie: { showTotal: false } },
-            expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
-            showsTotal: false,
-        },
-        {
-            name: 'a proportion bar still shows the total when a stale pie sliceContent carries over',
-            chartSettings: { pie: { sliceContent: 'labels' as const } },
-            expectedShares: ['40% · 40', '30% · 30', '20% · 20', '10% · 10'],
-            showsTotal: true,
-        },
-        {
-            name: 'a proportion bar with many parts starts with its legend off',
-            chartSettings: {},
-            partCount: 25,
-            expectedShares: [],
-            showsTotal: true,
-        },
-    ])('$name', ({ chartSettings, partCount, expectedShares, showsTotal }) => {
-        const props = partCount
-            ? proportionBarWithParts(partCount)
-            : baseProps(chartSettings, [40, 30, 20, 10], ChartDisplayType.ActionsProportionBar)
-        const { container } = render(<SqlPieGraph {...props} />)
-
-        const legendRows = getHogChart(container).legendItems()
-        expect(legendRows.map((row) => row.secondaryLabel)).toEqual(expectedShares)
-        expect(screen.queryByText('100') !== null).toBe(showsTotal)
-    })
-
-    it("shows a proportion bar part's share in its tooltip, even for a percent-formatted column", async () => {
-        const props = baseProps({}, [0.2, 0.2], ChartDisplayType.ActionsProportionBar)
-        props.yData[0].settings = { formatting: { style: 'percent' } }
-        const { container } = render(<SqlPieGraph {...props} />)
-        const chart = getHogChart(container)
-
-        const tooltip = await waitForHogChartTooltip(3000, () =>
-            fireEvent.mouseMove(chart.element, { clientX: mockRect.width / 4, clientY: mockRect.height / 2 })
-        )
-
-        expect(tooltip).toHaveTextContent('50%')
     })
 
     it('shows the total in the center of a donut', async () => {

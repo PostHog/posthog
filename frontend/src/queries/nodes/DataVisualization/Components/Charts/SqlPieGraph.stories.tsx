@@ -86,16 +86,6 @@ export const Donut: Story = {
         }),
 }
 
-export const ProportionBar: Story = {
-    render: () =>
-        render({
-            xData,
-            yData: singleSeries,
-            visualizationType: ChartDisplayType.ActionsProportionBar,
-            chartSettings: baseSettings,
-        }),
-}
-
 export const LegendAtBottom: Story = {
     render: () =>
         render({
