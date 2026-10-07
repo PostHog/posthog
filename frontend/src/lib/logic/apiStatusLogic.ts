@@ -274,7 +274,12 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     return
                 }
                 // Activating a link is navigation, not a write. A button inside a link is still a button.
-                const control = (event.target as Element | null)?.closest?.('button, a[href]')
+                let control: Element | null | undefined
+                try {
+                    control = (event.target as Element | null)?.closest?.('button, a[href]')
+                } catch {
+                    // Firefox denies property access on some targets, such as nodes from another origin.
+                }
                 if (control?.matches('a[href]')) {
                     return
                 }

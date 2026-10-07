@@ -137,8 +137,13 @@ describe('apiStatusLogic', () => {
             await expectLogic(writeLogic, () => writeLogic.actions.saveUser()).toDispatchActions(['saveUserFailure'])
         }
 
-        const clickThatWrites = async (tag: 'button' | 'a', beforeWrite?: () => void): Promise<void> => {
+        const clickThatWrites = async (
+            tag: 'button' | 'a',
+            beforeWrite?: () => void,
+            setUp?: (element: HTMLElement) => void
+        ): Promise<void> => {
             const element = document.createElement(tag)
+            setUp?.(element)
             if (tag === 'a') {
                 element.setAttribute('href', '#')
             }
@@ -195,6 +200,17 @@ describe('apiStatusLogic', () => {
                     form.requestSubmit()
                     await write
                 },
+            ],
+            [
+                'a click on a target that denies access to closest',
+                () =>
+                    clickThatWrites('button', undefined, (element) =>
+                        Object.defineProperty(element, 'closest', {
+                            get: () => {
+                                throw new Error('Permission denied')
+                            },
+                        })
+                    ),
             ],
             ['Enter in a dialog input', () => keyThatWrites('Enter')],
             [
