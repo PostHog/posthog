@@ -200,6 +200,7 @@ def _http_error(status_code: int, body: str = "") -> requests.HTTPError:
             "allow Google Analytics access",
         ),
         (404, "", "was not found"),
+        (429, "", "couldn't reach Google Analytics"),
         (500, "", "couldn't reach Google Analytics"),
     ],
 )
@@ -217,6 +218,28 @@ def test_validate_credentials_maps_http_errors(status_code, body, expected_subst
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+@pytest.mark.parametrize("status_code", [429, 500])
+def test_validate_credentials_does_not_capture_transient_metadata_status(status_code):
+    # Google rate-limiting or briefly failing this probe is expected and self-resolving, not a bug
+    # to page on — it used to reach error tracking as an HTTPError on every occurrence.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=_http_error(status_code),
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
+        ) as mock_capture,
+    ):
+        ok, _ = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    mock_capture.assert_not_called()
 
 
 def test_validate_credentials_maps_token_refresh_error():
