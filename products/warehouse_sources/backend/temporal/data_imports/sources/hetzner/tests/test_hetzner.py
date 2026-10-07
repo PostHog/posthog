@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.he
     HETZNER_BASE_URL,
     METRICS_RETENTION,
     HetznerResumeConfig,
+    hetzner_child_source,
     hetzner_metrics_source,
     hetzner_source,
     validate_credentials,
@@ -348,6 +349,63 @@ class TestMetrics:
         rows = _rows(_metrics_source("server_metrics", _make_manager()))
 
         assert [(r["server_id"], r["value"]) for r in rows] == [(2, 1.0)]
+
+
+class TestNetworkMembers:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_members_of_each_network_and_tags_rows_with_network_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        member = {"type": "server", "ip": "10.0.1.2", "status": "ok", "alias_ips": [], "subnet": "10.0.1.0/24"}
+        sent = _wire_requests(
+            session,
+            [
+                _page([{"id": 1}, {"id": 2}], endpoint="networks"),
+                _page([{**member, "id": 7}], endpoint="members", last_page=2),
+                _page([{**member, "id": 8, "type": "load_balancer"}], endpoint="members", last_page=2),
+                _page([{**member, "id": 7}], endpoint="members"),
+            ],
+        )
+
+        rows = _rows(
+            hetzner_child_source(
+                api_token="token", endpoint="network_members", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert [(r["network_id"], r["type"], r["id"]) for r in rows] == [
+            (1, "server", 7),
+            (1, "load_balancer", 8),
+            (2, "server", 7),
+        ]
+        assert [url for url, _ in sent] == [
+            f"{HETZNER_BASE_URL}/networks",
+            f"{HETZNER_BASE_URL}/networks/1/members",
+            f"{HETZNER_BASE_URL}/networks/1/members",
+            f"{HETZNER_BASE_URL}/networks/2/members",
+        ]
+        assert sent[1][1] == {"per_page": 50, "sort": "id:asc", "page": 1}
+        assert sent[2][1]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_or_empty_network_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire_requests(
+            session,
+            [
+                _page([{"id": 1}, {"id": 2}, {"id": 3}], endpoint="networks"),
+                _json_response({"error": {"code": "not_found"}}, status=404, reason="Not Found"),
+                _page([], endpoint="members"),
+                _page([{"type": "server", "id": 9}], endpoint="members"),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(
+            hetzner_child_source(api_token="token", endpoint="network_members", resumable_source_manager=manager)
+        )
+
+        assert rows == [{"network_id": 3, "type": "server", "id": 9}]
+        assert manager.safe_point.call_count == 2
 
 
 class TestRetries:
