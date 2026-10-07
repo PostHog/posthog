@@ -66,7 +66,6 @@ export function MCPHintActions({
                     ]}
                     agentKeys={MCP_AGENT_KEYS}
                     defaultAgentKey="claude-code"
-                    agentSelectionMode="run"
                     labelMode="destination"
                     size="sm"
                     variant="outline"

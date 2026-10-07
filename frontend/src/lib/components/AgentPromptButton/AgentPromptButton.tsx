@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
-import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -30,6 +29,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from './AgentLogo'
+import { agentPromptButtonLogic } from './agentPromptButtonLogic'
 
 export interface AgentPromptAction {
     /** Stable key used for localStorage persistence */
@@ -57,19 +57,20 @@ type AgentPromptButtonSize = Exclude<NonNullable<QuillButtonProps['size']>, 'ico
 export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /**
-     * Namespace for the localStorage key that persists the remembered combo.
+     * Namespace for the remembered action.
      * Pass a unique value per call-site to give that surface its own memory.
      * When omitted, defaults to a key derived from the sorted action keys, so
      * surfaces with the same action set share state and surfaces with different
-     * actions stay isolated.
+     * actions stay isolated. The remembered agent is shared across all surfaces.
      */
     storageKey?: string
     /** Content selected when nothing is stored yet. Falls back to the first action. */
     defaultActionKey?: string
-    /** Destination selected when nothing is stored yet. Falls back to the first agent. */
+    /** Agent on the main button when the user has not picked one yet. Falls back to the first agent. */
     defaultAgentKey?: AgentPromptDestination
+    /** Agent always shown on the main button, in place of the one the user last picked. */
+    pinnedAgentKey?: AgentPromptDestination
     agentKeys?: AgentPromptDestination[]
-    agentSelectionMode?: 'select' | 'run'
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -84,11 +85,6 @@ export interface AgentPromptButtonProps {
     /** GitHub `owner/repo` slug passed to agents that can open a specific repository (e.g. Claude Code, Codex). */
     repository?: string
     'data-attr'?: string
-}
-
-interface RememberedCombo {
-    actionKey: string
-    agentKey: string | null
 }
 
 interface AgentDef {
@@ -273,8 +269,8 @@ export function AgentPromptButton({
     storageKey,
     defaultActionKey,
     defaultAgentKey,
+    pinnedAgentKey,
     agentKeys,
-    agentSelectionMode = 'select',
     labelMode = 'action',
     menuClassName,
     onOpenChange,
@@ -291,7 +287,8 @@ export function AgentPromptButton({
             .map((a) => a.key)
             .sort()
             .join(',')}`
-    const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${resolvedStorageKey}:combo`, null)
+    const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
+    const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
@@ -304,22 +301,20 @@ export function AgentPromptButton({
     }
 
     const activeAction =
-        (remembered ? actions.find((a) => a.key === remembered.actionKey) : null) ??
+        actions.find((a) => a.key === rememberedActionKeys[resolvedStorageKey]) ??
         actions.find((a) => a.key === defaultActionKey) ??
         actions[0]
-    const defaultAgent = availableAgents.find((a) => a.key === defaultAgentKey) ?? availableAgents[0]
     const activeAgent =
-        agentSelectionMode === 'run'
-            ? defaultAgent
-            : ((remembered?.agentKey ? availableAgents.find((a) => a.key === remembered.agentKey) : null) ??
-              defaultAgent)
+        availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ??
+        availableAgents.find((a) => a.key === defaultAgentKey) ??
+        availableAgents[0]
     const buttonLabel =
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
             ? `Open in ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
 
     const selectAction = (actionKey: string): void => {
-        setRemembered({ actionKey, agentKey: remembered?.agentKey ?? null })
+        rememberAction(resolvedStorageKey, actionKey)
     }
 
     const runCombo = (actionKey: string, agentKey: string): void => {
@@ -333,14 +328,9 @@ export function AgentPromptButton({
         agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
     }
 
-    const selectAgent = (agentKey: string): void => {
-        const actionKey = remembered?.actionKey ?? actions[0].key
-        if (agentSelectionMode === 'run') {
-            runCombo(actionKey, agentKey)
-            setOpen(false)
-            return
-        }
-        setRemembered({ actionKey, agentKey })
+    const selectAgent = (agentKey: AgentPromptDestination): void => {
+        rememberAgent(agentKey)
+        runCombo(activeAction.key, agentKey)
         setOpen(false)
     }
 
@@ -374,9 +364,7 @@ export function AgentPromptButton({
                         variant={variant}
                         size={size === 'default' ? 'icon' : `icon-${size}`}
                         className="border-0"
-                        aria-label={
-                            agentSelectionMode === 'run' ? 'Open prompt in an agent' : 'Choose prompt and destination'
-                        }
+                        aria-label={actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent'}
                     >
                         <IconChevronDown className="size-4 text-current" />
                     </QuillButton>
@@ -408,33 +396,17 @@ export function AgentPromptButton({
                         <DropdownMenuSeparator className="mx-0" />
                     </>
                 )}
-                <DropdownMenuLabel>{agentSelectionMode === 'run' ? 'Open in' : 'Destination'}</DropdownMenuLabel>
-                {agentSelectionMode === 'run' ? (
-                    <DropdownMenuGroup>
-                        {availableAgents
-                            .filter((agent) => agent.key !== activeAgent.key)
-                            .map((agent) => (
-                                <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
-                                    <ButtonPrimitive menuItem className="gap-1.5">
-                                        <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
-                                        <span className="truncate flex-1">{agent.name}</span>
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ))}
-                    </DropdownMenuGroup>
-                ) : (
-                    <DropdownMenuRadioGroup value={activeAgent.key} onValueChange={selectAgent}>
-                        {availableAgents.map((agent) => (
-                            <DropdownMenuRadioItem key={agent.key} value={agent.key} asChild>
-                                <ButtonPrimitive menuItem className="gap-1.5">
-                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
-                                    <span className="truncate flex-1">{agent.name}</span>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
-                )}
+                <DropdownMenuLabel>Open in</DropdownMenuLabel>
+                <DropdownMenuGroup>
+                    {availableAgents.map((agent) => (
+                        <DropdownMenuItem key={agent.key} asChild onSelect={() => selectAgent(agent.key)}>
+                            <ButtonPrimitive menuItem className="gap-1.5">
+                                <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                <span className="truncate flex-1">{agent.name}</span>
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
     )
