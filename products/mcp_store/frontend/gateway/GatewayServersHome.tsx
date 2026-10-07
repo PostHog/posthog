@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonSnack, LemonTag, ProfilePicture, Spinner
 import { urls } from 'scenes/urls'
 
 import { ServerIcon } from '../scene/icons'
+import { TEMPLATE_UNAVAILABLE_REASON } from '../templateAvailability'
 import { GatewayAddServerModal } from './GatewayAddServerModal'
 import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { GatewayServersSearch } from './GatewayServersSearch'
@@ -145,7 +146,7 @@ export function GatewayServerCard({
     server: GatewayServerEntry
     onOpenServer?: (serverId: string) => void
 }): JSX.Element {
-    const { isAdmin, connectingServerId } = useValues(mcpGatewayLogic)
+    const { isAdmin, connectingServerId, unavailableTemplateIds } = useValues(mcpGatewayLogic)
     const { connectServer, reconnectServer } = useActions(mcpGatewayLogic)
 
     // Catalog templates without a registry row: connect-only, no detail scene.
@@ -157,13 +158,16 @@ export function GatewayServerCard({
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
     const canConnectIndividual = !connection
-    const connectionDisabledReason = server.is_revoked_for_you
-        ? 'Ask an admin to restore your access to this server.'
-        : recommended && disabled
-          ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
-          : disabled
-            ? 'This server is turned off for the team.'
-            : undefined
+    const connectionDisabledReason =
+        server.template_id && unavailableTemplateIds.has(server.template_id)
+            ? TEMPLATE_UNAVAILABLE_REASON
+            : server.is_revoked_for_you
+              ? 'Ask an admin to restore your access to this server.'
+              : recommended && disabled
+                ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
+                : disabled
+                  ? 'This server is turned off for the team.'
+                  : undefined
     const openServer = (): void => {
         if (onOpenServer) {
             onOpenServer(server.id)

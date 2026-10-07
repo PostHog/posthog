@@ -47,6 +47,7 @@ import {
     ToolPolicyEntryApi,
     UserBasicApi,
 } from '../generated/api.schemas'
+import { isTemplateUnavailable } from '../templateAvailability'
 import {
     buildGatewayInstallRequest,
     canSubmitGatewayServer,
@@ -236,6 +237,7 @@ export interface mcpGatewayLogicValues {
     templateOnlyServers: GatewayServerEntry[]
     templates: MCPServerTemplateApi[]
     templatesLoading: boolean
+    unavailableTemplateIds: Set<string>
     updatingInstallationIds: Set<string>
 }
 
@@ -375,6 +377,9 @@ export interface mcpGatewayLogicActions {
     ) => {
         templates: MCPServerTemplateApi[]
         payload?: any
+    }
+    markTemplateUnavailable: (templateId: string) => {
+        templateId: string
     }
     openAddServerModal: () => {
         value: true
@@ -671,6 +676,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
         toggleServerEnabled: (serverId: string, enabled: boolean) => ({ serverId, enabled }),
         toggleServerEnabledComplete: (serverId: string) => ({ serverId }),
         removeServer: (serverId: string) => ({ serverId }),
+        markTemplateUnavailable: (templateId: string) => ({ templateId }),
         removeServerSuccess: (serverId: string) => ({ serverId }),
         removeServerComplete: (serverId: string) => ({ serverId }),
         connectServer: (serverId: string) => ({ serverId }),
@@ -985,6 +991,25 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                     const next = new Set(state)
                     next.delete(serverId)
                     return next
+                },
+            },
+        ],
+        unavailableTemplateIds: [
+            new Set<string>(),
+            {
+                markTemplateUnavailable: (state: Set<string>, { templateId }: { templateId: string }) =>
+                    new Set(state).add(templateId),
+                // A template an admin re-enables is connectable again, so drop the mark
+                // once the catalog serves it. Otherwise the card stays dead for the session.
+                loadTemplatesSuccess: (state: Set<string>, { templates }: { templates: MCPServerTemplateApi[] }) => {
+                    if (state.size === 0) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    for (const template of templates) {
+                        next.delete(template.id)
+                    }
+                    return next.size === state.size ? state : next
                 },
             },
         ],
@@ -1450,6 +1475,11 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 actions.loadServiceAccounts()
                 lemonToast.success(`Connected to ${server.name}`)
             } catch (error: unknown) {
+                if (server.template_id && isTemplateUnavailable(error)) {
+                    actions.markTemplateUnavailable(server.template_id)
+                    actions.loadTemplates()
+                    actions.closeConnectionModal()
+                }
                 actions.loadServers()
                 lemonToast.error(errorDetail(error) ?? `Could not connect to ${server.name}`)
             } finally {

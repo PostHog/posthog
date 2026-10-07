@@ -672,6 +672,39 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
+    it('disables connecting a registered server whose template left the catalog', async () => {
+        const server = gatewayServer({
+            id: 'row-server',
+            template_id: 'gone-template',
+            template_auth_type: 'oauth',
+            is_team_enabled: true,
+        })
+        mockServersList.mockResolvedValue({ count: 1, results: [server] })
+        logic.actions.loadServersSuccess([server])
+        mockInstallTemplate.mockRejectedValue({
+            detail: 'This server is no longer in the catalog.',
+            data: { reason: 'template_unavailable' },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.connectServer('row-server')
+        }).toFinishAllListeners()
+
+        expect(logic.values.unavailableTemplateIds.has('gone-template')).toBe(true)
+        expect(logic.values.connectionModalServerId).toBeNull()
+    })
+
+    it('re-enables a card once the catalog serves its template again', () => {
+        logic.actions.markTemplateUnavailable('gone-template')
+        logic.actions.markTemplateUnavailable('still-gone-template')
+
+        logic.actions.loadTemplatesSuccess([serverTemplate({ id: 'gone-template' })])
+
+        expect(logic.values.unavailableTemplateIds.has('gone-template')).toBe(false)
+        // A template the catalog still withholds keeps its mark, so its card stays disabled.
+        expect(logic.values.unavailableTemplateIds.has('still-gone-template')).toBe(true)
+    })
+
     it('tracks preset updates by audience and uses the mutation response', async () => {
         const pendingPreset = deferred<Awaited<ReturnType<typeof mcpGatewayConfigApplyPresetCreate>>>()
         const updatedConfig = {

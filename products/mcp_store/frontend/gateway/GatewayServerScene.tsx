@@ -24,6 +24,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { TEMPLATE_UNAVAILABLE_REASON } from '../templateAvailability'
 import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
@@ -63,8 +64,13 @@ export function GatewayServerScene({
 }): JSX.Element {
     const { server, serverLoading, serversLoadFailed, isAdmin, canManageAgentAccess } = useValues(gatewayServerLogic)
     const { user } = useValues(userLogic)
-    const { connectingServerId, disconnectingInstallationIds, removingServerIds, updatingInstallationIds } =
-        useValues(mcpGatewayLogic)
+    const {
+        connectingServerId,
+        disconnectingInstallationIds,
+        removingServerIds,
+        unavailableTemplateIds,
+        updatingInstallationIds,
+    } = useValues(mcpGatewayLogic)
     const { connectServer, disconnectServer, loadServers, reconnectServer, removeServer, toggleYourConnectionEnabled } =
         useActions(mcpGatewayLogic)
     const goBack = onBack ?? (() => router.actions.push(urls.mcpGateway()))
@@ -189,11 +195,13 @@ export function GatewayServerScene({
                                     type="primary"
                                     size="small"
                                     disabledReason={
-                                        !server.is_team_enabled
-                                            ? 'This server is turned off for the team.'
-                                            : server.is_revoked_for_you
-                                              ? 'Ask an admin to restore your access first.'
-                                              : undefined
+                                        server.template_id && unavailableTemplateIds.has(server.template_id)
+                                            ? TEMPLATE_UNAVAILABLE_REASON
+                                            : !server.is_team_enabled
+                                              ? 'This server is turned off for the team.'
+                                              : server.is_revoked_for_you
+                                                ? 'Ask an admin to restore your access first.'
+                                                : undefined
                                     }
                                     onClick={() => reconnectServer(connection.installation_id)}
                                     data-attr="mcp-server-reconnect"
@@ -220,7 +228,11 @@ export function GatewayServerScene({
                             size="small"
                             loading={connectingServerId === server.id}
                             disabledReason={
-                                server.is_team_enabled ? undefined : 'This server is turned off for the team.'
+                                server.template_id && unavailableTemplateIds.has(server.template_id)
+                                    ? TEMPLATE_UNAVAILABLE_REASON
+                                    : server.is_team_enabled
+                                      ? undefined
+                                      : 'This server is turned off for the team.'
                             }
                             onClick={() => connectServer(server.id)}
                         >
