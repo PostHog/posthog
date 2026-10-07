@@ -948,6 +948,7 @@ function CyclotronJobInputWithSchema({
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
     const [editingSecret, setEditingSecret] = useState(false)
+    const [pendingSecretTemplating, setPendingSecretTemplating] = useState<CyclotronJobInputType['templating']>()
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
     const warning = warnings?.[schema.key]
@@ -992,6 +993,7 @@ function CyclotronJobInputWithSchema({
     useEffect(() => {
         if (value?.secret) {
             setEditingSecret(false)
+            setPendingSecretTemplating(undefined)
         }
     }, [value?.secret])
 
@@ -1001,6 +1003,15 @@ function CyclotronJobInputWithSchema({
             ...value,
             ...newValue,
         })
+    }
+
+    const onSecretReplacementChange = (newValue: CyclotronJobInputType): void => {
+        if (newValue.value === '' || newValue.value === null || newValue.value === undefined) {
+            // A language change sends the empty display value. Saving it would store an empty secret.
+            setPendingSecretTemplating(newValue.templating)
+            return
+        }
+        onChange({ ...newValue, templating: newValue.templating ?? pendingSecretTemplating, secret: false })
     }
 
     return (
@@ -1049,7 +1060,7 @@ function CyclotronJobInputWithSchema({
                                     </Tooltip>
                                 ) : undefined}
                             </LemonLabel>
-                            {schema.type === 'boolean' && (schema.templating ?? true) && (
+                            {schema.type === 'boolean' && (schema.templating ?? true) && !value?.secret && (
                                 <LemonSelect
                                     size="xsmall"
                                     type="tertiary"
@@ -1104,10 +1115,16 @@ function CyclotronJobInputWithSchema({
                         ) : (
                             <CyclotronJobInputRenderer
                                 schema={schema}
-                                input={value?.secret ? { ...value, value: '' } : (value ?? { value: '' })}
-                                onChange={
-                                    value?.secret ? (newValue) => onChange({ ...newValue, secret: false }) : onChange
+                                input={
+                                    value?.secret
+                                        ? {
+                                              ...value,
+                                              value: '',
+                                              templating: pendingSecretTemplating ?? value.templating,
+                                          }
+                                        : (value ?? { value: '' })
                                 }
+                                onChange={value?.secret ? onSecretReplacementChange : onChange}
                                 onInputChange={onInputChange}
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
