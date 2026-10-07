@@ -28,8 +28,12 @@ const toSliceLabel = (value: unknown): string => {
     return String(value)
 }
 
+// Treats null, NaN, and Infinity as a missing value worth 0. Otherwise one non-finite point
+// poisons the whole category's sum, dropping an otherwise-valid total from the chart entirely.
+const toFiniteValue = (value: number | null): number => (value !== null && Number.isFinite(value) ? value : 0)
+
 const sumValues = (values: (number | null)[]): number => {
-    return values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    return values.reduce<number>((sum, value) => sum + toFiniteValue(value), 0)
 }
 
 const getSeriesLabel = (series: SqlPieYSeries, index: number): string => {
@@ -67,7 +71,7 @@ export const buildPieSlices = (
 
         xData.data.forEach((rawLabel, index) => {
             const label = toSliceLabel(rawLabel)
-            const value = yData[0].data[index] ?? 0
+            const value = toFiniteValue(yData[0].data[index])
             totalsByLabel.set(label, (totalsByLabel.get(label) ?? 0) + value)
         })
 

@@ -70,6 +70,30 @@ describe('sqlPieGraphAdapter', () => {
             ])
         })
 
+        it('treats a non-finite value as zero instead of making the whole label non-finite', () => {
+            const yData: AxisSeries<number | null>[] = [
+                {
+                    column: {
+                        name: 'value',
+                        type: {
+                            name: 'INTEGER',
+                            isNumerical: true,
+                        },
+                        label: 'value',
+                        dataIndex: 1,
+                    },
+                    // 'alpha' sums 2 and Infinity; a non-finite value must not carry into the total.
+                    data: [2, 3, Number.POSITIVE_INFINITY],
+                    settings: {},
+                },
+            ]
+
+            expect(buildPieSlices(xData, yData)).toEqual([
+                { label: 'alpha', value: 2, color: getSeriesColor(0) },
+                { label: 'beta', value: 3, color: getSeriesColor(1) },
+            ])
+        })
+
         it('aggregates breakdown series by series total', () => {
             const yData: AxisBreakdownSeries<number | null>[] = [
                 {
@@ -90,6 +114,21 @@ describe('sqlPieGraphAdapter', () => {
                 { label: 'first', value: 3, color: '#111111' },
                 { label: 'second', value: 12, color: '#222222' },
             ])
+        })
+
+        it('does not let one NaN point drop a breakdown series that also has valid points', () => {
+            const yData: AxisBreakdownSeries<number | null>[] = [
+                {
+                    name: 'first',
+                    breakdownValue: 'first',
+                    data: [1, NaN, 2],
+                    settings: { display: { color: '#111111' } },
+                },
+            ]
+
+            // Summing [1, NaN, 2] naively gives NaN, which would fail the `value > 0` slice filter
+            // and drop the whole series even though it has two valid, positive points.
+            expect(buildPieSlices(xData, yData)).toEqual([{ label: 'first', value: 3, color: '#111111' }])
         })
 
         it('falls back to one slice per y-series when there is no categorical x-axis', () => {
