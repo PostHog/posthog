@@ -227,7 +227,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
     # ensure high-frequency-batch-exports feature flag is enabled
     with mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.presentation.views.batch_export.exports.posthoganalytics.feature_enabled",
         return_value=True,
     ):
         response = create_batch_export(
@@ -429,7 +429,7 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
 
     client.force_login(user)
     with mock.patch(
-        "products.batch_exports.backend.presentation.views.batch_export.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.presentation.views.batch_export.exports.posthoganalytics.feature_enabled",
         return_value=False,
     ) as feature_enabled:
         response = create_batch_export(

@@ -540,7 +540,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
-    delta_table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=log)
+    delta_table_ref = DeltaTableRef(
+        resource_name=resource_name, job=job, logger=log, expect_missing=schema.table_id is None
+    )
     delta_table = async_to_sync(delta_table_ref.get_delta_table)()
     if delta_table is None:
         emit_completed("skipped", reason="no_delta_table")

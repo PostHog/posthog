@@ -4,12 +4,12 @@ from parameterized import parameterized
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
 
-UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
-EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
+UNEVEN_2WAY = [80, 20]
+EVEN_2WAY = [50, 50]
 # Auto-distribution for 3 variants — should be treated as even, not uneven.
-AUTO_EVEN_3WAY = [{"rollout_percentage": 34}, {"rollout_percentage": 33}, {"rollout_percentage": 33}]
+AUTO_EVEN_3WAY = [34, 33, 33]
 
 
 class TestEvaluateBiasRisk(TestCase):
@@ -32,7 +32,7 @@ class TestEvaluateBiasRisk(TestCase):
     def test_reordered_auto_even_is_uneven(self):
         # 33/34/33 doesn't match the auto-distribution result (34/33/33) — counts as uneven,
         # mirroring the frontend's positional `isEvenlyDistributed` check.
-        reordered = [{"rollout_percentage": 33}, {"rollout_percentage": 34}, {"rollout_percentage": 33}]
+        reordered = [33, 34, 33]
         result = evaluate_bias_risk(
             reordered, MultipleVariantHandling.EXCLUDE, {"a": 330, "b": 340, "c": 330, "$multiple": 50}
         )
@@ -76,16 +76,10 @@ class TestEvaluateBiasRisk(TestCase):
                 MultipleVariantHandling.EXCLUDE,
                 {"control": 800, "test": 200, "$multiple": 50},
             ),
-            (
-                "none_variants",
-                None,
-                MultipleVariantHandling.EXCLUDE,
-                {"control": 800, "test": 200, "$multiple": 50},
-            ),
         ]
     )
-    def test_returns_none_when_not_at_risk(self, _name, flag_variants, handling, exposures):
-        result = evaluate_bias_risk(flag_variants, handling, exposures)
+    def test_returns_none_when_not_at_risk(self, _name, rollout_percentages, handling, exposures):
+        result = evaluate_bias_risk(rollout_percentages, handling, exposures)
         self.assertIsNone(result)
 
     def test_threshold_boundary_strictly_greater_than(self):

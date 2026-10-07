@@ -4764,6 +4764,11 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
