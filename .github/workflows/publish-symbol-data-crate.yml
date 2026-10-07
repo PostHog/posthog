@@ -49,6 +49,7 @@ jobs:
         needs: [check-changesets, identify-release, publish]
         if: >-
             !cancelled()
+            && github.repository == 'PostHog/posthog'
             && needs.check-changesets.result == 'success'
             && needs.identify-release.result == 'success'
             && (
@@ -406,6 +407,7 @@ jobs:
         needs: identify-release
         if: >-
             !cancelled()
+            && github.repository == 'PostHog/posthog'
             && needs.identify-release.result == 'success'
             && needs.identify-release.outputs.release-commit != ''
         runs-on: ubuntu-24.04
