@@ -53,6 +53,7 @@ _LAZY = {
     "MaterializationFailedError": "facade.contracts",
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
+    "ClickHouseColumn": "facade.contracts",
     "UnstorableColumnTypeError": "facade.contracts",
     "unstorable_columns": "logic.materialized_column_types",
     "enable_saved_query_materialization": "logic.saved_query_materialization",

@@ -58,7 +58,7 @@ from posthog.temporal.data_modeling.activities.notify_materialization_failure im
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.api import compute_enrichment_hash
+from products.data_modeling.backend.facade.api import ClickHouseColumn, compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -2068,7 +2068,7 @@ class TestHogqlTableUnstorableColumnTypes:
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert error.value.columns == [("compared", "Variant(Int64, UInt64)")]
+        assert error.value.columns == [ClickHouseColumn(name="compared", clickhouse_type="Variant(Int64, UInt64)")]
         astream_query_as_arrow.assert_not_called()
         assert isinstance(error.value, NonReportableError)
 

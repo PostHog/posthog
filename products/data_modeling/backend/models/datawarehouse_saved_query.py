@@ -294,7 +294,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         alternative is a query that reports itself materialized while nothing is scheduled to
         materialize it.
         """
-        from products.data_modeling.backend.facade.contracts import UnstorableColumnTypeError
+        from products.data_modeling.backend.facade.contracts import ClickHouseColumn, UnstorableColumnTypeError
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
@@ -309,7 +309,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
-        unstorable = unstorable_columns(get_saved_query_columns(self.team_id, self.id).items())
+        unstorable = unstorable_columns(
+            ClickHouseColumn(name=name, clickhouse_type=clickhouse_type)
+            for name, clickhouse_type in get_saved_query_columns(self.team_id, self.id).items()
+        )
         if unstorable:
             raise UnstorableColumnTypeError(unstorable)
 

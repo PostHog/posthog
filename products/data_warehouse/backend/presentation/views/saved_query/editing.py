@@ -552,7 +552,8 @@ class DataWarehouseSavedQuerySerializer(
                 # concurrent enable either commits first and is seen here, or waits for this edit
                 # and then sees the new columns.
                 unstorable = modeling_api.unstorable_columns(
-                    (name, str(column["clickhouse"])) for name, column in inferred_columns.items()
+                    modeling_api.ClickHouseColumn(name=name, clickhouse_type=str(column["clickhouse"]))
+                    for name, column in inferred_columns.items()
                 )
                 if unstorable:
                     raise serializers.ValidationError(str(modeling_api.UnstorableColumnTypeError(unstorable)))

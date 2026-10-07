@@ -57,6 +57,7 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.api import (
+    ClickHouseColumn,
     IncrementalConfig,
     IncrementalFilterError,
     UnstorableColumnTypeError,
@@ -767,7 +768,9 @@ async def hogql_table(
         )
 
     _reject_duplicate_output_columns(described_columns)
-    unstorable = unstorable_columns((column.name, column.ch_type) for column in described_columns)
+    unstorable = unstorable_columns(
+        ClickHouseColumn(name=column.name, clickhouse_type=column.ch_type) for column in described_columns
+    )
     if unstorable:
         raise UnstorableOutputColumnError(unstorable)
 

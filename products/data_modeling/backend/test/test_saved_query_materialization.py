@@ -160,6 +160,7 @@ class TestUnstorableColumns(SimpleTestCase):
     def test_returns_only_the_columns_a_materialized_table_cannot_store(
         self, _name: str, clickhouse_type: str, unstorable: bool
     ) -> None:
-        columns = [("id", "String"), ("compared", clickhouse_type)]
+        compared = api.ClickHouseColumn(name="compared", clickhouse_type=clickhouse_type)
+        columns = [api.ClickHouseColumn(name="id", clickhouse_type="String"), compared]
 
-        assert api.unstorable_columns(columns) == ([("compared", clickhouse_type)] if unstorable else [])
+        assert api.unstorable_columns(columns) == ([compared] if unstorable else [])
