@@ -167,7 +167,7 @@ class CreateExportAssetsInputs:
     delivery_id: typing.Optional[uuid.UUID] = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExportAssetsResult:
     """Small metadata envelope for create_export_assets.
 
