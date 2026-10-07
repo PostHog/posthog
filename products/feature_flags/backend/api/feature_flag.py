@@ -1473,10 +1473,9 @@ class FeatureFlagSerializer(
         if not (enabling or restoring_active):
             return
 
-        stored_filters = self.instance.filters or {}
         try:
-            self._validate_dependency_formats(stored_filters, traverse=True)
-            for located in _iter_flag_filter_properties(stored_filters.get("groups")):
+            self._validate_dependency_formats(self.instance.filters or {}, traverse=True)
+            for located in _iter_flag_filter_properties(self.instance.conditions):
                 if located.prop.get("type") == "cohort":
                     self._validate_cohort_reference(located.prop.get("value"))
         except serializers.ValidationError as exc:
