@@ -105,7 +105,7 @@ describe('TraceWaterfallView', () => {
         expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
     })
 
-    it('puts spans whose parent is not loaded under one parent span missing row, which cannot be selected', () => {
+    it('puts spans whose parent is not loaded under one parent span missing row, which selects the missing id', () => {
         const onSpanSelect = jest.fn()
         const sibling = makeSpan({
             uuid: 'uuid-sibling',
@@ -115,9 +115,9 @@ describe('TraceWaterfallView', () => {
         })
         const { container } = render(<TraceWaterfallView spans={[child, sibling]} onSpanSelect={onSpanSelect} />)
 
-        expect(within(container).getAllByText('<parent span missing>')).toHaveLength(1)
+        expect(container.querySelectorAll('[data-row-key^="missing-parent-"]')).toHaveLength(1)
         clickSpanRow(container, '<parent span missing>')
-        expect(onSpanSelect).not.toHaveBeenCalled()
+        expect(onSpanSelect).toHaveBeenCalledWith('span-root')
 
         fireEvent.click(within(container).getByLabelText('Collapse child spans'))
         expect(within(container).queryByText('child-operation')).toBeNull()

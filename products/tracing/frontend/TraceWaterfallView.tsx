@@ -374,38 +374,28 @@ function WaterfallRow({
     // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
     // not the ClickHouse row uuid.
     const isSelected = selectedSpanId === span.span_id
-    // The placeholder has no span to inspect, so it only collapses its children.
-    const selectProps = isMissingParent
-        ? {}
-        : {
-              role: 'button',
-              tabIndex: 0,
-              'aria-pressed': isSelected,
-              onClick: () => onSelect(span.span_id),
-              onKeyDown: (e: React.KeyboardEvent) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onSelect(span.span_id)
-                  }
-              },
-          }
-
     return (
         <div>
             <div
                 // The 3px left border is always reserved (transparent when unselected) so selecting
                 // a span shows an accent bar without shifting the row content.
-                className={cn(
-                    'flex items-stretch transition-colors border-l-[3px]',
-                    isMissingParent
-                        ? 'border-l-transparent'
-                        : isSelected
-                          ? 'cursor-pointer bg-surface-primary-active border-l-accent'
-                          : 'cursor-pointer border-l-transparent hover:bg-surface-primary-hover'
-                )}
+                className={`flex items-stretch cursor-pointer transition-colors border-l-[3px] ${
+                    isSelected
+                        ? 'bg-surface-primary-active border-l-accent'
+                        : 'border-l-transparent hover:bg-surface-primary-hover'
+                }`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: ROW_HEIGHT }}
-                {...selectProps}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onClick={() => onSelect(span.span_id)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onSelect(span.span_id)
+                    }
+                }}
             >
                 {/* Label column */}
                 <div
@@ -440,21 +430,15 @@ function WaterfallRow({
                             <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
                         </Tooltip>
                     )}
-                    {isMissingParent ? (
-                        <Tooltip title="The parent span was not found in this trace. The service that sent it may not export spans to PostHog.">
-                            <span className="text-xs truncate font-medium text-danger">{span.name}</span>
-                        </Tooltip>
-                    ) : (
-                        <Tooltip title={span.name}>
-                            <span
-                                className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
-                                    isSelected || isError ? 'font-semibold' : 'font-medium'
-                                } ${isUnmatched ? 'opacity-40' : ''}`}
-                            >
-                                {span.name}
-                            </span>
-                        </Tooltip>
-                    )}
+                    <Tooltip title={span.name}>
+                        <span
+                            className={`text-xs truncate ${isError || isMissingParent ? 'text-danger' : ''} ${
+                                isSelected || isError ? 'font-semibold' : 'font-medium'
+                            } ${isUnmatched ? 'opacity-40' : ''}`}
+                        >
+                            {span.name}
+                        </span>
+                    </Tooltip>
                     {isCollapsed && (
                         <Tooltip title={`${hiddenDescendants} hidden child span${hiddenDescendants === 1 ? '' : 's'}`}>
                             <span className="shrink-0 ml-1 px-1 rounded text-[10px] leading-4 font-medium text-muted bg-fill-button-tertiary-hover">
