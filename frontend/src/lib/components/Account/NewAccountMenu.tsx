@@ -32,13 +32,9 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { AvailableFeature } from '~/types'
-
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
 import { keyBinds } from '../Shortcuts/shortcuts'
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
@@ -69,15 +65,12 @@ export function NewAccountMenu({
     const { logout } = useActions(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
-    const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { setAccountMenuOpen, createProject, createOrganization } = useActions(newAccountMenuLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const { showCreateProjectModal } = useActions(globalModalsLogic)
-    const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
 
@@ -162,16 +155,7 @@ export function NewAccountMenu({
                                             size="xs"
                                             className="absolute -right-[2px] -top-[2px]"
                                             data-attr="new-account-menu-create-project-icon-button"
-                                            onClick={() => {
-                                                guardAvailableFeature(
-                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                    () => {
-                                                        setAccountMenuOpen(false)
-                                                        showCreateProjectModal()
-                                                    },
-                                                    { currentUsage: currentOrganization?.teams?.length }
-                                                )
-                                            }}
+                                            onClick={createProject}
                                         >
                                             <IconPlusSmall className="text-tertiary size-4" />
                                         </ButtonPrimitive>
@@ -266,16 +250,7 @@ export function NewAccountMenu({
                                             size="xs"
                                             className="absolute right-0 -top-1 p-0"
                                             data-attr="new-account-menu-create-organization-icon-button"
-                                            onClick={() => {
-                                                guardAvailableFeature(
-                                                    AvailableFeature.ORGANIZATIONS_PROJECTS,
-                                                    () => {
-                                                        setAccountMenuOpen(false)
-                                                        showCreateOrganizationModal()
-                                                    },
-                                                    { guardOnCloud: false }
-                                                )
-                                            }}
+                                            onClick={createOrganization}
                                         >
                                             <IconPlusSmall className="text-tertiary size-4" />
                                         </ButtonPrimitive>
