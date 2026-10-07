@@ -75,6 +75,8 @@ QUERY_ID_PREFIX = "alerts-platform-insight:"
 # matches on it to set those checks aside.
 CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
+SLOT_KEY_PREFIX = "slot:"
+
 # Real-time and 15-minute alerts are the most expensive cadences and the ones production holds to a
 # tighter budget, so the parallel run leaves them out until it agrees with production elsewhere.
 EVALUATED_INTERVALS = frozenset(
@@ -167,7 +169,22 @@ def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
 
 def _evaluation_key(check: PlatformAlertCheckInput, cutoff: datetime) -> str:
     """The due slot. An insight check is one scheduled run, not a window, so the slot names it."""
-    return f"slot:{slot_of(check.next_check_at, cutoff)}"
+    return evaluation_key_for_slot(slot_of(check.next_check_at, cutoff))
+
+
+def evaluation_key_for_slot(slot: str) -> str:
+    return f"{SLOT_KEY_PREFIX}{slot}"
+
+
+def slot_of_evaluation_key(evaluation_key: str) -> datetime | None:
+    """The due slot a key names, or None for another shape. Kept beside the minter, so a change to
+    one breaks the other's tests rather than the comparison silently."""
+    if not evaluation_key.startswith(SLOT_KEY_PREFIX):
+        return None
+    try:
+        return datetime.fromisoformat(evaluation_key.removeprefix(SLOT_KEY_PREFIX))
+    except ValueError:
+        return None
 
 
 def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str) -> PlatformAlertOutcome:
