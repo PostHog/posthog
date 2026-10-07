@@ -26,9 +26,11 @@ export function getBIComparisonDisabledReason(config: BIConfig): string | undefi
             ChartDisplayType.ActionsStackedBar,
             ChartDisplayType.ActionsLineGraph,
             ChartDisplayType.ActionsAreaGraph,
+            ChartDisplayType.BoldNumber,
+            ChartDisplayType.Metric,
         ].includes(config.chartType)
     ) {
-        return 'Use a table, bar, line, or area chart for period comparisons'
+        return 'Use a table, KPI, bar, line, or area chart for period comparisons'
     }
 }
 
