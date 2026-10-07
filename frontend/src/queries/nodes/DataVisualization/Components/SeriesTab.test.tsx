@@ -120,7 +120,7 @@ describe('SeriesTab', () => {
         expect(container.querySelector('[data-attr="part-of-whole-label-column"]')?.getAttribute('aria-disabled')).toBe(
             String(labelDisabled)
         )
-        expect(screen.queryByRole('button', { name: 'Delete series breakdown' }) !== null).toBe(!!seriesBreakdownColumn)
+        expect(container.querySelector('[title="Delete series breakdown"]') !== null).toBe(!!seriesBreakdownColumn)
     })
 
     it('lets each value column of a part-of-whole chart edit its label and color', async () => {

@@ -542,6 +542,28 @@ describe('dataVisualizationLogic', () => {
         }
     )
 
+    it('keeps the x-axis a series breakdown needs when a part-of-whole chart is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['week', 'signups', 'logins', 'country'],
+            types: [
+                ['week', 'Int64'],
+                ['signups', 'Int64'],
+                ['logins', 'Int64'],
+                ['country', 'String'],
+            ],
+            results: [[1, 2, 3, 'US']],
+        })
+        logic.actions.updateChartSettings({
+            xAxis: { column: 'week' },
+            yAxis: [{ column: 'signups' }, { column: 'logins' }],
+            seriesBreakdownColumn: 'country',
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsProportionBar)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'week' })
+    })
+
     it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],

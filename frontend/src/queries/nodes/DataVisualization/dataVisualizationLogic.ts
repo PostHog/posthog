@@ -558,10 +558,12 @@ export function applyVisualizationType(
     }
 
     // With several values a part-of-whole chart draws one part per column and ignores the x-axis, so a
-    // numeric column a line or scatter chart moved onto the x-axis goes back to the values.
+    // numeric column a line or scatter chart moved onto the x-axis goes back to the values. A series
+    // breakdown still needs the x-axis, so it stays then.
     const numericXAxisColumn = numericalColumns.find((column) => column.name === selectedXAxis)
     if (
         PART_OF_WHOLE_DISPLAY_TYPES.includes(visualizationType) &&
+        !chartSettings.seriesBreakdownColumn &&
         yAxis.length > 1 &&
         numericXAxisColumn &&
         !yAxis.some((series) => series.column === numericXAxisColumn.name)

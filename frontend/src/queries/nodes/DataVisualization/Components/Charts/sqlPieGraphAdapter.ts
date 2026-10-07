@@ -95,11 +95,15 @@ export const buildPieSeries = (slices: PieSlice[]): Series[] => {
     // A repeat skips a numbered key that another part has as its own label, so no two parts share a key.
     const labels = new Set(slices.map((slice) => slice.label))
     const usedKeys = new Set<string>()
+    const nextSuffix = new Map<string, number>()
     return slices.map((slice) => {
         let key = slice.label
-        for (let count = 2; usedKeys.has(key) || (key !== slice.label && labels.has(key)); count++) {
+        let count = nextSuffix.get(slice.label) ?? 2
+        while (usedKeys.has(key) || (key !== slice.label && labels.has(key))) {
             key = `${slice.label}-${count}`
+            count++
         }
+        nextSuffix.set(slice.label, count)
         usedKeys.add(key)
         return {
             key,
