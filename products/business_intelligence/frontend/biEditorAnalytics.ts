@@ -73,6 +73,9 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
 }
 
 export type BIWorksheetAction =
+    | 'undo'
+    | 'redo'
+    | 'copied'
     | 'opened'
     | 'source_selected'
     | 'first_chart'
