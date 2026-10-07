@@ -19,6 +19,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 
 import { todayShellLogic } from './todayShellLogic'
 import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
@@ -94,6 +95,7 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                     )}
                 </>
             }
+            actions={<SceneTitlePanelButton />}
         />
     )
 }

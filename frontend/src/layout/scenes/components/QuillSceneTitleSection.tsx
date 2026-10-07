@@ -7,6 +7,7 @@ import { Button, cn } from '@posthog/quill'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -51,7 +52,9 @@ export function QuillSceneTitleSection({
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const { phoneHeaderShown, currentWarehouseItem } = useValues(todayShellLogic)
+    const { phoneHeaderShown, currentWarehouseItem, warehouseHeaderShown } = useValues(todayShellLogic)
+    // The warehouse header carries the context panel toggle, so the scene registers its PostHog AI tool here instead of through that button.
+    useMaxTool({ ...(maxToolProps ?? { identifier: 'read_data' }), active: !!maxToolProps && warehouseHeaderShown })
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const nestedPage = !!forceBackTo || breadcrumbs.length > 2
@@ -69,7 +72,9 @@ export function QuillSceneTitleSection({
         <>
             {!hideProductSetupButton && <ProductSetupButton />}
             {actions}
-            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
+            {!warehouseHeaderShown && (
+                <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
+            )}
         </>
     )
 

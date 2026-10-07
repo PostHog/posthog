@@ -57,7 +57,7 @@ export function Navigation({
         sidebarVisible: todaySidebarVisible,
         phoneLayout: todayPhoneLayout,
         phoneHeaderHidden: todayPhoneHeaderHidden,
-        routePane: todayRoutePane,
+        warehouseHeaderShown: todayWarehouseHeaderShown,
         sidebarInContent: todaySidebarInContent,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
@@ -215,9 +215,7 @@ export function Navigation({
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
-                        {todayRail && todayRoutePane === 'warehouse' && (
-                            <TodayWarehouseHeader className="col-span-2 row-start-1" />
-                        )}
+                        {todayWarehouseHeaderShown && <TodayWarehouseHeader className="col-span-2 row-start-1" />}
                         {todayRail && todaySidebarInContent && todaySidebarVisible && (
                             <TodayWarehouseSidebar className="col-start-1 row-start-2" />
                         )}
