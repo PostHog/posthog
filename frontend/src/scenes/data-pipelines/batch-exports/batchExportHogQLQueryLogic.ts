@@ -199,18 +199,8 @@ export const batchExportHogQLQueryLogic: LogicWrapper<batchExportHogQLQueryLogic
             editorTabId: [
                 (_, p) => [p.id, p.service],
                 (
-                    id: string | null,
-                    service:
-                        | 'AwsS3'
-                        | 'AzureBlob'
-                        | 'BigQuery'
-                        | 'Databricks'
-                        | 'HTTP'
-                        | 'Postgres'
-                        | 'Redshift'
-                        | 'S3Compatible'
-                        | 'Snowflake'
-                        | null
+                    id: BatchExportConfigFormLogicProps['id'],
+                    service: BatchExportConfigFormLogicProps['service']
                 ): string => batchExportHogQLEditorTabId({ id, service }),
             ],
             projectTimezone: [(s) => [s.teamTimezone], (teamTimezone: string | null): string => teamTimezone || 'UTC'],
