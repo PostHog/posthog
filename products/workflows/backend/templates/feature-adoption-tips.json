@@ -18,21 +18,7 @@
     "updated_at": "2026-03-09T13:45:24.017132Z",
     "trigger": {
         "type": "event",
-        "filters": {
-            "source": "events",
-            "actions": [],
-            "events": [
-                {
-                    "id": "$pageview",
-                    "name": "Pageview",
-                    "uuid": "b2923917-7cd5-4c60-9625-04d212b15f2d",
-                    "type": "events",
-                    "order": 0
-                }
-            ],
-            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
-            "filter_test_accounts": false
-        }
+        "filters": {}
     },
     "trigger_masking": null,
     "conversion": {
@@ -112,21 +98,7 @@
             "type": "trigger",
             "config": {
                 "type": "event",
-                "filters": {
-                    "source": "events",
-                    "actions": [],
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "Pageview",
-                            "uuid": "b2923917-7cd5-4c60-9625-04d212b15f2d",
-                            "type": "events",
-                            "order": 0
-                        }
-                    ],
-                    "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
-                    "filter_test_accounts": false
-                }
+                "filters": {}
             },
             "output_variable": null
         },

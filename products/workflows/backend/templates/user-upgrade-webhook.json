@@ -67,15 +67,19 @@
                 "template_id": "template-webhook",
                 "inputs": {
                     "url": {
-                        "templating": "hog",
-                        "value": "https://your-system.com/webhook"
+                        "templating": "hog"
                     },
                     "method": {
                         "value": "POST",
                         "templating": "hog"
                     },
                     "body": {
-                        "value": "{\n  \"user_id\": \"{person.id}\",\n  \"email\": \"{person.email}\",\n  \"event\": \"user_upgraded\",\n  \"timestamp\": \"{event.timestamp}\"\n}",
+                        "value": {
+                            "user_id": "{person.id}",
+                            "email": "{person.email}",
+                            "event": "user_upgraded",
+                            "timestamp": "{event.timestamp}"
+                        },
                         "templating": "hog"
                     },
                     "headers": {
