@@ -289,21 +289,29 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         triggered_by_id is the person who enabled materialization, and is who hears about it if
         that first run fails.
 
-        A rejected frequency propagates to the caller. Any other failure disables
-        materialization, because the alternative is a query that reports itself materialized
-        while nothing is scheduled to materialize it.
+        A rejected frequency propagates to the caller, and so does UnstorableColumnTypeError, which
+        is raised before anything changes. Any other failure disables materialization, because the
+        alternative is a query that reports itself materialized while nothing is scheduled to
+        materialize it.
         """
+        from products.data_modeling.backend.facade.contracts import UnstorableColumnTypeError
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
+        from products.data_modeling.backend.logic.materialized_column_types import unstorable_columns
         from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
+        from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
         )
         from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+
+        unstorable = unstorable_columns(get_saved_query_columns(self.team_id, self.id).items())
+        if unstorable:
+            raise UnstorableColumnTypeError(unstorable)
 
         node: Node | None = None
         try:

@@ -43,6 +43,14 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
+# ClickHouse has no common type for Int64 (toInt) and UInt64 (length), so the column is a Variant.
+VARIANT_QUERY = "SELECT if(1 = 1, toInt(1), length('a')) AS compared"
+VARIANT_COLUMN_TYPE = "Variant(Int64, UInt64)"
+VARIANT_REFUSAL = (
+    'Column "compared" has type Variant(Int64, UInt64), which a materialized table cannot store. '
+    "Cast the expression to one type, for example with toInt(...) or toFloat(...)."
+)
+
 
 class TestSavedQuery(APIBaseTest):
     def test_create_with_folder(self):
@@ -427,6 +435,29 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400
 
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+        assert saved_query.is_materialized is False
+        assert saved_query.sync_frequency_interval is None
+
+    def test_materialize_refuses_a_column_a_materialized_table_cannot_store(self):
+        saved_query = DataWarehouseSavedQuery(
+            team=self.team,
+            name="compared_view",
+            query={"kind": "HogQLQuery", "query": VARIANT_QUERY},
+            created_by=self.user,
+        )
+        saved_query.set_columns(
+            {"compared": {"hogql": "UnknownDatabaseField", "clickhouse": VARIANT_COLUMN_TYPE, "valid": True}}
+        )
+        saved_query.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            {"sync_frequency": "1hour"},
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"] == VARIANT_REFUSAL
+        saved_query.refresh_from_db()
         assert saved_query.is_materialized is False
         assert saved_query.sync_frequency_interval is None
 
@@ -1991,6 +2022,28 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()["detail"], "Model contains a cycle")
         saved_query_row = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertEqual(saved_query_row.query, {"kind": "HogQLQuery", "query": original_query})
+
+    def test_update_refuses_to_give_a_materialized_view_a_column_it_cannot_store(self):
+        original_query = {"kind": "HogQLQuery", "query": "SELECT toInt(1) AS compared"}
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="compared_view", query=original_query, created_by=self.user, is_materialized=True
+        )
+
+        # The SQL editor sends the types from its own run of the query, so inference is skipped
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            {
+                "query": {"kind": "HogQLQuery", "query": VARIANT_QUERY},
+                "types": [["compared", VARIANT_COLUMN_TYPE]],
+                "edited_history_id": str(saved_query.query_revision),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["detail"], VARIANT_REFUSAL)
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.query, original_query)
 
     def test_soft_update_with_query_change_skips_get_columns(self):
         response = self.client.post(

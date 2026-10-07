@@ -3,6 +3,10 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
 from posthog.models.organization import OrganizationMembership
@@ -142,3 +146,20 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         self.saved_query.refresh_from_db()
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
+
+
+class TestUnstorableColumns(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("variant", "Variant(Int64, UInt64)", True),
+            ("nullable_variant", "Nullable(Variant(Int64, UInt64))", True),
+            ("variant_inside_array", "Array(Variant(Int64, UInt64))", True),
+            ("supported", "Nullable(Int64)", False),
+        ]
+    )
+    def test_returns_only_the_columns_a_materialized_table_cannot_store(
+        self, _name: str, clickhouse_type: str, unstorable: bool
+    ) -> None:
+        columns = [("id", "String"), ("compared", clickhouse_type)]
+
+        assert api.unstorable_columns(columns) == ([("compared", clickhouse_type)] if unstorable else [])

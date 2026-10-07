@@ -546,6 +546,17 @@ class DataWarehouseSavedQuerySerializer(
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
+            if inferred_columns is not None and locked_instance.is_materialized:
+                # Refused here, because the next run of the materialized view would fail and the
+                # error would show only in its run history. Read under the row lock, so a
+                # concurrent enable either commits first and is seen here, or waits for this edit
+                # and then sees the new columns.
+                unstorable = modeling_api.unstorable_columns(
+                    (name, str(column["clickhouse"])) for name, column in inferred_columns.items()
+                )
+                if unstorable:
+                    raise serializers.ValidationError(str(modeling_api.UnstorableColumnTypeError(unstorable)))
+
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
 

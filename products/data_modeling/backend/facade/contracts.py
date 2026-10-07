@@ -68,6 +68,19 @@ class MaterializationRefusedError(Exception):
     pass
 
 
+class UnstorableColumnTypeError(MaterializationRefusedError):
+    """Columns, as (name, ClickHouse type) pairs, whose type a materialized table cannot store."""
+
+    def __init__(self, columns: list[tuple[str, str]]) -> None:
+        described = " ".join(
+            f'Column "{name}" has type {clickhouse_type}, which a materialized table cannot store.'
+            for name, clickhouse_type in columns
+        )
+        expression = "the expression" if len(columns) == 1 else "each of these expressions"
+        super().__init__(f"{described} Cast {expression} to one type, for example with toInt(...) or toFloat(...).")
+        self.columns = columns
+
+
 class MaterializationForbiddenError(Exception):
     pass
 

@@ -14,6 +14,7 @@ from products.data_modeling.backend.facade.contracts import (
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
+    UnstorableColumnTypeError,
 )
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
@@ -87,6 +88,13 @@ def _enable_materialization(
     # If this fails, it will set is_materialized = False
     try:
         saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=user.pk)
+    except UnstorableColumnTypeError:
+        # Raised before scheduling writes anything, so restoring the two fields saved above undoes
+        # the whole enable.
+        _save_materialization(
+            saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
+        )
+        raise
     except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as error:
         # The check above already refused every cadence the lineage forbids, so reaching here
         # means the lineage moved mid-request. Say so plainly rather than forwarding a message

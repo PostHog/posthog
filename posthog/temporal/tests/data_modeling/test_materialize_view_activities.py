@@ -44,6 +44,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    UnstorableOutputColumnError,
     _describe_columns,
     get_aws_storage_options,
     get_s3_client,
@@ -2050,6 +2051,25 @@ class TestHogqlTableDuplicateOutputColumns:
             assert f'"{name}"' in str(error.value)
         assert client.arrow_query_calls == 0
         # a broken saved query is the customer's to fix, so the refusal must not reach error tracking
+        assert isinstance(error.value, NonReportableError)
+
+
+class TestHogqlTableUnstorableColumnTypes:
+    async def test_a_variant_column_is_refused_before_the_query_runs(self, ateam: Team) -> None:
+        astream_query_as_arrow = unittest.mock.MagicMock()
+        # ClickHouse has no common type for Int64 (toInt) and UInt64 (length), so the column is a Variant
+        query = "SELECT if(1 = 1, toInt(1), length('a')) AS compared"
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow", astream_query_as_arrow
+            ),
+            pytest.raises(UnstorableOutputColumnError) as error,
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert error.value.columns == [("compared", "Variant(Int64, UInt64)")]
+        astream_query_as_arrow.assert_not_called()
         assert isinstance(error.value, NonReportableError)
 
 
