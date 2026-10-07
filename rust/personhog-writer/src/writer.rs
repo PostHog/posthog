@@ -3,10 +3,12 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_liveness::SyncLivenessReporter;
 use lifecycle::Handle;
 use metrics::{counter, histogram};
 use personhog_proto::personhog::types::v1::Person;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 use crate::consumer::FlushBatch;
@@ -37,12 +39,17 @@ pub struct WriterTask<D: PersonDb + 'static, C: OffsetCommitter + 'static> {
     store: PersonWriteStore<D>,
     flush_rx: mpsc::Receiver<FlushBatch>,
     handle: Handle,
+    liveness: Arc<dyn SyncLivenessReporter>,
     consecutive_failures: u32,
 }
 
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+/// A flush longer than this reports the lane unhealthy. The manager restarts
+/// the pod unless the flush completes before its next health check.
+const FLUSH_HEALTH_BUDGET: Duration = Duration::from_secs(300);
 
 impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
     pub fn new(
@@ -51,18 +58,21 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         flush_rx: mpsc::Receiver<FlushBatch>,
         handle: Handle,
     ) -> Self {
+        let liveness: Arc<dyn SyncLivenessReporter> = Arc::new(handle.clone());
         Self {
             consumer,
             store,
             flush_rx,
             handle,
+            liveness,
             consecutive_failures: 0,
         }
     }
 
     pub async fn run(mut self) {
         info!("Writer task starting");
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(10));
+        let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+        let liveness = Arc::clone(&self.liveness);
 
         loop {
             tokio::select! {
@@ -72,19 +82,42 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
                     let Some(batch) = batch else {
                         break;
                     };
+                    // Keep the heartbeat ticking during the flush, which can
+                    // outlast the liveness deadline on a slow database.
+                    let started = Instant::now();
+                    let mut over_budget = false;
+                    let flush = self.process_batch(batch);
+                    tokio::pin!(flush);
+                    let flow = loop {
+                        tokio::select! {
+                            flow = &mut flush => break flow,
+                            _ = heartbeat.tick() => {
+                                if started.elapsed() < FLUSH_HEALTH_BUDGET {
+                                    liveness.report_healthy();
+                                } else if !over_budget {
+                                    over_budget = true;
+                                    warn!(
+                                        budget_secs = FLUSH_HEALTH_BUDGET.as_secs(),
+                                        "flush exceeded the health budget, reporting the lane unhealthy"
+                                    );
+                                    liveness.report_unhealthy();
+                                }
+                            }
+                        }
+                    };
                     // A failed flush leaves its offsets uncommitted, and
                     // Kafka commits are cumulative per partition — if a
                     // later batch committed, the failed one would be
                     // silently skipped after restart. signal_failure only
                     // starts an async shutdown, so the halt has to be
                     // structural: stop receiving here and now.
-                    if self.process_batch(batch).await.is_break() {
+                    if flow.is_break() {
                         break;
                     }
                 }
 
                 _ = heartbeat.tick() => {
-                    self.handle.report_healthy();
+                    liveness.report_healthy();
                 }
             }
         }
@@ -209,7 +242,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
 
     fn finish(&mut self, rows: usize, offsets: &HashMap<i32, i64>, oldest_ts_ms: Option<i64>) {
         self.consecutive_failures = 0;
-        self.handle.report_healthy();
+        self.liveness.report_healthy();
         self.commit_and_record(offsets, oldest_ts_ms, rows);
     }
 
@@ -377,5 +410,121 @@ mod tests {
     #[test]
     fn backoff_zero_failures_returns_base() {
         assert_eq!(backoff_duration(0), Duration::from_secs(1));
+    }
+
+    struct SlowDb {
+        delay: Duration,
+    }
+
+    #[async_trait]
+    impl PersonDb for SlowDb {
+        async fn execute_chunk(&self, _chunk: &[Person]) -> Result<(), WriteError> {
+            tokio::time::sleep(self.delay).await;
+            Ok(())
+        }
+
+        async fn execute_row(&self, _person: &Person) -> Result<(), WriteError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingLiveness {
+        healthy: Mutex<Vec<Instant>>,
+        unhealthy: Mutex<Vec<Instant>>,
+    }
+
+    impl SyncLivenessReporter for RecordingLiveness {
+        fn report_healthy(&self) {
+            self.healthy.lock().unwrap().push(Instant::now());
+        }
+
+        fn report_unhealthy(&self) {
+            self.unhealthy.lock().unwrap().push(Instant::now());
+        }
+    }
+
+    async fn run_one_flush(flush_len: Duration) -> (Instant, Arc<RecordingLiveness>) {
+        let store = PersonWriteStore::new(
+            SlowDb { delay: flush_len },
+            StoreConfig {
+                chunk_size: 100,
+                row_fallback_concurrency: 4,
+            },
+            Arc::new(tokio::sync::Semaphore::new(8)),
+        );
+        let (tx, rx) = mpsc::channel(1);
+        let mut manager = Manager::builder("test").build();
+        let handle = manager.register("writer", ComponentOptions::new());
+        let liveness = Arc::new(RecordingLiveness::default());
+        let mut writer =
+            WriterTask::new(Arc::new(RecordingCommitter::default()), store, rx, handle);
+        writer.liveness = liveness.clone();
+
+        let started = Instant::now();
+        let task = tokio::spawn(writer.run());
+        tx.send(batch(1)).await.unwrap();
+        tokio::time::sleep(flush_len + HEARTBEAT_INTERVAL).await;
+        drop(tx);
+        task.await.unwrap();
+        (started, liveness)
+    }
+
+    fn largest_gap(instants: &[Instant]) -> Duration {
+        instants
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .max()
+            .unwrap_or(Duration::MAX)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn long_flush_keeps_the_heartbeat_alive() {
+        let flush_len = Duration::from_secs(90);
+        let (started, liveness) = run_one_flush(flush_len).await;
+
+        let flush_end = started + flush_len;
+        let mut points: Vec<Instant> = liveness
+            .healthy
+            .lock()
+            .unwrap()
+            .iter()
+            .copied()
+            .filter(|t| *t <= flush_end)
+            .collect();
+        points.insert(0, started);
+        points.push(flush_end);
+        let gap = largest_gap(&points);
+        assert!(
+            gap <= 2 * HEARTBEAT_INTERVAL,
+            "heartbeat paused for {gap:?} during the flush"
+        );
+        assert!(liveness.unhealthy.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn flush_past_the_health_budget_reports_unhealthy_once() {
+        let flush_len = FLUSH_HEALTH_BUDGET + Duration::from_secs(90);
+        let (started, liveness) = run_one_flush(flush_len).await;
+
+        let silent_from = started + FLUSH_HEALTH_BUDGET + HEARTBEAT_INTERVAL;
+        let healthy_past_budget = liveness
+            .healthy
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|t| **t > silent_from && **t < started + flush_len)
+            .count();
+        assert_eq!(
+            healthy_past_budget, 0,
+            "a wedged flush must stop reporting healthy"
+        );
+        let unhealthy = liveness.unhealthy.lock().unwrap().clone();
+        assert_eq!(unhealthy.len(), 1, "a wedged flush reports unhealthy once");
+        assert!(
+            unhealthy[0] >= started + FLUSH_HEALTH_BUDGET && unhealthy[0] <= silent_from,
+            "unhealthy report landed {:?} after the flush started",
+            unhealthy[0] - started
+        );
     }
 }
