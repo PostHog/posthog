@@ -3216,10 +3216,12 @@ def enforce_self_driving_free_trial(
     its own. A caller that holds a database lock resolves the flag before it takes the lock,
     because the read does network I/O.
     """
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
-        FreeTrialPullRequestRefused,
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product read kept off the api import path
         capture_signal_report_free_trial_paused,
         self_driving_free_trial_enabled,
+    )
+    from products.signals.backend.free_trial import (  # noqa: PLC0415 - cross-product read kept off the api import path
+        FreeTrialPullRequestRefused,
     )
 
     if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
@@ -3238,7 +3240,7 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
     """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product read kept off the api import path
         capture_signal_report_quota_paused,
         self_driving_quota_gate,
     )
@@ -7295,7 +7297,7 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product write kept off the api import path
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product write kept off the api import path
         enforce_report_task_cap,
     )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
@@ -7512,7 +7514,7 @@ def create_task(
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         and signal_report_task_relationship in (None, "implementation")
     ):
-        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product read kept off the api import path
             persisted_repo_selection,
         )
         from products.tasks.backend.logic.repo_selection.cascade import (  # noqa: PLC0415 — keeps repo-selection agent imports lazy
@@ -7639,7 +7641,9 @@ def create_task(
         )
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation") and task.repository:
-        from products.signals.backend.facade.api import create_tracker_issue_for_report
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product write kept off the api import path
+            create_tracker_issue_for_report,
+        )
 
         create_tracker_issue_for_report(
             team_id=team_id,
@@ -8396,7 +8400,7 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 
 
 def _reserve_report_warm_activation(team: Team, task: Task, *, relationship: str | None) -> Model:
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product write kept off the api import path
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product write kept off the api import path
         enforce_report_task_cap,
     )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
@@ -8817,7 +8821,7 @@ def run_task(
     ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
     fresh run and stamps the protected implementation stage from the verified report-task link.
     """
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
         is_report_implementation_task,
     )
@@ -8923,7 +8927,7 @@ def run_task(
         # repository's GitHub default branch. Auto-start resolves the same setting when it builds
         # its task. This sits before the warm-run reuse check below, so that a sandbox idling on
         # the default branch is not reused for a run that needs the configured branch.
-        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 - cross-product read kept off the api import path
             autostart_base_branch_for_repository,
         )
 

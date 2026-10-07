@@ -2122,7 +2122,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
         cls.user = User.objects.create(email="quota-facade@test.com", distinct_id="quota-facade-distinct")
 
     def _enforced_gate(self):
-        from products.signals.backend.quota import SelfDrivingQuotaGate
+        from products.signals.backend.facade.api import SelfDrivingQuotaGate
 
         return patch(
             "products.signals.backend.facade.api.self_driving_quota_gate",
@@ -2175,7 +2175,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
     def test_create_and_run_task_dark_launch_emits_without_blocking(self, _mock_workflow):
         # Limited without enforcement must create the task and still emit the would-block
         # event, or the manual gate is invisible during the dark launch.
-        from products.signals.backend.quota import SelfDrivingQuotaGate
+        from products.signals.backend.facade.api import SelfDrivingQuotaGate
 
         Integration.objects.create(team=self.team, kind="github", config={})
         with (

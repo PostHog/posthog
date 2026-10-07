@@ -7,7 +7,7 @@ from django.apps import apps
 
 from asgiref.sync import async_to_sync
 
-from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.facade.api import SelfDrivingQuotaGate
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.enforce_self_driving_quota import (
     SELF_DRIVING_QUOTA_CANCELLED,
@@ -169,7 +169,7 @@ class TestEnforceSelfDrivingRunQuotaActivity:
             patch(f"{MODULE}.capture_signal_report_quota_paused"),
             patch("products.tasks.backend.facade.cancellation.cancel_task_run", return_value=("accepted", None)),
             patch(
-                "products.signals.backend.facade.api.release_quota_cancelled_implementation",
+                f"{MODULE}.release_quota_cancelled_implementation",
                 side_effect=RuntimeError("db down"),
             ),
         ):

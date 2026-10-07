@@ -9,6 +9,7 @@ from posthog.temporal.common.utils import asyncify
 from products.signals.backend.facade.api import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
+    release_quota_cancelled_implementation,
     self_driving_quota_gate,
 )
 from products.tasks.backend.constants import GITHUB_PR_URL_PREFIX
@@ -151,10 +152,6 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
                 task_id=input.task_id,
             )
             return SELF_DRIVING_QUOTA_CANCELLED
-
-        from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product write kept off the activity import path
-            release_quota_cancelled_implementation,
-        )
 
         released = release_quota_cancelled_implementation(team_id=input.team_id, task_id=str(input.task_id))
         log_with_activity_context(

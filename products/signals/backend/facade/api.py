@@ -26,6 +26,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend import billing, free_trial, quota, task_run_artefacts, tracker_issues
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
@@ -44,8 +45,8 @@ from products.signals.backend.briefing_reports import (
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
-from products.signals.backend.free_trial import FreeTrialPullRequestRefused as FreeTrialPullRequestRefused
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.quota import SelfDrivingQuotaGate as SelfDrivingQuotaGate
 from products.signals.backend.report_access import may_read_reports as may_read_reports
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
 from products.signals.backend.report_metric_access import (
@@ -90,7 +91,6 @@ from products.signals.backend.signal_metadata import SourceSliceSignalStats, fet
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 
 if TYPE_CHECKING:
-    from products.signals.backend.quota import SelfDrivingQuotaGate
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -1489,9 +1489,8 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     return can_create_scout(user, canonical_team)
 
 
-def credited_refund_credits_for_org(organization_id: "str | uuid.UUID", begin: datetime, end: datetime) -> int:
-    from products.signals.backend import billing
-
+def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
+    """Refund credits for the org's pull request runs created in ``[begin, end)``, across all of its teams."""
     return billing.credited_refund_credits_for_org(organization_id, begin, end)
 
 
@@ -1502,71 +1501,52 @@ class TeamBillingCredits:
 
 
 def signals_billing_credits_by_team(
-    begin: datetime, end: datetime, organization_id: "str | uuid.UUID | None" = None
+    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
 ) -> list[TeamBillingCredits]:
-    from products.signals.backend import billing
-
+    """Billable credits in ``[begin, end)`` for each team that used any. Covers every organization unless one is given."""
     return [
         TeamBillingCredits(team_id=team_id, credits=credits)
         for team_id, credits in billing.get_signals_billing_credits_by_team(begin, end, organization_id)
     ]
 
 
-def self_driving_quota_gate(team: Team) -> "SelfDrivingQuotaGate":
-    from products.signals.backend import quota
-
+def self_driving_quota_gate(team: Team) -> SelfDrivingQuotaGate:
     return quota.self_driving_quota_gate(team)
 
 
 def capture_signal_report_quota_paused(team: Team, *, report_id: str | None, stage: str, enforced: bool) -> None:
-    from products.signals.backend import quota
-
     quota.capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=enforced)
 
 
 def record_quota_check_failed_open() -> None:
-    from products.signals.backend import quota
-
     quota.record_quota_check_failed_open()
 
 
 def self_driving_free_trial_enabled(team: Team) -> bool:
-    from products.signals.backend import free_trial
-
     return free_trial.self_driving_free_trial_enabled(team)
 
 
 def capture_signal_report_free_trial_paused(team: Team, *, report_id: str | None, stage: str) -> None:
-    from products.signals.backend import free_trial
-
     free_trial.capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
 
 
 def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str | None) -> None:
-    from products.signals.backend import task_run_artefacts
-
+    """Raises ``ReportTaskCapExceeded`` at the limit. Call it inside a transaction, because it locks the report row."""
     task_run_artefacts.enforce_report_task_cap(team_id=team_id, report_id=report_id, relationship=relationship)
 
 
 def is_report_implementation_task(*, team_id: int, report_id: str, task_id: str) -> bool:
-    from products.signals.backend import task_run_artefacts
-
     return task_run_artefacts.is_report_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
 def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
-    from products.signals.backend import task_run_artefacts
-
     task_run_artefacts.enforce_report_implementation_rerun_cap(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
-    from products.signals.backend import task_run_artefacts
-
+    """Removes the cancelled task's implementation records so its reports can be implemented again. Returns their ids."""
     return task_run_artefacts.release_quota_cancelled_implementation(team_id=team_id, task_id=task_id)
 
 
 def create_tracker_issue_for_report(*, team_id: int, report_id: str, repository: str) -> None:
-    from products.signals.backend import tracker_issues
-
     tracker_issues.create_tracker_issue_for_report(team_id=team_id, report_id=report_id, repository=repository)
