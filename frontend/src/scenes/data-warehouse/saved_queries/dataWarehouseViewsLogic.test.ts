@@ -8,6 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
@@ -408,6 +409,40 @@ describe('dataWarehouseViewsLogic', () => {
 
         expect(materializeCalls).toBe(0)
         expect(toastErrorSpy).toHaveBeenCalledWith(incrementalRejection.detail)
+        toastErrorSpy.mockRestore()
+    })
+
+    // Regression: create upserts by name, so a taken name with a different query gets a 409, and
+    // initKea shows no generic toast for a 409. The save then failed with no message at all.
+    it('tells the user when a new view name is already taken', async () => {
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+        useMocks({
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/': [
+                    409,
+                    {
+                        type: 'client_error',
+                        code: 'query_conflict',
+                        detail: 'The query was modified by someone else.',
+                        extra: { latest_history_id: 'their-head' },
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.createDataWarehouseSavedQuery({
+                name: 'orders',
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+        })
+            .toDispatchActions(['createDataWarehouseSavedQueryFailure'])
+            .toFinishAllListeners()
+
+        expect(toastErrorSpy).toHaveBeenCalledWith(
+            'A view with this name already exists. Choose another name, or open that view to edit it.'
+        )
         toastErrorSpy.mockRestore()
     })
 })

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { isQueryConflictError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -618,6 +619,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             // without an extra reload. A reload here would also race the materialize reload below
             // (create-with-materialize) and could revert is_materialized back to false.
             actions.refreshDatabaseSchema()
+        },
+        createDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+            // Create upserts by name, so a new view whose name is taken and whose query differs gets
+            // the 409 query conflict. initKea shows no generic toast for a 409, so show one here.
+            if (isQueryConflictError(errorObject)) {
+                lemonToast.error(
+                    'A view with this name already exists. Choose another name, or open that view to edit it.'
+                )
+            }
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
