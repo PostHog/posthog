@@ -147,6 +147,7 @@ describe('buildToolDomainsBlock', () => {
             'reset',
             'restore',
             'resume',
+            'search',
             'ship',
             'show',
             'start',

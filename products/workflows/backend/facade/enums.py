@@ -47,3 +47,26 @@ class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"  # RRULE exhausted (COUNT/UNTIL reached)
+
+
+class StepSearchField(LabeledStrEnum):
+    STEP_NAME = "step_name"
+    SUBJECT = "subject"
+    PREHEADER = "preheader"
+    BODY = "body"
+
+
+class StepSearchVersion(LabeledStrEnum):
+    LIVE = "live"
+    DRAFT = "draft"
+
+
+class WorkflowMetadataField(LabeledStrEnum):
+    NAME = "name"
+    DESCRIPTION = "description"
+
+
+class WorkflowSearchOutput(LabeledStrEnum):
+    NAMES = "names"
+    COUNTS = "counts"
+    MATCHES = "matches"

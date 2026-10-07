@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1293,4 +1293,98 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
             "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d."
         ),
     before: zod.string().min(1).optional().describe("End of the window. Same format as 'after'. Defaults to now."),
+})
+
+/**
+ * Workflows whose name, description or step content matches the search term, most recently updated first, the same order as the list. Takes the list's filters. Each row lists the steps that matched. Rows carry metadata only, not the step graph.
+ * @summary Search workflows
+ */
+export const HogFlowsSearchListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const hogFlowsSearchListQueryExcerptCharsDefault = 80
+export const hogFlowsSearchListQueryExcerptCharsMin = 0
+export const hogFlowsSearchListQueryExcerptCharsMax = 160
+
+export const hogFlowsSearchListQueryMaxMatchedStepsDefault = 2
+export const hogFlowsSearchListQueryMaxMatchedStepsMin = 0
+export const hogFlowsSearchListQueryMaxMatchedStepsMax = 10
+
+export const hogFlowsSearchListQueryOutputDefault = `names`
+export const hogFlowsSearchListQueryQMax = 200
+
+export const HogFlowsSearchListQueryParams = () => zod.object({
+    broadcast_eligible: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.'
+        ),
+    broadcast_status: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.'
+        ),
+    created_at: zod.iso.datetime({ offset: true }).optional(),
+    created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
+    excerpt_chars: zod
+        .number()
+        .min(hogFlowsSearchListQueryExcerptCharsMin)
+        .max(hogFlowsSearchListQueryExcerptCharsMax)
+        .default(hogFlowsSearchListQueryExcerptCharsDefault)
+        .describe(
+            'The most characters of text in each excerpt, around the match, 0 to 160. Ellipses that mark cut text come on top. 0 returns the step and field without any message text.'
+        ),
+    id: zod.string().optional(),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    max_matched_steps: zod
+        .number()
+        .min(hogFlowsSearchListQueryMaxMatchedStepsMin)
+        .max(hogFlowsSearchListQueryMaxMatchedStepsMax)
+        .default(hogFlowsSearchListQueryMaxMatchedStepsDefault)
+        .describe(
+            'The most matched steps to return per workflow with `output=matches`, 0 to 10. `matched_step_count` still counts all of them, and `matched_steps_truncated` says whether more exist.'
+        ),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
+    origin_product: zod
+        .enum(['broadcasts', 'loops'])
+        .optional()
+        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
+    output: zod
+        .enum(['names', 'counts', 'matches'])
+        .default(hogFlowsSearchListQueryOutputDefault)
+        .describe(
+            'How much each row says about the match. `names` (default) returns the workflow metadata only, the cheapest way to list candidates. `counts` adds `matched_fields` and `matched_step_count`. `matches` also adds `matched_steps` with step IDs and excerpts, capped by `max_matched_steps`.\n\n\* `names` - Names\n\* `counts` - Counts\n\* `matches` - Matches'
+        ),
+    q: zod
+        .string()
+        .min(1)
+        .max(hogFlowsSearchListQueryQMax)
+        .describe(
+            'A literal phrase to find, up to 200 characters. Case-insensitive. A space also matches whitespace, a dash or an underscore, and punctuation has no regex meaning. Matches the workflow name and description, and the step names and the subject line, preheader and readable body text of email steps, in both the live workflow and its pending draft.'
+        ),
+    status: zod
+        .enum(['active', 'archived', 'draft'])
+        .optional()
+        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+    trigger: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
+        ),
+    type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.'
+        ),
+    updated_at: zod.iso.datetime({ offset: true }).optional(),
 })

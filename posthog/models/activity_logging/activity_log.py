@@ -715,6 +715,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # System-maintained skip-forward map for deleted steps, refreshed as a side effect of graph
         # writes — bookkeeping, not a user edit, so keep it out of change diffs.
         "action_redirects",
+        # Derived from name, description and step content on every save, so it would repeat their changes and
+        # copy whole email bodies into the diff.
+        "search_text",
     ],
     "Metric": [
         # Derived/throttled fields, not user-meaningful change diffs.

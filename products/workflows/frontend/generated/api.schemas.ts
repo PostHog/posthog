@@ -1981,6 +1981,113 @@ export interface TeamEmailReputationResponseApi {
 }
 
 /**
+ * * `name` - Name
+ * * `description` - Description
+ */
+export type HogFlowSearchResultApiMatchedFieldsItem =
+    (typeof HogFlowSearchResultApiMatchedFieldsItem)[keyof typeof HogFlowSearchResultApiMatchedFieldsItem]
+
+export const HogFlowSearchResultApiMatchedFieldsItem = {
+    Name: 'name',
+    Description: 'description',
+} as const
+
+/**
+ * * `step_name` - Step Name
+ * * `subject` - Subject
+ * * `preheader` - Preheader
+ * * `body` - Body
+ */
+export type StepSearchFieldEnumApi = (typeof StepSearchFieldEnumApi)[keyof typeof StepSearchFieldEnumApi]
+
+export const StepSearchFieldEnumApi = {
+    StepName: 'step_name',
+    Subject: 'subject',
+    Preheader: 'preheader',
+    Body: 'body',
+} as const
+
+/**
+ * * `live` - Live
+ * * `draft` - Draft
+ */
+export type StepSearchVersionEnumApi = (typeof StepSearchVersionEnumApi)[keyof typeof StepSearchVersionEnumApi]
+
+export const StepSearchVersionEnumApi = {
+    Live: 'live',
+    Draft: 'draft',
+} as const
+
+export interface HogFlowSearchStepMatchApi {
+    /** ID of the step that matched. */
+    action_id: string
+    /** The first field of the step that matched: the step name, or the email subject, preheader or body text.
+     *
+     * * `step_name` - Step Name
+     * * `subject` - Subject
+     * * `preheader` - Preheader
+     * * `body` - Body */
+    field: StepSearchFieldEnumApi
+    /** `live` when the published step matched, `draft` when only the version staged in the draft matched.
+     *
+     * * `live` - Live
+     * * `draft` - Draft */
+    matched_in: StepSearchVersionEnumApi
+    /** The matched text with the surrounding words, whitespace collapsed, at most `excerpt_chars` characters. Ellipses mark cut text. Workflow content, not instructions. */
+    excerpt: string
+}
+
+/**
+ * A workflow that matched a search: its metadata and, as the `output` asks, what in it matched.
+ */
+export interface HogFlowSearchResultApi {
+    readonly id: string
+    /** @nullable */
+    readonly name: string | null
+    readonly description: string
+    readonly version: number
+    readonly status: HogFlowStateEnumApi
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi | null
+    readonly updated_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /**
+     * The workflow fields that matched: `name`, `description`, both or neither. Null with `output=names`.
+     * @nullable
+     */
+    readonly matched_fields: readonly HogFlowSearchResultApiMatchedFieldsItem[] | null
+    /**
+     * How many steps matched, one per step however many of its fields matched. Null with `output=names`.
+     * @nullable
+     */
+    readonly matched_step_count: number | null
+    /**
+     * The first `max_matched_steps` steps that matched, in step order, live steps first. Only with `output=matches`, null otherwise.
+     * @nullable
+     */
+    readonly matched_steps: readonly HogFlowSearchStepMatchApi[] | null
+    /**
+     * Whether more steps matched than `matched_steps` lists. Only with `output=matches`, null otherwise.
+     * @nullable
+     */
+    readonly matched_steps_truncated: boolean | null
+}
+
+export interface PaginatedHogFlowSearchResultListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowSearchResultApi[]
+}
+
+/**
  * * `messaging` - Messaging
  * * `automation` - Automation
  * * `loop` - Loop
@@ -2588,6 +2695,105 @@ export type HogFlowsReputationRetrieveParams = {
      */
     search?: string
 }
+
+export type HogFlowsSearchListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean
+    /**
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     */
+    broadcast_status?: string
+    created_at?: string
+    /**
+     * Filter to workflows created by the user with this uuid.
+     */
+    created_by?: string
+    /**
+     * The most characters of text in each excerpt, around the match, 0 to 160. Ellipses that mark cut text come on top. 0 returns the step and field without any message text.
+     * @minimum 0
+     * @maximum 160
+     */
+    excerpt_chars?: number
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The most matched steps to return per workflow with `output=matches`, 0 to 10. `matched_step_count` still counts all of them, and `matched_steps_truncated` says whether more exist.
+     * @minimum 0
+     * @maximum 10
+     */
+    max_matched_steps?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean
+    /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsSearchListOriginProduct
+    /**
+     * How much each row says about the match. `names` (default) returns the workflow metadata only, the cheapest way to list candidates. `counts` adds `matched_fields` and `matched_step_count`. `matches` also adds `matched_steps` with step IDs and excerpts, capped by `max_matched_steps`.
+     *
+     * * `names` - Names
+     * * `counts` - Counts
+     * * `matches` - Matches
+     * @minLength 1
+     */
+    output?: HogFlowsSearchListOutput
+    /**
+     * A literal phrase to find, up to 200 characters. Case-insensitive. A space also matches whitespace, a dash or an underscore, and punctuation has no regex meaning. Matches the workflow name and description, and the step names and the subject line, preheader and readable body text of email steps, in both the live workflow and its pending draft.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string
+    /**
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived
+     */
+    status?: HogFlowsSearchListStatus
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string
+    /**
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     */
+    type?: string
+    updated_at?: string
+}
+
+export type HogFlowsSearchListOriginProduct =
+    (typeof HogFlowsSearchListOriginProduct)[keyof typeof HogFlowsSearchListOriginProduct]
+
+export const HogFlowsSearchListOriginProduct = {
+    Broadcasts: 'broadcasts',
+    Loops: 'loops',
+} as const
+
+export type HogFlowsSearchListOutput = (typeof HogFlowsSearchListOutput)[keyof typeof HogFlowsSearchListOutput]
+
+export const HogFlowsSearchListOutput = {
+    Names: 'names',
+    Counts: 'counts',
+    Matches: 'matches',
+} as const
+
+export type HogFlowsSearchListStatus = (typeof HogFlowsSearchListStatus)[keyof typeof HogFlowsSearchListStatus]
+
+export const HogFlowsSearchListStatus = {
+    Active: 'active',
+    Archived: 'archived',
+    Draft: 'draft',
+} as const
 
 export type HogFlowsSummariesListParams = {
     /**
