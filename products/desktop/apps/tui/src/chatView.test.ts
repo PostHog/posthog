@@ -82,6 +82,26 @@ describe("ChatView", () => {
     expect(latest).not.toContain("Jump to bottom");
   });
 
+  it.each([
+    ["below the status while the agent has not read it", true, 1],
+    ["in the conversation once the agent has it", false, -1],
+  ])("shows a message sent mid-turn %s", (_, queued, order) => {
+    const chat = new ChatView();
+    chat.setTranscript(
+      [
+        { kind: "user", id: "u1", text: "Run the QA" },
+        { kind: "assistant", id: "a1", text: "On it." },
+        { kind: "user", id: "pending", text: "you good?" },
+      ],
+      { notice: { text: "Running", tone: "working" }, queued },
+    );
+    const text = plain(chat.render(60, 20));
+    const status = text.findIndex((line) => line.includes("Running"));
+    const message = text.findIndex((line) => line.includes("you good?"));
+
+    expect(Math.sign(message - status)).toBe(order);
+  });
+
   it("marks the top while earlier messages exist, and keeps the reader's place when they arrive", () => {
     const chat = new ChatView();
     chat.setTranscript(replies(30).slice(20), { hasOlder: true });

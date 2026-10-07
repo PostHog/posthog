@@ -355,6 +355,18 @@ export function withPending(
   return [...lines, { kind: "user", id: PENDING_ID, text: pending }];
 }
 
+// A message sent mid-turn that the agent has not read yet: pi hands it over once the current step ends, and only then
+// does the run's log echo it. Until then it is not part of the conversation.
+export function queuedMessage(
+  lines: TranscriptLine[],
+  turnOpen: boolean,
+): UserLine | null {
+  const last = lines.at(-1);
+  return turnOpen && last?.kind === "user" && last.id === PENDING_ID
+    ? last
+    : null;
+}
+
 // How many runs of a command the transcript already shows.
 export function shellRuns(lines: TranscriptLine[], command: string): number {
   return lines.filter(

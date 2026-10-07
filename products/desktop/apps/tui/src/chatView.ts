@@ -16,6 +16,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { faint } from "./faint";
 import { inverseCells } from "./highlight";
 import { savedImage } from "./images";
 import { linkAt } from "./links";
@@ -150,6 +151,19 @@ function textBetween(line: string, start: number, end: number): string {
 }
 
 // pi pads its message blocks for a full screen; panes keep them tight and space them here instead.
+// Drawn faint, for what is on screen but not yet part of the conversation.
+class Faded implements Component {
+  constructor(private readonly inner: Component) {}
+
+  render(width: number): string[] {
+    return this.inner.render(width).map(faint);
+  }
+
+  invalidate(): void {
+    this.inner.invalidate();
+  }
+}
+
 class Trimmed implements Component {
   constructor(private readonly inner: Component) {}
 
@@ -378,10 +392,19 @@ export class ChatView {
     {
       hasOlder = false,
       notice = null,
-    }: { hasOlder?: boolean; notice?: ChatNotice | null } = {},
+      queued = false,
+    }: {
+      hasOlder?: boolean;
+      notice?: ChatNotice | null;
+      // The last line is a message the agent has not read yet; it sits under the status, apart from the conversation.
+      queued?: boolean;
+    } = {},
   ): void {
     // Offered actions show in the pane's picker, not in the scrollback.
-    const shown = blocksOf(lines.filter((line) => line.kind !== "actions"));
+    const kept = lines.filter((line) => line.kind !== "actions");
+    const waiting =
+      queued && kept.at(-1)?.kind === "user" ? kept.pop() : undefined;
+    const shown = blocksOf(kept);
     this.groups = new Set(
       shown.flatMap((block) => (block.kind === "tools" ? [block.id] : [])),
     );
@@ -428,6 +451,16 @@ export class ChatView {
       this.items.push(
         { id: "notice:gap", component: new Spacer(1) },
         { id: "notice", component: new NoticeRow(notice) },
+      );
+    }
+    if (waiting) {
+      this.userItems.add(waiting.id);
+      this.items.push(
+        { id: `${waiting.id}:gap`, component: new Spacer(1) },
+        {
+          id: waiting.id,
+          component: new Faded(new Trimmed(componentFor(waiting))),
+        },
       );
     }
     if (hasOlder) {

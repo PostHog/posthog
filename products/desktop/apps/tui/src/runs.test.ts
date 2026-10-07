@@ -16,6 +16,7 @@ import {
   setupProgress,
   withListedRun,
 } from "./runs";
+import { PENDING_ID } from "./transcript";
 
 const entry = (id: string): StoredLogEntry => ({ type: "pi_event", id });
 const ids = (view: RunView): string[] => view.entries.map((e) => e.id ?? "");
@@ -739,6 +740,32 @@ describe("runNotice during a turn", () => {
       detail,
       tone: "working",
     });
+  });
+});
+
+describe("runNotice with a message the agent has not read yet", () => {
+  it("keeps describing the step the agent is still taking", () => {
+    const lines = [
+      { kind: "user" as const, id: "u", text: "hi" },
+      {
+        kind: "tool" as const,
+        id: "t1",
+        title: "bash",
+        status: "in_progress",
+        detail: "pnpm test",
+        output: "",
+      },
+      { kind: "user" as const, id: PENDING_ID, text: "you good?" },
+    ];
+    expect(
+      runNotice(
+        { ...emptyRunView, loaded: true, status: "in_progress" },
+        lines,
+        true,
+        null,
+        Date.now() - 30_000,
+      ),
+    ).toMatchObject({ text: "Running", subject: "pnpm test" });
   });
 });
 

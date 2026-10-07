@@ -11,6 +11,7 @@ import type { ChatNotice } from "./chatView";
 import {
   activityOf,
   PENDING_ID,
+  queuedMessage,
   type Transcript,
   type TranscriptLine,
 } from "./transcript";
@@ -255,7 +256,7 @@ export function deliveryFailure(
 
 export function runNotice(
   view: RunView,
-  lines: TranscriptLine[],
+  allLines: TranscriptLine[],
   turnOpen: boolean,
   lastTurn: Transcript["lastTurn"],
   turnStartedAt: number | null = null,
@@ -273,6 +274,10 @@ export function runNotice(
     reopening?: boolean;
   } = {},
 ): ChatNotice | null {
+  // A message the agent has not read yet leaves the status on the step it is still taking.
+  const lines = queuedMessage(allLines, turnOpen)
+    ? allLines.slice(0, -1)
+    : allLines;
   const reopeningRun =
     view.status === "queued" || view.status === "in_progress";
   // Until the backend reports the new setup, the wait is for the sandbox to come back.
