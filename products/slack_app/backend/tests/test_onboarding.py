@@ -272,40 +272,6 @@ class TestOnboarding:
         assert events.count((onboarding.EVENT_SOURCE_ENABLED, None)) == 2
         assert events.count((onboarding.EVENT_STEP_COMPLETED, "sources")) == 1
 
-    @pytest.mark.parametrize(
-        "github_done,expected_events",
-        [
-            (True, [(onboarding.EVENT_STEP_COMPLETED, "github"), (onboarding.EVENT_COMPLETED, None)]),
-            (False, []),
-        ],
-    )
-    @patch("products.slack_app.backend.onboarding.capture_slack_event")
-    @patch("products.slack_app.backend.onboarding._onboarding_status")
-    @patch("products.slack_app.backend.onboarding._github_done")
-    @patch("products.slack_app.backend.onboarding._resolve_onboarding_user", return_value=7)
-    def test_record_github_step_completes_onboarding_when_github_was_last(
-        self, _resolve, mock_github_done, mock_status, mock_capture, github_done, expected_events
-    ):
-        self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
-        mock_github_done.return_value = github_done
-        mock_status.return_value = (7, dict.fromkeys(onboarding.OnboardingStep, True))
-
-        onboarding.record_github_step(self.integration)
-        onboarding.record_github_step(self.integration)
-
-        assert [(c.args[1], c.kwargs.get("step")) for c in mock_capture.call_args_list] == expected_events
-        assert all(c.kwargs["slack_user_id"] == "U_INSTALL" for c in mock_capture.call_args_list)
-
-    @patch("products.slack_app.backend.tasks.record_onboarding_github_step.delay")
-    def test_only_a_teams_first_github_connection_records_the_step(
-        self, mock_delay, django_capture_on_commit_callbacks
-    ):
-        with django_capture_on_commit_callbacks(execute=True):
-            Integration.objects.create(team=self.team, kind="github", integration_id="install-1", config={})
-            Integration.objects.create(team=self.team, kind="github", integration_id="install-2", config={})
-
-        mock_delay.assert_called_once_with(integration_ids=[self.integration.id])
-
     @patch("products.slack_app.backend.onboarding.capture_slack_event")
     @patch("products.slack_app.backend.onboarding._onboarding_status")
     @patch("posthog.models.integration.slack.WebClient")

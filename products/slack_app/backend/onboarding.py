@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from django.core.cache import cache
-
 import structlog
 from slack_sdk.errors import SlackApiError
 
@@ -49,8 +47,6 @@ EVENT_STEP_COMPLETED = "slack_onboarding_step_completed"
 EVENT_COMPLETED = "slack_onboarding_completed"
 EVENT_SOURCE_ENABLED = "slack_onboarding_source_enabled"
 
-_GITHUB_STEP_DEDUPE_SECONDS = 60 * 60 * 24 * 7
-
 _REQUIRED_STEPS = (OnboardingStep.AI_APPROVAL, OnboardingStep.CHANNEL, OnboardingStep.GITHUB, OnboardingStep.SOURCES)
 
 
@@ -78,10 +74,6 @@ def _has_team_github(team_id: int) -> bool:
 
 def _has_personal_github(user_id: int) -> bool:
     return UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).exists()
-
-
-def _github_done(team_id: int, user_id: int | None) -> bool:
-    return (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id)
 
 
 def _has_ai_approval(team_id: int) -> bool:
@@ -136,7 +128,7 @@ def _onboarding_status(
     return user_id, {
         OnboardingStep.AI_APPROVAL: _has_ai_approval(team_id),
         OnboardingStep.CHANNEL: in_channel,
-        OnboardingStep.GITHUB: _github_done(team_id, user_id),
+        OnboardingStep.GITHUB: (user_id is None or _has_personal_github(user_id)) and _has_team_github(team_id),
         OnboardingStep.SOURCES: _has_enabled_source(team_id),
     }
 
@@ -274,29 +266,6 @@ def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> 
     )
     _maybe_complete(integration, slack_user_id, user_id)
     return True
-
-
-def record_github_step(integration: Integration) -> None:
-    """Record the installer's GitHub step once it is done, and completion when it was the last step.
-
-    GitHub connects on the web, not through a Slack click, so this runs when a GitHub connection
-    is created. It only covers installs that got the onboarding DM.
-    """
-    installer = installer_slack_user_id(integration)
-    if not installer or not has_inbox_scopes(integration):
-        return
-    slack = SlackIntegration(integration)
-    user_id = _resolve_onboarding_user(slack, integration, installer)
-    if not _github_done(integration.team_id, user_id):
-        return
-    # One GitHub connect flow can create the team and the personal connection together, which queues
-    # this twice. The atomic add lets only the first run report the step.
-    dedupe_key = f"slack_app:onboarding_github_step:v1:{integration.id}"
-    if not cache.add(dedupe_key, True, timeout=_GITHUB_STEP_DEDUPE_SECONDS):
-        return
-    capture_slack_event(integration, EVENT_STEP_COMPLETED, slack_user_id=installer, step=str(OnboardingStep.GITHUB))
-    _, status = _onboarding_status(integration, slack, installer, user_id)
-    _capture_completed_if_done(integration, installer, status)
 
 
 def installer_slack_user_id(integration: Integration) -> str | None:
