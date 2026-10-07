@@ -21,6 +21,7 @@ const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
 /// Cap on the suspect paths named in the summary line. They share one line, and an
 /// oversized line kills the process on a non-blocking stderr pipe (see `FileSelectionArgs`).
 const MAX_LISTED_SUSPECT_PATHS: usize = 3;
+const MAX_LISTED_UNIDENTIFIED_PATHS: usize = 3;
 
 use crate::{
     api::{
@@ -55,10 +56,6 @@ pub struct Args {
     /// [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
-
-    /// Skip source map pairs without IDs when the build contains native debug IDs.
-    #[arg(long)]
-    pub skip_missing_debug_ids: bool,
 
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
@@ -125,9 +122,7 @@ pub fn upload_pairs(
         );
     }
 
-    if args.skip_missing_debug_ids {
-        pairs = skip_uninstrumented_pairs_when_native(pairs);
-    }
+    pairs = select_uploadable_pairs(pairs);
 
     // Fingerprinting re-serializes and hashes every pair, which is not free for large
     // maps - skip it when nothing gets cleaned up.
@@ -284,14 +279,14 @@ pub fn upload_pairs(
     Ok(())
 }
 
-/// Native-debug-ID bundlers can emit a few runtime or manifest pairs without IDs. When native
-/// IDs are present, those pairs cannot be matched to runtime frames and should not prevent the
-/// instrumented pairs from uploading. Keep the existing all-or-nothing validation for directories
-/// with no native IDs, so `sourcemap upload` still catches builds that forgot injection entirely.
-fn skip_uninstrumented_pairs_when_native(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
+/// Native-debug-ID bundlers can emit runtime or manifest pairs without IDs. Detect native mode
+/// from an ID carried by a source file (the runtime source of truth), then skip pairs that cannot
+/// be matched to runtime frames. Builds with no source-carried native IDs remain strict, so
+/// `sourcemap upload` still catches builds that forgot injection entirely.
+fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
     let has_native_debug_ids = pairs
         .iter()
-        .any(|pair| !pair.has_chunk_id() && pair.get_debug_id().is_some());
+        .any(|pair| !pair.has_chunk_id() && pair.source.get_debug_id().is_some());
     if !has_native_debug_ids {
         return pairs;
     }
@@ -300,9 +295,22 @@ fn skip_uninstrumented_pairs_when_native(pairs: Vec<SourcePair>) -> Vec<SourcePa
         .into_iter()
         .partition(|pair| pair.has_chunk_id() || pair.get_debug_id().is_some());
     if !skipped.is_empty() {
+        let listed_paths = skipped
+            .iter()
+            .take(MAX_LISTED_UNIDENTIFIED_PATHS)
+            .map(|pair| pair.source.inner.path.display().to_string())
+            .collect::<Vec<_>>();
+        let unlisted = skipped.len() - listed_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
         warn!(
-            "Skipping {} source map pairs without a chunk ID or native debug ID",
-            skipped.len()
+            "Native debug IDs detected; skipping {} source map pairs without a chunk ID or native debug ID: {}{}",
+            skipped.len(),
+            listed_paths.join(", "),
+            rest
         );
         for pair in skipped {
             debug!(
@@ -844,14 +852,7 @@ mod tests {
         let runtime = std::fs::read_to_string(&runtime_path).unwrap();
         let runtime_map = std::fs::read_to_string(&runtime_map_path).unwrap();
 
-        let unfiltered_error = prepare_uploads(read_dir_pairs(dir.path()), ReleaseMode::Event)
-            .expect_err("Mixed builds stay strict unless missing IDs are explicitly skipped");
-        assert!(
-            format!("{unfiltered_error:#}").contains("Chunk ID or debug ID not found"),
-            "{unfiltered_error:#}"
-        );
-
-        let pairs = skip_uninstrumented_pairs_when_native(read_dir_pairs(dir.path()));
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
         assert_eq!(pairs.len(), 1);
         let uploads = prepare_uploads(pairs, ReleaseMode::Event)
             .expect("Failed to prepare native debug ID upload");
@@ -907,11 +908,33 @@ mod tests {
     }
 
     #[test]
+    fn sourcemap_only_debug_ids_do_not_enable_native_mode() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let (_, map_path) = write_pair(dir.path(), "mapped");
+        std::fs::write(
+            map_path,
+            r#"{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"11111111-2222-4333-8444-555555555555"}"#,
+        )
+        .expect("Failed to add a map-only debug ID");
+        write_pair(dir.path(), "missing");
+
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        assert_eq!(pairs.len(), 2);
+        let error = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect_err("A map-only debug ID must not make a partially instrumented build lenient");
+
+        assert!(
+            format!("{error:#}").contains("Chunk ID or debug ID not found"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
     fn upload_without_native_or_injected_ids_still_fails() {
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         write_pair(dir.path(), "app");
 
-        let pairs = skip_uninstrumented_pairs_when_native(read_dir_pairs(dir.path()));
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
         assert_eq!(pairs.len(), 1);
         let error = prepare_uploads(pairs, ReleaseMode::Event)
             .expect_err("Uninstrumented builds must still fail");
