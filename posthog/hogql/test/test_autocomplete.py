@@ -3,6 +3,10 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -19,6 +23,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
+from posthog.taxonomy import definition_search
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -365,6 +371,34 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select properties. from events"
         results = self._select(query=query, start=18, end=18)
         assert results.incomplete_list is True
+
+    @parameterized.expand(
+        [
+            ("small_project", 100, "value", True),
+            ("huge_project", 0, "value", False),
+            ("huge_project_short_term", 0, "va", True),
+        ]
+    )
+    def test_autocomplete_property_names_follow_the_search_plan(
+        self, _name: str, max_definitions: int, match_term: str, expect_name_order: bool
+    ) -> None:
+        cache.clear()
+        for name in ["zeta_value", "alpha_value", "mid_value"]:
+            PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+
+        query = f"select properties.{match_term} from events"
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            results = self._select(query=query, start=18, end=18 + len(match_term))
+
+        property_queries = [q["sql"] for q in queries.captured_queries if f"%{match_term}%" in q["sql"]]
+        assert len(property_queries) == 1, property_queries
+        assert ("ORDER BY" in property_queries[0]) is expect_name_order
+        assert [s.label for s in results.suggestions] == ["alpha_value", "mid_value", "zeta_value"]
 
     def test_autocomplete_joined_tables(self):
         query = "select p. from events e left join persons p on e.person_id = p.id"
