@@ -156,7 +156,6 @@ def test_off_diff_finding_sections_lead_with_description() -> None:
     )
 
     positions = [
-        body.index(f"<summary><strong>{label}</strong></summary>")
-        for label in ("Issue description", "Why we think it's a valid issue", "Suggested fix")
+        body.index(f"<summary><strong>{label}</strong></summary>") for label in ("Issue description", "Suggested fix")
     ]
     assert positions == sorted(positions)

@@ -100,6 +100,9 @@ tools:
     integrations-environment-mapping-partial-update:
         operation: integrations_environment_mapping_partial_update
         enabled: false
+    integrations-github-assignees-retrieve:
+        operation: integrations_github_assignees_retrieve
+        enabled: false
     integrations-github-available-installations-retrieve:
         operation: integrations_github_available_installations_retrieve
         enabled: false
@@ -142,11 +145,17 @@ tools:
     integrations-github-teams-retrieve:
         operation: integrations_github_teams_retrieve
         enabled: false
+    integrations-gitlab-members-retrieve:
+        operation: integrations_gitlab_members_retrieve
+        enabled: false
     integrations-google-accessible-accounts-retrieve:
         operation: integrations_google_accessible_accounts_retrieve
         enabled: false
     integrations-google-conversion-actions-retrieve:
         operation: integrations_google_conversion_actions_retrieve
+        enabled: false
+    integrations-jira-assignable-users-retrieve:
+        operation: integrations_jira_assignable_users_retrieve
         enabled: false
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve
@@ -162,6 +171,9 @@ tools:
             List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira
             first to find the integration id, then pass a returned project key as `config.project_key` when creating an
             error tracking external reference.
+    integrations-linear-team-members-retrieve:
+        operation: integrations_linear_team_members_retrieve
+        enabled: false
     integrations-linear-teams-retrieve:
         operation: integrations_linear_teams_retrieve
         enabled: true

@@ -70,19 +70,20 @@ async def eval_skill_usage(ctx: EvalContext) -> None:
             prompt=(
                 "The 'bias-warning-demo-uneven-split' experiment is showing a bias warning. "
                 "At exactly what multi-variant ($multiple) exposure share does that warning fire, "
-                "and at what share does the Exposures tab show a $multiple row? "
+                "and at what share does the collapsed exposures summary show a $multiple row? "
                 "Compute this experiment's actual $multiple exposure share from its data and state "
                 "whether the row is visible for it."
             ),
-            skill="diagnosing-experiment-results",
+            skill="diagnosing-experiment-health",
             # The support front door wraps the diagnostic skill and also answers this prompt.
             alternate_skills=["debugging-experiments"],
-            downstream_tools=["experiment-get", "experiment-stats", "execute-sql"],
+            downstream_tools=["experiment-get", "experiment-results-get", "execute-sql"],
             skill_delivery=ctx.skill_delivery,
             reference_paths=["references/bias-and-skew.md"],
             expected_answer=(
                 "The bias warning fires when the $multiple exposure share is above 0.1%. "
-                "The Exposures tab hides the $multiple row when its share is at or below 0.5%. "
+                "The collapsed exposures summary leaves the $multiple row out when its share is at or "
+                "below 0.5%, and the expanded table always lists it. "
                 "This experiment's actual $multiple exposure share is above 0.5%, "
                 "so the $multiple row is visible for it."
             ),

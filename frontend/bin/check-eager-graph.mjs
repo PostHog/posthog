@@ -128,9 +128,15 @@ const ROOTS = [
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
-        // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 14_130_000,
-        forbidden: [],
+        // 2026-10-05: 9.93 MiB (3517 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_450_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
         root: [
@@ -149,9 +155,15 @@ const ROOTS = [
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
-        // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 13_250_000,
-        forbidden: [],
+        // 2026-10-05: 9.55 MiB (3371 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 11_020_000,
+        forbidden: [
+            // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
+            'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',

@@ -645,6 +645,25 @@ class TestValidateSchemaAndUpdateTable:
         schema.refresh_from_db()
         assert schema.sync_type_config[REGISTERED_SCHEMA_FINGERPRINT_KEY]
 
+    def test_records_the_introspected_column_order(self, team):
+        schema, job = self._schema_and_job(team)
+        table = self._linked_table(team, schema, job, queryable_folder="orders__query_a")
+        introspected = {
+            "customer_name": {"clickhouse": "String", "hogql": "x"},
+            "id": {"clickhouse": "Int64", "hogql": "x"},
+            "total": {"clickhouse": "Float64", "hogql": "x"},
+        }
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value=introspected),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            self._register(team, schema, job, queryable_folder="orders__query_a", delta_schema_json="{}")
+
+        table.refresh_from_db()
+        assert table.column_order == ["customer_name", "id", "total"]
+        assert [name for name, _ in table.hogql_definition().fields.items()][:3] == ["customer_name", "id", "total"]
+
     def test_a_failed_introspection_leaves_no_fingerprint_behind(self, team):
         # get_columns() can fail on a table with no committed files (tolerated, see above). The next
         # sync must introspect again rather than trust a fingerprint for columns that were never written.

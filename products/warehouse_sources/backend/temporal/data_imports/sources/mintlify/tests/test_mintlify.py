@@ -9,7 +9,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
-from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
@@ -195,19 +194,15 @@ def test_resume_preserves_window(
     manager.save_state.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 400])
+@pytest.mark.parametrize("status", [200, 400, 401, 403, 404])
 def test_credentials_and_terminal_errors(config: MintlifySourceConfig, transport: MagicMock, status: int) -> None:
     body: dict[str, Any] = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
     transport.return_value = response(body, status)
-    if status == 400:
-        with pytest.raises(HTTPError):
-            validate_credentials(config)
-    else:
-        valid, message = validate_credentials(config)
-        assert valid is (status == 200)
-        if status != 200:
-            assert message
-            assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
+    valid, message = validate_credentials(config)
+    assert valid is (status == 200)
+    if status != 200:
+        assert message
+        assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
     transport.assert_called_once()
     request = cast(PreparedRequest, transport.call_args.args[0])
     assert request.headers["Authorization"] == "Bearer mint_example_fake_key"
