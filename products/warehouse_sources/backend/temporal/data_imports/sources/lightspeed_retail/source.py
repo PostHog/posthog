@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -52,8 +53,13 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
     default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_07
     api_docs_url = "https://x-series-api.lightspeedhq.com/docs/introduction"
     # X-Series deprecated the legacy 2.0 version; no firm sunset date is published (deprecated
-    # endpoints increasingly return 410 Gone before an eventual retirement).
-    deprecated_versions = (VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2_0, sunset_at=None),)
+    # endpoints increasingly return 410 Gone before an eventual retirement). Date-based versions are
+    # supported for 12 months (2026-01 until January 2027); past that a request silently falls back
+    # to the oldest supported version instead of failing, so the pin would stop being honored.
+    deprecated_versions = (
+        VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2_0, sunset_at=None),
+        VersionDeprecation(version=LIGHTSPEED_RETAIL_API_VERSION_2026_01, sunset_at=date(2027, 1, 1)),
+    )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
