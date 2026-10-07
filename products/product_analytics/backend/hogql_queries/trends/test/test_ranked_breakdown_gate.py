@@ -169,6 +169,20 @@ class TestRankedBreakdownGate(SimpleTestCase):
             sql = print_prepared_ast(builder.build_query(), HogQLContext(team_id=team.pk), "hogql")
         assert ("dense_rank()" in sql) is ranked
 
+    def test_explicit_date_changes_the_signature_for_an_unaligned_range(self) -> None:
+        query = self.query.model_copy(deep=True)
+        query.dateRange = DateRange(
+            date_from="2024-01-01T12:00:00", date_to="2024-01-07T23:59:59.999999", explicitDate=False
+        )
+        explicit_query = query.model_copy(deep=True)
+        explicit_query.dateRange = DateRange(
+            date_from="2024-01-01T12:00:00", date_to="2024-01-07T23:59:59.999999", explicitDate=True
+        )
+
+        assert self.builder(query).ranked_breakdown_query_signature != self.builder(
+            explicit_query
+        ).ranked_breakdown_query_signature
+
     @parameterized.expand([("action",), ("all_time",)])
     def test_configurations_without_a_stable_cheap_signature(self, kind: str) -> None:
         query = self.query.model_copy(deep=True)

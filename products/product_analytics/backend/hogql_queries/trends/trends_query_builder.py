@@ -1102,6 +1102,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ),
                 "interval": self.query_date_range.interval_name,
                 "interval_count": self.query_date_range.interval_count,
+                "use_start_of_interval": self.query_date_range.use_start_of_interval(),
                 "options": self.query.dateRange.model_dump(
                     mode="json", exclude_none=True, exclude={"date_from", "date_to", "explicitDate"}
                 )
