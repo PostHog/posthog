@@ -30,6 +30,10 @@ def checkout(tmp_path: Path) -> Path:
     (tmp_path / "secret.txt").write_text(SECRET)
     (root / "src" / "link.txt").symlink_to(tmp_path / "secret.txt")
     (root / "src" / "linkdir").symlink_to(tmp_path)
+    (root / "src" / "loop").symlink_to(root / "src" / "loop")
+    (root / ".gitignore").write_text(".env\n.pr-review-diff*.patch\n")
+    (root / ".env").write_text(SECRET)
+    (root / ".pr-review-diff-fixture.patch").write_text("+def handler():\n")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=openai_reviewer.git_environment())
     return root
 
@@ -40,6 +44,8 @@ def checkout(tmp_path: Path) -> Path:
         pytest.param("read_file", {"path": "../secret.txt", "offset": None, "limit": None}, id="read-dotdot"),
         pytest.param("read_file", {"path": "{outside}/secret.txt", "offset": None, "limit": None}, id="read-absolute"),
         pytest.param("read_file", {"path": "src/link.txt", "offset": None, "limit": None}, id="read-symlink"),
+        pytest.param("read_file", {"path": ".env", "offset": None, "limit": None}, id="read-ignored-secret"),
+        pytest.param("read_file", {"path": "src/loop", "offset": None, "limit": None}, id="read-symlink-loop"),
         pytest.param("grep", {"pattern": "outside", "path": "..", "glob": None}, id="grep-dotdot"),
         pytest.param("grep", {"pattern": "outside", "path": "src/linkdir", "glob": None}, id="grep-symlink-dir"),
         pytest.param("grep", {"pattern": "outside", "path": None, "glob": None}, id="grep-walk-skips-links"),
@@ -65,6 +71,11 @@ def test_tools_never_reveal_content_outside_the_checkout(checkout: Path, tool: s
         pytest.param({"pattern": "def handler", "path": None, "glob": None}, "src/app.py:1:def handler():", id="root"),
         pytest.param({"pattern": "handler", "path": "src", "glob": "*.py"}, "src/app.py:1:def handler():", id="glob"),
         pytest.param({"pattern": "no such text", "path": None, "glob": None}, "(no matches)", id="no-match"),
+        pytest.param(
+            {"pattern": "handler", "path": ".pr-review-diff-fixture.patch", "glob": None},
+            ".pr-review-diff-fixture.patch:1:+def handler():",
+            id="ignored-pipeline-diff",
+        ),
         pytest.param({"pattern": "(unclosed", "path": None, "glob": None}, "error:", id="bad-pattern"),
     ],
 )

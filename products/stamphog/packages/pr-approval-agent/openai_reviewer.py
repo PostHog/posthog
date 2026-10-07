@@ -177,9 +177,16 @@ class RepoTools:
                 output = self.glob(args["pattern"])
             else:
                 raise ToolError(f"unknown tool {name}")
-        except (ToolError, ValueError, KeyError, TypeError, OSError) as exc:
+        # RuntimeError: resolving a symbolic link loop raises it on some Python versions.
+        except (ToolError, ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
             output = f"error: {exc}"
         return _clip(output)
+
+    def _inside(self, relative: str) -> bool:
+        try:
+            return (self.root / relative).resolve().is_relative_to(self.root)
+        except (OSError, RuntimeError):
+            return False
 
     def resolve(self, path: str) -> Path:
         """The real path of `path`, or ToolError when it resolves outside the checkout.
@@ -195,10 +202,24 @@ class RepoTools:
             raise ToolError(f"{path} is outside the repository")
         return resolved
 
+    def _is_pipeline_diff(self, target: Path) -> bool:
+        # new_diff_file writes it at the checkout root under this prefix, and .gitignore ignores it.
+        return target.parent == self.root and target.name.startswith(".pr-review-diff-")
+
+    def _is_ignored(self, target: Path) -> bool:
+        relative = target.relative_to(self.root).as_posix()
+        command = ["git", "check-ignore", "-q", "--", relative]
+        result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        return result.returncode == 0
+
     def read_file(self, path: str, offset: int | None, limit: int | None) -> str:
         target = self.resolve(path)
         if not target.is_file():
             raise ToolError(f"{path} is not a file")
+        # A local checkout can hold ignored secrets such as .env, and tool output goes to the provider.
+        relative_parts = target.relative_to(self.root).parts
+        if ".git" in relative_parts or (not self._is_pipeline_diff(target) and self._is_ignored(target)):
+            raise ToolError(f"{path} is ignored by git and not part of the review")
         first = max(offset or 1, 1)
         count = limit if limit and limit > 0 else READ_FILE_DEFAULT_LINES
         lines: list[str] = []
@@ -223,6 +244,8 @@ class RepoTools:
         # git grep reads the checkout's own index, so it is fast on a large repository, and it never
         # follows a symbolic link. --untracked adds files the pipeline wrote, such as the PR diff.
         command = ["git", "-c", "core.quotePath=false", "grep", "-n", "-I", "--untracked", "-P"]
+        if self._is_pipeline_diff(target):
+            command.append("--no-exclude-standard")
         command += ["-e", pattern, "--", pathspec]
         return self._run_bounded(command) or "(no matches)"
 
@@ -231,12 +254,11 @@ class RepoTools:
             raise ToolError("use a pattern relative to the repository root")
         command = ["git", "-c", "core.quotePath=false", "ls-files", "--cached", "--others", "--exclude-standard"]
         command += ["--", f":(glob){pattern}"]
-        matches = [
-            line
-            for line in self._run_bounded(command).splitlines()
-            if (self.root / line).resolve().is_relative_to(self.root)
-        ]
-        return "\n".join(sorted(matches)[:GLOB_MAX_RESULTS]) or "(no matches)"
+        matches = [line for line in self._run_bounded(command).splitlines() if self._inside(line)]
+        listed = "\n".join(sorted(matches)[:GLOB_MAX_RESULTS]) or "(no matches)"
+        if len(matches) > GLOB_MAX_RESULTS:
+            listed += f"\n(listing truncated at {GLOB_MAX_RESULTS} paths; use a narrower pattern)"
+        return listed
 
     def _run_bounded(self, command: list[str]) -> str:
         """Run a git search in the checkout and return its output, or "" when it found nothing.

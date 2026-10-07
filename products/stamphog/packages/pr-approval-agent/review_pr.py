@@ -895,8 +895,9 @@ class Pipeline:
                     print(
                         _warn(
                             "  This is an LLM backend failure (credentials, credit, or outage), "
-                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                            "secret (or local ANTHROPIC_API_KEY)."
+                            "not a verdict on the PR. Check the ai-gateway token and the reviewer "
+                            "model's allowlist (or the local OPENAI_API_KEY, or ANTHROPIC_API_KEY "
+                            "with STAMPHOG_REVIEWER_ENGINE=claude)."
                         )
                     )
                     self.reviewer_output = {
