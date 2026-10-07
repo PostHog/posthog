@@ -1291,17 +1291,21 @@ def _write_queue_page(
     deadline = time.monotonic() + PG_QUEUE_RETRY_WINDOW_SECONDS
     while True:
         try:
-            # deleted_at only moves forward, so a retry of an older run never replaces a newer run's bound.
+            # deleted_at and max_version only move forward. A run re-executed from a later op gets a new
+            # deleted_at but keeps its old snapshot, so its bound must never replace a newer run's higher one.
             execute_values(
                 cursor,
                 f"""
                 INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version)
                 VALUES %s
                 ON CONFLICT (team_id, person_uuid) DO UPDATE
-                SET deleted_at = EXCLUDED.deleted_at, max_version = EXCLUDED.max_version, blocked_at = NULL
+                SET deleted_at = EXCLUDED.deleted_at,
+                    max_version = GREATEST({PG_CLEANUP_QUEUE_TABLE}.max_version, EXCLUDED.max_version),
+                    blocked_at = NULL
                 WHERE {PG_CLEANUP_QUEUE_TABLE}.deleted_at < EXCLUDED.deleted_at
                    OR ({PG_CLEANUP_QUEUE_TABLE}.deleted_at = EXCLUDED.deleted_at
-                       AND {PG_CLEANUP_QUEUE_TABLE}.max_version IS DISTINCT FROM EXCLUDED.max_version)
+                       AND ({PG_CLEANUP_QUEUE_TABLE}.max_version IS NULL
+                            OR {PG_CLEANUP_QUEUE_TABLE}.max_version < EXCLUDED.max_version))
                 """,
                 [(person.team_id, person.person_id, deleted_at, person.max_version) for person in page],
                 page_size=1000,

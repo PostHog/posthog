@@ -700,6 +700,15 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     assert queue_row() == newer
     assert [row[4] for row in queued_rows(persons_database)] == [7]
 
+    # A run re-executed from a later op keeps its old snapshot but gets a new deleted_at, so it can
+    # arrive after a newer run's row. It moves deleted_at forward and keeps the higher bound.
+    with persons_database.cursor() as cursor:
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = '2025-12-01T00:00:00Z', max_version = 7")
+    persons_database.commit()
+    clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
+    [(_, _, deleted_at, _, max_version)] = queued_rows(persons_database)
+    assert (deleted_at, max_version) == (datetime(2026, 1, 1, tzinfo=UTC), 7)
+
 
 @pytest.mark.django_db
 def test_excludes_a_person_revived_while_the_run_is_in_flight(cluster: ClickhouseCluster, persons_database):
