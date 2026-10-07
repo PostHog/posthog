@@ -11,7 +11,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.errors import CHQueryErrorTooManyBytes
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Element, Team, User
 
 from products.actions.backend.models.action import Action
@@ -159,14 +159,12 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307), False),
-            ("timeout", ClickHouseQueryTimeOut(), False),
-            ("catchup_limit", CHQueryErrorTooManyBytes("read limit", code=307), True),
+            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307)),
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("estimated_timeout", ClickHouseEstimatedQueryExecutionTimeTooLong()),
         ]
     )
-    def test_conversions_resume_a_bounded_initial_scan_after_limit(
-        self, _name: str, failure: Exception, catchup_fails: bool
-    ) -> None:
+    def test_conversions_resume_a_bounded_initial_scan_after_limit(self, _name: str, failure: Exception) -> None:
         self._pay_action("$autocapture")
         first_now = timezone.now()
         old_timestamp = first_now - timedelta(days=10)
@@ -186,7 +184,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(settings.timeout_overflow_mode, "throw")
             self.assertEqual(settings.read_overflow_mode, "throw")
             attempts += 1
-            if attempts == 1 or (catchup_fails and attempts == 4):
+            if attempts == 1:
                 raise failure
             return execute_hogql_query(*args, **kwargs)
 
@@ -207,11 +205,9 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
             self._pay_click(timestamp=old_timestamp, created_at=first_now)
             flush_persons_and_events()
-            saw_catchup_checkpoint = False
             saw_tail_checkpoint = False
             final = first
-            catchup_cutoff = None
-            for sweep in range(12):
+            for sweep in range(40):
                 with patch(
                     "products.web_analytics.backend.achievements.evaluators.timezone.now",
                     return_value=first_now + timedelta(hours=2, minutes=5 * sweep),
@@ -221,33 +217,20 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
                         self._ctx(),
                         PriorProgress(value=final.value, last_computed_at=None, checkpoint=final.checkpoint),
                     )
-                    if attempts == 3:
-                        self.assertFalse(final.complete)
-                        assert final.checkpoint is not None
+                    assert final.checkpoint is not None
+                    if "bootstrap" in final.checkpoint:
                         bootstrap = final.checkpoint["bootstrap"]
                         assert isinstance(bootstrap, dict)
-                        self.assertEqual(bootstrap["phase"], "tail")
-                        saw_tail_checkpoint = True
-                    if catchup_fails and attempts == 4:
-                        self.assertFalse(final.complete)
-                        assert final.checkpoint is not None
-                        bootstrap = final.checkpoint["bootstrap"]
-                        assert isinstance(bootstrap, dict)
-                        self.assertEqual(bootstrap["phase"], "catchup")
-                        catchup_cutoff = bootstrap["created_until"]
-                        saw_catchup_checkpoint = True
+                        saw_tail_checkpoint |= bootstrap["phase"] == "tail"
                     if final.complete:
                         break
 
-        self.assertEqual(saw_catchup_checkpoint, catchup_fails)
         self.assertTrue(saw_tail_checkpoint)
         self.assertEqual(final.value, 4)
         self.assertTrue(final.complete)
         assert final.checkpoint is not None
         self.assertIn("counted_through", final.checkpoint)
         self.assertNotIn("bootstrap", final.checkpoint)
-        if catchup_fails:
-            self.assertEqual(final.checkpoint["counted_through"], catchup_cutoff)
 
         self._pay_click(
             timestamp=first_now + timedelta(hours=2),
@@ -263,6 +246,76 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(incremental.value, 5)
         self.assertTrue(incremental.complete)
+
+    def test_conversions_initial_future_slice_recovers_from_a_limit(self) -> None:
+        action = self._pay_action("$autocapture")
+        now = timezone.now()
+        self._pay_click(timestamp=now + timedelta(days=2), created_at=now - timedelta(hours=2))
+        self._pay_click(timestamp=now + timedelta(days=20), created_at=now - timedelta(hours=2))
+        flush_persons_and_events()
+
+        created_until = now - timedelta(hours=1)
+        window_start = datetime.combine((created_until - timedelta(days=13)).date(), time.min, tzinfo=UTC)
+        initial_end = window_start + timedelta(days=14)
+        checkpoint: dict[str, object] = {
+            "actions": _action_fingerprints([action]),
+            "daily": {},
+            "bootstrap": {
+                "next_start": window_start.isoformat(),
+                "end": initial_end.isoformat(),
+                "created_since": None,
+                "created_until": created_until.isoformat(),
+                "phase": "initial",
+                "chunk_hours": 24,
+            },
+        }
+        split_future_slice = False
+
+        def fail_unbounded_or_wide_future_slice(
+            ctx: EvalContext,
+            actions: list[Action],
+            daily: dict[str, list[int]],
+            since: datetime | None,
+            until: datetime,
+            earliest_timestamp: datetime,
+            latest_timestamp: datetime | None = None,
+            latest_inclusive: bool = False,
+        ) -> bool:
+            nonlocal split_future_slice
+            if latest_timestamp is None:
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            if (
+                earliest_timestamp >= initial_end
+                and earliest_timestamp <= now + timedelta(days=20) < latest_timestamp
+                and latest_timestamp - earliest_timestamp > timedelta(days=1)
+            ):
+                split_future_slice = True
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            return _add_conversion_counts(
+                ctx, actions, daily, since, until, earliest_timestamp, latest_timestamp, latest_inclusive
+            )
+
+        with (
+            patch("products.web_analytics.backend.achievements.evaluators.CONVERSIONS_LOOKBACK_DAYS", 14),
+            patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=now),
+            patch(
+                "products.web_analytics.backend.achievements.evaluators._add_conversion_counts",
+                side_effect=fail_unbounded_or_wide_future_slice,
+            ),
+        ):
+            for _ in range(80):
+                evaluation = evaluate_conversions(
+                    self._ctx(), PriorProgress(value=1, last_computed_at=None, checkpoint=checkpoint)
+                )
+                assert evaluation.checkpoint is not None
+                checkpoint = evaluation.checkpoint
+                if evaluation.complete:
+                    break
+
+        self.assertTrue(evaluation.complete)
+        self.assertTrue(split_future_slice)
+        self.assertEqual(evaluation.value, 2)
+        self.assertEqual(checkpoint["counted_through"], created_until.isoformat())
 
     def test_conversions_catchup_bounds_later_days_and_preserves_future_timestamps(self) -> None:
         action = self._pay_action("$autocapture")
@@ -292,7 +345,9 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
         split_final_slice = False
 
-        def fail_wide_ingestion_slice(
+        split_future_slice = False
+
+        def fail_wide_timestamp_slice(
             ctx: EvalContext,
             actions: list[Action],
             daily: dict[str, list[int]],
@@ -300,8 +355,9 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             until: datetime,
             earliest_timestamp: datetime,
             latest_timestamp: datetime | None = None,
-        ) -> None:
-            nonlocal split_final_slice
+            latest_inclusive: bool = False,
+        ) -> bool:
+            nonlocal split_final_slice, split_future_slice
             if latest_timestamp is None and since is not None and until - since > timedelta(days=1):
                 raise CHQueryErrorTooManyBytes("read limit", code=307)
             if (
@@ -311,14 +367,24 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             ):
                 split_final_slice = True
                 raise CHQueryErrorTooManyBytes("read limit", code=307)
-            _add_conversion_counts(ctx, actions, daily, since, until, earliest_timestamp, latest_timestamp)
+            if (
+                earliest_timestamp >= catchup_end
+                and latest_timestamp is not None
+                and earliest_timestamp <= first_now + timedelta(days=20) < latest_timestamp
+                and latest_timestamp - earliest_timestamp > timedelta(days=1)
+            ):
+                split_future_slice = True
+                raise CHQueryErrorTooManyBytes("read limit", code=307)
+            return _add_conversion_counts(
+                ctx, actions, daily, since, until, earliest_timestamp, latest_timestamp, latest_inclusive
+            )
 
         with (
             patch("products.web_analytics.backend.achievements.evaluators.CONVERSIONS_LOOKBACK_DAYS", 14),
             patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=later),
             patch(
                 "products.web_analytics.backend.achievements.evaluators._add_conversion_counts",
-                side_effect=fail_wide_ingestion_slice,
+                side_effect=fail_wide_timestamp_slice,
             ),
         ):
             for _ in range(80):
@@ -332,10 +398,19 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(evaluation.complete)
         self.assertTrue(split_final_slice)
+        self.assertTrue(split_future_slice)
         self.assertEqual(evaluation.value, 3)
         self.assertEqual(checkpoint["counted_through"], created_until.isoformat())
 
-    def test_conversions_split_a_failed_chunk_without_duplicate_environment_counts(self) -> None:
+    @parameterized.expand(
+        [
+            ("byte_limit", CHQueryErrorTooManyBytes("read limit", code=307)),
+            ("estimated_timeout", ClickHouseEstimatedQueryExecutionTimeTooLong()),
+        ]
+    )
+    def test_conversions_split_a_failed_chunk_without_duplicate_environment_counts(
+        self, _name: str, failure: Exception
+    ) -> None:
         self._pay_action("$autocapture")
         second_env = Team.objects.create(organization=self.organization, project=self.team.project, name="env 2")
         now = timezone.now()
@@ -350,7 +425,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             nonlocal attempts
             attempts += 1
             if attempts in (2, 4):
-                raise CHQueryErrorTooManyBytes("read limit", code=307)
+                raise failure
             return execute_hogql_query(*args, **kwargs)
 
         with (
@@ -362,7 +437,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             patch("products.web_analytics.backend.achievements.evaluators.timezone.now", return_value=now),
         ):
             prior = EMPTY_PRIOR
-            for _ in range(6):
+            for _ in range(30):
                 evaluation = evaluate_conversions(self._ctx(), prior)
                 assert evaluation.checkpoint is not None
                 if evaluation.complete:

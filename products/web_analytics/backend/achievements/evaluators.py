@@ -15,7 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorTooManyBytes
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -132,6 +132,7 @@ def _ingestion_window_expr(
     until: datetime,
     earliest_timestamp: datetime | None,
     latest_timestamp: datetime | None = None,
+    latest_inclusive: bool = False,
 ) -> ast.Expr:
     exprs: list[ast.Expr] = [
         ast.CompareOperation(
@@ -155,7 +156,7 @@ def _ingestion_window_expr(
     if latest_timestamp is not None:
         exprs.append(
             ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
+                op=ast.CompareOperationOp.LtEq if latest_inclusive else ast.CompareOperationOp.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=latest_timestamp),
             )
@@ -185,6 +186,13 @@ def evaluate_cumulative_pageviews(ctx: EvalContext, prior: PriorProgress) -> Tra
 
 CONVERSIONS_LOOKBACK_DAYS = 90
 CONVERSIONS_BOOTSTRAP_CHUNK_DAYS = 7
+CONVERSIONS_MAX_TIMESTAMP = datetime(2299, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
+CONVERSIONS_FUTURE_CHUNK_MAX_HOURS = 24 * 365 * 50
+CONVERSIONS_SCAN_LIMITS = (
+    CHQueryErrorTooManyBytes,
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+)
 
 
 @frozen
@@ -246,12 +254,18 @@ def _conversion_bootstrap_state(checkpoint: dict[str, object]) -> ConversionBoot
         next_start is None
         or end is None
         or created_until is None
-        or phase not in ("initial", "catchup", "catchup_future", "tail")
-        or (phase == "catchup_future" and next_start >= created_until)
-        or (phase != "catchup_future" and next_start >= end)
+        or phase not in ("initial", "initial_future", "catchup", "catchup_future", "tail")
+        or (phase in ("initial_future", "catchup_future") and not end <= next_start < CONVERSIONS_MAX_TIMESTAMP)
+        or (phase not in ("initial_future", "catchup_future") and next_start >= end)
         or (phase in ("catchup", "catchup_future", "tail") and created_since is None)
         or not isinstance(chunk_hours, int)
-        or not 1 <= chunk_hours <= CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
+        or not 1
+        <= chunk_hours
+        <= (
+            CONVERSIONS_FUTURE_CHUNK_MAX_HOURS
+            if phase in ("initial_future", "catchup_future")
+            else CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
+        )
     ):
         return None
     return ConversionBootstrap(
@@ -272,13 +286,14 @@ def _add_conversion_counts(
     until: datetime,
     earliest_timestamp: datetime,
     latest_timestamp: datetime | None = None,
-) -> None:
+    latest_inclusive: bool = False,
+) -> bool:
     chunk_daily: dict[str, list[int]] = {}
     for team in _project_environment_teams(ctx.team):
         query = parse_select(
             "SELECT toDate(toTimeZone(timestamp, 'UTC')) AS day FROM events WHERE and({window}, {events}, {test}) GROUP BY day",
             placeholders={
-                "window": _ingestion_window_expr(since, until, earliest_timestamp, latest_timestamp),
+                "window": _ingestion_window_expr(since, until, earliest_timestamp, latest_timestamp, latest_inclusive),
                 "events": _action_event_filter_expr(actions),
                 "test": _test_account_filter_expr(team),
             },
@@ -303,6 +318,67 @@ def _add_conversion_counts(
         day_counts = daily.setdefault(day, [0] * len(actions))
         for index, value in enumerate(counts):
             day_counts[index] += value
+    return bool(chunk_daily)
+
+
+def _advance_conversion_future(
+    ctx: EvalContext,
+    actions: list[Action],
+    daily: dict[str, list[int]],
+    bootstrap: ConversionBootstrap,
+    window_start: datetime,
+    until: datetime,
+) -> ConversionBootstrap | None:
+    next_start = bootstrap.next_start
+    chunk_hours = bootstrap.chunk_hours
+    # Empty timestamp ranges are cheap to skip with the event timestamp index. Grow those
+    # ranges so a scan with no future-dated events does not take hundreds of daily sweeps.
+    for _ in range(20):
+        chunk_end = min(next_start + timedelta(hours=chunk_hours), CONVERSIONS_MAX_TIMESTAMP)
+        try:
+            has_rows = _add_conversion_counts(
+                ctx,
+                actions,
+                daily,
+                bootstrap.created_since,
+                bootstrap.created_until,
+                next_start,
+                chunk_end,
+                latest_inclusive=chunk_end == CONVERSIONS_MAX_TIMESTAMP,
+            )
+        except CONVERSIONS_SCAN_LIMITS:
+            if chunk_hours <= 1:
+                raise
+            return ConversionBootstrap(
+                next_start=next_start,
+                end=bootstrap.end,
+                created_since=bootstrap.created_since,
+                created_until=bootstrap.created_until,
+                phase=bootstrap.phase,
+                chunk_hours=max(1, chunk_hours // 2),
+            )
+        if chunk_end == CONVERSIONS_MAX_TIMESTAMP:
+            if bootstrap.phase == "initial_future" and bootstrap.created_until < until:
+                return ConversionBootstrap(
+                    next_start=window_start,
+                    end=bootstrap.end,
+                    created_since=bootstrap.created_until,
+                    created_until=bootstrap.created_until,
+                    phase="tail",
+                )
+            return None
+        next_start = chunk_end
+        if has_rows:
+            break
+        chunk_hours = min(chunk_hours * 2, CONVERSIONS_FUTURE_CHUNK_MAX_HOURS)
+    return ConversionBootstrap(
+        next_start=next_start,
+        end=bootstrap.end,
+        created_since=bootstrap.created_since,
+        created_until=bootstrap.created_until,
+        phase=bootstrap.phase,
+        chunk_hours=chunk_hours,
+    )
 
 
 def _advance_conversion_bootstrap(
@@ -316,7 +392,7 @@ def _advance_conversion_bootstrap(
     if bootstrap.phase == "tail":
         try:
             _add_conversion_counts(ctx, actions, daily, bootstrap.created_since, until, window_start)
-        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+        except CONVERSIONS_SCAN_LIMITS:
             return ConversionBootstrap(
                 next_start=window_start,
                 end=bootstrap.end,
@@ -326,32 +402,8 @@ def _advance_conversion_bootstrap(
             )
         return None
 
-    if bootstrap.phase == "catchup_future":
-        chunk_hours = bootstrap.chunk_hours
-        chunk_end = min(bootstrap.next_start + timedelta(hours=chunk_hours), bootstrap.created_until)
-        try:
-            _add_conversion_counts(ctx, actions, daily, bootstrap.next_start, chunk_end, bootstrap.end)
-        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
-            if chunk_hours <= 1:
-                raise
-            return ConversionBootstrap(
-                next_start=bootstrap.next_start,
-                end=bootstrap.end,
-                created_since=bootstrap.created_since,
-                created_until=bootstrap.created_until,
-                phase="catchup_future",
-                chunk_hours=max(1, chunk_hours // 2),
-            )
-        if chunk_end >= bootstrap.created_until:
-            return None
-        return ConversionBootstrap(
-            next_start=chunk_end,
-            end=bootstrap.end,
-            created_since=bootstrap.created_since,
-            created_until=bootstrap.created_until,
-            phase="catchup_future",
-            chunk_hours=chunk_hours,
-        )
+    if bootstrap.phase in ("initial_future", "catchup_future"):
+        return _advance_conversion_future(ctx, actions, daily, bootstrap, window_start, until)
 
     next_start = max(bootstrap.next_start, window_start)
     end = bootstrap.end
@@ -382,9 +434,9 @@ def _advance_conversion_bootstrap(
             bootstrap.created_since,
             bootstrap.created_until,
             next_start,
-            chunk_end if bootstrap.phase == "catchup" or chunk_end < end else None,
+            chunk_end,
         )
-    except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+    except CONVERSIONS_SCAN_LIMITS:
         if chunk_hours <= 1:
             raise
         return ConversionBootstrap(
@@ -410,12 +462,19 @@ def _advance_conversion_bootstrap(
         if bootstrap.created_since is None or bootstrap.created_since >= bootstrap.created_until:
             return None
         return ConversionBootstrap(
-            next_start=bootstrap.created_since,
+            next_start=end,
             end=end,
             created_since=bootstrap.created_since,
             created_until=bootstrap.created_until,
             phase="catchup_future",
             chunk_hours=CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24,
+        )
+    if bootstrap.phase == "initial":
+        return ConversionBootstrap(
+            next_start=end,
+            end=end,
+            created_until=bootstrap.created_until,
+            phase="initial_future",
         )
     if bootstrap.created_until < until:
         return ConversionBootstrap(
@@ -458,7 +517,7 @@ def evaluate_conversions(ctx: EvalContext, prior: PriorProgress) -> TrackEvaluat
             earliest_timestamp = max(window_start, since - LATE_ARRIVAL_LOOKBACK) if since is not None else window_start
             try:
                 _add_conversion_counts(ctx, actions, daily, since, until, earliest_timestamp)
-            except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+            except CONVERSIONS_SCAN_LIMITS:
                 if since is not None:
                     raise
                 daily = {}
