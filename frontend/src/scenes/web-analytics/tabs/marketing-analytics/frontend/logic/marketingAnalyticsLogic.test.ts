@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     ConversionGoalFilter,
     MARKETING_INTEGRATION_CONFIGS,
@@ -41,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { SEARCH_PERFORMANCE_QUERY_KEY } from 'products/marketing_analytics/frontend/search/searchPerformance'
 import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/search/searchPerformanceLogic'
 
 import {
@@ -370,8 +372,28 @@ describe('marketingAnalyticsLogic', () => {
             expect(search.values.query.includePostHogConversions).toBe(false)
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
+            const searchNode = dataNodeLogic({
+                key: SEARCH_PERFORMANCE_QUERY_KEY,
+                query: search.values.query,
+                autoLoad: false,
+            })
+            searchNode.mount()
+            const reloadSearch = jest.spyOn(searchNode.actions, 'loadData')
+            const saveSetting = (config: Record<string, unknown>): void => {
+                teamLogic.actions.updateCurrentTeamSuccess(teamLogic.values.currentTeam!, {
+                    marketing_analytics_config: config,
+                })
+            }
+            saveSetting({ attribution_window_days: 30 })
+            expect(reloadSearch).not.toHaveBeenCalled()
+            saveSetting({ filter_test_accounts: true })
+            expect(reloadSearch).toHaveBeenCalledWith('force_async')
             search.actions.setMetrics('traffic')
             expect(search.values.query.includePostHogConversions).toBe(false)
+            saveSetting({ filter_test_accounts: false })
+            expect(reloadSearch).toHaveBeenCalledTimes(1)
+            await expectLogic(searchNode).toFinishAllListeners()
+            searchNode.unmount()
             search.actions.setMetrics('conversions')
             const savedQuery: DataTableNode = {
                 kind: NodeKind.DataTableNode,

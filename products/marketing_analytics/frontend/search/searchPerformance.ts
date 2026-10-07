@@ -8,6 +8,8 @@ export type SearchMetrics = 'traffic' | 'conversions'
 export type SearchBreakdown = NonNullable<MarketingAnalyticsSearchQuery['breakdown']>
 export type SearchChannel = 'all' | 'paid' | 'organic'
 
+export const SEARCH_PERFORMANCE_QUERY_KEY = 'marketing-search-performance'
+
 export const SEARCH_PLATFORM_LABELS: Record<SearchPlatform, string> = {
     GoogleAds: 'Google Ads',
     BingAds: 'Bing Ads',

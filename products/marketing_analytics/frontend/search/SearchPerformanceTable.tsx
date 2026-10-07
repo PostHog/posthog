@@ -18,7 +18,7 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
-import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
+import { SEARCH_PERFORMANCE_QUERY_KEY, SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
 
 export function SearchPerformanceTable({
     query,
@@ -26,7 +26,7 @@ export function SearchPerformanceTable({
     showPosition = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
-    queryKey = 'marketing-search-performance',
+    queryKey = SEARCH_PERFORMANCE_QUERY_KEY,
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
