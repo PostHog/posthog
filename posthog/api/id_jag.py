@@ -507,12 +507,13 @@ def _parse_scope_list(value: str | list[str] | None) -> list[str]:
 
 
 def issue_access_token(
-    assertion: str, requested_scope: str | list[str] | None, request_client_id: str | None
+    assertion: str, requested_scope: str | list[str] | None, authenticated_client_id: str
 ) -> IssuedAccessToken:
     """
     Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
     view so the same path is exercised by tests, batch tools, and the HTTP
-    handler.
+    handler. `authenticated_client_id` must come from verified client
+    authentication, never from an unchecked request field.
     """
 
     verified_id_jag = _verify_and_extract_id_jag_token(assertion)
@@ -521,7 +522,7 @@ def issue_access_token(
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
 
-    if request_client_id and request_client_id != verified_id_jag.claims.get("client_id"):
+    if authenticated_client_id != verified_id_jag.claims.get("client_id"):
         raise InvalidGrantError("ID-JAG client_id doesn't match the authenticating client")
 
     id_jag_scopes = _parse_scope_list(verified_id_jag.claims.get("scope"))

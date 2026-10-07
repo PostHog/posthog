@@ -2044,6 +2044,27 @@ class OAuthTokenView(TokenView):
             properties=properties,
         )
 
+    def _authenticate_jwt_bearer_client(self, request) -> OAuthApplication | None:
+        """The client the request proved itself to be, or None.
+
+        draft-ietf-oauth-identity-assertion-authz-grant binds the ID-JAG to the client that
+        presents it, and supports the grant for confidential clients only, so a client
+        presenting no credential is refused rather than treated as public. A CIMD client
+        reaching us here for the first time has no row yet, so it is resolved before its
+        assertion is verified against the keys its document publishes."""
+        core = self.get_oauthlib_core()
+        uri, http_method, body, headers = core._extract_params(request)
+        oauth_request = OauthlibRequest(uri, http_method, body, headers)
+        validator = core.server.request_validator
+        # RFC 7523 lets a private_key_jwt client omit client_id and name itself in the assertion.
+        resolved_assertion = OAuthValidator._resolve_request_assertion(oauth_request)
+        client_id = resolved_assertion.client_id if resolved_assertion else request.POST.get("client_id") or ""
+        if is_cimd_client_id(client_id) and not validator.validate_client_id(client_id, oauth_request):
+            return None
+        if not validator.authenticate_client(oauth_request):
+            return None
+        return oauth_request.client
+
     def _handle_jwt_bearer_grant(self, request) -> JsonResponse:
         """ID-JAG (XAA) JWT Bearer grant (RFC 7523). The XAA spec puts the
         ID-JAG → access-token exchange at the Authorization Server's
@@ -2062,6 +2083,26 @@ class OAuthTokenView(TokenView):
 
         requested_scope = request.POST.get("scope")
         request_client_id = request.POST.get("client_id")
+
+        client = self._authenticate_jwt_bearer_client(request)
+        if client is None:
+            self._capture_token_rejected(
+                id_jag.JWT_BEARER_GRANT_TYPE,
+                request_client_id or "",
+                "invalid_client",
+                self._request_client_auth_method(request),
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_client",
+                    "error_description": (
+                        "Client authentication failed. The jwt-bearer grant needs a registered client that "
+                        "authenticates with a client secret or private_key_jwt."
+                    ),
+                },
+                status=401,
+            )
+        request_client_id = client.client_id
 
         try:
             issued_access_token = id_jag.issue_access_token(assertion, requested_scope, request_client_id)
