@@ -541,6 +541,7 @@ the row lists both.
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
+| modal                            | gRPC                        | modal (vendor SDK)                                              | ⚠️ Vendor SDK               |
 | moengage                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -907,6 +908,7 @@ the row lists both.
 
 ### Notes on partially-tracked sources
 
+- **modal** uses grpclib inside its SDK without a channel or interceptor hook, so gRPC traffic bypasses tracking.
 - **bing_ads** uses Microsoft's `bingads` Python SDK, which builds its own HTTP transport via `suds-py3` for
   the SOAP API and a separate Reporting client. The SDK does not expose a session or HTTP-client injection
   hook today. Outbound traffic from this source bypasses the tracked transport.
@@ -1277,7 +1279,6 @@ doesn't conflict with concurrent PRs.
 - mirakl
 - miro
 - missive
-- modal
 - mode
 - moesif
 - monaco
