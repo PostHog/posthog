@@ -23,7 +23,6 @@ ui_apps:
         app_name: PostHog Render UI
         description: Renders the visualization for a PostHog MCP tool result
 tools:
-    
     domains-list:
         operation: domains_list
         enabled: true
