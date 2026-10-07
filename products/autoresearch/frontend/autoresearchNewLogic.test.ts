@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -8,11 +11,13 @@ import {
     autoresearchCreate,
     autoresearchResolveTemplateCreate,
     autoresearchTemplatesList,
+    autoresearchTrainCreate,
     autoresearchValidateCreate,
 } from './generated/api'
 
 jest.mock('./generated/api', () => ({
     autoresearchCreate: jest.fn(),
+    autoresearchTrainCreate: jest.fn(),
     autoresearchValidateCreate: jest.fn(),
     autoresearchTemplatesList: jest.fn(),
     autoresearchResolveTemplateCreate: jest.fn(),
@@ -22,6 +27,22 @@ const mockCreate = autoresearchCreate as jest.Mock
 const mockValidate = autoresearchValidateCreate as jest.Mock
 const mockTemplates = autoresearchTemplatesList as jest.Mock
 const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
+const mockCreate = autoresearchCreate as jest.Mock
+const mockTrain = autoresearchTrainCreate as jest.Mock
+
+function validation(warnings: { code: string; severity: string }[]): Record<string, unknown> {
+    return {
+        can_proceed: !warnings.some((w) => w.severity === 'error'),
+        requires_acknowledgement: false,
+        estimated_training_rows: 1000,
+        positive_count: 100,
+        negative_count: 900,
+        base_rate: 0.1,
+        inference_population_size: 2000,
+        warnings: warnings.map((w) => ({ ...w, message: w.code })),
+        error: null,
+    }
+}
 
 const TEMPLATES = [
     {
@@ -240,5 +261,85 @@ describe('autoresearchNewLogic', () => {
         logic.actions.submitNewPipeline()
         await settle(logic)
         expect(mockCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['no warnings', [], 'ready', ['pass', 'pass', 'pass', 'pass'], false],
+        [
+            'a non-blocking warning',
+            [{ code: 'extreme_imbalance', severity: 'warning' }],
+            'warnings',
+            ['pass', 'warning', 'pass', 'pass'],
+            false,
+        ],
+        [
+            'a blocking warning',
+            [
+                { code: 'low_negatives', severity: 'error' },
+                { code: 'horizon_exceeds_lookback', severity: 'error' },
+            ],
+            'blocked',
+            ['pass', 'pass', 'fail', 'fail'],
+            true,
+        ],
+    ])(
+        'builds the readiness checklist from a response with %s',
+        async (_, warnings, readiness, statuses, startTrainingDisabled) => {
+            mockValidate.mockResolvedValue(validation(warnings))
+            const logic = autoresearchNewLogic()
+            logic.mount()
+
+            logic.actions.setNewPipelineValues({ target_event: '$pageview' })
+            await settle(logic)
+
+            expect(logic.values.readiness).toBe(readiness)
+            expect(logic.values.readinessChecks.map((check) => check.status)).toEqual(statuses)
+            expect(!!logic.values.startTrainingDisabledReason).toBe(startTrainingDisabled)
+            expect(logic.values.saveDraftDisabledReason).toBeUndefined()
+        }
+    )
+
+    it.each([
+        ['train', 'blocked', 0, 0],
+        ['draft', 'blocked', 1, 0],
+        ['train', 'ready', 1, 1],
+        ['draft', 'ready', 1, 0],
+    ] as const)(
+        'with the %s action on a %s definition, creates %d model and starts %d run',
+        async (intent, readiness, expectedCreates, expectedTrains) => {
+            mockValidate.mockResolvedValue(
+                validation(readiness === 'blocked' ? [{ code: 'low_volume', severity: 'error' }] : [])
+            )
+            mockCreate.mockResolvedValue({ id: 'pipeline-1', name: 'Sharing' })
+            mockTrain.mockResolvedValue({ id: 'run-1', status: 'running' })
+            const logic = autoresearchNewLogic()
+            logic.mount()
+
+            logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+            await settle(logic)
+            logic.actions.submitWithIntent(intent)
+            await settle(logic)
+
+            expect(mockCreate).toHaveBeenCalledTimes(expectedCreates)
+            expect(mockTrain.mock.calls.map((call) => call[1])).toEqual(expectedTrains ? ['pipeline-1'] : [])
+            expect(router.values.location.pathname.endsWith(urls.autoresearchPipeline('pipeline-1'))).toBe(
+                expectedCreates === 1
+            )
+        }
+    )
+
+    it('opens the created model when training fails to start', async () => {
+        mockCreate.mockResolvedValue({ id: 'pipeline-1', name: 'Sharing' })
+        mockTrain.mockRejectedValue({ detail: 'Usage limit reached' })
+        const logic = autoresearchNewLogic()
+        logic.mount()
+
+        logic.actions.setNewPipelineValues({ name: 'Sharing', target_event: 'file_shared' })
+        await settle(logic)
+        logic.actions.submitWithIntent('train')
+        await settle(logic)
+
+        expect(mockTrain).toHaveBeenCalledTimes(1)
+        expect(router.values.location.pathname).toContain(urls.autoresearchPipeline('pipeline-1'))
     })
 })

@@ -30,15 +30,18 @@ import {
     autoresearchCreate,
     autoresearchResolveTemplateCreate,
     autoresearchTemplatesList,
+    autoresearchTrainCreate,
     autoresearchValidateCreate,
 } from './generated/api'
 import {
+    AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
     ResolvedTemplateApi,
     TemplateInfoApi,
     TemplateKeyEnumApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
+    ValidationWarningApi,
 } from './generated/api.schemas'
 
 type TargetType = 'event' | 'action'
@@ -85,6 +88,27 @@ const DEFAULTS: NewPipelineFormValues = {
 }
 
 export const HORIZON_PRESETS = [7, 14, 30, 90]
+
+/** Start training creates the model and runs it. Save as draft only creates it. */
+export type SubmitIntent = 'train' | 'draft'
+
+export type Readiness = 'ready' | 'warnings' | 'blocked'
+
+export type ReadinessCheckStatus = 'pass' | 'warning' | 'fail'
+
+export interface ReadinessCheck {
+    key: 'population' | 'positives' | 'negatives' | 'other'
+    label: string
+    value: string
+    status: ReadinessCheckStatus
+    warnings: ValidationWarningApi[]
+}
+
+const CHECK_WARNING_CODES: Record<Exclude<ReadinessCheck['key'], 'other'>, string[]> = {
+    population: ['low_volume', 'moderate_volume', 'mostly_anonymous_population', 'population_too_large'],
+    positives: ['low_positives', 'extreme_imbalance'],
+    negatives: ['low_negatives', 'near_universal'],
+}
 
 const VALIDATE_DEBOUNCE_MS = 500
 const RESOLVE_DEBOUNCE_MS = 300
@@ -157,6 +181,60 @@ export function populationSummary(kind: PopulationKind | null, filters: AnyPrope
     return `${base} matching ${filters.length} ${filters.length === 1 ? 'filter' : 'filters'}`
 }
 
+function formatCount(value: number | null | undefined): string {
+    return value === null || value === undefined ? 'Unknown' : value.toLocaleString()
+}
+
+function checkStatus(warnings: ValidationWarningApi[]): ReadinessCheckStatus {
+    if (warnings.some((w) => w.severity === 'error')) {
+        return 'fail'
+    }
+    return warnings.some((w) => w.severity === 'warning') ? 'warning' : 'pass'
+}
+
+function readinessChecks(validation: ValidatePipelineResponseApi): ReadinessCheck[] {
+    const forCodes = (codes: string[]): ValidationWarningApi[] =>
+        validation.warnings.filter((w) => codes.includes(w.code))
+    const grouped = Object.values(CHECK_WARNING_CODES).flat()
+    const population = forCodes(CHECK_WARNING_CODES.population)
+    const positives = forCodes(CHECK_WARNING_CODES.positives)
+    const negatives = forCodes(CHECK_WARNING_CODES.negatives)
+    const other = validation.warnings.filter((w) => !grouped.includes(w.code))
+    const baseRate = validation.base_rate === null ? '' : ` (${(validation.base_rate * 100).toFixed(1)}% base rate)`
+    return [
+        {
+            key: 'population',
+            label: 'Population size',
+            value: `${formatCount(validation.estimated_training_rows)} to train on, ${formatCount(
+                validation.inference_population_size
+            )} to score`,
+            status: checkStatus(population),
+            warnings: population,
+        },
+        {
+            key: 'positives',
+            label: 'People who did it',
+            value: `${formatCount(validation.positive_count)}${baseRate}`,
+            status: checkStatus(positives),
+            warnings: positives,
+        },
+        {
+            key: 'negatives',
+            label: "People who didn't",
+            value: formatCount(validation.negative_count),
+            status: checkStatus(negatives),
+            warnings: negatives,
+        },
+        {
+            key: 'other',
+            label: 'Other warnings',
+            value: other.length === 0 ? 'None' : String(other.length),
+            status: checkStatus(other),
+            warnings: other,
+        },
+    ]
+}
+
 /** The form values a resolve-template response sets. Fields the user edited keep their value. */
 function valuesFromResolvedTemplate(
     resolved: ResolvedTemplateApi,
@@ -198,10 +276,15 @@ export interface autoresearchNewLogicValues {
     newPipelineTouched: boolean
     newPipelineTouches: Record<string, boolean>
     newPipelineValidationErrors: DeepPartialMap<NewPipelineFormValues, ValidationErrorType>
+    readiness: Readiness | null
+    readinessChecks: ReadinessCheck[]
     resolvedTemplate: ResolvedTemplateApi | null
     resolvedTemplateLoading: boolean
     resolvedTemplateStale: boolean
+    saveDraftDisabledReason: string | undefined
     showNewPipelineErrors: boolean
+    startTrainingDisabledReason: string | undefined
+    submitIntent: SubmitIntent
     templates: TemplateInfoApi[]
     templatesLoading: boolean
     validation: ValidatePipelineResponseApi | null
@@ -297,6 +380,9 @@ export interface autoresearchNewLogicActions {
     submitNewPipelineSuccess: (newPipeline: NewPipelineFormValues) => {
         newPipeline: NewPipelineFormValues
     }
+    submitWithIntent: (intent: SubmitIntent) => {
+        intent: SubmitIntent
+    }
     touchNewPipelineField: (key: string) => {
         key: string
     }
@@ -335,6 +421,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
         resolveTemplateSuccess: (resolved: ResolvedTemplateApi) => ({ resolved }),
         resolveTemplateFailure: true,
         setAdvancedOpen: (open: boolean) => ({ open }),
+        submitWithIntent: (intent: SubmitIntent) => ({ intent }),
     }),
     loaders(({ values }) => ({
         templates: [
@@ -431,6 +518,12 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 setAdvancedOpen: (_, { open }) => open,
             },
         ],
+        submitIntent: [
+            'train' as SubmitIntent,
+            {
+                submitWithIntent: (_, { intent }) => intent,
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         newPipeline: {
@@ -485,19 +578,23 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     )
                     return
                 }
-                if (values.validationFailed) {
-                    lemonToast.error('Validation failed to run. Retry it, then create.')
-                    return
-                }
-                if (values.validationLoading || !values.validation) {
-                    // The form clears its validation on every change and re-runs it debounced, so a
-                    // null or in-flight result means these values have never been checked.
-                    lemonToast.error('Validation is still running. Wait for it to finish, then create.')
-                    return
-                }
-                if (!values.validation.can_proceed) {
-                    lemonToast.error('Validation found blocking errors. Fix them before creating.')
-                    return
+                const intent = values.submitIntent
+                // A draft does not train, so only Start training needs a passing check.
+                if (intent === 'train') {
+                    if (values.validationFailed) {
+                        lemonToast.error("Couldn't check this model. Retry the check, then start training.")
+                        return
+                    }
+                    if (values.validationLoading || !values.validation) {
+                        // The form clears its validation on every change and re-runs it debounced, so a
+                        // null or in-flight result means these values have never been checked.
+                        lemonToast.error('The check is still running. Wait for it to finish, then start training.')
+                        return
+                    }
+                    if (!values.validation.can_proceed) {
+                        lemonToast.error("This model can't train yet. Fix the failed checks first.")
+                        return
+                    }
                 }
                 const { target_event, target_definition } = targetRequestFields(payload)
                 const { training_population, inference_population } = populationRequestFields(payload)
@@ -515,21 +612,18 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                         ? { output_person_property: payload.output_person_property }
                         : {}),
                 }
+                const eventProperties = {
+                    target_type: payload.target_type,
+                    template_key: payload.template_key,
+                    action: intent === 'train' ? 'start_training' : 'save_draft',
+                    readiness: values.readiness,
+                }
+                const teamId = String(values.currentTeamId)
+                let created: AutoresearchPipelineApi
                 try {
-                    const created = await autoresearchCreate(String(values.currentTeamId), body)
-                    posthog.capture('autoresearch model created', {
-                        pipeline_id: created.id,
-                        target_type: payload.target_type,
-                        template_key: payload.template_key,
-                    })
-                    lemonToast.success(`Created "${created.name}"`)
-                    actions.resetNewPipeline()
-                    router.actions.push(urls.autoresearch())
+                    created = await autoresearchCreate(teamId, body)
                 } catch (error: any) {
-                    posthog.capture('autoresearch model create failed', {
-                        target_type: payload.target_type,
-                        template_key: payload.template_key,
-                    })
+                    posthog.capture('autoresearch model create failed', eventProperties)
                     lemonToast.error(
                         error?.detail ??
                             error?.data?.detail ??
@@ -537,6 +631,32 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     )
                     throw error
                 }
+                posthog.capture('autoresearch model created', { ...eventProperties, pipeline_id: created.id })
+                if (intent === 'train') {
+                    try {
+                        await autoresearchTrainCreate(teamId, created.id)
+                        posthog.capture('autoresearch model training started', {
+                            ...eventProperties,
+                            pipeline_id: created.id,
+                        })
+                        lemonToast.success(`Started training "${created.name}"`)
+                    } catch (error: any) {
+                        // The model exists, so open it anyway. Its page can start training again.
+                        posthog.capture('autoresearch model training start failed', {
+                            ...eventProperties,
+                            pipeline_id: created.id,
+                        })
+                        lemonToast.error(
+                            `Saved "${created.name}" as a draft, but training didn't start. ${
+                                error?.detail ?? error?.data?.detail ?? 'Start it from the model page.'
+                            }`
+                        )
+                    }
+                } else {
+                    lemonToast.success(`Saved "${created.name}" as a draft`)
+                }
+                actions.resetNewPipeline()
+                router.actions.push(urls.autoresearchPipeline(created.id))
             },
         },
     })),
@@ -549,8 +669,73 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     resolved.target_event !== newPipeline.target_event.trim() ||
                     resolved.horizon_days !== newPipeline.horizon_days),
         ],
+        readiness: [
+            (s) => [s.validation],
+            (validation: ValidatePipelineResponseApi | null): Readiness | null => {
+                if (!validation) {
+                    return null
+                }
+                if (!validation.can_proceed) {
+                    return 'blocked'
+                }
+                return validation.warnings.some((w) => w.severity === 'warning') ? 'warnings' : 'ready'
+            },
+        ],
+        readinessChecks: [
+            (s) => [s.validation],
+            (validation: ValidatePipelineResponseApi | null): ReadinessCheck[] =>
+                validation && !validation.error ? readinessChecks(validation) : [],
+        ],
+        startTrainingDisabledReason: [
+            (s) => [
+                s.resolvedTemplateLoading,
+                s.isNewPipelineSubmitting,
+                s.submitIntent,
+                s.validationFailed,
+                s.validationLoading,
+                s.validation,
+            ],
+            (
+                resolvedTemplateLoading: boolean,
+                isSubmitting: boolean,
+                submitIntent: SubmitIntent,
+                validationFailed: boolean,
+                validationLoading: boolean,
+                validation: ValidatePipelineResponseApi | null
+            ): string | undefined => {
+                if (resolvedTemplateLoading) {
+                    return 'Wait for the template to load'
+                }
+                if (isSubmitting && submitIntent === 'draft') {
+                    return 'Saving the draft'
+                }
+                if (validationFailed) {
+                    return "Couldn't check this model. Retry the check first."
+                }
+                if (validation && !validation.can_proceed) {
+                    return "This model can't train yet. Fix the failed checks first."
+                }
+                return validationLoading ? 'Checking your data' : undefined
+            },
+        ],
+        saveDraftDisabledReason: [
+            (s) => [s.resolvedTemplateLoading, s.isNewPipelineSubmitting, s.submitIntent],
+            (
+                resolvedTemplateLoading: boolean,
+                isSubmitting: boolean,
+                submitIntent: SubmitIntent
+            ): string | undefined => {
+                if (resolvedTemplateLoading) {
+                    return 'Wait for the template to load'
+                }
+                return isSubmitting && submitIntent === 'train' ? 'Starting training' : undefined
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        submitWithIntent: () => {
+            actions.submitNewPipeline()
+        },
         runValidateSuccess: ({ validation }) => {
             if (validation) {
                 posthog.capture('autoresearch model validated', {
