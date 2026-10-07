@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from queue import Queue
 from threading import Lock
+from typing import Literal, TypedDict
 
 from django.db import connections
 
@@ -20,19 +21,39 @@ from products.dashboards.backend.query_sharing import DashboardQuerySharing
 logger = structlog.get_logger(__name__)
 
 
+class DashboardQuerySharingTileEvent(TypedDict):
+    type: Literal["tile"]
+    tile: dict[str, object]
+
+
+class DashboardQuerySharingErrorEvent(TypedDict):
+    type: Literal["error"]
+
+
+class DashboardQuerySharingCompleteEvent(TypedDict):
+    type: Literal["complete"]
+
+
+type DashboardQuerySharingStreamEvent = (
+    DashboardQuerySharingTileEvent | DashboardQuerySharingErrorEvent | DashboardQuerySharingCompleteEvent
+)
+
+
 class DashboardQuerySharingStream:
-    def __init__(self, *, jobs: Sequence[Callable[[], dict]], team_id: int, query_id: str) -> None:
+    def __init__(
+        self, *, jobs: Sequence[Callable[[], DashboardQuerySharingStreamEvent]], team_id: int, query_id: str
+    ) -> None:
         self._jobs = jobs
         self._team_id = team_id
         self._query_id = query_id
         self._context = copy_context()
         self._sharing = DashboardQuerySharing()
-        self._queue: Queue[dict] = Queue()
+        self._queue: Queue[DashboardQuerySharingStreamEvent] = Queue()
         self._pool: ThreadPoolExecutor | None = None
         self._active: set[str] = set()
         self._lock = Lock()
 
-    def _run(self, job: Callable[[], dict], query_id: str) -> None:
+    def _run(self, job: Callable[[], DashboardQuerySharingStreamEvent], query_id: str) -> None:
         token = hogql_execution_override.set(self._sharing.execute)
         try:
             with self._lock:
@@ -52,7 +73,7 @@ class DashboardQuerySharingStream:
     def _start(self) -> None:
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dashboard-sharing")
         for index, job in enumerate(self._jobs):
-            self._pool.submit(self._context.copy().run, self._run, job, f"{self._query_id}-{index}")
+            self._pool.submit(self._context.copy().run, self._run, job, f"{self._query_id}-tile-{index}-")
 
     def _close(self, complete: bool) -> None:
         with self._lock:
@@ -69,7 +90,7 @@ class DashboardQuerySharingStream:
                     logger.exception("Failed to cancel dashboard query sharing execution")
 
     @staticmethod
-    def _encode(event: dict) -> bytes:
+    def _encode(event: DashboardQuerySharingStreamEvent) -> bytes:
         return b"data: " + SafeJSONRenderer().render(event) + b"\n\n"
 
     def stream(self) -> Generator[bytes]:

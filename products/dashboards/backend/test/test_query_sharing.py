@@ -128,7 +128,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
                     iterator = stream.stream()
                     self.assertIn(b'"id":2', next(iterator))
                     iterator.close()
-                cancel.assert_any_call(team_id=1, client_query_id="test-0")
+                cancel.assert_any_call(team_id=1, client_query_id="test-tile-0-")
         finally:
             release.set()
         self.assertTrue(finished.wait(timeout=10))

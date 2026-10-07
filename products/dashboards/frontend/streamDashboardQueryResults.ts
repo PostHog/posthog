@@ -11,6 +11,7 @@ export async function streamDashboardQueryResults(
     onTile: (tile: DashboardTileApi) => void
 ): Promise<void> {
     let complete = false
+    // nosemgrep: prefer-codegen-api -- SSE transport has no generated client; the URL comes from the generated getDashboardsStreamQueryResultsRetrieveUrl.
     await api.stream(getDashboardsStreamQueryResultsRetrieveUrl(String(projectId), dashboardId, params), {
         signal,
         onMessage(event) {
