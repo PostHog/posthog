@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -29,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class Neo4jSource(SimpleSource[Neo4jSourceConfig]):
+class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
     api_docs_url = "https://neo4j.com/docs/query-api/current/"
