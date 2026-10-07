@@ -106,7 +106,9 @@ export interface todayShellLogicValues {
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
+    phoneCanGoBack: boolean
     phoneHeaderHidden: boolean
+    phoneHeaderShown: boolean
     phoneLayout: boolean
     phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
@@ -187,6 +189,8 @@ export interface todayShellLogicMeta {
             todayRailEnabled: boolean,
             phoneLayout: boolean
         ) => boolean
+        phoneHeaderShown: (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean) => boolean
+        phoneCanGoBack: (phonePages: TodayPhonePage[]) => boolean
     }
 }
 
@@ -290,6 +294,13 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 phoneLayout: boolean
             ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!searchParams.task,
         ],
+        // The phone header shows the scene title, so the scene title row leaves it out.
+        phoneHeaderShown: [
+            (s) => [s.todayRailEnabled, s.phoneLayout, s.phoneHeaderHidden],
+            (todayRailEnabled: boolean, phoneLayout: boolean, phoneHeaderHidden: boolean): boolean =>
+                todayRailEnabled && phoneLayout && !phoneHeaderHidden,
+        ],
+        phoneCanGoBack: [(s) => [s.phonePages], (phonePages: TodayPhonePage[]): boolean => phonePages.length > 1],
     }),
     subscriptions(({ actions }) => ({
         mobileLayout: () => actions.setMobileSidebarOpen(false),
