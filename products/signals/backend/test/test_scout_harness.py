@@ -3080,7 +3080,21 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
+@pytest.mark.parametrize(
+    "status,state,age_s,expect_reaped",
+    [
+        ("in_progress", {}, STALE_RUN_CUTOFF_S + 60, True),
+        # A worker death after the agent went idle: the Tasks inactivity timeout closes the TaskRun
+        # before the next dispatch, so the run no longer blocks the lane but still never reported.
+        ("completed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
+        ("failed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
+        # A 30-day lane dispatches again only a month after its orphan started.
+        ("completed", {"timed_out_inactivity": True}, 31 * 24 * 60 * 60, True),
+        # A run the scout ended itself already emitted `signals_scout_run_finished`.
+        ("completed", {}, STALE_RUN_CUTOFF_S + 60, False),
+    ],
+)
+async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, status, state, age_s, expect_reaped):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # Reaping an orphan emits `signals_scout_run_reaped` — the strand's only event (a reaped
     # run never reaches the finalize path, so it emits no `signals_scout_run_finished`). This
@@ -3090,8 +3104,9 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
     )
     task_run = await database_sync_to_async(_make_task_run)(ateam)
     await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
-        status=TaskRun.Status.IN_PROGRESS,
-        created_at=datetime.now(UTC) - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+        status=status,
+        state=state,
+        created_at=datetime.now(UTC) - timedelta(seconds=age_s),
     )
     await database_sync_to_async(SignalScoutRun.objects.create)(
         task_run=task_run,
@@ -3109,13 +3124,19 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+        # A second dispatch must not report the same run again.
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    reaped = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_reaped")
+    reaped_calls = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_reaped"]
+    assert len(reaped_calls) == (1 if expect_reaped else 0)
+    if not expect_reaped:
+        return
+    reaped = reaped_calls[0]
     assert reaped.kwargs["distinct_id"] == str(ateam.uuid)
     props = reaped.kwargs["properties"]
     assert props["skill_name"] == "signals-scout-errors"
     assert props["task_run_id"] == str(task_run.id)
-    assert props["status_before"] == TaskRun.Status.IN_PROGRESS
+    assert props["status_before"] == status
     assert props["stale_cutoff_seconds"] == STALE_RUN_CUTOFF_S
     # Age is measured from the orphan's TaskRun.created_at, so it clears the cutoff.
     assert props["age_seconds"] >= STALE_RUN_CUTOFF_S
