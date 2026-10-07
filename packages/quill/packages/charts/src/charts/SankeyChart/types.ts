@@ -2,6 +2,7 @@ import type React from 'react'
 
 import type { ChartMargins, ChartTheme, TooltipContext } from '../../core/types'
 import type { SankeyLinkDatum, SankeyLinkInput, SankeyNodeAlign, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
+import type { SankeyLastColumnLabels } from './sankey-labels'
 
 export type SankeyTooltipHit<NodeMeta = unknown, LinkMeta = NodeMeta> =
     | { kind: 'node'; node: SankeyNodeDatum<NodeMeta> }
@@ -36,6 +37,10 @@ export interface SankeyChartConfig {
     columnLabels?: string[]
     /** Defaults to true. */
     showNodeLabels?: boolean
+    /** Where the last column's labels sit. `inside` (default) puts them left of the nodes, over the
+     *  ribbons; `outside` puts them right of the nodes in a reserved margin, so names in the last
+     *  column read in full on a narrow chart. */
+    lastColumnLabels?: SankeyLastColumnLabels
     /** Append the node's value to its label. Defaults to false. */
     showNodeValues?: boolean
     /** Resting ribbon opacity, 0..1. Defaults to 0.4. */

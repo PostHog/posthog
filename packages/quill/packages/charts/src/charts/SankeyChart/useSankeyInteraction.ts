@@ -6,7 +6,7 @@ import { useTapTracking } from '../../core/hooks/useTapTracking'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
 import type { Series, TooltipContext } from '../../core/types'
 import { hitToHoverIndex, hoverIndexToHit, sankeyHitAt } from './sankey-data'
-import type { SankeyChartLayout, SankeyHit, SankeyLinkDatum, SankeyNodeDatum } from './sankey-data'
+import type { SankeyChartLayout, SankeyHit, SankeyLabelHitBox, SankeyLinkDatum, SankeyNodeDatum } from './sankey-data'
 import type { SankeyTooltipContext, SankeyTooltipHit } from './types'
 
 interface UseSankeyInteractionOptions<NodeMeta, LinkMeta> {
@@ -17,6 +17,8 @@ interface UseSankeyInteractionOptions<NodeMeta, LinkMeta> {
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
     onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
     onHoverChange?: (hit: SankeyTooltipHit<NodeMeta, LinkMeta> | null) => void
+    /** Drawn node labels; the pointer over one counts as over its node. */
+    labelBoxes?: readonly SankeyLabelHitBox[]
 }
 
 function hitKey(hit: SankeyHit | null): string | null {
@@ -88,9 +90,11 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onNodeClick,
     onLinkClick,
     onHoverChange,
+    labelBoxes,
 }: UseSankeyInteractionOptions<NodeMeta, LinkMeta>): UseSankeyInteractionResult<NodeMeta, LinkMeta> {
     type Ctx = SankeyTooltipContext<NodeMeta, LinkMeta>
     const layoutRef = useLatest(layout)
+    const labelBoxesRef = useLatest(labelBoxes)
     const onHoverChangeRef = useLatest(onHoverChange)
     // The last hit reported to the host, so a cursor sweep inside one ribbon reports it once.
     const reportedHitRef = useRef<string | null>(null)
@@ -179,7 +183,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-            const hit = sankeyHitAt(current, cursor)
+            const hit = sankeyHitAt(current, cursor, labelBoxesRef.current)
             if (!hit) {
                 clearTooltip()
                 reportHover(null)
@@ -187,7 +191,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             showHit(hit, cursor)
         },
-        [layoutRef, showHit, clearTooltip]
+        [layoutRef, labelBoxesRef, showHit, clearTooltip, reportHover]
     )
 
     const onMouseLeave = useCallback(() => {
@@ -212,9 +216,10 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             const current = layoutRef.current
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-            let hit = sankeyHitAt(current, cursor) ?? hoverIndexToHit(current, hoverIndexRef.current)
+            let hit =
+                sankeyHitAt(current, cursor, labelBoxesRef.current) ?? hoverIndexToHit(current, hoverIndexRef.current)
             if (lastPointerTypeRef.current === 'touch') {
-                hit = sankeyHitAt(current, cursor)
+                hit = sankeyHitAt(current, cursor, labelBoxesRef.current)
                 if (!hit) {
                     clearTooltip()
                     reportHover(null)
@@ -239,6 +244,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
         },
         [
             layoutRef,
+            labelBoxesRef,
             hoverIndexRef,
             lastPointerTypeRef,
             tapDownTooltipIndexRef,

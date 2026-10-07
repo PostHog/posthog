@@ -4,8 +4,9 @@ import type { ChartTheme } from '../../core/types'
 import { getHogChartTooltip, renderHogChart } from '../../testing'
 import { computeSankeyLayout } from './sankey-data'
 import type { SankeyLinkInput, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
+import { labelsSharingLastGap, sankeyLabelBoxes } from './sankey-labels'
 import { SankeyChart } from './SankeyChart'
-import { labelsSharingLastGap } from './SankeyNodeLabels'
+import { fitHeader } from './SankeyColumnLabels'
 
 const THEME: ChartTheme = { colors: ['#1f77b4', '#ff7f0e', '#2ca02c'], backgroundColor: '#ffffff' }
 
@@ -254,5 +255,39 @@ describe('SankeyChart', () => {
         expect(labelsSharingLastGap(new Set([first, penultimate, last, lastFarAway]), 3)).toEqual(
             new Set([penultimate, last])
         )
+    })
+
+    it('shows the node tooltip when the pointer is over its label, not the ribbon under it', async () => {
+        const { chart } = renderHogChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />, {
+            nativeTooltip: true,
+        })
+        // Right of the Start node, inside its label and over the Start -> Tool A ribbon.
+        const start = nodeCenter('start')
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, { clientX: start.clientX + 17, clientY: start.clientY })
+            expect(getHogChartTooltip()?.textContent).toContain('Start')
+        })
+        expect(getHogChartTooltip()?.textContent).not.toContain('→')
+    })
+
+    it('places last-column labels outside the nodes when asked, and truncates headers to their span', () => {
+        const layout = computeSankeyLayout({
+            nodes: NODES,
+            links: LINKS,
+            plot: { plotLeft: 8, plotTop: 8, plotWidth: 600, plotHeight: 300 },
+            nodeWidth: 12,
+            nodePadding: 8,
+            nodeAlign: 'justify',
+            preserveNodeOrder: false,
+            colorForLabel: () => '#000',
+            resolveColor: (c) => c,
+        })
+        const options = { showValues: false, valueFormatter: String, outsideWidth: 120 }
+        const sideOfLast = (lastColumnLabels: 'inside' | 'outside'): string | undefined =>
+            sankeyLabelBoxes(layout, { ...options, lastColumnLabels }).find((box) => box.text === 'Completed')?.side
+        expect([sideOfLast('inside'), sideOfLast('outside')]).toEqual(['left', 'right'])
+
+        expect(fitHeader('Outcome', 1000)).toBe('Outcome')
+        expect(fitHeader('4th tool', 8)).toBe('4th…')
     })
 })

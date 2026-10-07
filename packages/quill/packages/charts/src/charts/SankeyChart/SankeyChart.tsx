@@ -18,6 +18,8 @@ import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
 import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
 import type { SankeyChartLayout, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
+import { outsideLabelWidth, sankeyLabelBoxes } from './sankey-labels'
+import type { SankeyLabelBox } from './sankey-labels'
 import { SankeyColumnLabels } from './SankeyColumnLabels'
 import { SankeyNodeLabels } from './SankeyNodeLabels'
 import type { SankeyChartProps, SankeyTooltipContext } from './types'
@@ -83,6 +85,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         preserveNodeOrder = false,
         columnLabels,
         showNodeLabels = true,
+        lastColumnLabels = 'inside',
         showNodeValues = false,
         linkOpacity: configuredLinkOpacity = DEFAULT_LINK_OPACITY,
         valueFormatter = defaultValueFormatter,
@@ -95,12 +98,22 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const showTooltip = tooltipConfig?.enabled !== false
     const hasColumnLabels = !!columnLabels && columnLabels.length > 0
 
+    const outsideWidth = useMemo(
+        () =>
+            showNodeLabels && lastColumnLabels === 'outside'
+                ? outsideLabelWidth(nodes, links, showNodeValues, valueFormatter)
+                : 0,
+        [showNodeLabels, lastColumnLabels, nodes, links, showNodeValues, valueFormatter]
+    )
+
     const margins = useMemo<ChartMargins>(() => {
-        const computed = hasColumnLabels
-            ? { ...BASE_MARGINS, top: BASE_MARGINS.top + COLUMN_LABEL_HEIGHT }
-            : BASE_MARGINS
+        const computed = {
+            ...BASE_MARGINS,
+            top: BASE_MARGINS.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0),
+            right: BASE_MARGINS.right + outsideWidth,
+        }
         return marginsOverride ? applyMarginOverride(computed, marginsOverride) : computed
-    }, [hasColumnLabels, marginsOverride])
+    }, [hasColumnLabels, outsideWidth, marginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
@@ -152,8 +165,22 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [dimensions, layout, linkOpacity, hasEmphasis]
     )
 
+    const labelBoxes = useMemo<SankeyLabelBox[]>(
+        () =>
+            showNodeLabels
+                ? sankeyLabelBoxes(layout as SankeyChartLayout<unknown, unknown>, {
+                      showValues: showNodeValues,
+                      valueFormatter,
+                      lastColumnLabels,
+                      outsideWidth,
+                  })
+                : [],
+        [showNodeLabels, layout, showNodeValues, valueFormatter, lastColumnLabels, outsideWidth]
+    )
+
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useSankeyInteraction<NodeMeta, LinkMeta>({
         layout,
+        labelBoxes,
         canvasRef,
         wrapperRef,
         showTooltip,
@@ -260,14 +287,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                         handlers={handlers}
                         showOverlay={!!dimensions}
                     >
-                        {hasColumnLabels ? <SankeyColumnLabels labels={columnLabels} color={labelColor} /> : null}
-                        {showNodeLabels ? (
-                            <SankeyNodeLabels
-                                color={labelColor}
-                                showValues={showNodeValues}
-                                valueFormatter={valueFormatter}
-                            />
+                        {hasColumnLabels ? (
+                            <SankeyColumnLabels labels={columnLabels} color={labelColor} trailingRoom={outsideWidth} />
                         ) : null}
+                        {showNodeLabels ? <SankeyNodeLabels boxes={labelBoxes} color={labelColor} /> : null}
                         {children}
                         {tooltipCtx && showTooltip ? (
                             <Tooltip

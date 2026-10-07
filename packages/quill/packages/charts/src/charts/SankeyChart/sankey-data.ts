@@ -314,6 +314,15 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     return { nodes: outNodes, links: outLinks, columnCount, columnX, total, nodeWidth: effectiveNodeWidth }
 }
 
+/** The part of a drawn node label the hit test needs: its node's index and its box. */
+export interface SankeyLabelHitBox {
+    index: number
+    x0: number
+    x1: number
+    y0: number
+    y1: number
+}
+
 export type SankeyHit = { kind: 'node'; index: number } | { kind: 'link'; index: number }
 
 /** Resolves what sits under the cursor: a node box first, then the nearest ribbon whose thickness
@@ -321,7 +330,8 @@ export type SankeyHit = { kind: 'node'; index: number } | { kind: 'link'; index:
  *  at the horizontal midpoint), so the test follows the painted shape exactly. */
 export function sankeyHitAt(
     layout: SankeyChartLayout<unknown, unknown>,
-    cursor: { x: number; y: number }
+    cursor: { x: number; y: number },
+    labels: readonly SankeyLabelHitBox[] = []
 ): SankeyHit | null {
     for (let i = 0; i < layout.nodes.length; i++) {
         const node = layout.nodes[i]
@@ -330,6 +340,12 @@ export function sankeyHitAt(
         const y1 = y0 + nodeHeight
         if (cursor.x >= node.x0 && cursor.x <= node.x1 && cursor.y >= y0 && cursor.y <= y1) {
             return { kind: 'node', index: i }
+        }
+    }
+    // A label stands for its node, so pointing at a truncated name shows the node's full tooltip.
+    for (const label of labels) {
+        if (cursor.x >= label.x0 && cursor.x <= label.x1 && cursor.y >= label.y0 && cursor.y <= label.y1) {
+            return { kind: 'node', index: label.index }
         }
     }
     let best: { index: number; distance: number } | null = null
