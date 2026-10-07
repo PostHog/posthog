@@ -1,4 +1,4 @@
-import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import { BIConditionGroup, BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 
 import {
     BIEditorView,
@@ -8,7 +8,7 @@ import {
     buildBIRowsQuery,
     parseBIEditorState,
 } from './biEditorTypes'
-import { moveBICondition } from './biFilterGroups'
+import { moveBICondition, ungroupBIConditionGroup } from './biFilterGroups'
 
 const field = (name: string): BIField => ({
     id: name,
@@ -28,6 +28,42 @@ const config: BIConfig = {
 }
 
 describe('BI filter groups', () => {
+    it('ungroups into the immediate parent while preserving nested conditions and sibling groups', () => {
+        const group: BIConditionGroup = {
+            operator: 'OR',
+            filters: [],
+            groups: [
+                {
+                    operator: 'AND',
+                    filters: [],
+                    groups: [
+                        {
+                            operator: 'OR',
+                            filters: ['event'],
+                            groups: [
+                                { operator: 'OR', filters: ['properties.plan', 'properties.country'], groups: [] },
+                            ],
+                        },
+                        { operator: 'AND', filters: [], groups: [] },
+                    ],
+                },
+            ],
+        }
+        const updated = ungroupBIConditionGroup(group, [0, 0])
+        const parsed = parseBIEditorState(BIEditorView.BI, { ...config, rowFilterGroup: updated })!.config
+        expect(parsed.rowFilterGroup?.filters).toEqual([])
+        expect(parsed.rowFilterGroup?.groups[0].filters).toEqual(['event'])
+        expect(parsed.rowFilterGroup?.groups[0].groups).toEqual([
+            group.groups[0].groups[0].groups[0],
+            group.groups[0].groups[1],
+        ])
+        for (const query of [buildBIQuery(parsed)!.query, buildBIRowsQuery(parsed)!.query]) {
+            expect(query).toContain(
+                "(event = 'example') AND ((properties.plan = 'example') OR (properties.country = 'example'))"
+            )
+        }
+    })
+
     it('moves conditions into nested groups and preserves precedence in charts, rows and suggestions', () => {
         const group = moveBICondition(
             {

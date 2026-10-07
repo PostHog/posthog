@@ -4,7 +4,12 @@ import { LemonButton, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-u
 
 import { BIConditionGroup } from '~/queries/schema/schema-business-intelligence'
 
-import { moveBICondition, normalizeBIConditionGroup, updateBIConditionGroup } from '../biFilterGroups'
+import {
+    moveBICondition,
+    normalizeBIConditionGroup,
+    ungroupBIConditionGroup,
+    updateBIConditionGroup,
+} from '../biFilterGroups'
 
 interface FilterOption {
     value: string
@@ -37,23 +42,13 @@ function GroupEditor({
                     size="small"
                     value={group.operator}
                     options={[
-                        { value: 'AND', label: 'AND — match all' },
-                        { value: 'OR', label: 'OR — match any' },
+                        { value: 'AND', label: 'AND (match all)' },
+                        { value: 'OR', label: 'OR (match any)' },
                     ]}
                     onChange={(operator) => update((node) => ({ ...node, operator }))}
                 />
                 {path.length > 0 && (
-                    <LemonButton
-                        size="xsmall"
-                        onClick={() =>
-                            onChange(
-                                updateBIConditionGroup(root, path.slice(0, -1), (parent) => ({
-                                    ...parent,
-                                    groups: parent.groups.filter((_, index) => index !== path[path.length - 1]),
-                                }))
-                            )
-                        }
-                    >
+                    <LemonButton size="xsmall" onClick={() => onChange(ungroupBIConditionGroup(root, path))}>
                         Ungroup
                     </LemonButton>
                 )}
@@ -135,8 +130,8 @@ export function BIConditionGroups({
                 }
             >
                 <p className="text-secondary">
-                    Add a group, then move filters into it. Empty groups have no effect. Ungroup moves its filters back
-                    to the outer group.
+                    Add a group, then move filters into it. Empty groups have no effect. Ungroup moves its filters and
+                    nested groups into the parent group.
                 </p>
                 <GroupEditor root={normalized} group={normalized} path={[]} options={options} onChange={onChange} />
             </LemonModal>

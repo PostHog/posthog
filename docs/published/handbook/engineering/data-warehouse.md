@@ -97,7 +97,7 @@ Numeric filters preserve the precision of entered values. Invalid numbers show a
 
 **Row filters** apply before aggregation. **Result filters** apply to aggregated measures, calculated measures, and table calculations after they run, before sorting and the final row limit. For example, add result filters for revenue greater than 1,000 and purchase count at least five. Each filter can be disabled without removing it. Removing a measure removes its result filters; the remaining filters keep their measure assignments.
 
-Both cards have **AND / OR groups**. Choose **AND — match all** or **OR — match any**, add nested groups, and move existing filters into them. Empty groups have no effect. Ungroup returns its conditions to the outer group. Existing worksheets retain their flat AND conditions. Date ranges and dashboard filters always combine with worksheet row conditions using AND; drill-down selections do too.
+Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match any)**, add nested groups, and move existing filters into them. Empty groups have no effect. Ungroup moves its conditions and nested groups into the immediate parent group. Existing worksheets retain their flat AND conditions. Date ranges and dashboard filters always combine with worksheet row conditions using AND; drill-down selections do too.
 
 Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
