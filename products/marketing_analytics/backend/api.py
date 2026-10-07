@@ -45,9 +45,8 @@ from posthog.api.project import capture_team_config_diff
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
+    app_org_concurrency_slot,
     get_api_team_rate_limiter,
-    get_app_org_rate_limiter,
-    get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -1206,12 +1205,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 get_api_team_rate_limiter().run(
                     team_id=self.team_id, is_api=is_api, limit=runner.get_api_queries_concurrency_limit()
                 ),
-                get_app_org_rate_limiter().run(
-                    org_id=self.team.organization_id,
-                    team_id=self.team_id,
-                    is_api=is_api,
-                    limit=get_org_app_concurrency_limit(self.team.organization_id),
-                ),
+                app_org_concurrency_slot(self.team),
             ):
                 result = runner.sessions(
                     goal_id=data["goal_id"],
