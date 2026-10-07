@@ -28,6 +28,7 @@ import {
 import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 import { parseSurveyResultsWidgetConfigApiError } from './surveys/surveysWidgetConfigValidation'
+import { parseWorkflowsWidgetConfigApiError } from './workflows/workflowsWidgetConfigValidation'
 
 // Widget UI is code-split: the static graph keeps only config-error parsers, types, and the lazy
 // factories below, so a logged-in page no longer eagerly downloads every widget's renderer, edit
@@ -135,6 +136,15 @@ const SurveyResultsWidgetTileFilters = lazyWithRetry(() =>
 )
 const EditSurveyResultsWidgetModal = lazyWithRetry(() =>
     import('./surveys/EditSurveyResultsWidgetModal').then((m) => ({ default: m.EditSurveyResultsWidgetModal }))
+)
+const WorkflowsWidget = lazyWithRetry(() =>
+    import('./workflows/WorkflowsWidget').then((m) => ({ default: m.WorkflowsWidget }))
+)
+const WorkflowsWidgetTileFilters = lazyWithRetry(() =>
+    import('./workflows/WorkflowsWidgetTileFilters').then((m) => ({ default: m.WorkflowsWidgetTileFilters }))
+)
+const EditWorkflowsWidgetModal = lazyWithRetry(() =>
+    import('./workflows/EditWorkflowsWidgetModal').then((m) => ({ default: m.EditWorkflowsWidgetModal }))
 )
 
 export type DashboardWidgetConfigApiErrorParser = (
@@ -259,6 +269,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditConversationsWidgetModal,
         productAccess: 'ticket',
         parseConfigApiError: parseConversationsWidgetConfigApiError,
+    },
+    workflows_list: {
+        Component: WorkflowsWidget,
+        TileFilters: WorkflowsWidgetTileFilters,
+        EditModal: EditWorkflowsWidgetModal,
+        productAccess: 'hog_flow',
+        parseConfigApiError: parseWorkflowsWidgetConfigApiError,
     },
     activity_events_list: {
         Component: ActivityEventsWidget,

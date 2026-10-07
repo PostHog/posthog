@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -15,11 +16,14 @@ from products.workflows.backend.facade.contracts import (
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
+    WorkflowActivityPage,
+    WorkflowActivityRow,
     WorkflowActivitySummary,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -28,6 +32,7 @@ from products.workflows.backend.services.email_sending_controls import (
     suspend_email_sending,
     unsuspend_email_sending,
 )
+from products.workflows.backend.services.hog_flow_metrics import fetch_hog_flow_totals
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
@@ -252,6 +257,89 @@ def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> Workflo
             for row in recent
         ),
     )
+
+
+def list_workflow_activity(
+    *,
+    team_id: int,
+    access_control: UserAccessControl | None,
+    status: str | None,
+    workflow_type: str | None,
+    limit: int,
+    after: datetime,
+    before: datetime,
+) -> WorkflowActivityPage:
+    """Most recently updated workflows with their run and email counts between `after` and `before`.
+
+    `status` and `workflow_type` narrow the list the way the workflows page's filters do; None keeps every
+    workflow. `access_control` drops workflows the user cannot see, as the list API does. Fetches one row
+    past `limit` so `has_more` is known without a count.
+    """
+    # The type filter and its vocabulary live with the list view; deferring the import keeps the DRF view
+    # module off this facade's import path, as set_workflow_enabled does.
+    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 - heavy DRF import
+        OWNED_WORKFLOW_TYPES,
+        WORKFLOW_TYPES,
+        workflow_type_q,
+    )
+
+    if workflow_type is not None and workflow_type not in WORKFLOW_TYPES:
+        raise ValueError(f"Unknown workflow type: {workflow_type}")
+
+    def type_of(flow: HogFlow, steps: list[Any]) -> str:
+        # The same split as workflow_type_q, read off one row instead of queried.
+        for owned_type, owner in OWNED_WORKFLOW_TYPES.items():
+            if flow.origin_product == owner:
+                return owned_type
+        if any(isinstance(step, dict) and step.get("type") in MESSAGING_ACTION_TYPES for step in steps):
+            return "messaging"
+        return "automation"
+
+    queryset = HogFlow.objects.filter(team_id=team_id)
+    if status is not None:
+        queryset = queryset.filter(status=status)
+    if workflow_type is not None:
+        queryset = queryset.filter(workflow_type_q({workflow_type}))
+    if access_control is not None:
+        queryset = access_control.filter_queryset_by_access_level(queryset)
+    # `id` breaks ties so rows sharing an updated_at keep a stable order across refreshes.
+    queryset = queryset.order_by("-updated_at", "-id").only(
+        "id", "name", "description", "status", "origin_product", "trigger", "actions", "updated_at"
+    )
+    flows = list(queryset[: limit + 1])
+    has_more = len(flows) > limit
+    flows = flows[:limit]
+
+    totals = fetch_hog_flow_totals(
+        team_id=team_id, flow_ids=[str(flow.id) for flow in flows], after=after, before=before
+    )
+
+    rows: list[WorkflowActivityRow] = []
+    for flow in flows:
+        counts = totals.get(str(flow.id), {})
+        steps = flow.actions if isinstance(flow.actions, list) else []
+        trigger = flow.trigger if isinstance(flow.trigger, dict) else {}
+        trigger_type = trigger.get("type")
+        rows.append(
+            WorkflowActivityRow(
+                id=str(flow.id),
+                name=flow.name or "",
+                description=flow.description or "",
+                status=flow.status,
+                workflow_type=type_of(flow, steps),
+                trigger_type=trigger_type if isinstance(trigger_type, str) else None,
+                has_email_step=any(isinstance(step, dict) and step.get("type") == "function_email" for step in steps),
+                updated_at=flow.updated_at,
+                started=counts.get("triggered", 0),
+                completed=counts.get("succeeded", 0),
+                failed=counts.get("failed", 0),
+                email_sent=counts.get("email_sent", 0),
+                email_delivered=counts.get("email_delivered", 0),
+                email_opened=counts.get("email_opened", 0),
+                email_bounced=counts.get("email_bounced", 0),
+            )
+        )
+    return WorkflowActivityPage(rows=tuple(rows), has_more=has_more)
 
 
 def get_active_workflows_using_integration(*, team_id: int, integration_id: int) -> list[WorkflowSummary]:

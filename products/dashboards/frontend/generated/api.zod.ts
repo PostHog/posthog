@@ -410,6 +410,11 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitMax = 25
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroStatusDefault = `active`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroWorkflowTypeDefault = `all`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
@@ -588,13 +593,14 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
+                                    'workflows_list',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results\n\* `workflows_list` - workflows_list'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results\n\* `workflows_list` - workflows_list'
                                 ),
                             config: zod
                                 .union([
@@ -1278,6 +1284,53 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
                                             ),
                                     }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitDefault
+                                            )
+                                            .describe('Maximum number of workflows to return.'),
+                                        status: zod
+                                            .enum(['active', 'draft', 'archived', 'all'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroStatusDefault
+                                            )
+                                            .describe('Workflow status filter.'),
+                                        workflowType: zod
+                                            .enum(['all', 'messaging', 'automation', 'broadcast', 'loop'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroWorkflowTypeDefault
+                                            )
+                                            .describe(
+                                                'Workflow type filter: messaging, automation, broadcast, loop, or all.'
+                                            ),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1493,1285 +1546,9 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneNotebookShortIdOneMax = 128
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault = 25
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax = 50
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax = 4000
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax = 100
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax = 4000
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneMax = 20
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitMax = 25
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault = `occurrences`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneStatusDefault = `active`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax = 25
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault = `start_time`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitMax = 25
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderByDefault = `created_at`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderDirectionDefault = `DESC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneStatusDefault = `all`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax = 25
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault = 50
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax = 100
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneOrderByDefault = `latest`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneWrapLinesDefault = false
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneTimezoneDefault = `UTC`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineNameMax = 400
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitMax = 25
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneStatusDefault = `all`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneChannelDefault = `all`
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneAssigneesMax = 100
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchDefault = ``
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax = 200
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
-
-export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
-
 export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
-    .object({
-        widgets: zod
-            .array(
-                zod.union([
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOneNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['notebook_widget']),
-                        config: zod
-                            .object({
-                                notebookShortId: zod
-                                    .union([
-                                        zod
-                                            .string()
-                                            .min(1)
-                                            .max(
-                                                dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneNotebookShortIdOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Source notebook short ID.'),
-                                snapshotId: zod
-                                    .union([zod.uuid(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
-                                    ),
-                            })
-                            .describe('Configuration for the notebook widget widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['activity_events_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOneLimitDefault)
-                                    .describe('Maximum number of events to return.'),
-                                eventName: zod
-                                    .union([zod.string().min(1), zod.null()])
-                                    .optional()
-                                    .describe('Limit the feed to a single event name. Omit or null for all events.'),
-                                properties: zod
-                                    .union([
-                                        zod
-                                            .array(
-                                                zod.object({
-                                                    key: zod
-                                                        .string()
-                                                        .min(1)
-                                                        .max(
-                                                            dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemKeyMax
-                                                        ),
-                                                    label: zod
-                                                        .union([
-                                                            zod
-                                                                .string()
-                                                                .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemLabelOneMax
-                                                                ),
-                                                            zod.null(),
-                                                        ])
-                                                        .optional(),
-                                                    operator: zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'starts_with',
-                                                        'not_starts_with',
-                                                        'ends_with',
-                                                        'not_ends_with',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    type: zod.enum(['event', 'person']),
-                                                    value: zod
-                                                        .union([
-                                                            zod
-                                                                .array(
-                                                                    zod.union([
-                                                                        zod
-                                                                            .string()
-                                                                            .max(
-                                                                                dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneItemOneMax
-                                                                            ),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
-                                                                )
-                                                                .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueOneMax
-                                                                ),
-                                                            zod
-                                                                .string()
-                                                                .max(
-                                                                    dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneItemValueTwoMax
-                                                                ),
-                                                            zod.number(),
-                                                            zod.boolean(),
-                                                            zod.null(),
-                                                        ])
-                                                        .optional(),
-                                                })
-                                            )
-                                            .max(
-                                                dashboardsWidgetsBatchCreateBodyWidgetsItemTwoConfigOnePropertiesOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Event and person property filters, matching Activity > Explore events.'),
-                            })
-                            .describe('Configuration for the recent events widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['error_tracking_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneLimitDefault)
-                                    .describe('Maximum number of issues to return.'),
-                                orderBy: zod
-                                    .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderByDefault)
-                                    .describe('Issue ranking column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                status: zod
-                                    .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemThreeConfigOneStatusDefault)
-                                    .describe('Issue status filter.'),
-                                assignee: zod
-                                    .union([
-                                        zod.object({
-                                            id: zod.union([zod.string(), zod.number()]),
-                                            type: zod.enum(['user', 'role']),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe('Filter by assignee ({type: user|role, id}). Omit for any assignee.'),
-                            })
-                            .describe('Configuration for the top issues widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['session_replay_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
-                                widgetFilters: zod
-                                    .union([
-                                        zod.record(
-                                            zod.string(),
-                                            zod.object({
-                                                filterId: zod.string().min(1),
-                                                propertyName: zod.string().min(1),
-                                                optionId: zod.string().min(1),
-                                                operator: zod.enum([
-                                                    'exact',
-                                                    'is_not',
-                                                    'icontains',
-                                                    'not_icontains',
-                                                    'starts_with',
-                                                    'not_starts_with',
-                                                    'ends_with',
-                                                    'not_ends_with',
-                                                    'regex',
-                                                    'not_regex',
-                                                    'gt',
-                                                    'gte',
-                                                    'lt',
-                                                    'lte',
-                                                    'is_set',
-                                                    'is_not_set',
-                                                    'is_date_exact',
-                                                    'is_date_before',
-                                                    'is_date_after',
-                                                    'between',
-                                                    'not_between',
-                                                    'min',
-                                                    'max',
-                                                    'in',
-                                                    'not_in',
-                                                    'is_cleaned_path_exact',
-                                                    'flag_evaluates_to',
-                                                    'semver_eq',
-                                                    'semver_neq',
-                                                    'semver_gt',
-                                                    'semver_gte',
-                                                    'semver_lt',
-                                                    'semver_lte',
-                                                    'semver_tilde',
-                                                    'semver_caret',
-                                                    'semver_wildcard',
-                                                    'icontains_multi',
-                                                    'not_icontains_multi',
-                                                ]),
-                                                value: zod
-                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
-                                                    .optional(),
-                                            })
-                                        ),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault)
-                                    .describe('Maximum number of recordings to return.'),
-                                orderBy: zod
-                                    .enum([
-                                        'start_time',
-                                        'activity_score',
-                                        'recording_duration',
-                                        'duration',
-                                        'click_count',
-                                        'console_error_count',
-                                    ])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault)
-                                    .describe('Recording ranking column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                savedFilterId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
-                                    ),
-                                collectionId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
-                                    ),
-                            })
-                            .describe('Configuration for the recent recordings widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['experiments_list']),
-                        config: zod
-                            .object({
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneLimitDefault)
-                                    .describe('Maximum number of experiments to return.'),
-                                orderBy: zod
-                                    .enum(['created_at', 'name', 'start_date'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderByDefault)
-                                    .describe('Experiment list sort column.'),
-                                orderDirection: zod
-                                    .enum(['ASC', 'DESC'])
-                                    .default(
-                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneOrderDirectionDefault
-                                    )
-                                    .describe('Sort direction for orderBy.'),
-                                status: zod
-                                    .enum(['draft', 'running', 'paused', 'exposure_frozen', 'stopped', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFiveConfigOneStatusDefault)
-                                    .describe('Experiment status filter.'),
-                                createdBy: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe('Filter by creator (user id). Omit for any creator.'),
-                            })
-                            .describe('Configuration for the experiments list widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['experiment_results']),
-                        config: zod
-                            .object({
-                                experimentId: zod
-                                    .union([zod.number(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Experiment to show results for. Null until the user picks one in the widget settings.'
-                                    ),
-                            })
-                            .describe('Configuration for the experiment results widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['survey_results']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe("Null or omitted means all time (the survey's full lifetime)."),
-                                surveyId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'Survey to show performance stats and recent responses for. Null until the user picks one.'
-                                    ),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSevenConfigOneLimitDefault)
-                                    .describe('Maximum number of recent responses to return.'),
-                            })
-                            .describe('Configuration for the survey results widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['logs_list']),
-                        config: zod
-                            .object({
-                                dateRange: zod
-                                    .union([
-                                        zod.object({
-                                            date_from: zod
-                                                .union([
-                                                    zod.enum([
-                                                        '-1M',
-                                                        '-30M',
-                                                        '-1h',
-                                                        '-3h',
-                                                        '-24h',
-                                                        '-7d',
-                                                        '-14d',
-                                                        '-30d',
-                                                        '-90d',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        }),
-                                        zod.null(),
-                                    ])
-                                    .optional(),
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefault)
-                                    .describe('Maximum number of log lines to return.'),
-                                orderBy: zod
-                                    .enum(['latest', 'earliest'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneOrderByDefault)
-                                    .describe('Sort by newest (latest) or oldest (earliest) first.'),
-                                severityLevels: zod
-                                    .array(zod.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']))
-                                    .optional()
-                                    .describe('Only show logs at these severity levels. Empty shows all levels.'),
-                                serviceNames: zod
-                                    .array(zod.string())
-                                    .optional()
-                                    .describe('Only show logs from these services. Empty shows all services.'),
-                                wrapLines: zod
-                                    .boolean()
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneWrapLinesDefault)
-                                    .describe('Wrap long log lines instead of truncating them to a single row.'),
-                                timezone: zod
-                                    .enum(['UTC', 'local'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneTimezoneDefault)
-                                    .describe("Render log timestamps in UTC or in each viewer's local timezone."),
-                                savedViewId: zod
-                                    .union([zod.string(), zod.null()])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
-                                    ),
-                            })
-                            .describe('Configuration for the recent logs widget.'),
-                    }),
-                    zod.object({
-                        name: zod
-                            .string()
-                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineNameMax)
-                            .nullish()
-                            .describe('Optional custom display name for the widget tile.'),
-                        description: zod
-                            .string()
-                            .optional()
-                            .describe('Optional markdown description shown when show_description is enabled.'),
-                        layouts: zod
-                            .object({
-                                sm: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
-                                    ),
-                                xs: zod
-                                    .object({
-                                        x: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Column position in the dashboard grid (0-indexed).'),
-                                        y: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Row position in the dashboard grid (0-indexed).'),
-                                        w: zod
-                                            .number()
-                                            .optional()
-                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                                        h: zod.number().optional().describe('Height in grid rows.'),
-                                    })
-                                    .optional()
-                                    .describe(
-                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
-                                    ),
-                            })
-                            .optional()
-                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
-                        show_description: zod
-                            .boolean()
-                            .optional()
-                            .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod.enum(['conversations_recent_tickets']),
-                        config: zod
-                            .object({
-                                limit: zod
-                                    .number()
-                                    .min(1)
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneLimitDefault)
-                                    .describe('Maximum number of tickets to return.'),
-                                status: zod
-                                    .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneStatusDefault)
-                                    .describe('Ticket status filter.'),
-                                priorities: zod
-                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
-                                    .optional()
-                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
-                                channel: zod
-                                    .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneChannelDefault)
-                                    .describe('Ticket channel filter.'),
-                                assignees: zod
-                                    .array(
-                                        zod.union([
-                                            zod.enum(['me', 'unassigned']),
-                                            zod.object({
-                                                id: zod.union([zod.string(), zod.number()]),
-                                                type: zod.enum(['user', 'role']),
-                                            }),
-                                        ])
-                                    )
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneAssigneesMax)
-                                    .optional()
-                                    .describe(
-                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
-                                    ),
-                                search: zod
-                                    .string()
-                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax)
-                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchDefault)
-                                    .describe(
-                                        'Search requester name or email, ticket subject, message text, or ticket number.'
-                                    ),
-                                savedViewId: zod
-                                    .union([
-                                        zod
-                                            .string()
-                                            .max(
-                                                dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax
-                                            ),
-                                        zod.null(),
-                                    ])
-                                    .optional()
-                                    .describe(
-                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
-                                    ),
-                            })
-                            .describe('Configuration for the recent tickets widget.'),
-                    }),
-                ])
-            )
-            .min(1)
-            .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
-            .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
-            ),
-    })
-    .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
  * Update the settings of existing widgets in place, atomically — config, name, and description.
@@ -2855,6 +1632,13 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax =
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
 
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitMax = 25
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneStatusDefault = `active`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault = `all`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
 export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
@@ -3664,6 +2448,67 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                             })
                             .optional()
                             .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['workflows_list']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitDefault)
+                                    .describe('Maximum number of workflows to return.'),
+                                status: zod
+                                    .enum(['active', 'draft', 'archived', 'all'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneStatusDefault)
+                                    .describe('Workflow status filter.'),
+                                workflowType: zod
+                                    .enum(['all', 'messaging', 'automation', 'broadcast', 'loop'])
+                                    .default(
+                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault
+                                    )
+                                    .describe('Workflow type filter: messaging, automation, broadcast, loop, or all.'),
+                            })
+                            .optional()
+                            .describe('New configuration for the workflow activity widget. Omit to leave unchanged.'),
                     }),
                 ])
             )

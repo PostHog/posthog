@@ -37,6 +37,7 @@ SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
 NOTEBOOK_WIDGET_TYPE = "notebook_widget"
+WORKFLOWS_LIST_WIDGET_TYPE = "workflows_list"
 
 
 class NotebookWidgetConfig(BaseModel):
@@ -81,6 +82,9 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
+WorkflowsWidgetStatus = Literal["active", "draft", "archived", "all"]
+# Mirrors WORKFLOW_TYPES in the workflows product: the owning surface (loop, broadcast) or what the flow does.
+WorkflowsWidgetType = Literal["all", "messaging", "automation", "broadcast", "loop"]
 ConversationsTicketStatus = Annotated[
     str,
     WithJsonSchema({"type": "string", "enum": [*Status.values, "all"]}),
@@ -295,6 +299,15 @@ class LogsListWidgetConfig(WidgetDateRangeConfigBase):
         if not isinstance(value, str):
             raise ValueError("savedViewId must be a string.")
         return value
+
+
+class WorkflowsListWidgetConfig(WidgetDateRangeConfigBase):
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of workflows to return.")
+    status: WorkflowsWidgetStatus = Field(default="active", description="Workflow status filter.")
+    workflowType: WorkflowsWidgetType = Field(
+        default="all",
+        description="Workflow type filter: messaging, automation, broadcast, loop, or all.",
+    )
 
 
 class ConversationsRecentTicketsWidgetConfig(BaseModel):

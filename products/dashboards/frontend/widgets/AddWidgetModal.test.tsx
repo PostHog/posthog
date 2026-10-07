@@ -92,6 +92,7 @@ describe('AddWidgetModal', () => {
             'Session replay',
             'Support',
             'Surveys',
+            'Workflows',
         ])
     })
 

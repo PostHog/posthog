@@ -42,6 +42,33 @@ class WorkflowActivitySummary:
 
 
 @frozen
+class WorkflowActivityRow:
+    """One workflow with its run and email counts over a window. Email counts are zero for workflows without an email step."""
+
+    id: str
+    name: str
+    description: str
+    status: str
+    workflow_type: str
+    trigger_type: str | None
+    has_email_step: bool
+    updated_at: datetime | None
+    started: int
+    completed: int
+    failed: int
+    email_sent: int
+    email_delivered: int
+    email_opened: int
+    email_bounced: int
+
+
+@frozen
+class WorkflowActivityPage:
+    rows: tuple[WorkflowActivityRow, ...]
+    has_more: bool
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 

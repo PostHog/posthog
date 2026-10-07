@@ -327,6 +327,11 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSearchMax
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneNineSavedViewIdOneMax = 12
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitMax = 25
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroStatusDefault = `active`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroWorkflowTypeDefault = `all`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = () => zod
@@ -503,13 +508,14 @@ export const DashboardsPartialUpdateBody = () => zod
                                     'notebook_widget',
                                     'session_replay_list',
                                     'survey_results',
+                                    'workflows_list',
                                 ])
                                 .describe(
-                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results\n\* `workflows_list` - workflows_list'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `conversations_recent_tickets` - conversations_recent_tickets\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `notebook_widget` - notebook_widget\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results\n\* `workflows_list` - workflows_list'
                                 ),
                             config: zod
                                 .union([
@@ -1193,6 +1199,53 @@ export const DashboardsPartialUpdateBody = () => zod
                                                 'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
                                             ),
                                     }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroLimitDefault
+                                            )
+                                            .describe('Maximum number of workflows to return.'),
+                                        status: zod
+                                            .enum(['active', 'draft', 'archived', 'all'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroStatusDefault
+                                            )
+                                            .describe('Workflow status filter.'),
+                                        workflowType: zod
+                                            .enum(['all', 'messaging', 'automation', 'broadcast', 'loop'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneOnezeroWorkflowTypeDefault
+                                            )
+                                            .describe(
+                                                'Workflow type filter: messaging, automation, broadcast, loop, or all.'
+                                            ),
+                                    }),
                                 ])
                                 .optional()
                                 .describe("Widget-specific configuration. Shape depends on the tile's widget_type."),
@@ -1645,6 +1698,13 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSearchMax =
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
 
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneLimitMax = 25
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneStatusDefault = `active`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault = `all`
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
 export const DashboardsWidgetsBatchCreateBody = () => zod
@@ -2842,12 +2902,116 @@ export const DashboardsWidgetsBatchCreateBody = () => zod
                             })
                             .describe('Configuration for the recent tickets widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.'
+                                    ),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['workflows_list']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneLimitDefault)
+                                    .describe('Maximum number of workflows to return.'),
+                                status: zod
+                                    .enum(['active', 'draft', 'archived', 'all'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneStatusDefault)
+                                    .describe('Workflow status filter.'),
+                                workflowType: zod
+                                    .enum(['all', 'messaging', 'automation', 'broadcast', 'loop'])
+                                    .default(
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault
+                                    )
+                                    .describe('Workflow type filter: messaging, automation, broadcast, loop, or all.'),
+                            })
+                            .describe('Configuration for the workflow activity widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results, workflows_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
@@ -2947,6 +3111,13 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSearchMax =
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemNineConfigOneSavedViewIdOneMax = 12
 
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax = 400
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitDefault = 10
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitMax = 25
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneStatusDefault = `active`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault = `all`
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
 export const DashboardsUpdateWidgetsBatchBody = () => zod
@@ -3756,6 +3927,67 @@ export const DashboardsUpdateWidgetsBatchBody = () => zod
                             })
                             .optional()
                             .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),
+                    }),
+                    zod.object({
+                        tile_id: zod
+                            .number()
+                            .describe('ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.'),
+                        name: zod
+                            .string()
+                            .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroNameMax)
+                            .nullish()
+                            .describe(
+                                'New display name for the widget. Empty string or null clears it; omit to leave unchanged.'
+                            ),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('New markdown description for the widget. Omit to leave unchanged.'),
+                        widget_type: zod.enum(['workflows_list']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneLimitDefault)
+                                    .describe('Maximum number of workflows to return.'),
+                                status: zod
+                                    .enum(['active', 'draft', 'archived', 'all'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneStatusDefault)
+                                    .describe('Workflow status filter.'),
+                                workflowType: zod
+                                    .enum(['all', 'messaging', 'automation', 'broadcast', 'loop'])
+                                    .default(
+                                        dashboardsUpdateWidgetsBatchBodyWidgetsItemOnezeroConfigOneWorkflowTypeDefault
+                                    )
+                                    .describe('Workflow type filter: messaging, automation, broadcast, loop, or all.'),
+                            })
+                            .optional()
+                            .describe('New configuration for the workflow activity widget. Omit to leave unchanged.'),
                     }),
                 ])
             )

@@ -50,7 +50,8 @@
             "savedViewId",
             "search",
             "status"
-        ]
+        ],
+        "workflows_list": ["dateRange", "limit", "status", "workflowType"]
     },
     "configPropertyTrees": {
         "notebook_widget": {
@@ -468,6 +469,22 @@
             },
             "savedViewId": {
                 "$type": "string"
+            }
+        },
+        "workflows_list": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["active", "all", "archived", "draft"]
+            },
+            "workflowType": {
+                "$enum": ["all", "automation", "broadcast", "loop", "messaging"]
             }
         }
     }

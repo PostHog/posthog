@@ -863,6 +863,7 @@ SPECTACULAR_SETTINGS = {
             "LogsListWidgetTypeEnum": ["logs_list"],
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
+            "WorkflowsListWidgetTypeEnum": ["workflows_list"],
         }
     ),
 }

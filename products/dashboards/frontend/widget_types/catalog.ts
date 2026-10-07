@@ -1,6 +1,15 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconMessage, IconNotebook, IconRewindPlay, IconWarning } from '@posthog/icons'
+import {
+    IconDecisionTree,
+    IconFlask,
+    IconList,
+    IconLive,
+    IconMessage,
+    IconNotebook,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -17,6 +26,7 @@ import {
     notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
+    workflowsWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { isLiveDashboardWidgetType } from '../widgets/live/liveWidgetTypes'
@@ -81,6 +91,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     surveys: 'Surveys',
     logs: 'Logs',
     conversations: 'Support',
+    workflows: 'Workflows',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -97,6 +108,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     surveys: IconMessage,
     logs: IconList,
     conversations: IconMessage,
+    workflows: IconDecisionTree,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -318,6 +330,22 @@ export const DASHBOARD_WIDGET_CATALOG = {
         sharedPlaceholder: {
             title: 'Recent events',
             message: 'Log in to PostHog to explore the latest events from this dashboard.',
+        },
+    },
+    workflows_list: {
+        groupId: 'workflows',
+        label: 'Workflow activity',
+        description: 'Workflows and broadcasts with run and email counts for the period.',
+        headerTitle: 'Workflow activity',
+        defaultConfig: workflowsWidgetConfigSchema.parse({
+            dateRange: { date_from: '-7d' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'hog_flow',
+        titleHref: urls.workflows(),
+        sharedPlaceholder: {
+            title: 'Workflow activity',
+            message: 'Log in to PostHog to see workflow activity from this dashboard.',
         },
     },
     logs_list: {

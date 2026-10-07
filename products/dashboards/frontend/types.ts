@@ -8,3 +8,4 @@ export type DashboardWidgetProductAccess =
     | 'survey'
     | 'logs'
     | 'ticket'
+    | 'hog_flow'

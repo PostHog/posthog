@@ -3,6 +3,7 @@ import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 import type { ConversationsWidgetTicket } from '../../widgets/conversations/conversationsWidgetUtils'
 import { logsWidgetSampleLogLines } from '../../widgets/logs/logsWidgetSampleData'
+import type { WorkflowsWidgetRow } from '../../widgets/workflows/WorkflowsWidget'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -245,6 +246,77 @@ export const conversationsSampleTickets: ConversationsWidgetTicket[] = [
         requester_name: 'Robin Patel',
         requester_email: 'robin@example.com',
         sla_due_at: null,
+    },
+]
+
+export const workflowsSampleRows: WorkflowsWidgetRow[] = [
+    {
+        id: 'workflow-1',
+        name: 'Welcome series',
+        description: 'Three emails over the first week.',
+        status: 'active',
+        workflow_type: 'messaging',
+        trigger_type: 'event',
+        has_email_step: true,
+        updated_at: '2026-05-25T16:20:00Z',
+        started: 1284,
+        completed: 1190,
+        failed: 12,
+        email_sent: 3412,
+        email_delivered: 3380,
+        email_opened: 1927,
+        email_bounced: 18,
+    },
+    {
+        id: 'workflow-2',
+        name: 'May product update',
+        description: '',
+        status: 'active',
+        workflow_type: 'broadcast',
+        trigger_type: 'batch',
+        has_email_step: true,
+        updated_at: '2026-05-24T09:00:00Z',
+        started: 1,
+        completed: 1,
+        failed: 0,
+        email_sent: 8210,
+        email_delivered: 8102,
+        email_opened: 3561,
+        email_bounced: 64,
+    },
+    {
+        id: 'workflow-3',
+        name: 'Sync signups to CRM',
+        description: 'Creates a CRM contact for every new account.',
+        status: 'active',
+        workflow_type: 'automation',
+        trigger_type: 'event',
+        has_email_step: false,
+        updated_at: '2026-05-22T11:45:00Z',
+        started: 642,
+        completed: 640,
+        failed: 2,
+        email_sent: 0,
+        email_delivered: 0,
+        email_opened: 0,
+        email_bounced: 0,
+    },
+    {
+        id: 'workflow-4',
+        name: 'Trial ending reminder',
+        description: '',
+        status: 'draft',
+        workflow_type: 'messaging',
+        trigger_type: 'schedule',
+        has_email_step: true,
+        updated_at: '2026-05-20T08:15:00Z',
+        started: 0,
+        completed: 0,
+        failed: 0,
+        email_sent: 0,
+        email_delivered: 0,
+        email_opened: 0,
+        email_bounced: 0,
     },
 ]
 
@@ -547,6 +619,19 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     results: conversationsSampleTickets,
                     hasMore: true,
                     totalCount: 12,
+                },
+            }
+        case 'workflows_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: defaultConfig,
+                loading: false,
+                result: {
+                    results: workflowsSampleRows,
+                    hasMore: true,
+                    limit: 10,
                 },
             }
         default: {

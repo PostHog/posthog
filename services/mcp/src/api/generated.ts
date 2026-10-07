@@ -7982,14 +7982,80 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type WorkflowsListWidgetAddRequestOpenApiWidgetType = typeof WorkflowsListWidgetAddRequestOpenApiWidgetType[keyof typeof WorkflowsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const WorkflowsListWidgetAddRequestOpenApiWidgetType = {
+      WorkflowsList: 'workflows_list',
+    } as const;
+
+    /**
+     * Workflow status filter.
+     */
+    export type WorkflowsListWidgetConfigStatus = typeof WorkflowsListWidgetConfigStatus[keyof typeof WorkflowsListWidgetConfigStatus];
+
+
+    export const WorkflowsListWidgetConfigStatus = {
+      Active: 'active',
+      Draft: 'draft',
+      Archived: 'archived',
+      All: 'all',
+    } as const;
+
+    /**
+     * Workflow type filter: messaging, automation, broadcast, loop, or all.
+     */
+    export type WorkflowsListWidgetConfigWorkflowType = typeof WorkflowsListWidgetConfigWorkflowType[keyof typeof WorkflowsListWidgetConfigWorkflowType];
+
+
+    export const WorkflowsListWidgetConfigWorkflowType = {
+      All: 'all',
+      Messaging: 'messaging',
+      Automation: 'automation',
+      Broadcast: 'broadcast',
+      Loop: 'loop',
+    } as const;
+
+    export interface WorkflowsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      /**
+         * Maximum number of workflows to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Workflow status filter. */
+      status?: WorkflowsListWidgetConfigStatus;
+      /** Workflow type filter: messaging, automation, broadcast, loop, or all. */
+      workflowType?: WorkflowsListWidgetConfigWorkflowType;
+    }
+
+    export interface WorkflowsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: WorkflowsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the workflow activity widget. */
+      config: WorkflowsListWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi | WorkflowsListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results, workflows_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -11177,7 +11243,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | WorkflowsListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -27210,6 +27276,7 @@ export namespace Schemas {
      * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
+     * * `workflows_list` - workflows_list
      */
     export type DashboardPatchWidgetOpenApiWidgetTypeEnum = typeof DashboardPatchWidgetOpenApiWidgetTypeEnum[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnum];
 
@@ -27224,6 +27291,7 @@ export namespace Schemas {
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
+      WorkflowsList: 'workflows_list',
     } as const;
 
     export interface DashboardPatchWidgetOpenApi {
@@ -27239,7 +27307,8 @@ export namespace Schemas {
        * * `logs_list` - logs_list
        * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
-       * * `survey_results` - survey_results */
+       * * `survey_results` - survey_results
+       * * `workflows_list` - workflows_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
       /** Widget-specific configuration. Shape depends on the tile's widget_type. */
       config?: DashboardWidgetConfig;
@@ -83748,7 +83817,30 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type WorkflowsListWidgetUpdateRequestOpenApiWidgetType = typeof WorkflowsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof WorkflowsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const WorkflowsListWidgetUpdateRequestOpenApiWidgetType = {
+      WorkflowsList: 'workflows_list',
+    } as const;
+
+    export interface WorkflowsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: WorkflowsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the workflow activity widget. Omit to leave unchanged. */
+      config?: WorkflowsListWidgetConfig;
+    }
+
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi | WorkflowsListWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -109731,7 +109823,28 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WorkflowsListWidgetCatalogEntryOpenApiWidgetType = typeof WorkflowsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof WorkflowsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const WorkflowsListWidgetCatalogEntryOpenApiWidgetType = {
+      WorkflowsList: 'workflows_list',
+    } as const;
+
+    export interface WorkflowsListWidgetCatalogEntryOpenApi {
+      widget_type: WorkflowsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: WorkflowsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | WorkflowsListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -110820,6 +110933,16 @@ export namespace Schemas {
       /** Failed invocations in the window. */
       failed: number;
     }
+
+    /**
+     * * `workflows_list` - workflows_list
+     */
+    export type WorkflowsListWidgetTypeEnum = typeof WorkflowsListWidgetTypeEnum[keyof typeof WorkflowsListWidgetTypeEnum];
+
+
+    export const WorkflowsListWidgetTypeEnum = {
+      WorkflowsList: 'workflows_list',
+    } as const;
 
     export interface ZendeskImportError {
       /** Human-readable error message. */
