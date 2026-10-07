@@ -104,6 +104,17 @@ def test_table_from_py_list_inconsistent_other_types():
     )
 
 
+def test_table_from_py_list_keeps_the_key_order_of_the_rows():
+    table = table_from_py_list(
+        [
+            {"zeta": 1, "alpha": "a", "mid": None, "beta": 2.5, "omega": "o", "gamma": True, "delta": 3},
+            {"zeta": 2, "alpha": "b", "mid": "m", "beta": 3.5, "omega": "p", "gamma": False, "delta": 4, "late": "x"},
+        ]
+    )
+
+    assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
+
+
 def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
     with pytest.raises(TypeError) as exc_info:
         table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])

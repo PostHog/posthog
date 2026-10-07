@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product product_analytics
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product product_analytics
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Product analytics
 feature: product_analytics
 url_prefix: /insights
@@ -13,39 +11,6 @@ ui_apps:
         view_prop: data
         link_prop: openLink
 tools:
-    column-configurations-create:
-        operation: column_configurations_create
-        enabled: false
-    column-configurations-destroy:
-        operation: column_configurations_destroy
-        enabled: false
-    column-configurations-list:
-        operation: column_configurations_list
-        enabled: false
-    column-configurations-partial-update:
-        operation: column_configurations_partial_update
-        enabled: false
-    column-configurations-retrieve:
-        operation: column_configurations_retrieve
-        enabled: false
-    column-configurations-update:
-        operation: column_configurations_update
-        enabled: false
-    elements-create:
-        operation: elements_create
-        enabled: false
-    elements-destroy:
-        operation: elements_destroy
-        enabled: false
-    elements-list:
-        operation: elements_list
-        enabled: false
-    elements-partial-update:
-        operation: elements_partial_update
-        enabled: false
-    elements-retrieve:
-        operation: elements_retrieve
-        enabled: false
     elements-stats-retrieve:
         operation: elements_stats_retrieve
         enabled: true
@@ -63,15 +28,6 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
-    elements-update:
-        operation: elements_update
-        enabled: false
-    elements-values-list:
-        operation: elements_values_list
-        enabled: false
-    events-retention-retrieve:
-        operation: events_retention_retrieve
-        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
@@ -340,9 +296,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-activity-retrieve-2:
-        operation: insights_activity_retrieve
-        enabled: false
     insights-all-activity-retrieve:
         operation: insights_all_activity_retrieve
         enabled: true
@@ -366,24 +319,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-bulk-delete-create:
-        operation: insights_bulk_delete_create
-        enabled: false
-    insights-bulk-restore-create:
-        operation: insights_bulk_restore_create
-        enabled: false
-    insights-bulk-set-test-account-filter-create:
-        operation: insights_bulk_set_test_account_filter_create
-        enabled: false
-    insights-bulk-update-tags-create:
-        operation: insights_bulk_update_tags_create
-        enabled: false
-    insights-cancel-create:
-        operation: insights_cancel_create
-        enabled: false
-    insights-generate-metadata-create:
-        operation: insights_generate_metadata_create
-        enabled: false
     insights-list:
         operation: insights_list
         enabled: true
@@ -425,9 +360,6 @@ tools:
                 - last_modified_by
                 - last_viewed_at
                 - alerts
-    insights-my-last-viewed-retrieve:
-        operation: insights_my_last_viewed_retrieve
-        enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve
         enabled: true
@@ -462,12 +394,3 @@ tools:
                 - last_viewed_at
                 - view_count
                 - viewers
-    insights-update:
-        operation: insights_update
-        enabled: false
-    insights-viewed-create:
-        operation: insights_viewed_create
-        enabled: false
-    paths-v2-segment-to-funnel-create:
-        operation: paths_v2_segment_to_funnel_create
-        enabled: false

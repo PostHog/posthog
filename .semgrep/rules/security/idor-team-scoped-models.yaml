@@ -185,6 +185,7 @@ rules:
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
+                              |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
@@ -326,6 +327,7 @@ rules:
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |RevokedTeamSecretToken
                               |QueueSchedulerDecision
                               |QueueSchedulerState
                               |QuickFilter
@@ -632,6 +634,7 @@ rules:
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
+                        |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
@@ -763,6 +766,7 @@ rules:
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |RevokedTeamSecretToken
                         |QueueSchedulerDecision
                         |QueueSchedulerState
                         |QuickFilter
@@ -977,6 +981,8 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
@@ -1054,6 +1060,8 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument

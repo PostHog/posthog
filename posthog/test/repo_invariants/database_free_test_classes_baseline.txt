@@ -131,7 +131,6 @@ posthog/kafka_client/test/test_client.py::KafkaClientRoundtripTestCase
 posthog/management/commands/test/test_analyze_migration_risk.py::TestAnalyzeMigrationRisk
 posthog/management/commands/test/test_base_hypercache_command.py::TestVerificationResultsErrorReporting
 posthog/management/commands/test/test_survey_cohort_bytecode_stl.py::TestBytecodeWalker
-posthog/models/filters/test/test_filter_mixins.py::TestFilterMixins
 posthog/models/filters/test/test_path_filter.py::TestPathFilter
 posthog/models/property/test/test_property_behavioral_validation.py::TestBehavioralPropertyBytecodeCondition
 posthog/models/property/test/test_property_behavioral_validation.py::TestBehavioralPropertyDateRangeValidation

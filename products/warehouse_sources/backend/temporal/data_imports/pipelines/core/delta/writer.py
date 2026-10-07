@@ -334,6 +334,7 @@ class DeltaWriter:
                 governor_max_row_group_mb=adm.max_row_group_mb,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
+                governor_columns=adm.columns,
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
@@ -381,7 +382,11 @@ class DeltaWriter:
         # nullability that matches its data (see relax_batch_nullability).
         data = relax_batch_nullability(data)
 
-        delta_table = await self._table.get_delta_table()
+        # A write that overwrites the table gives the same result with or without a table there, so
+        # a probe that the caller made through the same ref a moment ago is enough. Any other write
+        # looks again: a table that another writer created since then must be appended to, not
+        # replaced.
+        delta_table = await self._table.get_delta_table(allow_known_missing=should_overwrite_table)
 
         if delta_table:
             delta_table = await evolve_delta_schema(delta_table, data.schema)
@@ -580,6 +585,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
 
             if mode == "append":
                 # Each batch of a full_refresh (or first incremental sync) infers its own decimal
@@ -637,6 +643,7 @@ class DeltaWriter:
                     mode="ignore",
                     configuration=DELTA_TABLE_PROPERTIES,
                 )
+                self._table.adopt_created_table(delta_table)
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
                 # column that outgrew decimal128 arrives here as text (decimal256 renders to string),
