@@ -143,6 +143,7 @@ depends_on = [
     "products.today",
     "products.tracing",
     "products.visual_review",
+    "products.warehouse_suggestions",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
