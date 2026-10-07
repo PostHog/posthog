@@ -41,7 +41,7 @@ from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
-    FINISHED_ORPHAN_LOOKBACK_S,
+    FINISHED_ORPHAN_RECENT_RUNS,
     SCOUT_RUN_REAPED_METADATA_KEY,
     STALE_RUN_CUTOFF_S,
     TRIGGERED_BY_SCHEDULE,
@@ -1188,10 +1188,17 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     now = timezone.now()
     cutoff = now - timedelta(seconds=STALE_RUN_CUTOFF_S)
     active_statuses = (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS)
+    recent_run_ids = (
+        SignalScoutRun.objects.unscoped()
+        .filter(team_id=team_id, skill_name=skill_name)
+        .exclude(metadata__has_key=SCOUT_TRIAL_METADATA_KEY)
+        .order_by("-created_at")
+        .values("id")[:FINISHED_ORPHAN_RECENT_RUNS]
+    )
     closed_by_inactivity = Q(
         task_run__status__in=(tasks_facade.TaskRunStatus.COMPLETED, tasks_facade.TaskRunStatus.FAILED),
         **{f"task_run__state__{tasks_facade.TIMED_OUT_INACTIVITY_STATE_KEY}": True},
-        task_run__created_at__gte=now - timedelta(seconds=FINISHED_ORPHAN_LOOKBACK_S),
+        id__in=recent_run_ids,
     )
     stale_runs = list(
         SignalScoutRun.objects.unscoped()

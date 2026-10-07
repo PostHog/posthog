@@ -3081,18 +3081,20 @@ async def test_recent_in_progress_run_is_not_reaped_and_still_blocks(ateam, aerr
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "status,state,expect_reaped",
+    "status,state,age_s,expect_reaped",
     [
-        ("in_progress", {}, True),
+        ("in_progress", {}, STALE_RUN_CUTOFF_S + 60, True),
         # A worker death after the agent went idle: the Tasks inactivity timeout closes the TaskRun
         # before the next dispatch, so the run no longer blocks the lane but still never reported.
-        ("completed", {"timed_out_inactivity": True}, True),
-        ("failed", {"timed_out_inactivity": True}, True),
+        ("completed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
+        ("failed", {"timed_out_inactivity": True}, STALE_RUN_CUTOFF_S + 60, True),
+        # A 30-day lane dispatches again only a month after its orphan started.
+        ("completed", {"timed_out_inactivity": True}, 31 * 24 * 60 * 60, True),
         # A run the scout ended itself already emitted `signals_scout_run_finished`.
-        ("completed", {}, False),
+        ("completed", {}, STALE_RUN_CUTOFF_S + 60, False),
     ],
 )
-async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, status, state, expect_reaped):
+async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, status, state, age_s, expect_reaped):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # Reaping an orphan emits `signals_scout_run_reaped` — the strand's only event (a reaped
     # run never reaches the finalize path, so it emits no `signals_scout_run_finished`). This
@@ -3104,7 +3106,7 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, st
     await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
         status=status,
         state=state,
-        created_at=datetime.now(UTC) - timedelta(seconds=STALE_RUN_CUTOFF_S + 60),
+        created_at=datetime.now(UTC) - timedelta(seconds=age_s),
     )
     await database_sync_to_async(SignalScoutRun.objects.create)(
         task_run=task_run,
