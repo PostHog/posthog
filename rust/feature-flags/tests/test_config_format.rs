@@ -25,7 +25,7 @@ pub mod common;
 fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut cases = Vec::new();
     let supported: Value = serde_json::from_str(include_str!(
-        "fixtures/rules_v2_parser/2.1.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
+        "fixtures/rules_v2_parser/3.0.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
     )).unwrap();
     cases.push((
         "evaluated-valid-v2".to_string(),

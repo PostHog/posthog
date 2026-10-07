@@ -1,0 +1,525 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:posthog:feature-flag-rules-v2:corpus:v2_experiment_evaluation:1.0.0",
+  "type": "object",
+  "properties": {
+    "corpus_version": {
+      "const": "1.0.0"
+    },
+    "config_version": {
+      "const": 2
+    },
+    "description": {
+      "type": "string"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^v2_experiment(\\.[a-z0-9_]+)+$"
+          },
+          "family": {
+            "enum": [
+              "ordering",
+              "assignment",
+              "values",
+              "white_box",
+              "parser"
+            ]
+          },
+          "flag": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "active": {
+                "const": true
+              },
+              "deleted": {
+                "const": false
+              },
+              "requested": {
+                "const": true
+              }
+            },
+            "required": [
+              "key",
+              "name",
+              "active",
+              "deleted",
+              "requested"
+            ],
+            "additionalProperties": false
+          },
+          "config": {
+            "type": "object",
+            "properties": {
+              "return_type": {
+                "enum": [
+                  "boolean",
+                  "string",
+                  "number",
+                  "object"
+                ]
+              }
+            },
+            "required": [
+              "return_type"
+            ],
+            "additionalProperties": true,
+            "x-posthog-open-object": "validated separately against the canonical config schema, including rejected examples"
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "identifier": {
+                "type": "string"
+              },
+              "properties": {
+                "type": "object",
+                "additionalProperties": true,
+                "x-posthog-open-object": "supplied person property values"
+              },
+              "properties_complete": {
+                "const": true
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "explicit_exact_matching": {
+                "type": "boolean"
+              },
+              "now": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "identifier",
+              "properties",
+              "properties_complete",
+              "timezone",
+              "explicit_exact_matching",
+              "now"
+            ],
+            "additionalProperties": false
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "success"
+                  },
+                  "value": {
+                    "type": [
+                      "boolean",
+                      "string",
+                      "number",
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "enum": [
+                      "targeting_match",
+                      "rollout_miss",
+                      "experiment_paused",
+                      "holdout",
+                      "no_rule_match"
+                    ]
+                  },
+                  "rule": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rule_type": {
+                        "enum": [
+                          "targeted_release",
+                          "percentage_rollout",
+                          "experiment"
+                        ]
+                      },
+                      "index": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rule_type",
+                      "index"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "variant": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]+$",
+                    "description": "The assigned variant key. The internal evaluation result carries it; the response record of a rule without an experiment does not."
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "reason"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "properties": {
+                        "reason": {
+                          "const": "no_rule_match"
+                        }
+                      }
+                    },
+                    "then": {
+                      "not": {
+                        "required": [
+                          "rule"
+                        ]
+                      }
+                    },
+                    "else": {
+                      "required": [
+                        "rule"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "rule"
+                      ],
+                      "properties": {
+                        "reason": {
+                          "const": "targeting_match"
+                        },
+                        "rule": {
+                          "properties": {
+                            "rule_type": {
+                              "const": "experiment"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "then": {
+                      "required": [
+                        "variant"
+                      ]
+                    },
+                    "else": {
+                      "not": {
+                        "required": [
+                          "variant"
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "parse_error"
+                  },
+                  "kind": {
+                    "const": "malformed"
+                  }
+                },
+                "required": [
+                  "status",
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "legacy": {
+            "type": "object",
+            "description": "Legacy rendering of expected.value. enabled is the detailed record's enabled field and decides inclusion in the enabled-only maps and lists; variant is the detailed record's variant, which carries a string value and never a variant key; value is the flag map entry; payload is the decoded JSON-encoded payload string, or null for no payload.",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "variant": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ]
+              },
+              "payload": {
+                "type": [
+                  "number",
+                  "object",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "variant",
+              "value",
+              "payload"
+            ],
+            "additionalProperties": false
+          },
+          "hash_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Every hash the evaluation draws, in draw order: holdout, rollout, then variant.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "use": {
+                  "enum": [
+                    "holdout",
+                    "rollout",
+                    "variant"
+                  ]
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "identifier": {
+                  "type": "string"
+                },
+                "salt": {
+                  "enum": [
+                    "",
+                    "variant"
+                  ]
+                },
+                "input_utf8_hex": {
+                  "type": "string",
+                  "pattern": "^([0-9a-f]{2})*$"
+                },
+                "sha1_hex": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "first_15_hex": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{15}$"
+                },
+                "n": {
+                  "type": "string",
+                  "pattern": "^[0-9]+$"
+                },
+                "hash01_binary64_hex": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{16}$"
+                },
+                "threshold_binary64_hex": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{16}$"
+                },
+                "boundaries_binary64_hex": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 20,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{16}$"
+                  }
+                }
+              },
+              "required": [
+                "use",
+                "prefix",
+                "identifier",
+                "salt",
+                "input_utf8_hex",
+                "sha1_hex",
+                "first_15_hex",
+                "n",
+                "hash01_binary64_hex"
+              ],
+              "oneOf": [
+                {
+                  "properties": {
+                    "use": {
+                      "enum": [
+                        "holdout",
+                        "rollout"
+                      ]
+                    },
+                    "salt": {
+                      "const": ""
+                    }
+                  },
+                  "required": [
+                    "threshold_binary64_hex"
+                  ],
+                  "not": {
+                    "required": [
+                      "boundaries_binary64_hex"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "use": {
+                      "const": "variant"
+                    },
+                    "salt": {
+                      "const": "variant"
+                    }
+                  },
+                  "required": [
+                    "boundaries_binary64_hex"
+                  ],
+                  "not": {
+                    "required": [
+                      "threshold_binary64_hex"
+                    ]
+                  }
+                }
+              ],
+              "additionalProperties": false
+            }
+          },
+          "white_box": {
+            "type": "object",
+            "description": "A private test seam returns hash01_binary64_hex for every hash the evaluation draws; boundary and relation record the comparison that decides the case.",
+            "properties": {
+              "hash01_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "against": {
+                "enum": [
+                  "holdout_threshold",
+                  "rollout_threshold",
+                  "variant_boundary"
+                ]
+              },
+              "boundary_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "relation": {
+                "enum": [
+                  "below",
+                  "equal",
+                  "above"
+                ]
+              }
+            },
+            "required": [
+              "hash01_binary64_hex",
+              "against",
+              "boundary_binary64_hex",
+              "relation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "flag",
+          "config",
+          "context",
+          "expected"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "expected": {
+                  "properties": {
+                    "status": {
+                      "const": "success"
+                    }
+                  }
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "legacy"
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "legacy"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "hash_evidence"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "white_box"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "white_box"
+              ],
+              "not": {
+                "required": [
+                  "hash_evidence"
+                ]
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "white_box"
+                ]
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "corpus_version",
+    "config_version",
+    "description",
+    "cases"
+  ],
+  "additionalProperties": false
+}

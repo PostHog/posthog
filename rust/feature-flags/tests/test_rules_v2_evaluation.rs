@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use feature_flags::flags::config_v2::{Outcome, ParseError};
-use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator, PersonProperties};
+use feature_flags::flags::evaluate_v2::{
+    Evaluation, EvaluationError, Evaluator, HashUse, PersonProperties,
+};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
@@ -34,7 +36,7 @@ fn vendored_response_fixtures_agree_with_the_validator() {
             invalid += 1;
         }
     }
-    assert_eq!((valid, invalid), (25, 125));
+    assert_eq!((valid, invalid), (29, 152));
 }
 
 #[test]
@@ -43,8 +45,9 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     let revision = source["source_revision"].as_str().unwrap();
     assert_eq!(revision.len(), 40);
     assert!(revision.bytes().all(|c| c.is_ascii_hexdigit()));
-    assert_eq!(source["release_status"], "released");
-    assert_eq!(source["source_release"], "1.13.1");
+    // Draft pin of the unreleased contract 3.0.0; re-pin to its harness release before merging.
+    assert_eq!(source["release_status"], "unreleased");
+    assert_eq!(source["source_release"], Value::Null);
     let index = std::fs::read(corpus::root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
@@ -78,6 +81,7 @@ fn pinned_evaluation_artifact_subset_is_intact() {
     for (component, cases) in [
         ("v2_boolean_evaluation", corpus::cases()),
         ("v2_value_evaluation", corpus::value_cases()),
+        ("v2_experiment_evaluation", corpus::experiment_cases()),
     ] {
         assert_eq!(
             manifest[component]["version"],
@@ -119,6 +123,11 @@ fn pinned_evaluation_artifact_subset_is_intact() {
             family("v2_value_evaluation", "ordering", 27),
             family("v2_value_evaluation", "values", 11),
             family("v2_value_evaluation", "parser", 11),
+            family("v2_experiment_evaluation", "ordering", 20),
+            family("v2_experiment_evaluation", "assignment", 22),
+            family("v2_experiment_evaluation", "values", 9),
+            family("v2_experiment_evaluation", "white_box", 10),
+            family("v2_experiment_evaluation", "parser", 21),
         ])
     );
 }
@@ -127,11 +136,16 @@ fn pinned_evaluation_artifact_subset_is_intact() {
 fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
     let mut executed = 0;
     let mut rejected = 0;
-    for case in corpus::cases().into_iter().chain(corpus::value_cases()) {
+    for case in corpus::cases()
+        .into_iter()
+        .chain(corpus::value_cases())
+        .chain(corpus::experiment_cases())
+    {
         let id = case["id"].as_str().unwrap();
         match case["family"].as_str().unwrap() {
             "white_box" | "eligibility" => continue,
-            "ordering" | "properties" | "context" | "errors" | "hashing" | "values" | "parser" => {}
+            "ordering" | "properties" | "context" | "errors" | "hashing" | "values"
+            | "assignment" | "parser" => {}
             other => panic!("unhandled family: {other}"),
         }
         let flag = corpus::read(&case);
@@ -139,8 +153,9 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         let cached = PreparedFlags::seal(vec![flag]);
         let retained = cached[0].filters.non_v1.as_ref().unwrap();
         if case["family"] == "parser" {
+            // A schema rejection: a too-long list is reported as a limit.
             let kind = match retained.parsed_v2.as_ref() {
-                Some(Err(ParseError::Malformed(_))) => "malformed",
+                Some(Err(ParseError::Malformed(_) | ParseError::LimitExceeded(_))) => "malformed",
                 Some(Err(ParseError::Unsupported(_))) | None => "unsupported",
                 other => panic!("{id}: unexpected parse result {other:?}"),
             };
@@ -171,7 +186,9 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         ));
         assert_eq!(serde_json::to_value(&cached[0]).unwrap(), before, "{id}");
         assert_eq!(properties, properties_before);
-        if let Some(evidence) = case.get("hash_evidence") {
+        if let Some(Value::Array(draws)) = case.get("hash_evidence") {
+            assert_experiment_hash_evidence(id, &context, draws);
+        } else if let Some(evidence) = case.get("hash_evidence") {
             let (seed, rollout_percentage) = config
                 .rules
                 .iter()
@@ -204,7 +221,30 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120 + 38, 2 + 11));
+    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 21));
+}
+
+fn assert_experiment_hash_evidence(
+    id: &str,
+    context: &feature_flags::flags::evaluate_v2::EvaluationContext<'_>,
+    draws: &[Value],
+) {
+    let hex = |value: f64| format!("{:016x}", value.to_bits());
+    let subject: String = context
+        .person_identifier
+        .chars()
+        .take(MAX_DISTINCT_ID_LEN)
+        .collect();
+    for draw in draws {
+        assert_eq!(subject, draw["identifier"], "{id}");
+        let hash = calculate_hash(
+            draw["prefix"].as_str().unwrap(),
+            &subject,
+            draw["salt"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(hex(hash), draw["hash01_binary64_hex"], "{id}");
+    }
 }
 
 #[tokio::test]
@@ -278,6 +318,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
     let mut count = 0;
     for case in corpus::cases()
         .into_iter()
+        .chain(corpus::experiment_cases())
         .filter(|case| case["family"] == "white_box")
     {
         let flag = corpus::read(&case);
@@ -292,7 +333,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
             )
             .unwrap(),
         );
-        let result = evaluator.evaluate_with_hash(&context, |_, _| Ok(hash));
+        let result = evaluator.evaluate_with_hash(&context, |_, _, _| Ok(hash));
         assert_eq!(
             corpus::result_json(result),
             case["expected"],
@@ -301,7 +342,7 @@ fn canonical_white_box_cases_exercise_the_production_ordered_evaluator() {
         );
         count += 1;
     }
-    assert_eq!(count, 10);
+    assert_eq!(count, 10 + 10);
 }
 
 #[test]
@@ -320,12 +361,12 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     let properties = corpus::properties(&case);
     let mut context = corpus::context(&case, &properties);
     assert!(Evaluator::new(config)
-        .evaluate_with_hash(&context, |_, _| panic!("100% must not hash"))
+        .evaluate_with_hash(&context, |_, _, _| panic!("100% must not hash"))
         .is_ok());
     context.person_identifier = "";
     assert!(matches!(
         Evaluator::new(config)
-            .evaluate_with_hash(&context, |_, _| panic!("empty subject must not hash")),
+            .evaluate_with_hash(&context, |_, _, _| panic!("empty subject must not hash")),
         Ok(Evaluation::NoRuleMatch { .. })
     ));
     if let Outcome::PercentageRollout {
@@ -341,8 +382,9 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     context.person_identifier = &subject;
     let mut calls = 0;
     assert!(matches!(
-        Evaluator::new(config).evaluate_with_hash(&context, |seed, subject| {
+        Evaluator::new(config).evaluate_with_hash(&context, |hash_use, seed, subject| {
             calls += 1;
+            assert_eq!(hash_use, HashUse::Rollout);
             assert_eq!(seed, "example-allocation");
             assert_eq!(subject, "😀".repeat(200));
             Ok(0.5)
@@ -351,9 +393,56 @@ fn hashing_is_lazy_subject_is_resolved_once_and_repeated_seeds_reuse_the_hash() 
     ));
     assert_eq!(calls, 1);
     assert_eq!(
-        Evaluator::new(config).evaluate_with_hash(&context, |_, _| Err(EvaluationError::Hash)),
+        Evaluator::new(config).evaluate_with_hash(&context, |_, _, _| Err(EvaluationError::Hash)),
         Err(EvaluationError::Hash)
     );
+}
+
+#[test]
+fn experiment_draws_follow_pause_holdout_rollout_variant_order() {
+    for (id, expected) in [
+        ("v2_experiment.ordering.paused_before_holdout", vec![]),
+        (
+            "v2_experiment.assignment.holdout_out",
+            vec![
+                (HashUse::Holdout, "example-holdout"),
+                (HashUse::Variant, "example-split"),
+            ],
+        ),
+        (
+            "v2_experiment.assignment.rollout_hit",
+            vec![
+                (HashUse::Rollout, "example-split"),
+                (HashUse::Variant, "example-split"),
+            ],
+        ),
+        (
+            "v2_experiment.assignment.shared_rollout_seed",
+            vec![
+                (HashUse::Rollout, "example-shared"),
+                (HashUse::Variant, "example-shared"),
+            ],
+        ),
+    ] {
+        let case = corpus::experiment_cases()
+            .into_iter()
+            .find(|case| case["id"] == id)
+            .unwrap();
+        let flag = corpus::read(&case);
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        let mut draws = Vec::new();
+        let result = Evaluator::new(corpus::config(&flag)).evaluate_with_hash(
+            &context,
+            |hash_use, seed, subject| {
+                draws.push((hash_use, seed.to_owned()));
+                hash_use.hash(seed, subject)
+            },
+        );
+        assert_eq!(corpus::result_json(result), case["expected"], "{id}");
+        let draws: Vec<_> = draws.iter().map(|(u, s)| (*u, s.as_str())).collect();
+        assert_eq!(draws, expected, "{id}");
+    }
 }
 
 #[test]
@@ -436,7 +525,11 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         None,
     ));
     let (mut projected, mut direct, mut skipped) = (0, 0, 0);
-    for case in corpus::cases().into_iter().chain(corpus::value_cases()) {
+    for case in corpus::cases()
+        .into_iter()
+        .chain(corpus::value_cases())
+        .chain(corpus::experiment_cases())
+    {
         let id = case["id"].as_str().unwrap();
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
@@ -480,6 +573,7 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         let reason = match expected["reason"].as_str() {
             Some("targeting_match") => "condition_match",
             Some("rollout_miss") => "out_of_rollout_bound",
+            Some("holdout") => "holdout_condition_value",
             _ => "no_condition_match",
         };
         let rule_index = expected["rule"]["index"].as_i64();
@@ -621,8 +715,11 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 expected["rule"].get("rule_type"),
                 "{id}"
             );
+            for field in ["experiment_id", "variant_key", "holdout_id"] {
+                assert_eq!(record["metadata"].get(field), None, "{id}");
+            }
         }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114 + 49, 8, 13));
+    assert_eq!((projected, direct, skipped), (114 + 49 + 72, 8, 13 + 10));
 }

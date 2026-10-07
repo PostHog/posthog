@@ -6,13 +6,14 @@ use sha2::{Digest, Sha256};
 
 use super::{config, person_property_cases, read, result};
 use feature_flags::flags::config_v2::{
-    ParseError, CONFIG_FIELDS, MAX_PREDICATES, MAX_RULES, MAX_SEED_LENGTH,
-    PERCENTAGE_ROLLOUT_FIELDS, PROPERTY_FIELDS, TARGETED_RELEASE_FIELDS, TARGETING_FIELDS,
+    ParseError, CONFIG_FIELDS, EXPERIMENT_FIELDS, HOLDOUT_FIELDS, MAX_PREDICATES, MAX_RULES,
+    MAX_SEED_LENGTH, MAX_VARIANTS, MIN_VARIANTS, PERCENTAGE_ROLLOUT_FIELDS, PROPERTY_FIELDS,
+    TARGETED_RELEASE_FIELDS, TARGETING_FIELDS, VARIANT_FIELDS,
 };
 use feature_flags::flags::flag_models::FeatureFlag;
 
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/2.1.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_parser/3.0.0")
 }
 
 fn load(path: &str) -> Value {
@@ -22,10 +23,10 @@ fn load(path: &str) -> Value {
 #[test]
 fn released_parser_artifacts_are_intact() {
     let source = load("SOURCE.json");
-    assert_eq!(
-        source["source_revision"],
-        "c32f4959240967f1ee89e58490fc9d3beaa1401f"
-    );
+    let revision = source["source_revision"].as_str().unwrap();
+    assert!(revision.len() == 40 && revision.bytes().all(|c| c.is_ascii_hexdigit()));
+    // Draft pin of the unreleased contract 3.0.0; re-pin to its harness release before merging.
+    assert_eq!(source["release_status"], "unreleased");
     let index = std::fs::read(root().join("SHA256SUMS")).unwrap();
     assert_eq!(
         hex::encode(Sha256::digest(&index)),
@@ -82,6 +83,7 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
                 "reserved_number_value.json",
                 "reserved_object_value.json",
                 "object_value_max_depth.json",
+                "standalone_experiment_rule.json",
             ]
             .iter()
             .any(|name| path.ends_with(name))
@@ -131,9 +133,9 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
     assert_eq!(
         totals,
         Totals {
-            supported: 5,
+            supported: 6,
             valid_but_unsupported: 3,
-            malformed: 20,
+            malformed: 23,
             unsupported: 9,
             rejected_before_parsing: 3,
         }
@@ -165,13 +167,16 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
             Unsupported("aggregation_group_type_index")
         }
+        "missing_experiment_id" | "string_experiment_id" => Malformed("experiment_id"),
+        "standalone_experiment_shared_holdout" => Malformed("holdout.id"),
+        // A linked experiment is unsupported before any other field is read.
         "missing_experiment_paused"
-        | "null_experiment_id"
+        | "linked_experiment_local_holdout"
         | "seed_too_long"
         | "too_few_variants"
         | "too_many_variants"
         | "variant_key_invalid_characters"
-        | "variant_value_type_mismatch" => Unsupported("rule_type"),
+        | "variant_value_type_mismatch" => Unsupported("experiment_id"),
         "unknown_config_version" | "version_boolean" | "version_string" => return None,
         _ => panic!("unclassified released fixture: {name}"),
     })
@@ -231,6 +236,12 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
         "unknown_property_type" => {
             document["rules"][0]["targeting"]["properties"][0]["type"] = json!("person")
         }
+        "missing_experiment_id" | "string_experiment_id" => {
+            document["rules"][0]["experiment_id"] = Value::Null
+        }
+        "standalone_experiment_shared_holdout" => {
+            document["rules"][0]["holdout"]["id"] = Value::Null
+        }
         _ => panic!("no focused repair for {name}"),
     }
     document
@@ -266,10 +277,12 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         let decoded = serde_json::from_value::<FeatureFlag>(entry.clone());
         if case["expected"] == "valid" {
             let flag = decoded.unwrap();
-            if case["template"] == "v2" {
+            if case["id"] == "definitions.v2_standalone_experiment" {
+                assert!(result(&flag).is_ok());
+            } else if case["template"] == "v2" {
                 assert!(matches!(
                     result(&flag),
-                    Err(ParseError::Unsupported("rule_type"))
+                    Err(ParseError::Unsupported("experiment_id"))
                 ))
             } else {
                 assert!(flag.filters.non_v1.is_none());
@@ -366,6 +379,9 @@ fn released_schema_and_registry_match_the_parser_contract() {
             "/$defs/percentageRolloutRule/properties",
             PERCENTAGE_ROLLOUT_FIELDS,
         ),
+        ("/$defs/experimentRule/properties", EXPERIMENT_FIELDS),
+        ("/$defs/variant/properties", VARIANT_FIELDS),
+        ("/$defs/holdout/properties", HOLDOUT_FIELDS),
         ("/$defs/targeting/properties", TARGETING_FIELDS),
         ("/$defs/propertyFilter/properties", PROPERTY_FIELDS),
     ] {
@@ -396,6 +412,14 @@ fn released_schema_and_registry_match_the_parser_contract() {
     assert_eq!(
         MAX_SEED_LENGTH,
         schema["$defs"]["seed"]["maxLength"].as_u64().unwrap() as usize
+    );
+    let variants = &schema["$defs"]["experimentRule"]["properties"]["variants"];
+    assert_eq!(
+        (MIN_VARIANTS, MAX_VARIANTS),
+        (
+            variants["minItems"].as_u64().unwrap() as usize,
+            variants["maxItems"].as_u64().unwrap() as usize
+        )
     );
 
     let entries = load("schemas/definitions_entry.schema.json");
@@ -434,20 +458,23 @@ fn released_schema_and_registry_match_the_parser_contract() {
     for entry in registry["rule_types"].as_array().unwrap() {
         let mut document = config();
         document["rules"][0]["rule_type"] = entry["value"].clone();
-        if entry["value"] == "targeted_release" {
-            document["rules"][0]
-                .as_object_mut()
-                .unwrap()
-                .retain(|key, _| TARGETED_RELEASE_FIELDS.contains(&key.as_str()));
-        }
-        let flag = read(document);
+        let rule = document["rules"][0].as_object_mut().unwrap();
         match entry["value"].as_str().unwrap() {
-            "targeted_release" | "percentage_rollout" => assert!(result(&flag).is_ok()),
-            _ => assert_eq!(
-                result(&flag).as_ref().unwrap_err(),
-                &ParseError::Unsupported("rule_type")
-            ),
+            "targeted_release" => {
+                rule.retain(|key, _| TARGETED_RELEASE_FIELDS.contains(&key.as_str()))
+            }
+            "experiment" => {
+                rule.remove("value");
+                rule.insert("experiment_id".to_owned(), Value::Null);
+                rule.insert("paused".to_owned(), json!(false));
+                rule.insert(
+                    "variants".to_owned(),
+                    json!([{"key": "control", "weight": 50, "value": false}, {"key": "test", "weight": 50, "value": true}]),
+                );
+            }
+            _ => {}
         }
+        assert!(result(&read(document)).is_ok(), "{entry}");
     }
     for (registry_field, rule_field) in [
         ("assignment_algorithms", "assignment_algorithm"),

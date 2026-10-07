@@ -3,13 +3,13 @@ use std::path::PathBuf;
 
 use feature_flags::flags::config_v2::Config;
 use feature_flags::flags::evaluate_v2::{
-    Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties, RuleKind,
+    Evaluation, EvaluationContext, EvaluationError, MatchedRule, PersonProperties,
 };
 use feature_flags::flags::flag_models::FeatureFlag;
 use serde_json::{json, Value};
 
 pub fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.3.1")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/3.0.0")
 }
 
 pub fn load(path: &str) -> Value {
@@ -25,6 +25,13 @@ pub fn cases() -> Vec<Value> {
 
 pub fn value_cases() -> Vec<Value> {
     load("corpus/v2_value_evaluation.json")["cases"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+pub fn experiment_cases() -> Vec<Value> {
+    load("corpus/v2_experiment_evaluation.json")["cases"]
         .as_array()
         .unwrap()
         .clone()
@@ -74,21 +81,20 @@ pub fn context<'a>(
 }
 
 fn rule_json(rule: MatchedRule) -> Value {
-    json!({"id": rule.id.to_string(), "index": rule.index, "rule_type": match rule.kind {
-        RuleKind::TargetedRelease => "targeted_release", RuleKind::PercentageRollout => "percentage_rollout",
-    }})
+    json!({"id": rule.id.to_string(), "index": rule.index, "rule_type": rule.kind.as_str()})
 }
 
 pub fn result_json(result: Result<Evaluation, EvaluationError>) -> Value {
     match result {
-        Ok(Evaluation::TargetingMatch { value, rule }) => {
-            json!({"status":"success","value":value,"reason":"targeting_match","rule":rule_json(rule)})
-        }
-        Ok(Evaluation::RolloutMiss { value, rule }) => {
-            json!({"status":"success","value":value,"reason":"rollout_miss","rule":rule_json(rule)})
-        }
-        Ok(Evaluation::NoRuleMatch { value }) => {
-            json!({"status":"success","value":value,"reason":"no_rule_match"})
+        Ok(evaluation) => {
+            let mut json = json!({"status": "success", "value": evaluation.value(), "reason": evaluation.code()});
+            if let Some(rule) = evaluation.rule() {
+                json["rule"] = rule_json(rule);
+            }
+            if let Some(variant) = evaluation.variant() {
+                json["variant"] = json!(variant);
+            }
+            json
         }
         Err(error) => json!({"status":"error","error": match error {
             EvaluationError::MissingContext => "missing_context", EvaluationError::InvalidProperty => "invalid_property",
