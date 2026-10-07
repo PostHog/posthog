@@ -16,7 +16,11 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from products.streamlit_apps.backend.facade import contracts
-from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError, AppRuntimeError
+from products.streamlit_apps.backend.facade.contracts import (
+    AppRuntimeConcurrencyError,
+    AppRuntimeError,
+    SourceEditError,
+)
 from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService, sync_sandbox_status
 from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
 from products.streamlit_apps.backend.logic.oauth import (
@@ -24,6 +28,7 @@ from products.streamlit_apps.backend.logic.oauth import (
     find_reusable_streamlit_access_token,
     get_streamlit_oauth_app,
 )
+from products.streamlit_apps.backend.logic.version_source import apply_source_edits, read_source_files
 from products.streamlit_apps.backend.logic.zip_validator import (
     MAX_FILE_COUNT,
     MAX_ZIP_SIZE,
@@ -62,6 +67,8 @@ __all__ = [
     "InvalidZipError",
     "ConcurrentUploadError",
     "VersionNotFoundError",
+    "VersionConflictError",
+    "SourceEditError",
     "NoActiveVersionError",
     "AppNotRunningError",
     "ConnectUnavailableError",
@@ -80,6 +87,8 @@ __all__ = [
     "list_versions",
     "upload_version",
     "create_version_from_source",
+    "get_version_source",
+    "edit_version_source",
     "activate_version",
     "get_status",
     "start_app",
@@ -121,6 +130,15 @@ class ConcurrentUploadError(Exception):
 class VersionNotFoundError(Exception):
     def __init__(self) -> None:
         super().__init__("Version not found.")
+
+
+class VersionConflictError(Exception):
+    def __init__(self, current_version: int) -> None:
+        self.current_version = current_version
+        super().__init__(
+            f"The base version is not the latest version. The latest version is {current_version}. "
+            "Read its source and apply your changes again."
+        )
 
 
 class NoActiveVersionError(Exception):
@@ -384,9 +402,22 @@ def upload_version(
     was_impersonated: bool,
 ) -> contracts.AppVersionContract:
     app = _get_app(team_id, short_id)
-
     check_zip_size(declared_size)
+    return _store_version(app, user, file_content, was_impersonated)
 
+
+def _store_version(
+    app: StreamlitApp,
+    user: User,
+    file_content: bytes,
+    was_impersonated: bool,
+    expected_latest_version: int | None = None,
+) -> contracts.AppVersionContract:
+    """Validate, store, and activate a version zip.
+
+    When ``expected_latest_version`` is set, the latest version is checked under the same row lock
+    that allocates the next number, so two concurrent edits from one base cannot both succeed.
+    """
     validation = validate_zip(io.BytesIO(file_content))
     if not validation.valid:
         raise InvalidZipError(validation.errors)
@@ -406,6 +437,10 @@ def upload_version(
     try:
         with transaction.atomic():
             latest_version = app.versions.select_for_update().order_by("-version_number").first()
+            if expected_latest_version is not None and (
+                latest_version is None or latest_version.version_number != expected_latest_version
+            ):
+                raise VersionConflictError(latest_version.version_number if latest_version else 0)
             next_version_number = (latest_version.version_number + 1) if latest_version else 1
 
             version = StreamlitAppVersion.objects.create(
@@ -430,7 +465,7 @@ def upload_version(
 
     log_activity(
         organization_id=user.current_organization_id,
-        team_id=team_id,
+        team_id=app.team_id,
         user=user,
         was_impersonated=was_impersonated,
         item_id=str(app.id),
@@ -465,6 +500,64 @@ def create_version_from_source(
         declared_size=len(file_content),
         was_impersonated=was_impersonated,
     )
+
+
+def _read_version_zip(version: StreamlitAppVersion) -> bytes:
+    zip_bytes = object_storage.read_bytes(version.zip_file, missing_ok=True)
+    if zip_bytes is None:
+        raise VersionNotFoundError()
+    return zip_bytes
+
+
+def get_version_source(
+    team_id: int, short_id: str, version_number: int | None, paths: list[str] | None
+) -> contracts.AppVersionSourceContract:
+    """Return the file manifest and text content of a version. Defaults to the active version."""
+    app = _get_app(team_id, short_id)
+    if version_number is None:
+        if app.active_version is None:
+            raise NoActiveVersionError()
+        version = app.active_version
+    else:
+        try:
+            version = app.versions.get(version_number=version_number)
+        except StreamlitAppVersion.DoesNotExist:
+            raise VersionNotFoundError() from None
+
+    files = read_source_files(_read_version_zip(version), paths)
+    return contracts.AppVersionSourceContract(version_number=version.version_number, files=files)
+
+
+def edit_version_source(
+    team_id: int,
+    short_id: str,
+    user: User,
+    data: contracts.EditVersionSourceInput,
+    was_impersonated: bool,
+) -> contracts.AppVersionContract:
+    """Create and activate a version from exact edits against ``data.base_version``.
+
+    Files the edits do not touch keep their bytes. A base that is not the latest version raises
+    ``VersionConflictError``, so a stale copy cannot overwrite newer work.
+    """
+    app = _get_app(team_id, short_id)
+    try:
+        base = app.versions.get(version_number=data.base_version)
+    except StreamlitAppVersion.DoesNotExist:
+        raise VersionNotFoundError() from None
+
+    latest_number = app.versions.order_by("-version_number").values_list("version_number", flat=True).first()
+    if latest_number != base.version_number:
+        raise VersionConflictError(latest_number or 0)
+
+    file_content = apply_source_edits(
+        _read_version_zip(base),
+        file_edits=data.file_edits,
+        create_files=data.create_files,
+        delete_files=data.delete_files,
+    )
+    check_zip_size(len(file_content))
+    return _store_version(app, user, file_content, was_impersonated, expected_latest_version=base.version_number)
 
 
 def activate_version(

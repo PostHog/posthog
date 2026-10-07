@@ -164,6 +164,86 @@ export interface CreateVersionFromSourceInputApi {
     assets?: CreateVersionFromSourceInputApiAssets
 }
 
+/**
+ * New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version.
+ */
+export type EditVersionSourceInputApiCreateFiles = { [key: string]: string }
+
+export interface SourceTextEditApi {
+    /** Exact text to find in the file. Must match exactly once. */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
+export interface SourceFileEditApi {
+    /** Path of an existing text file in the base version, for example 'app.py'. */
+    path: string
+    /** Find-and-replace operations, applied in order to the file's text. */
+    edits: SourceTextEditApi[]
+}
+
+export interface EditVersionSourceInputApi {
+    /**
+     * Version number that the changes apply to. Must be the latest version of the app, otherwise the request fails with 409 and returns the current version number.
+     * @minimum 1
+     */
+    base_version: number
+    /** Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same. */
+    file_edits?: SourceFileEditApi[]
+    /** New text files keyed by project-relative path, each value the file's full text (max 1 MB). The path must not exist in the base version. */
+    create_files?: EditVersionSourceInputApiCreateFiles
+    /** Paths of files to remove from the base version. app.py cannot be removed. */
+    delete_files?: string[]
+}
+
+export interface SourceEditErrorApi {
+    /** Why the change could not be applied. */
+    detail: string
+    /**
+     * Path of the file that caused the error, if any.
+     * @nullable
+     */
+    path: string | null
+    /**
+     * Zero-based index of the failed edit inside that file's edits, if any.
+     * @nullable
+     */
+    edit_index: number | null
+}
+
+export interface VersionConflictApi {
+    /** Why the change was refused. */
+    detail: string
+    /** Latest version number of the app. Read it and retry. */
+    current_version: number
+}
+
+export interface AppSourceFileContractApi {
+    /** Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'. */
+    path: string
+    /** File size in bytes. */
+    size: number
+    /** SHA-256 hash of the file bytes, as hex. */
+    sha256: string
+    /** MIME type guessed from the file extension. */
+    content_type: string
+    /** True when the file is not UTF-8 text. Binary content is never inlined. */
+    is_binary: boolean
+    /**
+     * Full text of the file. Null for binary files and for files that the paths filter excludes.
+     * @nullable
+     */
+    content: string | null
+}
+
+export interface AppVersionSourceContractApi {
+    /** Version number that this source belongs to. */
+    version_number: number
+    /** Every file in the version, sorted by path. The manifest always lists all files. */
+    files: AppSourceFileContractApi[]
+}
+
 export interface StreamlitAppStatusApi {
     /** Sandbox lifecycle status, or 'stopped' when no sandbox exists. */
     status: string
@@ -207,4 +287,17 @@ export type StreamlitAppsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type StreamlitAppsSourceRetrieveParams = {
+    /**
+     * Comma-separated file paths whose content to return, for example 'app.py,utils.py'. Other files appear in the manifest without content. Defaults to all text files.
+     * @minLength 1
+     */
+    paths?: string
+    /**
+     * Version number to read. Defaults to the active version.
+     * @minimum 1
+     */
+    version_number?: number
 }

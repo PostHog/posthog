@@ -14,9 +14,14 @@ from products.streamlit_apps.backend.facade.api import MAX_FILE_COUNT, MAX_ZIP_S
 from products.streamlit_apps.backend.facade.contracts import (
     AppContract,
     AppSandboxContract,
+    AppSourceFileContract,
     AppVersionContract,
+    AppVersionSourceContract,
     CreateAppInput,
     CreateVersionFromSourceInput,
+    EditVersionSourceInput,
+    SourceFileEdit,
+    SourceTextEdit,
     StreamlitAppUserInfo,
     UpdateAppInput,
 )
@@ -191,6 +196,133 @@ def _validate_attachment_paths(value: dict[str, str]) -> dict[str, str]:
     if errors:
         raise serializers.ValidationError(errors)
     return value
+
+
+class StreamlitAppSourceFileSerializer(DataclassSerializer):
+    path = serializers.CharField(
+        help_text="Project-relative path of the file, for example 'app.py' or 'pages/1_Overview.py'."
+    )
+    size = serializers.IntegerField(help_text="File size in bytes.")
+    sha256 = serializers.CharField(help_text="SHA-256 hash of the file bytes, as hex.")
+    content_type = serializers.CharField(help_text="MIME type guessed from the file extension.")
+    is_binary = serializers.BooleanField(
+        help_text="True when the file is not UTF-8 text. Binary content is never inlined."
+    )
+    content = serializers.CharField(
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Full text of the file. Null for binary files and for files that the paths filter excludes.",
+    )
+
+    class Meta:
+        dataclass = AppSourceFileContract
+
+
+class StreamlitAppVersionSourceSerializer(DataclassSerializer):
+    version_number = serializers.IntegerField(help_text="Version number that this source belongs to.")
+    files = StreamlitAppSourceFileSerializer(
+        many=True, help_text="Every file in the version, sorted by path. The manifest always lists all files."
+    )
+
+    class Meta:
+        dataclass = AppVersionSourceContract
+
+
+class VersionSourceQuerySerializer(serializers.Serializer):
+    version_number = serializers.IntegerField(
+        required=False, min_value=1, help_text="Version number to read. Defaults to the active version."
+    )
+    paths = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated file paths whose content to return, for example 'app.py,utils.py'. "
+            "Other files appear in the manifest without content. Defaults to all text files."
+        ),
+    )
+
+    def validate_paths(self, value: str) -> list[str]:
+        return [path.strip() for path in value.split(",") if path.strip()]
+
+
+class SourceTextEditSerializer(DataclassSerializer):
+    old = serializers.CharField(
+        trim_whitespace=False, help_text="Exact text to find in the file. Must match exactly once."
+    )
+    new = serializers.CharField(trim_whitespace=False, allow_blank=True, help_text="Replacement text.")
+
+    class Meta:
+        dataclass = SourceTextEdit
+
+
+class SourceFileEditSerializer(DataclassSerializer):
+    path = serializers.CharField(help_text="Path of an existing text file in the base version, for example 'app.py'.")
+    edits = SourceTextEditSerializer(
+        many=True, help_text="Find-and-replace operations, applied in order to the file's text."
+    )
+
+    def validate_edits(self, value: list[SourceTextEdit]) -> list[SourceTextEdit]:
+        if not value:
+            raise serializers.ValidationError("At least one edit is required.")
+        return value
+
+    class Meta:
+        dataclass = SourceFileEdit
+
+
+class EditVersionSourceInputSerializer(DataclassSerializer):
+    base_version = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "Version number that the changes apply to. Must be the latest version of the app, "
+            "otherwise the request fails with 409 and returns the current version number."
+        ),
+    )
+    file_edits = SourceFileEditSerializer(
+        many=True,
+        required=False,
+        help_text="Exact text edits to existing text files. Files that no change touches stay byte-for-byte the same.",
+    )
+    create_files = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True, max_length=_MAX_TEXT_FILE_LENGTH),
+        required=False,
+        help_text=(
+            "New text files keyed by project-relative path, each value the file's full text (max 1 MB). "
+            "The path must not exist in the base version."
+        ),
+    )
+    delete_files = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Paths of files to remove from the base version. app.py cannot be removed.",
+    )
+
+    def validate_create_files(self, value: dict[str, str]) -> dict[str, str]:
+        return _validate_attachment_paths(value)
+
+    def validate(self, attrs: EditVersionSourceInput) -> EditVersionSourceInput:
+        if not (attrs.file_edits or attrs.create_files or attrs.delete_files):
+            raise serializers.ValidationError("Provide at least one of file_edits, create_files, or delete_files.")
+        touched = [edit.path for edit in attrs.file_edits] + list(attrs.create_files) + list(attrs.delete_files)
+        duplicates = sorted({path for path in touched if touched.count(path) > 1})
+        if duplicates:
+            raise serializers.ValidationError(f"Each path can appear in only one change: {', '.join(duplicates)}")
+        return attrs
+
+    class Meta:
+        dataclass = EditVersionSourceInput
+
+
+class SourceEditErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the change could not be applied.")
+    path = serializers.CharField(allow_null=True, help_text="Path of the file that caused the error, if any.")
+    edit_index = serializers.IntegerField(
+        allow_null=True, help_text="Zero-based index of the failed edit inside that file's edits, if any."
+    )
+
+
+class VersionConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the change was refused.")
+    current_version = serializers.IntegerField(help_text="Latest version number of the app. Read it and retry.")
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):

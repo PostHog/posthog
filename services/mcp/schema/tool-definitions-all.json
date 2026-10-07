@@ -12953,12 +12953,42 @@
         },
         "feature_flag": "streamlit-apps"
     },
+    "streamlit-apps-edit-source": {
+        "description": "Change an existing Streamlit app without resending its whole source. Read the files first with streamlit-apps-get-source, then send exact text edits, new files, and deletions against that version number as base_version. The edits create a new active version; every file you do not touch stays byte-for-byte the same. If base_version is not the latest version, the call fails with 409 and returns current_version: read that version again and redo the edits, do not fall back to set-source. If an edit's `old` text matches zero or many times, the call fails with 400 and names the file and edit index. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Edit Streamlit app source",
+        "title": "Edit Streamlit app source",
+        "required_scopes": ["streamlit_app:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
     "streamlit-apps-get": {
         "description": "Get a single Streamlit app by its short_id, including its active version and live sandbox status.",
         "category": "Streamlit apps",
         "feature": "streamlit_apps",
         "summary": "Get Streamlit app",
         "title": "Get Streamlit app",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-get-source": {
+        "description": "Read the code of a Streamlit app version. Defaults to the active version; pass version_number for an older one. Returns version_number and a manifest of every file (path, size, sha256, content_type) with the full text of each text file. Binary files are listed without content. Pass `paths` to get the content of only some files, which keeps the response small for a large app. Always read the source here before you change an app, then use streamlit-apps-edit-source with the returned version_number, so you do not overwrite a newer version with an old local copy.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Get Streamlit app source",
+        "title": "Get Streamlit app source",
         "required_scopes": ["streamlit_app:read"],
         "annotations": {
             "destructiveHint": false,
@@ -12984,7 +13014,7 @@
         "feature_flag": "streamlit-apps"
     },
     "streamlit-apps-set-source": {
-        "description": "Create a new version of a Streamlit app from free-text source, and set it as the active version. The source becomes the root app.py; optional extra text files (helper modules, CSV, JSON) go in `files` and binary files (Parquet, images) go base64-encoded in `assets`, so no zip upload is needed. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards to serve the new version. Use posthog_apps.query(\"<HogQL>\") inside the app to read PostHog data as a pandas DataFrame. There is no way to add pip dependencies — only packages baked into the sandbox image are importable.",
+        "description": "Create a new version of a Streamlit app from free-text source, and set it as the active version. Use it for a new app or a full rewrite only: it replaces every file, so any file you leave out is lost. To change an existing app, read it with streamlit-apps-get-source and patch it with streamlit-apps-edit-source. The source becomes the root app.py; optional extra text files (helper modules, CSV, JSON) go in `files` and binary files (Parquet, images) go base64-encoded in `assets`, so no zip upload is needed. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards to serve the new version. Use posthog_apps.query(\"<HogQL>\") inside the app to read PostHog data as a pandas DataFrame. There is no way to add pip dependencies — only packages baked into the sandbox image are importable.",
         "category": "Streamlit apps",
         "feature": "streamlit_apps",
         "summary": "Set Streamlit app source",
@@ -13044,7 +13074,7 @@
         "feature_flag": "streamlit-apps"
     },
     "streamlit-apps-update": {
-        "description": "Update an app's metadata or sandbox sizing: name, description, cpu_cores (0.25–8), memory_gb (0.5–16). Only the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through streamlit-apps-set-source, not this tool.",
+        "description": "Update an app's metadata or sandbox sizing: name, description, cpu_cores (0.25–8), memory_gb (0.5–16). Only the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through streamlit-apps-edit-source (or streamlit-apps-set-source for a full rewrite), not this tool.",
         "category": "Streamlit apps",
         "feature": "streamlit_apps",
         "summary": "Update Streamlit app",

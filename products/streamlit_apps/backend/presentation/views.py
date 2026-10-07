@@ -9,7 +9,7 @@ from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.user import User
@@ -19,6 +19,7 @@ from products.streamlit_apps.backend.facade import api
 from products.streamlit_apps.backend.facade.contracts import (
     CreateAppInput,
     CreateVersionFromSourceInput,
+    EditVersionSourceInput,
     UpdateAppInput,
 )
 from products.streamlit_apps.backend.presentation.serializers import (
@@ -26,6 +27,8 @@ from products.streamlit_apps.backend.presentation.serializers import (
     ActivateVersionResponseSerializer,
     CreateAppInputSerializer,
     CreateVersionFromSourceInputSerializer,
+    EditVersionSourceInputSerializer,
+    SourceEditErrorSerializer,
     StreamlitAppMinimalSerializer,
     StreamlitAppsAccessPermission,
     StreamlitAppSandboxSerializer,
@@ -33,9 +36,12 @@ from products.streamlit_apps.backend.presentation.serializers import (
     StreamlitAppStatusSerializer,
     StreamlitAppVersionListSerializer,
     StreamlitAppVersionSerializer,
+    StreamlitAppVersionSourceSerializer,
     StreamlitConnectInfoSerializer,
     UpdateAppInputSerializer,
     UploadVersionRequestSerializer,
+    VersionConflictSerializer,
+    VersionSourceQuerySerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -50,7 +56,7 @@ _STATUS_CACHE_TTL_SECONDS = 2
 # counts without an explicit start of its own: the next start by anyone, or a live
 # sandbox its best-effort stop failed to reclaim, runs the newly activated code.
 _QUERY_CAPABLE_WRITE_ACTIONS = frozenset(
-    {"upload_version", "create_version_from_source", "activate_version", "start", "restart"}
+    {"upload_version", "create_version_from_source", "edit_source", "activate_version", "start", "restart"}
 )
 
 
@@ -58,7 +64,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "streamlit_app"
     # Custom actions are invisible to the default CRUD scope derivation, so
     # without these lists personal-API-key (and MCP) calls to them are refused.
-    scope_object_read_actions = ["list", "retrieve", "versions", "get_status", "connect_info"]
+    scope_object_read_actions = ["list", "retrieve", "versions", "source", "get_status", "connect_info"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -66,6 +72,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "destroy",
         "upload_version",
         "create_version_from_source",
+        "edit_source",
         "activate_version",
         "start",
         "stop",
@@ -239,6 +246,73 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.ZipTooLargeError as e:
             # The serializer bounds the raw bytes, but compression overhead and per-entry
             # headers can still push the built archive past the zip limit.
+            return Response({"detail": str(e)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        except api.InvalidZipError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except api.ConcurrentUploadError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(StreamlitAppVersionSerializer(version).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        query_serializer=VersionSourceQuerySerializer,
+        summary="Read the source of an app version",
+        description=(
+            "Returns the file manifest of a version and the text of each text file. "
+            "Binary files appear in the manifest without content."
+        ),
+        responses={200: OpenApiResponse(response=StreamlitAppVersionSourceSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="source")
+    def source(self, request: ValidatedRequest, short_id: str, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        try:
+            version_source = api.get_version_source(
+                team_id=self.team_id,
+                short_id=short_id,
+                version_number=query.get("version_number"),
+                paths=query.get("paths"),
+            )
+        except api.AppNotFoundError:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except (api.VersionNotFoundError, api.NoActiveVersionError) as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StreamlitAppVersionSourceSerializer(version_source).data)
+
+    @validated_request(
+        request_serializer=EditVersionSourceInputSerializer,
+        summary="Create an app version by editing an existing version",
+        description=(
+            "Applies exact text edits, file creations, and file deletions to base_version, then stores the result "
+            "as a new active version. Files that no change touches stay byte-for-byte the same."
+        ),
+        responses={
+            201: OpenApiResponse(response=StreamlitAppVersionSerializer),
+            400: OpenApiResponse(response=SourceEditErrorSerializer),
+            409: OpenApiResponse(response=VersionConflictSerializer),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="edit_source", throttle_classes=[ClickHouseBurstRateThrottle])
+    def edit_source(self, request: TypedRequest[EditVersionSourceInput], short_id: str, **kwargs: Any) -> Response:
+        try:
+            version = api.edit_version_source(
+                team_id=self.team_id,
+                short_id=short_id,
+                user=cast(User, request.user),
+                data=request.validated_data,
+                was_impersonated=is_impersonated_session(request),
+            )
+        except api.AppNotFoundError:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        except api.VersionNotFoundError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except api.VersionConflictError as e:
+            return Response({"detail": str(e), "current_version": e.current_version}, status=status.HTTP_409_CONFLICT)
+        except api.SourceEditError as e:
+            return Response(
+                {"detail": str(e), "path": e.path, "edit_index": e.edit_index}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except api.ZipTooLargeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
         except api.InvalidZipError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)

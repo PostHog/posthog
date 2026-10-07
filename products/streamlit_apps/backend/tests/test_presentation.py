@@ -13,11 +13,16 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.scoping import team_scope
+
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
-from products.streamlit_apps.backend.presentation.serializers import CreateVersionFromSourceInputSerializer
+from products.streamlit_apps.backend.presentation.serializers import (
+    CreateVersionFromSourceInputSerializer,
+    EditVersionSourceInputSerializer,
+)
 
 
-def _make_zip(files: dict[str, str]) -> bytes:
+def _make_zip(files: dict[str, str | bytes]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         for name, content in files.items():
@@ -758,6 +763,127 @@ class TestCreateVersionFromSource(_StreamlitAppsFlagMixin, APIBaseTest):
         mock_storage_write.assert_not_called()
 
 
+class TestVersionSourceAPI(_StreamlitAppsFlagMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.storage: dict[str, bytes] = {}
+        for target, fake in (
+            ("write", lambda path, content: self.storage.__setitem__(path, content)),
+            ("read_bytes", lambda path, missing_ok=False: self.storage.get(path)),
+        ):
+            patcher = patch(f"posthog.storage.object_storage.{target}", side_effect=fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.app = StreamlitApp.objects.create(team=self.team, name="Source App", created_by=self.user)
+
+    def _url(self, suffix: str, app: StreamlitApp | None = None) -> str:
+        return f"/api/projects/{self.team.id}/streamlit_apps/{(app or self.app).short_id}/{suffix}"
+
+    def _add_version(self, version_number: int, files: dict[str, str | bytes]) -> StreamlitAppVersion:
+        zip_path = f"test/{self.app.id}/v{version_number}.zip"
+        self.storage[zip_path] = _make_zip(files)
+        version = StreamlitAppVersion.objects.create(
+            app=self.app, version_number=version_number, zip_file=zip_path, zip_hash="abc", created_by=self.user
+        )
+        self.app.active_version = version
+        self.app.save()
+        return version
+
+    def _stored_files(self, version_number: int) -> dict[str, bytes]:
+        version = self.app.versions.get(version_number=version_number)
+        with zipfile.ZipFile(io.BytesIO(self.storage[version.zip_file])) as zf:
+            return {name: zf.read(name) for name in zf.namelist()}
+
+    def test_source_defaults_to_active_version_and_reads_older_versions(self):
+        self._add_version(1, {"app.py": "v1"})
+        self._add_version(2, {"app.py": "v2", "data/x.bin": b"\x00\xff"})
+
+        active = self.client.get(self._url("source/")).json()
+        older = self.client.get(self._url("source/"), {"version_number": 1}).json()
+
+        assert active["version_number"] == 2
+        assert {f["path"]: f["content"] for f in active["files"]} == {"app.py": "v2", "data/x.bin": None}
+        assert older["version_number"] == 1
+        assert [f["content"] for f in older["files"]] == ["v1"]
+
+    @parameterized.expand([("no_active_version", {}), ("unknown_version", {"version_number": 9})])
+    def test_source_missing_version_404(self, _name, query):
+        response = self.client.get(self._url("source/"), query)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_source_of_other_team_app_404(self):
+        other_team = self.organization.teams.create(name="Other")
+        with team_scope(other_team.id):
+            other_app = StreamlitApp.objects.create(team=other_team, name="Other", created_by=self.user)
+        response = self.client.get(self._url("source/", other_app))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_edit_source_creates_active_version_and_keeps_untouched_files(self):
+        self._add_version(1, {"app.py": "st.title('Old')", "utils.py": "x = 1", "data/x.bin": b"\x00\xff"})
+
+        response = self.client.post(
+            self._url("edit_source/"),
+            data={
+                "base_version": 1,
+                "file_edits": [{"path": "app.py", "edits": [{"old": "Old", "new": "New"}]}],
+                "create_files": {"helpers.py": "y = 2"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["version_number"] == 2
+        self.app.refresh_from_db()
+        assert self.app.active_version is not None and self.app.active_version.version_number == 2
+        assert self._stored_files(2) == {
+            "app.py": b"st.title('New')",
+            "utils.py": b"x = 1",
+            "data/x.bin": b"\x00\xff",
+            "helpers.py": b"y = 2",
+        }
+
+    def test_edit_source_with_stale_base_409(self):
+        self._add_version(1, {"app.py": "v1"})
+        self._add_version(2, {"app.py": "v2"})
+
+        response = self.client.post(
+            self._url("edit_source/"),
+            data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "v1", "new": "v3"}]}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["current_version"] == 2
+        assert self.app.versions.count() == 2
+
+    def test_edit_source_names_failed_edit_400(self):
+        self._add_version(1, {"app.py": "v1"})
+
+        response = self.client.post(
+            self._url("edit_source/"),
+            data={"base_version": 1, "file_edits": [{"path": "app.py", "edits": [{"old": "nope", "new": "x"}]}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() | {"detail": None} == {"detail": None, "path": "app.py", "edit_index": 0}
+        assert self.app.versions.count() == 1
+
+
+class TestEditVersionSourceInputSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_changes", {}),
+            ("empty_edits", {"file_edits": [{"path": "app.py", "edits": []}]}),
+            ("unsafe_create_path", {"create_files": {"../x.py": ""}}),
+            ("same_path_twice", {"create_files": {"x.py": ""}, "delete_files": ["x.py"]}),
+        ]
+    )
+    def test_rejects_invalid_input(self, _name, extra):
+        serializer = EditVersionSourceInputSerializer(data={"base_version": 1, **extra})
+        assert not serializer.is_valid()
+
+
 class TestCreateVersionFromSourceInputSerializer(SimpleTestCase):
     @parameterized.expand(
         [
@@ -834,7 +960,7 @@ class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest)
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-    @parameterized.expand(["create_version_from_source", "activate_version", "start", "restart"])
+    @parameterized.expand(["create_version_from_source", "edit_source", "activate_version", "start", "restart"])
     def test_code_executing_actions_refused_without_query_read(self, action: str):
         app = StreamlitApp.objects.create(team=self.team, name="PAK App", created_by=self.user)
         response = self.client.post(
@@ -868,7 +994,9 @@ class TestStreamlitAppPersonalAPIKeyAccess(_StreamlitAppsFlagMixin, APIBaseTest)
         )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_custom_read_action_allowed_with_read_scope(self):
+    @parameterized.expand([("versions/", status.HTTP_200_OK), ("source/", status.HTTP_404_NOT_FOUND)])
+    def test_custom_read_action_allowed_with_read_scope(self, suffix: str, expected_status: int):
+        # source/ answers 404 because the app has no version yet; a scope refusal would be 403.
         app = StreamlitApp.objects.create(team=self.team, name="PAK App", created_by=self.user)
-        response = self.client.get(self._url(app.short_id, "versions/"), **self._auth(self._read_key))
-        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get(self._url(app.short_id, suffix), **self._auth(self._read_key))
+        assert response.status_code == expected_status
