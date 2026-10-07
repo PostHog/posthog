@@ -1,50 +1,66 @@
-/** A model at or above this AUC ranks people well enough to act on. */
-export const STRONG_AUC_THRESHOLD = 0.8
-/** A model at or above this AUC, and below the strong threshold, ranks people better than chance but loosely. */
-export const FAIR_AUC_THRESHOLD = 0.7
+/**
+ * AUC cutoffs for the quality verdict: Strong at or above `strong`, Fair at or above `fair`, Weak below.
+ * They do not vary by base rate yet. Tune them here after dogfooding.
+ */
+export const MODEL_QUALITY_THRESHOLDS = {
+    strong: 0.8,
+    fair: 0.7,
+} as const
 
-export type ModelQualityLevel = 'strong' | 'fair' | 'weak'
+export type ModelQualityVerdict = 'Strong' | 'Fair' | 'Weak'
+
+/** `confirmed` when the verdict comes from realized AUC, `testing only` when it comes from holdout AUC. */
+export type ModelQualityBasis = 'confirmed' | 'testing only'
 
 export interface ModelQuality {
-    level: ModelQualityLevel
+    verdict: ModelQualityVerdict
+    basis: ModelQualityBasis
     auc: number
-    /** Realized AUC measures real outcomes, so it wins over holdout AUC whenever it exists. */
-    source: 'realized' | 'holdout'
+    sentence: string
 }
 
-export const MODEL_QUALITY_LABEL: Record<ModelQualityLevel, string> = {
-    strong: 'Strong',
-    fair: 'Fair',
-    weak: 'Weak',
-}
-
-export function modelQualityLevel(auc: number): ModelQualityLevel {
-    if (auc >= STRONG_AUC_THRESHOLD) {
-        return 'strong'
-    }
-    if (auc >= FAIR_AUC_THRESHOLD) {
-        return 'fair'
-    }
-    return 'weak'
-}
-
-export function modelQuality(
-    holdoutAuc: number | null | undefined,
+export interface ModelQualityInput {
+    holdoutAuc: number | null | undefined
     realizedAuc: number | null | undefined
-): ModelQuality | null {
-    if (realizedAuc != null) {
-        return { level: modelQualityLevel(realizedAuc), auc: realizedAuc, source: 'realized' }
-    }
-    if (holdoutAuc != null) {
-        return { level: modelQualityLevel(holdoutAuc), auc: holdoutAuc, source: 'holdout' }
-    }
-    return null
+    liftAt10: number | null | undefined
+    isPreliminary: boolean | null | undefined
+    target: string
 }
 
-/** Plain-language reading of lift at 10%, or null when no validated date has measured it yet. */
-export function liftSentence(liftAt10: number | null | undefined): string | null {
+export function modelQualityVerdict(auc: number): ModelQualityVerdict {
+    if (auc >= MODEL_QUALITY_THRESHOLDS.strong) {
+        return 'Strong'
+    }
+    if (auc >= MODEL_QUALITY_THRESHOLDS.fair) {
+        return 'Fair'
+    }
+    return 'Weak'
+}
+
+export function liftSentence(liftAt10: number | null | undefined, target: string): string {
     if (liftAt10 == null) {
+        return 'Not checked against real outcomes yet'
+    }
+    return `Top 10% are ${liftAt10.toFixed(1)}× more likely to do ${target}`
+}
+
+/** Realized AUC measures real outcomes, so it wins over holdout AUC. Null when the model has no AUC at all. */
+export function modelQuality({
+    holdoutAuc,
+    realizedAuc,
+    liftAt10,
+    isPreliminary,
+    target,
+}: ModelQualityInput): ModelQuality | null {
+    const confirmed = realizedAuc != null && !isPreliminary
+    const auc = confirmed ? realizedAuc : holdoutAuc
+    if (auc == null) {
         return null
     }
-    return `The top 10% of people by score did the target ${liftAt10.toFixed(1)}x as often as average.`
+    return {
+        verdict: modelQualityVerdict(auc),
+        basis: confirmed ? 'confirmed' : 'testing only',
+        auc,
+        sentence: liftSentence(liftAt10, target),
+    }
 }

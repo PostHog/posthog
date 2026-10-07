@@ -20,7 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { autoresearchLogic } from './autoresearchLogic'
 import { autoresearchEmptyState } from './emptyState/autoresearchEmptyState'
 import { AutoresearchPipelineApi } from './generated/api.schemas'
-import { FAIR_AUC_THRESHOLD, STRONG_AUC_THRESHOLD } from './modelQuality'
+import { MODEL_QUALITY_THRESHOLDS, modelQuality } from './modelQuality'
 import { ModelQualityTag } from './ModelQualityTag'
 import { PipelineStatusTag } from './PipelineStatusTag'
 
@@ -72,15 +72,32 @@ export function AutoresearchScene(): JSX.Element {
         >,
         {
             title: 'Quality',
-            tooltip: `How well the current champion model ranks people. Strong is an AUC of ${STRONG_AUC_THRESHOLD.toFixed(2)} or more, fair is ${FAIR_AUC_THRESHOLD.toFixed(2)} to ${STRONG_AUC_THRESHOLD.toFixed(2)}, and weak is below ${FAIR_AUC_THRESHOLD.toFixed(2)}. Realized AUC from real outcomes is used when it exists, otherwise holdout AUC.`,
-            render: (_, record: AutoresearchPipelineApi) => (
-                <ModelQualityTag
-                    holdoutAuc={record.champion_holdout_auc}
-                    realizedAuc={record.champion_realized_auc}
-                    liftAt10={record.champion_lift_at_10}
-                    isPreliminary={record.champion_is_preliminary}
-                />
-            ),
+            tooltip: `How well the current champion model ranks people. Strong is an AUC of ${MODEL_QUALITY_THRESHOLDS.strong.toFixed(2)} or more, Fair is ${MODEL_QUALITY_THRESHOLDS.fair.toFixed(2)} to ${MODEL_QUALITY_THRESHOLDS.strong.toFixed(2)}, and Weak is below ${MODEL_QUALITY_THRESHOLDS.fair.toFixed(2)}. Realized AUC from real outcomes is used when it exists, otherwise holdout AUC from test data.`,
+            render: (_, record: AutoresearchPipelineApi) => {
+                const quality = modelQuality({
+                    holdoutAuc: record.champion_holdout_auc,
+                    realizedAuc: record.champion_realized_auc,
+                    liftAt10: record.champion_lift_at_10,
+                    isPreliminary: record.champion_is_preliminary,
+                    target: record.target_event,
+                })
+                if (!quality) {
+                    return <span className="text-secondary">—</span>
+                }
+                return (
+                    <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                            <ModelQualityTag
+                                quality={quality}
+                                holdoutAuc={record.champion_holdout_auc}
+                                realizedAuc={record.champion_realized_auc}
+                            />
+                            <span className="text-xs text-secondary">{quality.basis}</span>
+                        </div>
+                        <span className="text-xs text-secondary">{quality.sentence}</span>
+                    </div>
+                )
+            },
         },
         {
             title: 'Last scored',

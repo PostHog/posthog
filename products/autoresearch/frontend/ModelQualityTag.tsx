@@ -1,52 +1,46 @@
 import { LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
-import { MODEL_QUALITY_LABEL, ModelQualityLevel, liftSentence, modelQuality } from './modelQuality'
+import { ModelQuality, ModelQualityVerdict } from './modelQuality'
 
-const QUALITY_TAG_TYPE: Record<ModelQualityLevel, LemonTagType> = {
-    strong: 'success',
-    fair: 'warning',
-    weak: 'danger',
+const VERDICT_TAG_TYPE: Record<ModelQualityVerdict, LemonTagType> = {
+    Strong: 'success',
+    Fair: 'warning',
+    Weak: 'danger',
 }
 
 function formatAuc(auc: number | null | undefined): string {
-    return auc == null ? 'not measured yet' : auc.toFixed(3)
+    return auc == null ? 'not measured' : auc.toFixed(3)
 }
 
 export function ModelQualityTag({
+    quality,
     holdoutAuc,
     realizedAuc,
-    liftAt10,
-    isPreliminary,
 }: {
+    quality: ModelQuality
     holdoutAuc: number | null | undefined
     realizedAuc: number | null | undefined
-    liftAt10?: number | null
-    isPreliminary?: boolean | null
 }): JSX.Element {
-    const quality = modelQuality(holdoutAuc, realizedAuc)
-    if (!quality) {
-        return <span className="text-secondary">—</span>
-    }
-    const lift = liftSentence(liftAt10)
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
                     <div>
-                        {quality.source === 'realized'
-                            ? 'Based on real outcomes of past predictions.'
-                            : 'Based on held-out training data. Real outcomes are not measured yet.'}
+                        {quality.basis === 'confirmed'
+                            ? `Realized AUC ${quality.auc.toFixed(3)}, measured on real outcomes of past predictions.`
+                            : `Holdout AUC ${quality.auc.toFixed(3)}, measured on test data only. Real outcomes are not checked yet.`}
                     </div>
-                    {lift && <div>{lift}</div>}
-                    <div>Realized AUC: {formatAuc(realizedAuc)}</div>
-                    <div>Holdout AUC: {formatAuc(holdoutAuc)}</div>
+                    <div>
+                        AUC shows how well the model ranks people who do the target above people who don't. 0.5 is
+                        random and 1.0 is perfect.
+                    </div>
+                    <div className="text-xs">
+                        Holdout AUC: {formatAuc(holdoutAuc)}. Realized AUC: {formatAuc(realizedAuc)}.
+                    </div>
                 </div>
             }
         >
-            <LemonTag type={QUALITY_TAG_TYPE[quality.level]}>
-                {MODEL_QUALITY_LABEL[quality.level]}
-                {isPreliminary ? ' (preliminary)' : ''}
-            </LemonTag>
+            <LemonTag type={VERDICT_TAG_TYPE[quality.verdict]}>{quality.verdict}</LemonTag>
         </Tooltip>
     )
 }
