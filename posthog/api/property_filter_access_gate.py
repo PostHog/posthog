@@ -21,8 +21,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.user import User
 
-# The only filter types that can reach a warehouse table. Event and person property filters cannot.
-_WAREHOUSE_REACHING_TYPES = frozenset({"data_warehouse", "data_warehouse_person_property", "hogql"})
+# The only filter types that can reach a warehouse table. A behavioral filter can through its nested
+# event filters. Event and person property filters cannot.
+_WAREHOUSE_REACHING_TYPES = frozenset({"behavioral", "data_warehouse", "data_warehouse_person_property", "hogql"})
 
 
 def table_blocking_property_filters(user: User, team: Team, filters: list[dict[str, Any]]) -> str | None:
