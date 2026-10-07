@@ -41,6 +41,7 @@ from posthog.schema import (
     SourceMap,
 )
 
+from posthog.api.property_filter_access_gate import access_denied_message, table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import TeamBasicSerializer
@@ -3381,6 +3382,17 @@ def validate_team_attrs(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
                 )
+
+    # A new team has no warehouse tables yet, so only an update can reach a denied one.
+    if "test_account_filters" in attrs and instance is not None:
+        team = instance if isinstance(instance, Team) else instance.passthrough_team
+        denied_table = table_blocking_property_filters(
+            cast(User, view.request.user), team, attrs["test_account_filters"]
+        )
+        if denied_table:
+            raise exceptions.ValidationError(
+                {"test_account_filters": access_denied_message(denied_table)}, code="permission_denied"
+            )
 
     if "primary_dashboard" in attrs:
         if not instance:
