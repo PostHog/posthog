@@ -3,13 +3,21 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from posthog.caching.insight_result import InsightResult
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     _has_comparison_enabled,
     _serialize_insight_result,
+    build_insight_delivery_snapshot,
 )
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _build_insight_result(**overrides) -> InsightResult:
@@ -108,3 +116,41 @@ def test_serialize_insight_result_handles_decimal_and_date():
 
     reparsed = json.loads(json.dumps(serialized))
     assert reparsed["result"] == [["1.5", "2026-04-20"]]
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestInsightSnapshotTableAccess(ClickhouseTestMixin, BaseTest):
+    def test_delivery_reads_a_view_the_creator_is_denied(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM denied_view"}},
+        )
+
+        snapshot = build_insight_delivery_snapshot(
+            insight=insight, team=self.team, dashboard=None, tile=None, user=self.user
+        )
+
+        assert "query_error" not in snapshot, snapshot
+        assert snapshot["query_results"]["result"] == [[1]]

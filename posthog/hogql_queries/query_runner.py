@@ -1863,6 +1863,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._bypass_warehouse_access_control = False
         self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
@@ -1899,6 +1900,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         a cached HogQLContext / Database) must call super()._on_user_changed()."""
         self._shared_database = None
 
+    def bypass_warehouse_access_control(self) -> None:
+        """Run without warehouse access control, as a trusted job does (see Database.create_for).
+
+        The user stays in place for everything else: system tables, property access control and
+        query attribution. Call this only when the queries were checked against a real user when
+        they were saved, such as a subscription delivery, and never for a client-supplied query.
+        """
+        self._bypass_warehouse_access_control = True
+        self._on_user_changed()
+
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot the shared database is built with. None here; overridden by
@@ -1922,6 +1933,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 user=self.user,
                 user_access_control=self.user_access_control,
                 modifiers=self.modifiers,
+                bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                 trigger="shared_kill_switch",
             )
         if self._shared_database is None:
@@ -1937,6 +1949,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
                             trigger="shared",
                         )
         return self._shared_database
@@ -3543,8 +3556,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     @property
     def _bypassed_access_scopes(self) -> frozenset[str]:
-        """Scopes whose access control the principal skips. Service tokens and shared-link viewers bypass
-        warehouse access control (see Database.create_for); real users and userless runs bypass nothing."""
+        """Scopes whose access control the principal skips. Service tokens, shared-link viewers and a
+        run that called bypass_warehouse_access_control() skip warehouse access control (see
+        Database.create_for); real users and userless runs bypass nothing."""
+        if self._bypass_warehouse_access_control:
+            return WAREHOUSE_ACCESS_SCOPES
         # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
         user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
         if user is None or isinstance(user, User):
@@ -3670,13 +3686,23 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
+        self.database = Database.create_for(
+            team=self.team,
+            user=user,
+            bypass_warehouse_access_control=self._bypass_warehouse_access_control,
+            trigger="runner_context",
+        )
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
         super()._on_user_changed()
+        self._build_hogql_context_for_user(self.user)
+
+    def bypass_warehouse_access_control(self) -> None:
+        super().bypass_warehouse_access_control()
+        # The user did not change, so _on_user_changed kept the context; rebuild it for the bypass.
         self._build_hogql_context_for_user(self.user)
 
     @property

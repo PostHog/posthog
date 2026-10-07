@@ -364,6 +364,7 @@ def process_query_dict(
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
     allow_raw_results: Literal[False] = ...,
+    bypass_warehouse_access_control: bool = ...,
 ) -> dict | BaseModel: ...
 
 
@@ -386,6 +387,7 @@ def process_query_dict(
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
     allow_raw_results: bool,
+    bypass_warehouse_access_control: bool = ...,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
@@ -407,6 +409,7 @@ def process_query_dict(
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -460,6 +463,7 @@ def process_query_dict(
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
     )
 
 
@@ -544,6 +548,7 @@ def process_query_model(
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
     allow_raw_results: Literal[False] = ...,
+    bypass_warehouse_access_control: bool = ...,
 ) -> dict | BaseModel: ...
 
 
@@ -566,6 +571,7 @@ def process_query_model(
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
     allow_raw_results: bool,
+    bypass_warehouse_access_control: bool = ...,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
 
@@ -587,6 +593,7 @@ def process_query_model(
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if isinstance(query, HogQLAutocomplete):
         timings = HogQLTimings()
@@ -663,6 +670,8 @@ def process_query_model(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is not None:  # Query runner available - it will handle execution as well as caching
+        if bypass_warehouse_access_control:
+            query_runner.bypass_warehouse_access_control()
         return _run_query_runner(
             query_runner,
             dashboard_filters=dashboard_filters,
@@ -677,6 +686,7 @@ def process_query_model(
             pagination_cursor=pagination_cursor,
             analytics_props=analytics_props,
             allow_raw_results=allow_raw_results,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
 
     # This query doesn't run via query runner
@@ -697,6 +707,7 @@ def process_query_model(
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
             allow_raw_results=allow_raw_results,
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
     if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
         # Caching is handled by query runners, so in this case we can only return a cache miss

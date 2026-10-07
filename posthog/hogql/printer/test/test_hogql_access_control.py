@@ -1077,6 +1077,27 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" not in database._denied_tables
         assert "allowed_view" not in database._denied_tables
 
+    def test_query_runner_bypass_rebuilds_the_database_and_changes_the_cache_key(self):
+        from posthog.hogql_queries.query_runner import get_query_runner
+
+        self._create_ac(
+            resource="warehouse_view",
+            resource_id=str(self.denied_view.id),
+            access_level="none",
+            member=self._membership(),
+        )
+        runner = get_query_runner(
+            {"kind": "HogQLQuery", "query": "SELECT id FROM denied_view"}, self.team, user=self.user
+        )
+        assert "denied_view" in runner.database._denied_tables
+        denied_cache_key = runner.get_cache_key()
+
+        runner.bypass_warehouse_access_control()
+
+        # A bypass result must never be served from the denied user's cache entry, or the other way round.
+        assert "denied_view" not in runner.database._denied_tables
+        assert runner.get_cache_key() != denied_cache_key
+
     def test_shared_link_user_skips_warehouse_view_acl_but_hides_system_tables(self):
         self._create_ac(
             resource="warehouse_view",

@@ -534,8 +534,13 @@ def _screenshot_asset_browserless(
 
 
 def export_image(
-    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
+    exported_asset: ExportedAsset,
+    max_height_pixels: Optional[int] = None,
+    source: Optional[EventSource] = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> None:
+    """`bypass_warehouse_access_control` applies to the saved insight queries only. A query from
+    `export_context` always runs under the creator's access, because a client can set it."""
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
@@ -585,6 +590,7 @@ def export_image(
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         # Background render (no request user); attribute the read to the export owner.
                         user=exported_asset.created_by,
+                        bypass_warehouse_access_control=bypass_warehouse_access_control,
                         variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
@@ -609,6 +615,7 @@ def export_image(
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
+                            bypass_warehouse_access_control=bypass_warehouse_access_control,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
@@ -646,6 +653,7 @@ def export_image(
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
+                            bypass_warehouse_access_control=bypass_warehouse_access_control,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
                             analytics_props=export_analytics_props,
