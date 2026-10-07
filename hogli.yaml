@@ -1146,6 +1146,19 @@ utilities:
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
+    worktree:prepare:
+        cmd: |
+            set -eu
+            unset UV_NO_SYNC VIRTUAL_ENV
+            export UV_PROJECT_ENVIRONMENT="$PWD/.flox/cache/venv"
+            if [ -L node_modules ] || [ -L "$UV_PROJECT_ENVIRONMENT" ]; then
+                echo 'node_modules and the Python environment must be local directories' >&2
+                exit 1
+            fi
+            bin/dev-sandbox 'uv sync --frozen'
+            bin/dev-sandbox 'pnpm install --frozen-lockfile'
+            bin/turbo --filter=@posthog/frontend --filter=@posthog/mcp prepare
+        description: Sync local dependencies and build workspace outputs for frontend and MCP checks
     worktrees:clean:
         click: hogli_commands.worktrees:worktrees_clean
         description: Clear out unused Claude Code / Codex / PostHog Desktop worktrees by age

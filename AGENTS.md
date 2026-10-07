@@ -93,20 +93,14 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 
 #### Stacked PRs
 
-GitHub's native stacked PRs are enabled here. Use the `gh stack` CLI and `/stacking-prs` rather than hand-managing branch chains.
-Keep stacks shallow and merge the base before extending: restacking force-pushes every branch, and a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs with it.
-Never `gh stack merge` — it lands the chain through GitHub's API, outside the queue.
+When creating, adopting, or restacking PRs, read [stacking-prs](.agents/skills/stacking-prs/SKILL.md) for `gh stack`, shallow stacks, dispatch limits, and queue-safe publishing. Never `gh stack merge`.
 
 ### Merging PRs
 
-All merges into `master` go through the Trunk merge queue.
-Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
+All merges into `master` go through the Trunk merge queue. Never use `gh pr merge` or the GitHub merge button.
 
 **Agents must not enqueue, merge, re-enqueue, or otherwise cause a PR to land without explicit user approval in the current conversation for the identified PR or stack.**
-Do not infer that approval from requests to prepare a PR, move it toward merge, make it ready, monitor it, or resolve its blockers.
-Agents may inspect status, fix code and CI, request a stamphog review when a required approval is missing (MCP first, label fallback, see `/merging-prs`), and report that a PR is ready — then wait for a direct instruction.
-
-Once approved, follow `/merging-prs` for the enqueue, watch and failure loop. It also covers why the PR's own checks never show queue progress.
+When merging, monitoring a queue run, or obtaining a required approval, read [merging-prs](.agents/skills/merging-prs/SKILL.md) for approval boundaries, stamphog requests, enqueueing, and the failure loop. Preparing or monitoring a PR does not authorize landing it.
 
 ### Public open source repo guidance
 

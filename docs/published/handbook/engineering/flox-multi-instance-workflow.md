@@ -29,6 +29,44 @@ You only need the full setup below when you want to run the app in a worktree. F
 - If a lockfile differs, the hooks tell you what to install locally instead.
 - Use `phw` (below) only when you need to run the app in that worktree.
 
+### Prepare a worktree for checks
+
+After activating this checkout's Flox environment, run `hogli worktree:prepare` from its root.
+It syncs Python and pnpm dependencies from the lockfiles into this checkout, then runs the
+existing Turbo prepare targets for frontend and MCP workspace dependencies, including quill and hogvm.
+Run it again after switching branches or deleting build outputs. Installs and Turbo builds are idempotent.
+It does not start services or migrate a development database.
+
+For Codex's cached environment, bootstrap and prepare in one invocation:
+
+```bash
+.codex/with-flox --prepare hogli worktree:prepare
+```
+
+### Concurrent backend checks
+
+With the shared PostgreSQL and ClickHouse services already running, use:
+
+```bash
+hogli test --isolated posthog/test/test_redis.py
+```
+
+Each invocation gets fresh PostgreSQL and ClickHouse database names, including pytest-xdist workers
+and the persons/product PostgreSQL databases. Standard PostHog Redis clients use process-local
+fakeredis; Django cache aliases use local memory. The Redis URL has a reserved `.invalid` hostname,
+so raw clients fail instead of writing to the shared Redis service.
+PostgreSQL aliases must use the same local server and credentials; other configurations are rejected.
+
+Normal teardown removes the private databases. Cleanup only targets the invocation's random namespace
+and never terminates database connections. An interrupted process can leave its private databases behind.
+The printed namespace identifies them; do not reset shared databases to recover a failed run.
+
+This mode accepts one Python file or directory, without `--changed` or `--watch`.
+It does not isolate Kafka, object storage, external services, or clients with hardcoded endpoints.
+Tests using those resources need their own isolation before they can run concurrently.
+Development servers still share ports and databases. Do not run incompatible migrations against a
+shared development database while another checkout uses it.
+
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/

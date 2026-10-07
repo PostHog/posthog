@@ -14,6 +14,7 @@ import platform
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 import click
 from hogli.command_types import _run
@@ -838,9 +839,16 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 @click.argument("file_path", required=False, type=click.Path())
 @click.option("--changed", is_flag=True, help="Run tests changed on this branch, plus tests for changed source files")
 @click.option("--watch", is_flag=True, help="Re-run tests on file changes (Python and Jest)")
+@click.option(
+    "--isolated",
+    is_flag=True,
+    help="Use private PostgreSQL/ClickHouse databases and process-local Redis for a Python target",
+)
 @click.pass_context
-def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool) -> None:
+def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch: bool, isolated: bool) -> None:
     """Auto-detect test type and run the correct test runner."""
+    if isolated and (changed or watch):
+        raise click.UsageError("--isolated requires one Python file or directory, without --changed or --watch.")
     if changed:
         if file_path:
             raise click.UsageError("Cannot combine --changed with a file path.")
@@ -860,6 +868,16 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     resolved = _resolve_to_repo_relative(file_path)
     abs_path = REPO_ROOT / resolved
+
+    if isolated:
+        config = detect_test_type(resolved)
+        if config.test_type != "python":
+            raise click.UsageError("--isolated supports Python targets only.")
+        run_id = uuid4().hex[:16]
+        env = {**config.env, "POSTHOG_TEST_RUN_ID": run_id, "REDIS_URL": f"redis://test-{run_id}.invalid/0"}
+        click.echo(f"Private test namespace: {run_id} (PostgreSQL, ClickHouse, process-local Redis)")
+        _run([*config.command, "-p", "hogli_commands.isolated_tests", *ctx.args], env=env, cwd=config.cwd)
+        return
 
     # For directories, check if multiple test types are present and run each group.
     if abs_path.is_dir():

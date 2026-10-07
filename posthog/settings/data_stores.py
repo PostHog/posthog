@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from contextlib import suppress
 from pathlib import Path
@@ -284,6 +285,16 @@ PYTEST_XDIST_WORKER: str | None = os.getenv("PYTEST_XDIST_WORKER")
 PYTEST_XDIST_WORKER_NUM: int | None = None
 SUFFIX = ""
 XDIST_SUFFIX = ""
+TEST_RUN_ID = os.getenv("POSTHOG_TEST_RUN_ID", "") if TEST else ""
+if TEST_RUN_ID:
+    if not re.fullmatch(r"[0-9a-f]{16}", TEST_RUN_ID):
+        raise ImproperlyConfigured("POSTHOG_TEST_RUN_ID must be 16 lowercase hex characters")
+    DATABASES["default"].setdefault("TEST", {})["NAME"] = f"test_posthog_{TEST_RUN_ID}"
+    for product_database in configured_product_databases:
+        for suffix in ("_db_writer", "_db_direct"):
+            alias = product_database + suffix
+            if alias in DATABASES:
+                DATABASES[alias].setdefault("TEST", {})["NAME"] = f"test_posthog_{TEST_RUN_ID}_{product_database}"
 try:
     if PYTEST_XDIST_WORKER is not None:
         XDIST_SUFFIX = f"_{PYTEST_XDIST_WORKER}"
@@ -296,6 +307,8 @@ if IN_EVAL_TESTING:
     SUFFIX = "_ai_eval" + XDIST_SUFFIX
 elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
+if TEST_RUN_ID:
+    SUFFIX += "_" + TEST_RUN_ID
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
@@ -796,6 +809,11 @@ if TEST:
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
+    if TEST_RUN_ID:
+        CACHES = {
+            alias: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": REDIS_URL}
+            for alias in CACHES
+        }
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -557,6 +557,18 @@ class TestRunGrouped:
 
 class TestCliPassthrough:
     @patch("hogli_commands.test_runner._run")
+    def test_isolated_python_runs_get_distinct_namespaces(self, mock_run: MagicMock) -> None:
+        runs = []
+        for _ in range(2):
+            result = runner.invoke(cli, ["test", "--isolated", "posthog/test/test_redis.py"])
+            assert result.exit_code == 0, result.output
+            command = mock_run.call_args[0][0]
+            assert "hogli_commands.isolated_tests" in command
+            runs.append(mock_run.call_args.kwargs["env"])
+        assert runs[0]["POSTHOG_TEST_RUN_ID"] != runs[1]["POSTHOG_TEST_RUN_ID"]
+        assert runs[0]["REDIS_URL"].endswith(".invalid/0")
+
+    @patch("hogli_commands.test_runner._run")
     def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock, monkeypatch) -> None:
         monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
         result = runner.invoke(
