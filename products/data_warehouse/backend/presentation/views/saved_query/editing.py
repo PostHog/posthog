@@ -113,6 +113,10 @@ _MOVE_REFUSALS = {
     "moved": "Something else moved this view while we were moving it. Try again.",
 }
 
+_DEPENDENCY_SYNC_FAILED = (
+    "Could not resolve this view's dependencies, which materializing it needs. Try again or contact support."
+)
+
 
 def _move_to_dag(view: DataWarehouseSavedQuery, dag: DAG) -> None:
     try:
@@ -426,8 +430,10 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            # Best-effort only when the caller left placement to us. A supplied dag_id is
-            # write-only, so the response cannot show that the placement was discarded.
+            # Best-effort only when the caller left placement to us and asked for no cadence. A
+            # supplied dag_id is write-only, so the response cannot show that the placement was
+            # discarded, and materializing needs the node: without it the enable below fails anyway,
+            # after a Temporal round trip and a second captured exception.
             try:
                 with transaction.atomic():
                     modeling_api.sync_saved_query_to_dag(view, dag=dag_id)
@@ -436,6 +442,8 @@ class DataWarehouseSavedQuerySerializer(
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 if dag_given:
                     raise serializers.ValidationError({"dag_id": "Could not place this view in the requested DAG."})
+                if sync_frequency not in (None, "never"):
+                    raise exceptions.APIException(_DEPENDENCY_SYNC_FAILED) from e
             if sync_frequency not in (None, "never"):
                 # Inside the transaction, so a cadence the lineage refuses also discards the view.
                 lifecycle.enable_materialization(
@@ -650,9 +658,7 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     if materializes:
-                        raise exceptions.APIException(
-                            "Could not update this view's dependencies for materialization. Try again or contact support."
-                        ) from e
+                        raise exceptions.APIException(_DEPENDENCY_SYNC_FAILED) from e
 
             if materializes:
                 # Last, because the full saves of `view` above would write a stale is_materialized

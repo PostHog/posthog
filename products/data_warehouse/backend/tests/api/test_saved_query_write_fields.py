@@ -35,10 +35,15 @@ class TestSavedQueryWriteFields(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
 
     def test_create_frequency_failure_rolls_back_the_view(self) -> None:
-        with patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError):
+        temporal = AsyncMock()
+        with (
+            patch("products.data_modeling.backend.facade.api.sync_saved_query_to_dag", side_effect=RuntimeError),
+            patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal),
+        ):
             response = self._create_view(sync_frequency="6hour")
         self.assertEqual(response.status_code, 500, response.content)
         self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists())
+        temporal.list_schedules.assert_not_called()
 
     @parameterized.expand([("supplied", True, 400), ("omitted", False, 201)])
     def test_create_reports_a_discarded_dag_placement_only_when_asked_for(

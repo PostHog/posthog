@@ -1129,25 +1129,39 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(frequency_changes[0]["before"], expected_before)
         self.assertEqual(frequency_changes[0]["after"], expected_after)
 
-    def test_update_sync_frequency_without_node_is_rejected(self):
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_update_sync_frequency_without_node_places_the_view_only_when_materializing(
+        self, _name: str, starts_materialized: bool
+    ):
         from products.data_modeling.backend.facade.models import Node
 
-        saved_query = self._create_saved_query_for_frequency_tests(materialized=True)
-        Node.objects.filter(saved_query_id=saved_query["id"]).delete()
+        saved_query = self._create_saved_query_for_frequency_tests(materialized=starts_materialized)
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        dag_id = node.dag_id
+        node.delete()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
 
         with (
             patch(f"{reconcile_module}.maybe_reconcile_dag"),
+            patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids", return_value={str(dag_id)}),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "24hour"},
             )
 
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn("not wired into the data modeling DAG", str(response.json()))
         updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
         self.assertIsNone(updated.sync_frequency_interval)
+        placed = Node.objects.filter(saved_query_id=saved_query["id"]).first()
+        if starts_materialized:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertIn("not wired into the data modeling DAG", str(response.json()))
+            self.assertIsNone(placed)
+        else:
+            self.assertEqual(response.status_code, 200, response.json())
+            self.assertTrue(updated.is_materialized)
+            self.assertIsNotNone(placed)
+            self.assertEqual(get_declared_target(placed), timedelta(hours=24))
 
     def test_update_sync_frequency_rolls_back_invalid_target(self):
         from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
