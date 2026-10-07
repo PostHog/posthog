@@ -304,62 +304,69 @@ describe('ActionFilterRow', () => {
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
             })
 
-            it('offers only numeric warehouse columns in the box plot property selector for data warehouse series', async () => {
-                databaseTableListLogic.mount()
-                databaseTableListLogic.actions.loadDatabaseSuccess({
-                    tables: {
-                        events_table: {
-                            type: 'data_warehouse',
-                            id: 'wh-table-1',
-                            name: 'events_table',
-                            fields: {
-                                duration: {
-                                    name: 'duration',
-                                    hogql_value: 'duration',
-                                    type: 'float',
-                                    schema_valid: true,
-                                },
-                                customer_name: {
-                                    name: 'customer_name',
-                                    hogql_value: 'customer_name',
-                                    type: 'string',
-                                    schema_valid: true,
+            it.each([
+                { tableType: 'data_warehouse', tableName: 'events_table', seriesName: 'events_table' },
+                // A flag calls series reads a PostHog table, which the warehouse table map leaves out.
+                { tableType: 'posthog', tableName: 'posthog.flag_evaluations', seriesName: 'Feature flag called' },
+            ])(
+                'offers only numeric columns of a $tableType table in the box plot property selector',
+                async ({ tableType, tableName, seriesName }) => {
+                    databaseTableListLogic.mount()
+                    databaseTableListLogic.actions.loadDatabaseSuccess({
+                        tables: {
+                            [tableName]: {
+                                type: tableType,
+                                id: 'wh-table-1',
+                                name: tableName,
+                                fields: {
+                                    duration: {
+                                        name: 'duration',
+                                        hogql_value: 'duration',
+                                        type: 'float',
+                                        schema_valid: true,
+                                    },
+                                    customer_name: {
+                                        name: 'customer_name',
+                                        hogql_value: 'customer_name',
+                                        type: 'string',
+                                        schema_valid: true,
+                                    },
                                 },
                             },
                         },
-                    },
-                    joins: [],
-                } as any)
+                        joins: [],
+                    } as any)
 
-                const dataWarehouseNode = {
-                    kind: NodeKind.DataWarehouseNode,
-                    id: 'events_table',
-                    name: 'events_table',
-                    table_name: 'events_table',
-                } as SeriesNode
-                const { logic, onChange } = setup([dataWarehouseNode])
-                renderRow(logic, {
-                    mathAvailability: MathAvailability.BoxPlotOnly,
-                    node: dataWarehouseNode,
-                })
+                    const dataWarehouseNode = {
+                        kind: NodeKind.DataWarehouseNode,
+                        id: tableName,
+                        name: seriesName,
+                        table_name: tableName,
+                    } as SeriesNode
+                    const { logic, onChange } = setup([dataWarehouseNode])
+                    renderRow(logic, {
+                        mathAvailability: MathAvailability.BoxPlotOnly,
+                        node: dataWarehouseNode,
+                    })
 
-                await userEvent.click(screen.getByTestId('box-plot-property-select'))
-                await screen.findByText('duration')
-                // The box plot runner applies toFloat() to the selected column, so non-numeric
-                // columns must not be offered
-                expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
-                await userEvent.click(screen.getByText('duration'))
+                    await userEvent.click(screen.getByTestId('box-plot-property-select'))
+                    await screen.findByText('duration')
+                    // The box plot runner applies toFloat() to the selected column, so non-numeric
+                    // columns must not be offered
+                    expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
+                    await userEvent.click(screen.getByText('duration'))
 
-                await waitFor(() => {
-                    expect(onChange).toHaveBeenCalledWith([
-                        expect.objectContaining({
-                            kind: NodeKind.DataWarehouseNode,
-                            math_property: 'duration',
-                            math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
-                        }),
-                    ])
-                })
-            })
+                    await waitFor(() => {
+                        expect(onChange).toHaveBeenCalledWith([
+                            expect.objectContaining({
+                                kind: NodeKind.DataWarehouseNode,
+                                math_property: 'duration',
+                                math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                            }),
+                        ])
+                    })
+                }
+            )
         })
 
         describe('property filters', () => {
@@ -941,6 +948,75 @@ describe('ActionFilterRow', () => {
                 })
             }
         )
+
+        it('carries the flag filters of an event series over when Feature flag called is picked again', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+            })
+            const eventsNode: SeriesNode = {
+                kind: NodeKind.EventsNode,
+                event: '$feature_flag_called',
+                name: '$feature_flag_called',
+                properties: [
+                    {
+                        key: '$feature_flag',
+                        value: 'probe-flag',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: '$feature_flag_response',
+                        value: 'test',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: '$feature_flag_response', operator: PropertyOperator.IsSet, type: PropertyFilterType.Event },
+                    {
+                        key: '$browser',
+                        value: 'Chrome',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                ],
+            }
+            const { logic, onChange } = setup([eventsNode])
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                node: eventsNode,
+                flagCallsFromFlagEvaluations: true,
+                actionsTaxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+            await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+            await userEvent.click(await screen.findByTestId('prop-filter-events-0'))
+
+            await waitFor(() => {
+                const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                expect(lastCall?.[0]).toEqual(
+                    expect.objectContaining({
+                        table_name: 'posthog.flag_evaluations',
+                        properties: [
+                            {
+                                key: 'flag_key',
+                                value: 'probe-flag',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            {
+                                key: 'response',
+                                value: 'test',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.DataWarehouse,
+                            },
+                            { key: "properties.$lib = 'web'", type: PropertyFilterType.HogQL },
+                        ],
+                    })
+                )
+            })
+        })
 
         it('reopens a flag calls series on the event and picks it again in the rebuilt menu', async () => {
             featureFlagLogic.mount()

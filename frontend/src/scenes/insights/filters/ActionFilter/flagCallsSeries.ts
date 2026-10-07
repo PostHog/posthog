@@ -1,3 +1,5 @@
+import { FEATURE_FLAG_CALLED_EVENT, FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+
 import {
     DataWarehouseNode,
     FunnelsDataWarehouseNode,
@@ -6,12 +8,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
-// the flag-evaluations-hogql-table flag has no such table. Queries on it fail to resolve for that team.
-export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
-
-export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+import { AnyPropertyFilter, DataWarehousePropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const FLAG_CALLS_SERIES_NAME: string = CORE_FILTER_DEFINITIONS_BY_GROUP.events[FEATURE_FLAG_CALLED_EVENT].label
 
@@ -74,4 +71,37 @@ export function withFlagCallsAggregationTarget<Q extends InsightQueryNode>(query
         return series.some((node, index) => node !== query.series[index]) ? { ...query, series } : query
     }
     return query
+}
+
+const FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY: Record<string, string> = {
+    $feature_flag: 'flag_key',
+    $feature_flag_response: 'response',
+}
+
+/** Rewrites an event series' flag filters onto the flag_evaluations columns and keeps its SQL filters. */
+export function flagCallsFiltersFromEventFilters(properties: AnyPropertyFilter[] | undefined): AnyPropertyFilter[] {
+    return (properties ?? []).flatMap((property): AnyPropertyFilter[] => {
+        if (property.type === PropertyFilterType.HogQL) {
+            return [property]
+        }
+        if (property.type !== PropertyFilterType.Event) {
+            return []
+        }
+        const column = FLAG_CALLS_COLUMN_BY_EVENT_PROPERTY[property.key]
+        // An event read turns a missing response into NULL. The table stores it as '' or 'null', so set checks differ.
+        if (
+            !column ||
+            property.operator === PropertyOperator.IsSet ||
+            property.operator === PropertyOperator.IsNotSet
+        ) {
+            return []
+        }
+        const filter: DataWarehousePropertyFilter = {
+            key: column,
+            value: property.value,
+            operator: property.operator,
+            type: PropertyFilterType.DataWarehouse,
+        }
+        return [filter]
+    })
 }

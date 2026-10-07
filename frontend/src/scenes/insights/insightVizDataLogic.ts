@@ -22,7 +22,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFil
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { insightReachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsRetention'
+import { insightReachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsTable'
 import { readsFlagCalls, withFlagCallsAggregationTarget } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -3053,7 +3053,9 @@ const handleQuerySourceUpdateSideEffects = (
     if (hasDataWarehouseSeries && (hasFiltersOrTestAccounts || (nextQuery as TrendsQuery).samplingFactor != null)) {
         if (hasFiltersOrTestAccounts) {
             lemonToast.info(
-                'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
+                readsFlagCalls(nextQuery)
+                    ? "Feature flag called doesn't support filter groups or test account filtering, so they're turned off."
+                    : 'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
             )
         }
 

@@ -9,8 +9,11 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import { readsFlagEvaluationsTable } from 'scenes/feature-flags/featureFlagUsageQueries'
-import { reachesPastFlagEvaluationsRetention } from 'scenes/feature-flags/flagEvaluationsRetention'
+import {
+    FEATURE_FLAG_CALLED_EVENT,
+    reachesPastFlagEvaluationsRetention,
+    readsFlagEvaluationsTable,
+} from 'scenes/feature-flags/flagEvaluationsTable'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -27,7 +30,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 
 const FLAG_EVALUATIONS_ONLY_MODE = FlagEvaluationsModeEnumApi.Number2
-const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 export type FlagCallsNote = 'stored-separately' | 'retention'
 

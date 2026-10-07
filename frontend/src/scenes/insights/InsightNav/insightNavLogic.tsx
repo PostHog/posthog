@@ -5,9 +5,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
+import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
 import {
     FLAG_EVALUATIONS_SERIES_FIELDS,
-    FLAG_EVALUATIONS_TABLE,
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'

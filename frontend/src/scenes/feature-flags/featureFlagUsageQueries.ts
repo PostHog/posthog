@@ -6,10 +6,8 @@
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
-import { FLAG_EVALUATIONS_TABLE } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
-import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { Noun } from '~/models/groupsModel'
 import {
     ChartSettings,
@@ -31,15 +29,14 @@ import {
     GroupTypeIndex,
     PropertyFilterType,
     PropertyOperator,
-    TeamPublicType,
-    TeamType,
 } from '~/types'
 
 import {
     FLAG_EVALUATIONS_RETENTION_DAYS,
+    FLAG_EVALUATIONS_TABLE,
     flagEvaluationsRetentionStart,
     reachesPastFlagEvaluationsRetention,
-} from './flagEvaluationsRetention'
+} from './flagEvaluationsTable'
 
 export interface FlagUsageQueryOptions {
     flagKey: string
@@ -197,12 +194,6 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
 // table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
 // editor rejects that key, but the API accepts it.
 const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
-
-const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
-
-export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null): boolean {
-    return (team?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE
-}
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {

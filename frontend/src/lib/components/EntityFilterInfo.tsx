@@ -3,11 +3,8 @@ import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import {
-    FEATURE_FLAG_CALLED_EVENT,
-    FLAG_CALLS_SERIES_NAME,
-    FLAG_EVALUATIONS_TABLE,
-} from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import { FEATURE_FLAG_CALLED_EVENT, FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+import { FLAG_CALLS_SERIES_NAME } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import {
     SeriesNode,
     isActionsSeriesNode,

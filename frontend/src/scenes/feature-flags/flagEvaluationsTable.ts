@@ -1,7 +1,21 @@
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { CompareFilter, DateRange } from '~/queries/schema/schema-general'
+import type { TeamPublicType, TeamType } from '~/types'
+
+// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
+// the flag-evaluations-hogql-table flag has no such table. Queries on it fail to resolve for that team.
+export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
+
+export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+
+const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
+
+export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null): boolean {
+    return (team?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE
+}
 
 /**
  * How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever.

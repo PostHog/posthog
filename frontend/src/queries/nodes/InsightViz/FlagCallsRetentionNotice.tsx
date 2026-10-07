@@ -3,7 +3,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import {
     FLAG_EVALUATIONS_RETENTION_DAYS,
     flagEvaluationsRetentionStart,
-} from 'scenes/feature-flags/flagEvaluationsRetention'
+} from 'scenes/feature-flags/flagEvaluationsTable'
 
 export function FlagCallsRetentionNotice(): JSX.Element {
     return (

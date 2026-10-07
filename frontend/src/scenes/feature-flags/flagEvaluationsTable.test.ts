@@ -1,6 +1,6 @@
-import { insightReachesPastFlagEvaluationsRetention } from './flagEvaluationsRetention'
+import { insightReachesPastFlagEvaluationsRetention } from './flagEvaluationsTable'
 
-describe('flagEvaluationsRetention', () => {
+describe('flagEvaluationsTable', () => {
     it.each([
         ['a range inside the window', { date_from: '-30d' }, undefined, false],
         ['a range past the window', { date_from: '-180d' }, undefined, true],

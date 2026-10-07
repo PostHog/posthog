@@ -13,6 +13,7 @@ import { inlineEquivalentPropertyGroups, isPropertyGroupFilterLike } from 'lib/c
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { readsFlagCalls } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
@@ -62,9 +63,11 @@ export function PropertyGroupFilters({
         [propertyGroupFilter.values]
     )
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = hasDataWarehouseSeries
-        ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
-        : undefined
+    const disabledReason = !hasDataWarehouseSeries
+        ? undefined
+        : readsFlagCalls(query)
+          ? "Feature flag called doesn't support filter groups. Use the filters on the series instead."
+          : 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
     return (
         <div className="deprecated-space-y-2 PropertyGroupFilters @container">
             {propertyGroupFilter.values && (

@@ -16,7 +16,7 @@ import {
     FlagUsageChart,
     FlagUsageQueryOptions,
 } from './featureFlagUsageQueries'
-import { FLAG_EVALUATIONS_RETENTION_DAYS } from './flagEvaluationsRetention'
+import { FLAG_EVALUATIONS_RETENTION_DAYS } from './flagEvaluationsTable'
 
 type TrendsUsageChart = FlagUsageChart<InsightVizNode<TrendsQuery>>
 

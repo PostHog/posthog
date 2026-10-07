@@ -28,7 +28,11 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { readsFlagEvaluationsTable } from 'scenes/feature-flags/featureFlagUsageQueries'
+import {
+    FEATURE_FLAG_CALLED_EVENT,
+    FLAG_EVALUATIONS_TABLE,
+    readsFlagEvaluationsTable,
+} from 'scenes/feature-flags/flagEvaluationsTable'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -53,10 +57,9 @@ import {
 } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import {
-    FEATURE_FLAG_CALLED_EVENT,
     FLAG_CALLS_SERIES_NAME,
     FLAG_EVALUATIONS_SERIES_FIELDS,
-    FLAG_EVALUATIONS_TABLE,
+    flagCallsFiltersFromEventFilters,
 } from '../flagCallsSeries'
 import {
     isActionsSeriesNode,
@@ -295,6 +298,9 @@ export function ActionFilterRow({
                     name: FLAG_CALLS_SERIES_NAME,
                     ...FLAG_EVALUATIONS_SERIES_FIELDS,
                 })
+                if (isEventsSeriesNode(node) && node.event === FEATURE_FLAG_CALLED_EVENT) {
+                    updateSeriesProperties(index, flagCallsFiltersFromEventFilters(node.properties))
+                }
                 return
             }
             if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
@@ -333,6 +339,7 @@ export function ActionFilterRow({
             dataWarehousePopoverFields,
             dataWarehouseNodeKind,
             buildsFlagCallsSeries,
+            node,
         ]
     )
 
