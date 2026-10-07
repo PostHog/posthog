@@ -695,10 +695,13 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
         try:
             # The sync computation bridges back to async while opening the Delta table. Its own
             # executor keeps the outer call from occupying the pool needed by that nested work.
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-table-statistics") as executor:
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-table-statistics")
+            try:
                 return await database_sync_to_async(
                     compute_table_statistics_sync, thread_sensitive=False, executor=executor
                 )(inputs.team_id, inputs.schema_id)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         except Exception as e:
             # get_delta_table already re-raises known-transient object-store blips as
             # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally

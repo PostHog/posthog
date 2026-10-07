@@ -616,7 +616,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             try:
                 # Some source setup functions bridge back to async code. Keep their outer blocking
                 # call off the shared default executor so that nested work cannot deadlock behind it.
-                with ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-source-setup") as executor:
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-source-setup")
+                try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
                         source_response = await database_sync_to_async_pool(
@@ -630,6 +631,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                         raise TypeError(
                             f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                         )
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
             except SourceExtractionNotImplementedError as e:
                 # Web refuses to create a source whose implementation it does not have, so the
                 # stub is only reachable while this worker still runs the build from before the
