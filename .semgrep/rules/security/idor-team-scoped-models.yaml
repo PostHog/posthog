@@ -136,6 +136,7 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
+                              |DailyBriefing
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -321,9 +322,13 @@ rules:
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
                               |PullRequestAudience
+                              |QuarantineLiftRequest
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |RevokedTeamSecretToken
+                              |QueueSchedulerDecision
+                              |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -333,7 +338,7 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
+                              |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -374,6 +379,7 @@ rules:
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
+                              |SignalScoutBackgroundBand
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -386,6 +392,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertThread
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -577,6 +584,7 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
+                        |DailyBriefing
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -752,9 +760,13 @@ rules:
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
                         |PullRequestAudience
+                        |QuarantineLiftRequest
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |RevokedTeamSecretToken
+                        |QueueSchedulerDecision
+                        |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -764,7 +776,7 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
+                        |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
@@ -805,6 +817,7 @@ rules:
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
+                        |SignalScoutBackgroundBand
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -817,6 +830,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertThread
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -965,6 +979,8 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
@@ -1042,6 +1058,8 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument

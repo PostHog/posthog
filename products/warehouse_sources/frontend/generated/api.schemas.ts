@@ -340,14 +340,19 @@ export interface ExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
      */
     full_refresh_interval_days?: number | null
     /**
-     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+     * @nullable
+     */
+    full_refresh_time_of_day?: string | null
+    /**
+     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
      * @nullable
      */
     readonly next_full_refresh_at: string | null
@@ -520,14 +525,19 @@ export interface PatchedExternalDataSchemaApi {
      */
     sync_time_of_day?: string | null
     /**
-     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+     * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
      * @minimum 1
      * @maximum 90
      * @nullable
      */
     full_refresh_interval_days?: number | null
     /**
-     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+     * @nullable
+     */
+    full_refresh_time_of_day?: string | null
+    /**
+     * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
      * @nullable
      */
     readonly next_full_refresh_at?: string | null
@@ -1630,6 +1640,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -1865,6 +1876,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
  * * `WhoGho` - WhoGho
  * * `Whop` - Whop
+ * * `Wistia` - Wistia
  * * `Wiz` - Wiz
  * * `Wompi` - Wompi
  * * `Workiz` - Workiz
@@ -1978,6 +1990,16 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `AudioGO` - AudioGO
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
+ * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
+ * * `ChargebackStop` - ChargebackStop
+ * * `Chargeflow` - Chargeflow
+ * * `Dreamdata` - Dreamdata
+ * * `GoogleBusinessProfile` - GoogleBusinessProfile
+ * * `Ledyer` - Ledyer
+ * * `Supermetrics` - Supermetrics
+ * * `SQLite` - SQLite
+ * * `Modal` - Modal
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2988,6 +3010,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -3223,6 +3246,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WhatsappBusinessManagement: 'WhatsappBusinessManagement',
     WhoGho: 'WhoGho',
     Whop: 'Whop',
+    Wistia: 'Wistia',
     Wiz: 'Wiz',
     Wompi: 'Wompi',
     Workiz: 'Workiz',
@@ -3336,6 +3360,16 @@ export const ExternalDataSourceTypeEnumApi = {
     AudioGO: 'AudioGO',
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
+    GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
+    ChargebackStop: 'ChargebackStop',
+    Chargeflow: 'Chargeflow',
+    Dreamdata: 'Dreamdata',
+    GoogleBusinessProfile: 'GoogleBusinessProfile',
+    Ledyer: 'Ledyer',
+    Supermetrics: 'Supermetrics',
+    SQLite: 'SQLite',
+    Modal: 'Modal',
 } as const
 
 /**
@@ -4493,6 +4527,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -4728,6 +4763,7 @@ export interface ExternalDataSourceCreateApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -4840,7 +4876,17 @@ export interface ExternalDataSourceCreateApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5006,6 +5052,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     full_refresh_interval_days?: number | null
+    /**
+     * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+     * @nullable
+     */
+    full_refresh_time_of_day?: string | null
     /**
      * Column names for primary key deduplication.
      * @nullable
@@ -6357,6 +6408,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -6592,6 +6644,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -6704,7 +6757,17 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7795,6 +7858,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -8030,6 +8094,7 @@ export interface DatabaseSchemaRequestApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -8142,7 +8207,17 @@ export interface DatabaseSchemaRequestApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9157,6 +9232,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -9392,6 +9468,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -9504,7 +9581,17 @@ export interface DirectConnectionSourceOptionApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10573,6 +10660,7 @@ export interface SourcePreviewRequestApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -10808,6 +10896,7 @@ export interface SourcePreviewRequestApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -10920,7 +11009,17 @@ export interface SourcePreviewRequestApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11970,6 +12069,7 @@ export interface SourceSetupApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -12205,6 +12305,7 @@ export interface SourceSetupApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -12317,7 +12418,17 @@ export interface SourceSetupApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -13374,6 +13485,7 @@ export interface SourceCredentialCreateApi {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -13609,6 +13721,7 @@ export interface SourceCredentialCreateApi {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -13721,7 +13834,17 @@ export interface SourceCredentialCreateApi {
      * * `Gem` - Gem
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
-     * * `LettrLabs` - LettrLabs */
+     * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
+     * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -13832,6 +13955,8 @@ export interface SourceFieldCredentialAccountSelectConfigApi {
     caption?: string | null
     /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
     credentialFields: string[]
+    /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+    integrationField?: string | null
     label: string
     name: string
     placeholder?: string | null

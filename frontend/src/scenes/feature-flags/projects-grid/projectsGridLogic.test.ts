@@ -301,6 +301,49 @@ describe('projectsGridLogic', () => {
             expect(logic.values.flags[0].active).toBe(false)
         })
 
+        it.each([
+            { filters: { groups: [] }, calls: ['patch'], body: { active: false } },
+            {
+                filters: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+                calls: ['get', 'patch'],
+                body: { active: false, version: 3 },
+            },
+        ])(
+            'toggles the representative row before its siblings load, sending $body',
+            async ({ filters, calls, body }) => {
+                const seen: string[] = []
+                let sent: unknown
+                useMocks({
+                    get: {
+                        '/api/organizations/:org/feature_flags/keys/': {
+                            count: 1,
+                            next: null,
+                            previous: null,
+                            results: [{ ...buildFlag(5), filters }],
+                        },
+                        '/api/projects/:team_id/feature_flags/:id/': () => {
+                            seen.push('get')
+                            return [200, { id: 5, filters, version: 3 }]
+                        },
+                    },
+                    patch: {
+                        '/api/projects/:team_id/feature_flags/:id/': async ({ request }) => {
+                            seen.push('patch')
+                            sent = await request.json()
+                            return [200, { id: 5, active: false }]
+                        },
+                    },
+                })
+                logic.actions.loadFlagsPage({ offset: 0, search: '' })
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions.toggleFlagActive('flag_5', 1, 5, false)
+                await expectLogic(logic).toDispatchActions(['flagActiveUpdated']).toFinishAllListeners()
+                expect(seen).toEqual(calls)
+                expect(sent).toEqual(body)
+            }
+        )
+
         it('clears the in-flight marker and keeps state when the update fails', async () => {
             await expectLogic(logic).toFinishAllListeners()
             logic.actions.siblingsLoaded('flag_1', [

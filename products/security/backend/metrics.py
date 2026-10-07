@@ -5,6 +5,14 @@ WOULD_BLOCK_COUNTER = Counter(
     "Requests an access rule would block, while blocks are logged only",
     labelnames=["surface", "call_site", "target_type"],
 )
+# Counts every completed decision, whatever its outcome. WOULD_BLOCK_COUNTER only moves on a
+# block, so an empty would-block series cannot tell "the check ran and nothing matched" from
+# "the check never ran". This counter is the denominator that tells them apart.
+DECISIONS_COUNTER = Counter(
+    "posthog_security_access_decisions_total",
+    "Access decisions evaluated, by surface, call site and outcome",
+    labelnames=["surface", "call_site", "outcome"],
+)
 DECISION_ERRORS_COUNTER = Counter(
     "posthog_security_access_decision_errors_total",
     "Access decisions that raised and were treated as allow",

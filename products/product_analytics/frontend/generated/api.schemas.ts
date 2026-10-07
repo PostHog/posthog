@@ -239,6 +239,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -253,6 +254,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -651,6 +653,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -1053,7 +1057,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -3910,6 +3914,13 @@ export const QueryIndexUsageApi = {
     Yes: 'yes',
 } as const
 
+export interface HogQLMetadataColumnApi {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -3918,6 +3929,8 @@ export interface HogQLMetadataResponseApi {
     isUsingIndices?: QueryIndexUsageApi | null
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumnApi[] | null
     query?: string | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]
@@ -4344,12 +4357,14 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
+    TwitterAds: 'twitter-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -5820,6 +5835,8 @@ export interface PathsV2ActorsQueryApi {
 export interface HogQLFiltersApi {
     /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -8265,6 +8282,191 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
+
+export const BIDateBucketApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface BIDataSourceApi {
+    connectionId?: string | null
+    table: string
+}
+
+export type DatabaseSerializedFieldTypeApi =
+    (typeof DatabaseSerializedFieldTypeApi)[keyof typeof DatabaseSerializedFieldTypeApi]
+
+export const DatabaseSerializedFieldTypeApi = {
+    Integer: 'integer',
+    Float: 'float',
+    Decimal: 'decimal',
+    String: 'string',
+    Datetime: 'datetime',
+    Date: 'date',
+    Boolean: 'boolean',
+    Array: 'array',
+    Json: 'json',
+    LazyTable: 'lazy_table',
+    VirtualTable: 'virtual_table',
+    FieldTraverser: 'field_traverser',
+    Expression: 'expression',
+    View: 'view',
+    MaterializedView: 'materialized_view',
+    Unknown: 'unknown',
+} as const
+
+export interface BIFieldApi {
+    dateBucket?: BIDateBucketApi | null
+    expression: string
+    id: string
+    name: string
+    source: BIDataSourceApi
+    type: DatabaseSerializedFieldTypeApi
+}
+
+export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
+
+export const BIFilterOperatorApi = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    Contains: 'contains',
+    In: 'in',
+    NotIn: 'not_in',
+    Between: 'between',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    Last7Days: 'last_7_days',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Custom: 'custom',
+} as const
+
+export interface BIFilterApi {
+    customExpression?: string | null
+    enabled?: boolean | null
+    field: BIFieldApi
+    operator: BIFilterOperatorApi
+    value: string
+    valueTo?: string | null
+    values?: string[] | null
+}
+
+export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
+
+export const BIQueryLimitApi = {
+    Number100: 100,
+    Number1000: 1000,
+    Number10000: 10000,
+    Number50000: 50000,
+} as const
+
+export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
+
+export const BISortDirectionApi = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface BISortApi {
+    direction: BISortDirectionApi
+    key: string
+}
+
+export interface BITopNApi {
+    /** @minimum 1 */
+    count: number
+    fieldId: string
+    includeOther: boolean
+    /** @minimum 0 */
+    measureIndex: number
+}
+
+export interface BITotalsApi {
+    columns?: boolean | null
+    rows?: boolean | null
+    subtotals?: boolean | null
+}
+
+export type BIAggregationApi = (typeof BIAggregationApi)[keyof typeof BIAggregationApi]
+
+export const BIAggregationApi = {
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Sum: 'sum',
+    Average: 'average',
+    Minimum: 'minimum',
+    Maximum: 'maximum',
+    Custom: 'custom',
+} as const
+
+export type BITableCalculationTypeApi = (typeof BITableCalculationTypeApi)[keyof typeof BITableCalculationTypeApi]
+
+export const BITableCalculationTypeApi = {
+    PercentOfTotal: 'percent_of_total',
+    RunningTotal: 'running_total',
+    Difference: 'difference',
+    PercentChange: 'percent_change',
+    MovingAverage: 'moving_average',
+    Rank: 'rank',
+} as const
+
+export interface BITableCalculationApi {
+    /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+    computeUsing?: string | null
+    type: BITableCalculationTypeApi
+    /** Number of points, including the current point, in a trailing moving average. */
+    window?: number | null
+}
+
+export interface BIValueApi {
+    aggregation: BIAggregationApi
+    customExpression?: string | null
+    field: BIFieldApi
+    label?: string | null
+    tableCalculation?: BITableCalculationApi | null
+}
+
+export interface BIConfigApi {
+    chartType: ChartDisplayTypeApi
+    columns: BIFieldApi[]
+    compareFilter?: CompareFilterApi | null
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIFieldApi | null
+    dateRange?: DateRangeApi | null
+    filters: BIFilterApi[]
+    limit: BIQueryLimitApi
+    rows: BIFieldApi[]
+    /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+    sort?: BISortApi | null
+    source?: BIDataSourceApi | null
+    topN?: BITopNApi | null
+    totals?: BITotalsApi | null
+    values: BIValueApi[]
+}
+
+export type BIVisualizationNodeApiKind = (typeof BIVisualizationNodeApiKind)[keyof typeof BIVisualizationNodeApiKind]
+
+export const BIVisualizationNodeApiKind = {
+    BIVisualizationNode: 'BIVisualizationNode',
+} as const
+
+export interface BIVisualizationNodeApi {
+    chartSettings?: ChartSettingsApi | null
+    config: BIConfigApi
+    display?: ChartDisplayTypeApi | null
+    kind: BIVisualizationNodeApiKind
+    source: HogQLQueryApi
+    tableSettings?: TableSettingsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type HogQueryApiKind = (typeof HogQueryApiKind)[keyof typeof HogQueryApiKind]
 
 export const HogQueryApiKind = {
@@ -8293,10 +8495,16 @@ export interface HogQueryApi {
  * The query definition for this insight. The `kind` field determines the query type:
  * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
  * - `DataVisualizationNode` — SQL insights using HogQL
+ * - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
  * - `DataTableNode` — raw data tables
  * - `HogQuery` — Hog language queries
  */
-export type _InsightQuerySchemaApi = InsightVizNodeApi | DataTableNodeApi | DataVisualizationNodeApi | HogQueryApi
+export type _InsightQuerySchemaApi =
+    | InsightVizNodeApi
+    | DataTableNodeApi
+    | DataVisualizationNodeApi
+    | BIVisualizationNodeApi
+    | HogQueryApi
 
 export interface DashboardTileBasicApi {
     readonly id: number

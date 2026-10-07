@@ -31,10 +31,11 @@ import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowR
 export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
     component: WorkflowRunDetailScene,
     logic: workflowRunDetailLogic,
-    paramsToProps: ({ params: { repoOwner, repoName, runId }, searchParams: { source } }) => ({
+    paramsToProps: ({ params: { repoOwner, repoName, runId }, searchParams: { source, ci_engine } }) => ({
         repoOwner: decodeURIComponent(repoOwner),
         repoName: decodeURIComponent(repoName),
         runId: parseInt(runId, 10),
+        ciEngine: ci_engine as WorkflowRunDetailLogicProps['ciEngine'],
         sourceId: source ?? null,
     }),
 }
@@ -65,7 +66,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
         )
     }
 
-    const githubUrl = run ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
+    const githubUrl = run?.ci_engine === 'github_actions' ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
     const verdict = run ? verdictTag(run.conclusion) : null
     const prNumber = run ? runPrNumber(run.pr_number, run.commit_pr_number) : null
     const prUrl =

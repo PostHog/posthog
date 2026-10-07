@@ -227,6 +227,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
         is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
+        # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
+        # so the query that tells the warehouse from an external destination cannot run here.
+        self._external_destination_ids: list[str] = list(models.external_destination_ids)
+
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
             "is_resume": is_resume,
@@ -296,6 +300,7 @@ class PipelineV3(Generic[ResumableData]):
             # Snapshotted on the job when the run started. Empty for every run before
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
+            "external_destination_ids": list(self._external_destination_ids),
             **self._producer_kwargs,
         }
 
@@ -415,13 +420,7 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            await reset_rows_synced_if_needed(self._job, should_resume)
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -471,7 +470,6 @@ class PipelineV3(Generic[ResumableData]):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
-                    partition_count_fallback=self._resource.partition_count,
                 )
 
             async def stage_remaining_rows() -> None:
@@ -556,7 +554,6 @@ class PipelineV3(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await stage_remaining_rows()
-
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -564,10 +561,16 @@ class PipelineV3(Generic[ResumableData]):
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
-            return {
-                "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
-                "consumer_manages_job_status": consumer_will_hear_about_this_run,
-            }
+            result = PipelineResult(
+                should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run(),
+                consumer_manages_job_status=consumer_will_hear_about_this_run,
+            )
+            if self._resource.on_complete is not None:
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
+            return result
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")

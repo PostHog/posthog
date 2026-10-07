@@ -85,6 +85,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
+            listHref: () => urls.workflows(),
             filterKey: 'workflows',
         },
     },

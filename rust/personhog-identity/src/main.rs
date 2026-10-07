@@ -183,8 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
+        // Dense from 250ms to 5s, where merge tails sit.
         const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+            1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
+            5000.0, 10000.0, 30000.0,
         ];
         // Lifecycle ops span "settled in one drive" (tens of ms) to
         // "abandoned, parked, or leader-blocked and resumed by the sweeper"
@@ -264,10 +266,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let property_writer = Arc::new(
-        RouterClient::with_channels(
+        RouterClient::with_channels_and_windows(
             &config.router_url,
             config.leader_request_timeout(),
             config.router_channels,
+            config.router_http2_windows(),
         )
         .expect("Invalid router URL")
         .with_client_name("personhog-identity"),
@@ -361,6 +364,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let http2_windows = config.grpc_http2_windows();
     let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
@@ -383,9 +387,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        let mut server = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout);
+        let mut server = http2_windows.apply_to_server(
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout),
+        );
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }

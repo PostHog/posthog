@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -48,11 +48,19 @@ export function BroadcastsTable(): JSX.Element {
             key: 'name',
             render: (_, item) => (
                 <div className="flex items-center gap-2">
-                    <LemonTableLink
-                        to={urls.broadcast(item.id)}
-                        title={item.name || 'Untitled broadcast'}
-                        description={item.description}
-                    />
+                    {item.status === 'archived' ? (
+                        <Tooltip title="Restore this broadcast to make changes">
+                            <span className="font-semibold text-sm text-muted">
+                                {item.name || 'Untitled broadcast'}
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <LemonTableLink
+                            to={urls.broadcast(item.id)}
+                            title={item.name || 'Untitled broadcast'}
+                            description={item.description}
+                        />
+                    )}
                     {isEligibleWorkflow(item) && (
                         <LemonTag
                             type="muted"

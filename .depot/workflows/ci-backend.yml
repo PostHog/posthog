@@ -10,11 +10,13 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
-#   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
-#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
-#   that sends the PR back to GitHub Actions. It also prints each failed step and its log
-#   lines, read with `depot ci diagnose`, because Depot's own checks carry no output.
+#   `Django Tests Pass` gate then relays this workflow's gate verdict. Its first step posts the
+#   `Depot run started` check that canonical's router waits for. Neither the router, the
+#   hand-off job, nor the relay has a counterpart here. A GitHub rerun does not restart this
+#   workflow, so a re-run of the relay job retries this workflow's failed jobs with `depot ci retry`.
+#   The relay's failure log prints the label that sends the PR back to GitHub Actions, and each
+#   failed step and its log lines, read with `depot ci diagnose`, because Depot's own checks
+#   carry no output.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
 #   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
@@ -99,8 +101,12 @@
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
 # - WAIT_FOR_DOCKER_REGISTRY_MIRROR makes bin/ci-wait-for-docker launch pull Docker Hub
-#   images from mirror.gcr.io before `compose up`. Token requests to auth.docker.io time out
+#   images from mirrors before `compose up`. Token requests to auth.docker.io time out
 #   intermittently from Depot CI sandboxes, and one failed pull leaves the whole stack missing.
+#   vars.DEPOT_PULL_THROUGH_REGISTRY (the org registry host, <org>.registry.depot.dev) goes
+#   first: its pull-through repositories are created once in the Depot dashboard under the
+#   upstream path (library/postgres, valkey/valkey) and need only the job's DEPOT_TOKEN.
+#   Unset, or an image without a repository, falls through to mirror.gcr.io, then Docker Hub.
 # - Compose launches run under `nohup` with stdin, stdout and stderr redirected to
 #   $RUNNER_TEMP/compose-launch.log. Depot ends a step's background processes and closes its
 #   output pipes when the step shell exits, so a plain `&` launch dies before it creates any
@@ -123,7 +129,8 @@
 #   fallback.
 # - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
 #   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
-#   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
+#   Trunk merge-queue PRs run here only when canonical's router hands them off, which its own
+#   CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT controls apart from source PRs.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
 #   warmer, which cannot signal readiness for Depot's separate cache channel.
 
@@ -177,7 +184,7 @@ env:
     HYPOTHESIS_CONSTANTS_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
-    WAIT_FOR_DOCKER_REGISTRY_MIRROR: mirror.gcr.io
+    WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     CLICKHOUSE_HOST: 'localhost'
@@ -208,6 +215,9 @@ env:
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     UV_HTTP_TIMEOUT: 120
+    # A 4 GiB thread stack cache avoids the uv exit segfault (code 139) on glibc before 2.43.
+    # Remove when uv ships the fix: https://github.com/astral-sh/uv/issues/21428
+    GLIBC_TUNABLES: glibc.pthread.stack_cache_size=0x100000000
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
@@ -241,6 +251,7 @@ jobs:
             checks: read
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
+            github_run_url: ${{ steps.handoff.outputs.github_run_url }}
         steps:
             # Depot's ambient token can come from an installation spent for the hour. It answers 403,
             # and the wait would decline a real hand-off. The same token posts the relay's checks.
@@ -253,6 +264,19 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
+            # .github/scripts/ci_backend_route.py waits for this check. Depot posts its own check
+            # for this job only when the job ends, which is after the hand-off.
+            - name: Tell GitHub Actions that Depot started a run for this event
+              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  STARTED_CHECK: Backend CI on Depot / Depot run started (PR ${{ github.event.pull_request.number }}, event ${{ github.event.pull_request.updated_at }})
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$STARTED_CHECK" -f head_sha="$SHA" \
+                      -f status=completed -f conclusion=success -f details_url="$DEPOT_JOB_URL" --silent
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
               env:
@@ -274,6 +298,7 @@ jobs:
                   set -uo pipefail
                   handed_off=false
                   state=absent
+                  run_url=
                   # A person's run does not wait: it runs only when GitHub Actions already handed
                   # this commit off, so the tests never run on both engines.
                   attempts=30
@@ -297,7 +322,8 @@ jobs:
                                   # A cancelled hand-off comes from a GitHub run that was cancelled before its
                                   # hand-off job finished, so it carries no decision, as in ci_backend_route.py.
                                   # GitHub posts it with started_at set to the cancel time, which can follow this event.
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  # The hand-off check links its GitHub job. The gate check links the run instead.
+                                  IFS=$'\t' read -r state run_url < <(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | [(if . == null then "absent" elif .status == "completed" then .conclusion else .status end), (.details_url // "" | sub("/job/[0-9]+$"; ""))] | @tsv' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -312,13 +338,15 @@ jobs:
                       done
                       if [ "$handed_off" = true ]; then
                           echo "::notice::GitHub Actions handed the backend tests to Depot CI."
+                          echo "github_run_url=$run_url" >> "$GITHUB_OUTPUT"
                       else
                           echo "::notice::GitHub Actions kept the backend tests (hand-off check: $state). Depot CI runs nothing."
                       fi
                   fi
                   echo "handed_off=$handed_off" >> "$GITHUB_OUTPUT"
             # Mirrors Depot's own checks for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
-            # A declined event also gets the gate's skipped check, as Depot posts it.
+            # A declined event also gets the gate's skipped check, as Depot posts it. The mirrored
+            # gate has its own name (see MIRRORED_GATE_CHECK), which differs from the gate job's name.
             - name: Post the hand-off checks for the relay
               if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
               continue-on-error: true
@@ -327,7 +355,7 @@ jobs:
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
                   WAIT_CHECK: Backend CI on Depot / Wait for GitHub Actions to hand off backend tests (PR ${{ github.event.pull_request.number }}, event ${{ github.event.pull_request.updated_at }})
-                  GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
+                  GATE_CHECK: Backend CI on Depot / Test results
                   HANDED_OFF: ${{ steps.handoff.outputs.handed_off }}
               run: |
                   post() {
@@ -391,6 +419,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -655,6 +684,34 @@ jobs:
                         - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
+                      sdk_manifests:
+                        # Everything the SDK major-version guard reads. Lockfiles are listed
+                        # because a floor-only or `*` spec can move to a new major through
+                        # its lock alone.
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-workspace.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'services/llm-gateway/pyproject.toml'
+                        - 'services/llm-gateway/uv.lock'
+                        - 'common/ingestion/acceptance_tests/requirements.txt'
+                        - 'tools/infra-scripts/clitools/requirements.txt'
+                        - 'tools/infra-scripts/clitools/constraints.txt'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'cli/Cargo.toml'
+                        - 'cli/Cargo.lock'
+                        - 'bin/hobby-installer/go.mod'
+                        - 'bin/hobby-installer/go.sum'
+                        - '.github/scripts/check_sdk_majors.py'
+                        # The guard scans every package.json for an SDK declaration.
+                        - '**/package.json'
+                        - 'rust/Cargo.toml'
+                        - 'cli/Cargo.toml'
+                        - 'bin/hobby-installer/go.mod'
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
@@ -1477,6 +1534,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
+                  test-collection-id: C0LrorjW # backend-product
                   # A native-JSON leg uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -1589,6 +1647,20 @@ jobs:
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
+    # Every PostHog SDK this repo installs must stay on its pinned major; the release
+    # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
+    sdk-major-guard:
+        needs: [changes]
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push'
+        timeout-minutes: 5
+        permissions: {}
+        name: SDK major-version guard (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check every SDK stays on its pinned major
+              run: python3 .github/scripts/check_sdk_majors.py
+
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
@@ -1636,6 +1708,13 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+            # Above the boundary for the same reason. product:lint compares the crossings ledger
+            # with the merge commit's first parent, so the clone needs one more level of history.
+            - name: Fetch the pull request base
+              if: github.event_name == 'pull_request'
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1648,6 +1727,8 @@ jobs:
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
             - name: Lint product structure
+              env:
+                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
@@ -2600,6 +2681,13 @@ jobs:
                   fi
 
                   echo "OpenAPI types are out of date"
+
+                  # A push to a merge queue branch ends the queue attempt.
+                  if [[ "$BRANCH" == trunk-merge/* ]]; then
+                      echo "::error::OpenAPI types are out of date once this pull request is merged with master: $(git diff --name-only | tr '\n' ' ')"
+                      echo "Merge master into the pull request branch and push. CI regenerates the types on that branch."
+                      exit 1
+                  fi
 
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "$EVENT_NAME" != "pull_request" ] || \
@@ -3933,9 +4021,12 @@ jobs:
               continue-on-error: true
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
+                  test-collection-id: AA6dvTdI # backend-core
                   # Non-default rows upload under their own variant, so a failure only that mode
                   # hits does not quarantine the default test with the same id.
                   variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
@@ -3949,9 +4040,12 @@ jobs:
               continue-on-error: true
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (!cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true') }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
+                  test-collection-id: smyQjxZ3 # backend-temporal
                   # A native-JSON row uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -4159,6 +4253,7 @@ jobs:
                 detect-snapshot-mode,
                 handle-snapshots,
                 repo-checks,
+                sdk-major-guard,
             ]
         name: Django Tests Pass on Depot
         runs-on: depot-ubuntu-24.04
@@ -4171,6 +4266,10 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true')
             && needs.wait-for-handoff.outputs.handed_off == 'true'
+        env:
+            # The gate check posts the summary as its output, titled by the first line of the title file.
+            GATE_SUMMARY: /tmp/gate-check-summary.md
+            GATE_TITLE: /tmp/gate-check-title
         steps:
             - name: Summarize dependency results
               run: |
@@ -4185,6 +4284,7 @@ jobs:
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| sdk-major-guard | ${{ needs.sdk-major-guard.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
@@ -4197,7 +4297,7 @@ jobs:
                       echo ""
                       echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
                     fi
-                  } | tee -a "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY" "$GATE_SUMMARY"
 
             - name: Download shard JUnit results
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
@@ -4274,10 +4374,11 @@ jobs:
                       if len(rows) > 100:
                           out += ["", f"…and {len(rows) - 100} more."]
                       text = "\n".join(out) + "\n"
-                      summary = os.environ.get("GITHUB_STEP_SUMMARY")
-                      if summary:
-                          with open(summary, "a") as fh:
+                      for path in (os.environ["GITHUB_STEP_SUMMARY"], os.environ["GATE_SUMMARY"]):
+                          with open(path, "a") as fh:
                               fh.write(text)
+                      with open(os.environ["GATE_TITLE"], "a") as fh:
+                          fh.write(f"{len(rows)} failing test{'s' if len(rows) != 1 else ''}\n")
                       print(text)
                       for shard, nodeid, repo_file, msg in rows[:30]:
                           title = f"Backend test failed ({shard})"
@@ -4300,6 +4401,7 @@ jobs:
 
                     if [[ "$result" != "success" && "$result" != "skipped" ]]; then
                       echo "::error::$label did not succeed (result: '$result')."
+                      echo "$label did not succeed on Depot" >> "$GATE_TITLE"
                       exit 1
                     fi
                   }
@@ -4316,6 +4418,7 @@ jobs:
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Hand-off wait" "${{ needs.wait-for-handoff.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "SDK major guard" "${{ needs.sdk-major-guard.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
@@ -4334,7 +4437,11 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
-            # Mirrors Depot's own check for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
+            # Mirrors Depot's own check for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID),
+            # under the name in MIRRORED_GATE_CHECK so that the two rows on a pull request differ.
+            # Depot's own checks carry no output and their pages need a Depot login, so this
+            # check carries the gate summary: GitHub shows the title on the PR's check row
+            # and the summary on the Checks tab.
             - name: Post the gate check for the relay
               if: ${{ always() && steps.gate-token.outputs.token != '' }}
               continue-on-error: true
@@ -4342,9 +4449,27 @@ jobs:
                   GH_TOKEN: ${{ steps.gate-token.outputs.token }}
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
-                  GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
+                  GATE_CHECK: Backend CI on Depot / Test results
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
+                  RELAY_RUN_URL: ${{ needs.wait-for-handoff.outputs.github_run_url }}
               run: |
+                  case "$CONCLUSION" in
+                      success) title="Backend tests passed on Depot" ;;
+                      cancelled) title="Backend tests cancelled on Depot" ;;
+                      *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
+                  esac
+                  # One request carries the verdict and the output. A PATCH sent right after the POST
+                  # can answer 404, because GitHub does not always find a check it just created.
+                  # GitHub rejects a summary over 65535 characters, and the byte budget below stays
+                  # under that however the characters are encoded.
+                  touch "$GATE_SUMMARY"
+                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                      --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
+                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
+                        output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
+                  # The relay reads this check for its verdict, so a rejected output must not lose the check.
+                  echo "::warning::Could not post the gate check with its summary. Posting it without."
                   gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
                       -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:

@@ -29,6 +29,18 @@ describe('spaceFeedPreview', () => {
             'Explain <user_custom_instructions>how it works</user_custom_instructions>',
             'Explain <user_custom_instructions>how it works</user_custom_instructions>',
         ],
+        [
+            'self-closing mentions',
+            '<github_pr number="42" title="Fix &quot;retry&quot;" url="https://github.com/example/repo/pull/42" /> review <file path="/src/app/main.ts" /> with <skill name="deploy" source="user" path="/skills/deploy" />',
+            '@#42 - Fix "retry" review @app/main.ts with /deploy',
+        ],
+        [
+            'paired mentions',
+            'Compare <report id="7">Weekly signups</report> to <hogql>SELECT 1</hogql><comment_context label="Line 4">Rename this</comment_context>',
+            'Compare Weekly signups to SELECT 1Line 4',
+        ],
+        ['a mention with nothing to name', 'Look at <insight /> again', 'Look at  again'],
+        ['a mention the preview cut mid-tag', 'Check <github_pr number="9" title="Loa', 'Check'],
     ])('cleans %s', (_, text, expected) => {
         expect(spaceFeedPreview(text)).toEqual(expected)
     })

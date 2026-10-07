@@ -135,6 +135,43 @@ def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataF
     return Snapshot(date=date, state=state, labels=aligned)
 
 
+@frozen
+class ConsentExclusion:
+    """What `drop_without_training_consent` removed, as counts only."""
+
+    reports: int
+    teams: int
+
+
+def drop_without_training_consent(
+    snapshots: Mapping[datetime.date, Snapshot], team_ids: frozenset[int]
+) -> tuple[dict[datetime.date, Snapshot], ConsentExclusion]:
+    """`snapshots` without the reports of teams outside `team_ids`, read at training time.
+
+    The dataset dag stops collecting those reports, but the window reaches back over partitions
+    written before an organization opted out. Filtering here makes an opt-out reach the next
+    training run. A state row with no readable team fails closed. Label-only rows have no state and
+    are kept: `example_moments` never makes one a moment, and a report deleted before a later
+    snapshot needs its label row there.
+    """
+    kept: dict[datetime.date, Snapshot] = {}
+    reports: set[object] = set()
+    teams: set[int] = set()
+    for date, snapshot in snapshots.items():
+        state = snapshot.state
+        team = state["report_team_id"] if "report_team_id" in state else pd.Series(float("nan"), index=state.index)
+        excluded = state["signal_count"].notna() & ~team.isin(team_ids)
+        dropped = state.index[excluded.to_numpy()]
+        reports.update(dropped)
+        teams.update(int(team_id) for team_id in team[excluded].dropna())
+        kept[date] = Snapshot(
+            date=date,
+            state=state.drop(dropped),
+            labels=snapshot.labels.drop(snapshot.labels.index.intersection(dropped)),
+        )
+    return kept, ConsentExclusion(reports=len(reports), teams=len(teams))
+
+
 def birth_day_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
     """True for rows of the reports created on snapshot day `date`.
 
@@ -188,6 +225,9 @@ class HeadExamples:
     window_start: datetime.date | None
     # True when the row budget dropped at least one older day.
     cap_bound: bool
+    # Snapshot pairs dropped because one side lacks a label column the head reads. A high count
+    # with few positives means the labels partitions predate the current schema.
+    pairs_skipped_missing_label_columns: int
 
     def window(self) -> dict[str, object]:
         return {
@@ -210,6 +250,22 @@ def build_head_examples(
         examples=_with_features(kept, snapshots, feature_set, extras),
         window_start=days.min().date() if len(days) else None,
         cap_bound=len(kept) < len(moments),
+        pairs_skipped_missing_label_columns=pairs_missing_label_columns(snapshots, head),
+    )
+
+
+def _label_columns_readable(now: Snapshot, later: Snapshot, head: Head) -> bool:
+    return all(column in now.labels and column in later.labels for column in head.label_columns)
+
+
+def pairs_missing_label_columns(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> int:
+    """The (snapshot, `horizon_days`-later snapshot) pairs `example_moments` skips for a missing
+    label column."""
+    return sum(
+        1
+        for date, now in snapshots.items()
+        if (later := snapshots.get(date + datetime.timedelta(days=head.horizon_days))) is not None
+        and not _label_columns_readable(now, later, head)
     )
 
 
@@ -234,7 +290,7 @@ def example_moments(
         # only in the later snapshot (a column that entered the schema mid-window) would pass the
         # "not yet observed at now" guard below and mint an outcome from before `now` as a future
         # positive. Skip the pair when the head's label cannot be read from both snapshots.
-        if any(column not in now.labels or column not in later.labels for column in head.label_columns):
+        if not _label_columns_readable(now, later, head):
             continue
         ids = now.state.index.intersection(now.labels.index).intersection(later.labels.index)
         if len(ids) == 0:

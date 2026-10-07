@@ -12,7 +12,7 @@ export interface TodaySectionInput {
 
 const FILL_ORDER: readonly TodayWorkSectionId[] = ['recent', 'spaces', 'pinned']
 
-export const TODAY_SECTION_HEADER_HEIGHT = 36
+export const TODAY_SECTION_HEADER_HEIGHT = 28
 const SHARE_CAP = 0.4
 const MIN_FILL_HEIGHT = 56
 const MIN_DRAG_HEIGHT = 40

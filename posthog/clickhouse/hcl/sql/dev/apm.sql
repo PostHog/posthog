@@ -202,7 +202,8 @@ CREATE TABLE posthog.writable_metrics4_names (
   metric_name LowCardinality(String),
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
+  service_name LowCardinality(String)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_names');
 CREATE TABLE posthog.writable_metrics4_samples (
   team_id Int32,
@@ -343,7 +344,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -433,7 +434,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.writable_t
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -477,16 +478,17 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String)) AS SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+  service_name
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket;
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_resource_attributes TO posthog.writable_metrics4_attributes (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   metric_name,

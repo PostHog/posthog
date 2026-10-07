@@ -32,7 +32,11 @@ from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARI
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    resolve_saved_metric_definition,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
 
@@ -268,6 +272,7 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            query = resolve_saved_metric_definition(query, link.metadata)
             # The display name lives on the saved metric model, not in its query dict —
             # without it the summary falls back to raw event names.
             if link.saved_metric.name:

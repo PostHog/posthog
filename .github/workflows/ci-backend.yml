@@ -97,6 +97,9 @@ env:
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     UV_HTTP_TIMEOUT: 120
+    # A 4 GiB thread stack cache avoids the uv exit segfault (code 139) on glibc before 2.43.
+    # Remove when uv ships the fix: https://github.com/astral-sh/uv/issues/21428
+    GLIBC_TUNABLES: glibc.pthread.stack_cache_size=0x100000000
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
@@ -176,6 +179,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
             # Which engine runs this event's backend tests. Depot CI never decides on its
@@ -190,6 +194,8 @@ jobs:
                   sparse-checkout: |
                       .github/actions/paths-filter
                       .github/scripts/ci_backend_route.py
+                      .github/scripts/ci_backend_relay.py
+                      .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
             - name: Clean up data directories with container permissions
               run: |
@@ -204,23 +210,6 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - name: Pick the engine that runs the backend tests
-              id: route
-              if: github.event_name == 'pull_request'
-              env:
-                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
-                  EVENT: ${{ github.event_name }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  HEAD_REF: ${{ github.head_ref }}
-                  # The script reads this commit's earlier hand-off check, the durable record
-                  # of the engine that already ran its tests and side effects.
-                  GH_TOKEN: ${{ github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha }}
-              run: python3 .github/scripts/ci_backend_route.py
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
@@ -462,6 +451,34 @@ jobs:
                         - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
+                      sdk_manifests:
+                        # Everything the SDK major-version guard reads. Lockfiles are listed
+                        # because a floor-only or `*` spec can move to a new major through
+                        # its lock alone.
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-workspace.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'services/llm-gateway/pyproject.toml'
+                        - 'services/llm-gateway/uv.lock'
+                        - 'common/ingestion/acceptance_tests/requirements.txt'
+                        - 'tools/infra-scripts/clitools/requirements.txt'
+                        - 'tools/infra-scripts/clitools/constraints.txt'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'cli/Cargo.toml'
+                        - 'cli/Cargo.lock'
+                        - 'bin/hobby-installer/go.mod'
+                        - 'bin/hobby-installer/go.sum'
+                        - '.github/scripts/check_sdk_majors.py'
+                        # The guard scans every package.json for an SDK declaration.
+                        - '**/package.json'
+                        - 'rust/Cargo.toml'
+                        - 'cli/Cargo.toml'
+                        - 'bin/hobby-installer/go.mod'
                       product_yamls:
                         # Validates owner team slugs against PostHog/posthog collaborator teams,
                         # and lints the distributed owners.yaml files (schema, conflicts, dead
@@ -499,6 +516,27 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+            # Last, so the paths filter runs while Depot starts its run for this event.
+            - name: Pick the engine that runs the backend tests
+              id: route
+              if: github.event_name == 'pull_request'
+              env:
+                  PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
+                  MERGE_QUEUE_PERCENT: ${{ vars.CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT }}
+                  EVENT: ${{ github.event_name }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  HEAD_REF: ${{ github.head_ref }}
+                  # The script reads this commit's earlier hand-off check, the durable record
+                  # of the engine that already ran its tests and side effects, and the check of
+                  # the Depot wait job that names this event.
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  EVENT_AT: ${{ github.event.pull_request.updated_at }}
+              run: python3 .github/scripts/ci_backend_route.py
 
     # The only signal Depot CI acts on. Its wait job in .depot/workflows/ci-backend.yml
     # polls this check by name and runs the backend tests only when it concluded
@@ -1280,6 +1318,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
+                  test-collection-id: C0LrorjW # backend-product
                   # A native-JSON leg uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -1400,6 +1439,20 @@ jobs:
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
+    # Every PostHog SDK this repo installs must stay on its pinned major; the release
+    # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
+    sdk-major-guard:
+        needs: [changes]
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule' && needs.changes.outputs.engine != 'depot'
+        timeout-minutes: 5
+        permissions: {}
+        name: SDK major-version guard
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check every SDK stays on its pinned major
+              run: python3 .github/scripts/check_sdk_majors.py
+
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
@@ -1451,6 +1504,14 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
 
+            # Above the boundary for the same reason. product:lint compares the crossings ledger
+            # with the merge commit's first parent, so the clone needs one more level of history.
+            - name: Fetch the pull request base
+              if: github.event_name == 'pull_request'
+              run: |
+                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -1469,6 +1530,8 @@ jobs:
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
 
             - name: Lint product structure
+              env:
+                  CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
               run: ./bin/hogli product:lint --all
 
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
@@ -2542,6 +2605,13 @@ jobs:
                   fi
 
                   echo "OpenAPI types are out of date"
+
+                  # A push to a merge queue branch ends the queue attempt.
+                  if [[ "$BRANCH" == trunk-merge/* ]]; then
+                      echo "::error::OpenAPI types are out of date once this pull request is merged with master: $(git diff --name-only | tr '\n' ' ')"
+                      echo "Merge master into the pull request branch and push. CI regenerates the types on that branch."
+                      exit 1
+                  fi
 
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "$EVENT_NAME" != "pull_request" ] || \
@@ -3992,9 +4062,12 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
+                  test-collection-id: AA6dvTdI # backend-core
                   # Non-default rows upload under their own variant, so a failure only that mode
                   # hits does not quarantine the default test with the same id.
                   variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
@@ -4007,9 +4080,12 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              env:
+                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
+                  test-collection-id: smyQjxZ3 # backend-temporal
                   # A native-JSON row uploads under its own variant, so a failure in that mode
                   # does not read as a flake of the legacy test with the same id.
                   variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
@@ -4203,6 +4279,7 @@ jobs:
                 detect-snapshot-mode,
                 handle-snapshots,
                 repo-checks,
+                sdk-major-guard,
             ]
         name: Django Tests Pass
         runs-on: ubuntu-24.04
@@ -4249,6 +4326,7 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_REF: ${{ github.head_ref }}
               run: python3 .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
@@ -4258,6 +4336,7 @@ jobs:
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| sdk-major-guard | ${{ needs.sdk-major-guard.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| changes | ${{ needs.changes.result }} |"
                     echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
@@ -4387,6 +4466,7 @@ jobs:
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "SDK major guard" "${{ needs.sdk-major-guard.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   # Upstream jobs whose failure would otherwise only cascade into django
                   # being *skipped*, which this gate reads as success — a green gate with

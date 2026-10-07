@@ -1,3 +1,4 @@
+import re
 import ast
 import builtins
 from dataclasses import dataclass
@@ -396,13 +397,76 @@ def collect_exported_types(body: list[ast.stmt]) -> dict[str, str]:
     return exported_types
 
 
+# IPython syntax a cell may use: `%magic`, `%%cell_magic`, `!shell`, and `x = !cmd` / `x = %magic`.
+# `[ \t]` rather than `\s`: a pattern that matches newlines retries at every blank line, which is quadratic.
+_IPYTHON_SYNTAX = re.compile(r"^[ \t]*[%!]|=[ \t]*[%!]", re.MULTILINE)
+# Magics whose argument or body is Python, so the names it reads still count as inputs.
+_PYTHON_BODY_CELL_MAGICS = frozenset({"time", "timeit", "prun", "capture"})
+_PYTHON_ARGUMENT_LINE_MAGIC = re.compile(r"^([ \t]*)%(timeit|time|prun)\b(.*)$", re.MULTILINE)
+# The single-letter options each magic reads a value for, as in `-n 10` or `-n10`.
+_MAGIC_VALUE_OPTIONS: dict[str, frozenset[str]] = {
+    "timeit": frozenset("nrp"),
+    "prun": frozenset("lsTD"),
+}
+# Names the transformed source calls that IPython provides at runtime, never a sibling frame.
+_IPYTHON_RUNTIME_NAMES = frozenset({"get_ipython"})
+
+
+def _magic_statement(magic: str, arguments: str) -> str:
+    """The Python statement after a magic's options: `-n10 -r 3 df.sum()` gives `df.sum()`."""
+    value_options = _MAGIC_VALUE_OPTIONS.get(magic, frozenset())
+    rest = arguments.strip()
+    while rest.startswith("-"):
+        token, _, rest = rest.partition(" ")
+        rest = rest.lstrip()
+        letters = token[1:]
+        for position, letter in enumerate(letters):
+            if letter in value_options:
+                # The value is the rest of the token, or else the next token.
+                if position == len(letters) - 1:
+                    _, _, rest = rest.partition(" ")
+                    rest = rest.lstrip()
+                break
+    return rest
+
+
+def to_plain_python(code: str) -> str:
+    """Rewrite the IPython syntax in a cell as the plain Python the kernel would run.
+
+    Cells run through IPython, so `%pip install x` or `!ls` is valid there but a SyntaxError
+    to `ast.parse`, which would drop every input the rest of the cell reads.
+    """
+    if not _IPYTHON_SYNTAX.search(code):
+        return code
+    # A loop, not recursion: cell magics can stack, and a cell may hold thousands of them.
+    setup_statements: list[str] = []
+    while (stripped := code.lstrip()).startswith("%%"):
+        header, _, code = stripped.partition("\n")
+        magic, _, arguments = header[2:].strip().partition(" ")
+        # Any other cell magic (%%bash, %%html, …) holds another language: there is no Python to read.
+        if magic not in _PYTHON_BODY_CELL_MAGICS:
+            return ""
+        # `%%timeit` runs the statement after its options once as setup, before the body.
+        if magic == "timeit" and (setup := _magic_statement(magic, arguments)):
+            setup_statements.append(setup)
+    if setup_statements:
+        code = "\n".join([*setup_statements, code])
+    code = _PYTHON_ARGUMENT_LINE_MAGIC.sub(
+        lambda match: match.group(1) + _magic_statement(match.group(2), match.group(3)), code
+    )
+    from IPython.core.inputtransformer2 import TransformerManager  # noqa: PLC0415 — keeps IPython off the import path
+
+    return TransformerManager().transform_cell(code)
+
+
 def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     if not code or not code.strip():
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     try:
-        tree = ast.parse(code)
-    except SyntaxError:
+        tree = ast.parse(to_plain_python(code))
+    # Deep nesting in user code exhausts the parser's stack; that cell just has no analysis.
+    except (SyntaxError, RecursionError):
         return PythonGlobalsAnalysis(used=[], exported_with_types=[])
 
     module_locals = collect_scope_locals(tree.body)
@@ -415,6 +479,6 @@ def analyze_python_globals(code: str) -> PythonGlobalsAnalysis:
     ]
 
     return PythonGlobalsAnalysis(
-        used=sorted(analyzer.used),
+        used=sorted(analyzer.used - _IPYTHON_RUNTIME_NAMES),
         exported_with_types=exported_with_types,
     )

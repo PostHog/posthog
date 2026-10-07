@@ -229,7 +229,7 @@ SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
-    # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
+    # The user interviews product is retired. No flow creates these configs, and this viewset never edits them.
     "interviewee_context": None,
 }
 
@@ -924,10 +924,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "insight",
                         "recording",
                         "notebook",
-                        "interviewee_context",
-                        "interviewee_context__topic",
                     )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .filter(
+                        Q(expires_at__isnull=True) | Q(expires_at__gt=now()),
+                        SharingConfiguration.without_retired_resources_q(),
+                    )
                     .get(access_token=access_token)
                 )
             except SharingConfiguration.DoesNotExist:
@@ -1352,47 +1353,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "query_results": serialized_response,
                     "query_title": resource.export_context.get("title"),
                     "themes": get_themes_for_team(resource.team),
-                }
-            )
-        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import (
-                has_replied,
-                is_shared_interviewee_context,
-                parse_interviewee_identifier,
-            )
-
-            ic = resource.interviewee_context
-            topic = ic.topic
-            asset_title = topic.topic or "User interview"
-            asset_description = "PostHog AI user interview"
-            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
-            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
-            # viewer prompts for a name before starting.
-            shared = is_shared_interviewee_context(ic.interviewee_identifier)
-            if shared:
-                user_name = ""
-                already_replied = False
-            else:
-                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-                already_replied = has_replied(
-                    team_id=topic.team_id,
-                    topic_id=topic.id,
-                    interviewee_identifier=ic.interviewee_identifier,
-                )
-            # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
-            # the recipient would otherwise see their own internal-notes context in view-source.
-            # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
-            exported_data.update(
-                {
-                    "type": "interview",
-                    "interview": {
-                        "topic_id": str(topic.id),
-                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
-                        "user_name": user_name,
-                        "topic": topic.topic,
-                        "already_replied": already_replied,
-                        "shared": shared,
-                    },
                 }
             )
         elif isinstance(resource, SharingConfiguration) and resource.recording:

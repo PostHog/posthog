@@ -9,7 +9,7 @@ When a user opens an experiment and the cached results look stale, they click **
 It's distinct from the daily timeseries workflows in two ways:
 
 - **On-demand, not scheduled.** Triggered by the user (or by experiment lifecycle events like launch/stop), not by a cron schedule.
-- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (One exception: a stopped experiment has a fixed window, so its runs share a result row rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
+- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
 
 ## End-to-end flow
 
@@ -41,7 +41,8 @@ sequenceDiagram
     Service->>DB: lock experiment, create or fetch active run
     DB-->>Service: row (id, status)
     Service-->>API: payload + is_existing
-    API->>Workflow: start_workflow(recalculation_id)
+    API->>Service: start_metrics_recalculation_workflow(recalculation_id)
+    Service->>Workflow: start_workflow(recalculation_id)
     API-->>FE: 201 (or 200 if reusing active run)
 
     Worker->>Workflow: wrap execute (latency + finished counter)
@@ -73,9 +74,25 @@ Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")`
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
-Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `get_run_results` filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window. A same-config re-run at the same window updates the existing row rather than colliding on the unique key.
+Runs of a **running** experiment are told apart by `query_to`, not by the fingerprint. Each run advances `query_to` toward "now", so it accumulates one row per run under the same fingerprint, one per window end. `get_run_results` filters `fingerprint__in=(...) AND query_to=recalc.query_to`, so a read returns exactly the rows for that run's window.
 
-**Stopped experiments are the exception, and they do not get per-run isolation.** A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation_logic.py`). So repeated recalcs of a stopped experiment share one `(fingerprint, query_to)` key, and a later run overwrites the earlier run's result row in place. The snapshot for such an experiment is effectively "the latest recomputation of this fixed window", not a distinct frozen copy per `recalculation_id`. This is acceptable because a stopped experiment's data no longer changes, so a re-run recomputes the same numbers over the same window; the row is updated, not meaningfully changed. The one case it does matter is a re-run after a config or stats change, where the fingerprint changes and the row lands under a new key anyway.
+A run never recomputes a completed result for the same config and window.
+Before it queries, the calc activity looks for a `COMPLETED` row with the same recalc fingerprint and `query_to`.
+If it finds one, it marks the metric succeeded and leaves the row as it is.
+Otherwise it runs the query and upserts the result on `(experiment, metric_uuid, query_to)`, so a `FAILED` row at that window is updated in place.
+`_REUSE_WINDOW_TRIGGERS` depends on this: a `METRIC_CONFIG_CHANGE` run reuses the previous window, so only new or changed metrics run a query.
+A changed metric has a new fingerprint, so it recomputes, and the upsert replaces the previous run's row for that metric at the shared window.
+The previous `recalculation_id` then reads the new result for that metric, the same as a stopped experiment after a config change (below).
+
+**Stopped experiments never get per-run isolation.**
+A stopped experiment has a fixed window: `_resolve_query_to` returns `end_date` for every run (`recalculation_logic.py`).
+So every run of a stopped experiment uses the same `(experiment, metric_uuid, query_to)` row for a metric, and the rule above decides what a reload does:
+
+- **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
+- **Same config, failed row:** the reload recomputes the metric and updates the row in place.
+- **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+
+The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
 ### No FK from results to the recalc row
 
@@ -106,11 +123,76 @@ The workflow body is wrapped so any unhandled exception, or a finalize write tha
 
 The user doesn't see the cache. They see a specific run, identified by `recalculation_id`. If they bookmark the URL or share it, anyone who follows it reads that run's numbers at the run's `query_to`, independent of cache state. This is the fundamental difference from the timeseries family, which is essentially "what does the query engine say right now."
 
-The snapshot is immutable only while the experiment is running, where each run pins a distinct `query_to`. For a **stopped** experiment the window is fixed at `end_date`, so all same-config runs share one result row and a later run overwrites the numbers an earlier `recalculation_id` pointed at (see "Recalc fingerprint" above). Since a stopped experiment's data is frozen, the recomputed numbers are the same, so this is a shared row rather than a lost snapshot; but a shared `recalculation_id` URL for a stopped experiment is not guaranteed to keep showing the exact values it showed at first load.
+The snapshot is distinct per run only when the run has its own `query_to`.
+A `METRIC_CONFIG_CHANGE` run on a running experiment reuses the previous run's window, so a changed metric replaces the previous run's row (see "Recalc fingerprint" above).
+For a **stopped** experiment the window is fixed at `end_date`, so all runs share one result row per metric (see "Recalc fingerprint" above).
+A same-config reload reuses that row, so an earlier `recalculation_id` keeps showing the same numbers, and those numbers never include data that arrived after the first completed computation.
+After a config or stats change, the next run replaces the row, so an earlier `recalculation_id` then shows the new numbers.
+Between the edit and that run, it shows no result for a metric whose fingerprint changed, because of the fingerprint-divergence hazard above.
 
 ### Triggers and the cold-start payload
 
-A recalc row records what caused it, in `trigger` (`Trigger` on the model). The set is more than a manual click: `MANUAL`, `AGENT_MCP`, `COLD_RUN`, `STALE_REFRESH`, `AUTO_REFRESH`, config-change triggers (`EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`), and experiment lifecycle triggers (`EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`). This lets the analytics and the UI tell a user click apart from an automatic refresh.
+A recalc row records what caused it, in `trigger` (`Trigger` on the model).
+The set is more than a manual click.
+User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+Server-side triggers: `AGENT_MCP` (set by the view from the client header), `TIMESERIES_SYNC` and `SCHEDULED` (written by their workflows).
+Deprecated values stay for old rows: `STALE_REFRESH`, `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
+`RequestTrigger` is the subset a client may send on POST; the request serializer rejects the rest.
+This lets the analytics and the UI tell a user click apart from an automatic heal.
+
+The trigger decides the window.
+`_resolve_query_to` reuses the latest terminal run's `query_to` for `METRIC_CONFIG_CHANGE`, `MANUAL_RETRY` and `HEAL_LATEST_RUN` (`_REUSE_WINDOW_TRIGGERS`), so the metrics that already have rows load from cache and only the missing or failed ones recompute.
+Every other trigger advances the window to now, so every metric recomputes.
+A window-reusing run keeps the current values on screen and shows a loading tag on the metrics it recomputes; a `cold_run` has nothing prior to keep.
+
+#### What the frontend sends, by the state of `latest`
+
+The frontend reads `GET /metrics_recalculation/latest` on page load and starts at most one run from it.
+It never heals a pending or in-progress run; it polls that run instead.
+
+| State of `latest`                                                     | Trigger                                        | Window   |
+| --------------------------------------------------------------------- | ---------------------------------------------- | -------- |
+| 404: no run and no timeseries point                                   | `cold_run`                                     | advances |
+| Timeseries fallback with a gap (`result_source: timeseries_fallback`) | `cold_run`                                     | advances |
+| Terminal run with a result row missing, and no error for that metric  | `heal_latest_run`                              | reuses   |
+| Terminal run with a failed metric whose error is retriable            | `heal_latest_run`                              | reuses   |
+| Terminal run with a failed metric whose error is not retriable        | nothing; the retry button sends `manual_retry` | reuses   |
+| Refresh button                                                        | `manual`                                       | advances |
+| Metric added or changed                                               | `metric_config_change`                         | reuses   |
+| Experiment config changed                                             | `experiment_config_change`                     | advances |
+
+A run that failed before discovery has no metrics and no anchored window.
+The frontend treats it as a gap and sends `heal_latest_run`; `_resolve_query_to` skips a run without `query_to`, so it reuses the newest earlier window, or advances when there is none, as a `cold_run` would.
+This is rare: Temporal retries the workflow before it reaches that state.
+
+```mermaid
+flowchart TD
+    latest[GET latest] --> status{status}
+    status -->|404| cold[cold_run]
+    status -->|pending or in_progress| poll[poll the active run]
+    status -->|terminal| source{result_source}
+    source -->|timeseries_fallback with a gap| cold
+    source -->|recalculation| gap{missing row or retriable failure?}
+    gap -->|yes| heal[heal_latest_run]
+    gap -->|no, non-retriable failure| retry[retry button sends manual_retry]
+    gap -->|no| done[show results]
+    classDef advance fill:#f54e00,stroke:#f54e00,color:#fff;
+    classDef reuse fill:#1d4aff,stroke:#1d4aff,color:#fff;
+    class cold advance;
+    class heal,retry reuse;
+```
+
+Red nodes advance the window; blue nodes reuse it.
+
+#### Retriable failures
+
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+`error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
+`retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure).
+A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.
+An entry without the flag predates it and counts as non-retriable, so an old run never heals in a loop.
+
+#### The cold-start payload
 
 `TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `posthog/temporal/experiments/README.md`.
 
@@ -144,7 +226,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   Retries live in Temporal's `RetryPolicy` on the calc activity, not in the workflow. The policy is exponential: `initial_interval=5s`, `backoff_coefficient=2.0`, `maximum_interval=60s`, `maximum_attempts=MAX_METRIC_ATTEMPTS` (currently 8). So a metric backs off 5s, 10s, 20s, 40s, 60s, 60s, 60s across its retries, then the eighth attempt is final. `asyncio.gather(..., return_exceptions=True)` lets healthy metrics finish while a failing one retries; a retrying metric never blocks the others, because each activity retries on its own worker slot rather than holding a shared queue slot.
 
-  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the per-org ClickHouse concurrency limiter and the cluster at-capacity guard, is retried on a fixed 60s delay (`CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS`) via `ApplicationError(next_retry_delay=...)`, out-of-band from the exponential schedule, because that error means "come back later", not "this query is wrong".
+  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the per-org ClickHouse concurrency limiter and the cluster at-capacity guard, is retried after a random delay between 30s and 90s (`CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS` and `CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS`) via `ApplicationError(next_retry_delay=...)`, out-of-band from the exponential schedule, because that error means "come back later", not "this query is wrong". The random delay spreads out metrics that bounced in the same burst, so their retries do not arrive together and hit the same full concurrency limit again.
 
 - **`is_final_attempt` is derived inside the activity.** Because Temporal now owns retries, the activity reads its own attempt count from `activity.info().attempt` and compares it against `MAX_METRIC_ATTEMPTS` (the same constant the workflow's `RetryPolicy` is built from, so both sides agree on which attempt is last). The activity persists a transient failure (FAILED row + `metric_errors`) only on the final attempt, so a metric still being retried stays in its loading/dim state on the frontend instead of flashing an error that may yet resolve. Non-final transient state is tracked separately in the `metric_retries` column for the UI.
 

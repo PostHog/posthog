@@ -1,5 +1,6 @@
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -78,6 +79,7 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 
 
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE = timedelta(minutes=10)
 
 
 UNREADABLE_JOB_INPUTS_MESSAGE = (
@@ -329,27 +331,14 @@ async def handle_non_retryable_error(
     raise NonRetryableException() from error
 
 
-async def reset_rows_synced_if_needed(
-    job: "ExternalDataJob",
-    is_incremental: bool,
-    reset_pipeline: bool,
-    should_resume: bool,
-    *,
-    incremental_cursor_staged: bool = False,
-) -> None:
+async def reset_rows_synced_if_needed(job: "ExternalDataJob", should_resume: bool) -> None:
     # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
     #
-    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
-    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
-    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
-    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
-    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
-    if (
-        job.rows_synced is not None
-        and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
-        and not should_resume
-    ):
+    # The incremental cursor is staged and only promoted on completion, so a retried attempt
+    # re-extracts the whole window from batch 0, and keeping the previous attempt's count
+    # double-counts every re-read row — `rows_synced` feeds billed usage via `Sum("rows_synced")`
+    # in usage reports. A resumed attempt picks up the earlier attempt's staged batches instead.
+    if job.rows_synced is not None and job.rows_synced != 0 and not should_resume:
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
@@ -788,6 +777,14 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
+def _is_young_first_attempt() -> bool:
+    if not activity.in_activity():
+        return False
+
+    info = activity.info()
+    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+
+
 def should_check_shutdown(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -797,12 +794,13 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
+    # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable
+    return incremental_sync_raise_during_shutdown or source_is_resumable or _is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(

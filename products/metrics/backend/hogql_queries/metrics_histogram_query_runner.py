@@ -133,6 +133,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 filters=filters,
                 interval=interval,
                 quantile=0.5,  # unused by the grid query; required by the constructor
+                # One metric name can hold series of more than one OTel type; the
+                # heatmap must grid only the distribution the viewer picked.
+                metric_type=self.query.metricType.value if self.query.metricType else None,
             )
         except ValueError as exc:
             # The runner signals user errors (inverted range, too-wide span, unknown
@@ -157,7 +160,8 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # The runner floors date_from onto the bucket grid in the team timezone and returns
         # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
         grid_start = runner.date_from
-        step = _interval_step(interval)
+        # The runner may coarsen the interval to stay within its bucket limit, so read its step.
+        step = _interval_step(runner.interval)
 
         # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
         # as the quantile runner) or the grid has no stable y axis.

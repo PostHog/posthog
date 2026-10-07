@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -356,6 +356,51 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["max_partition_bytes"] == 4096
         assert schema.sync_type_config["incremental_field"] == "updated_at"
 
+    def test_repartition_claims_are_ordered_and_preserve_concurrent_keys(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="orders", sync_type_config={"repartition_pending": {}}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={
+                "repartition_claim": {"token": "newer", "claimed_at": "2026-10-05T12:01:00+00:00"},
+                "last_full_run_at": "2026-10-05T12:00:00+00:00",
+            },
+        )
+        assert not stale.set_repartition_claim({"token": "zombie", "claimed_at": "2026-10-05T11:59:00+00:00"})
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"] == {
+            "token": "newer",
+            "claimed_at": "2026-10-05T12:01:00+00:00",
+        }
+        assert schema.sync_type_config["repartition_pending"] == {}
+        assert schema.sync_type_config["last_full_run_at"] == "2026-10-05T12:00:00+00:00"
+
+        assert stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"]["token"] == "latest"
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={"repartition_swap": {"state": "ready"}, "repartition_rewrite": {"rows_written": 1}},
+        )
+        assert not stale.abandon_repartition_if_claimed("newer")
+        assert not stale.abandon_repartition_if_claimed("latest")
+        schema.refresh_from_db()
+        assert schema.repartition_swap == {"state": "ready"}
+        assert schema.repartition_rewrite == {"rows_written": 1}
+
+        update_sync_type_config_keys(schema.id, self.team.pk, removes=["repartition_swap"])
+        assert stale.abandon_repartition_if_claimed("latest")
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
     @parameterized.expand(
         [
             ("reset", lambda schema: schema.update_sync_type_config_for_reset_pipeline()),
@@ -631,14 +676,12 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming", "cdc_last_log_position": "0/200"}
 
     def test_removes_pop_keys(self) -> None:
-        schema = self._create(
-            {"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_deferred_runs": [{"x": 1}]}
-        )
+        schema = self._create({"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_snapshot_lane": "buffer"})
         result = update_sync_type_config_keys(
             schema.id,
             self.team.pk,
             updates={"cdc_mode": "snapshot"},
-            removes=["cdc_last_log_position", "cdc_deferred_runs"],
+            removes=["cdc_last_log_position", "cdc_snapshot_lane"],
         )
         assert result == {"cdc_mode": "snapshot"}
         schema.refresh_from_db()
@@ -651,16 +694,16 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming"}
 
     def test_mutate_appends_inside_critical_section(self) -> None:
-        schema = self._create({"cdc_deferred_runs": [{"run_uuid": "a", "batch_results": []}]})
+        schema = self._create({"runs": [{"run_uuid": "a", "batch_results": []}]})
 
         def _mutate(config: dict) -> None:
-            for entry in config["cdc_deferred_runs"]:
+            for entry in config["runs"]:
                 if entry["run_uuid"] == "a":
                     entry["batch_results"].append({"s3_path": "s3://x"})
 
         update_sync_type_config_keys(schema.id, self.team.pk, mutate=_mutate)
         schema.refresh_from_db()
-        assert schema.sync_type_config["cdc_deferred_runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
+        assert schema.sync_type_config["runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
 
     def test_apply_order_is_updates_removes_mutate(self) -> None:
         schema = self._create({"a": 1})
@@ -724,7 +767,7 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
 
 
 class TestMarkInitialSyncComplete(BaseTest):
-    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    """The first-sync-complete transition (V3 loader post-load), whose
     False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
 
     def setUp(self) -> None:
@@ -753,13 +796,13 @@ class TestMarkInitialSyncComplete(BaseTest):
         [
             (
                 # First completion of a CDC snapshot flips it to streaming; keys written
-                # concurrently by the CDC extract activity (deferred runs) must survive the flip.
+                # concurrently by the CDC extract activity (its last run time) must survive the flip.
                 "cdc_snapshot_flips_to_streaming_preserving_other_keys",
                 "cdc",
-                {"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "snapshot", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
                 False,
                 True,
-                {"cdc_mode": "streaming", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "streaming", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
             ),
             (
                 # Already-streaming CDC schema (re-run after a reset) completes without a config rewrite.
@@ -1100,6 +1143,22 @@ class TestScheduledFullRefreshDue:
             assert schema.scheduled_full_refresh_due() is False
 
 
+class TestRestartFullRefreshClock:
+    @parameterized.expand(
+        [
+            ("wipe_just_after_the_time", datetime(2026, 9, 22, 3, 4), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_sync_up_to_an_hour_early", datetime(2026, 9, 22, 2, 10), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_later_daily_sync", datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 29, 3, 0)),
+            ("saved_hours_before_the_time", datetime(2026, 9, 22, 1, 0), datetime(2026, 9, 28, 3, 0)),
+        ]
+    )
+    def test_the_next_refresh_keeps_the_chosen_time(self, _name: str, now: datetime, expected: datetime) -> None:
+        schema = ExternalDataSchema(full_refresh_interval_days=7, full_refresh_time_of_day=time(3, 0))
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            schema.restart_full_refresh_clock()
+        assert schema.next_full_refresh_at == expected.replace(tzinfo=UTC)
+
+
 def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
     schema = ExternalDataSchema(
         sync_type_config={"partition_mode_override": "datetime", "partitioning_keys_override": ["action_date"]}
@@ -1134,6 +1193,8 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         (1718377611.5, IncrementalFieldType.DateTime, 1718377611.5),
         (datetime(2024, 6, 14, 15, 33, 31), IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
         ("2024-06-14T15:33:31", IncrementalFieldType.DateTime, datetime(2024, 6, 14, 15, 33, 31)),
+        (date(2024, 6, 14), IncrementalFieldType.DateTime, datetime(2024, 6, 14)),
+        (date(2024, 6, 14), IncrementalFieldType.Timestamp, datetime(2024, 6, 14)),
         ("2024-06-14", IncrementalFieldType.Date, date(2024, 6, 14)),
         # JS `Date.prototype.toString()` cursors carry a parenthetical timezone name dateutil
         # can't parse on its own, even though the GMT offset earlier in the string is sufficient.
@@ -1159,6 +1220,12 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
         # A genuine compact date string (YYYYMMDD) must still parse as a real date, not fall
         # back to the raw-integer path.
         ("20240115", IncrementalFieldType.Date, date(2024, 1, 15)),
+        # MySQL's zero-date sentinel for "no date set" (also emitted verbatim by some REST
+        # sources, e.g. ServiceM8's `edit_date`) must be treated as absent instead of
+        # crashing on dateutil's year-0 ParserError.
+        ("0000-00-00 00:00:00", IncrementalFieldType.DateTime, None),
+        ("0000-00-00 00:00:00", IncrementalFieldType.Timestamp, None),
+        ("0000-00-00", IncrementalFieldType.Date, None),
     ],
 )
 def test_process_incremental_value_datetime_handles_epoch_numbers(value, field_type, expected) -> None:

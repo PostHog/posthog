@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -87,12 +88,14 @@ def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
     if model is None:
         model = mock.MagicMock()
+        model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
         schema = mock.MagicMock()
+        schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
         schema.should_use_incremental_field = False
         schema.row_filters = None
         schema.delta_revive_required = None
@@ -914,6 +917,9 @@ async def test_shared_non_retryable_error_routes_through_handler_without_source_
 
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
+    schema.sync_type = (
+        ExternalDataSchema.SyncType.INCREMENTAL if is_incremental else ExternalDataSchema.SyncType.FULL_REFRESH
+    )
     schema.should_use_incremental_field = True
     schema.is_incremental = is_incremental
     schema.incremental_field_type = IncrementalFieldType.Timestamp
@@ -935,6 +941,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None):
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
     model.pipeline.api_version = api_version
@@ -1173,6 +1180,21 @@ async def test_synced_parent_uses_the_warehouse_path(sync_type):
 
 
 @pytest.mark.asyncio
+async def test_persisted_append_mode_reaches_source_before_extraction():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=False, lookback_seconds=None)
+    schema.sync_type = ExternalDataSchema.SyncType.APPEND
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    assert source_inputs.sync_type == ExternalDataSchema.SyncType.APPEND
+
+
+@pytest.mark.asyncio
 async def test_fanout_gate_result_threaded_into_source_inputs():
     # The gate's decision must reach the source via SourceInputs — if this wiring drops,
     # every child silently falls back to re-pulling the parent API.
@@ -1211,6 +1233,7 @@ async def test_parent_gate_inert_for_sources_without_requirements():
 
 def _probe_model() -> mock.MagicMock:
     model = mock.MagicMock()
+    model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
     model.folder_path = mock.Mock(return_value="dataset")
@@ -1485,21 +1508,29 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
 
 
 @pytest.mark.parametrize(
-    "scheduled_full_refresh,due_in_days,expected",
+    "scheduled_full_refresh,next_full_refresh_at,expected",
     [
-        pytest.param(True, -1, True, id="first_attempt_of_a_due_refresh"),
-        pytest.param(True, 7, False, id="retry_after_the_wipe_moved_the_due_time"),
-        pytest.param(False, -1, False, id="run_not_marked_as_a_refresh"),
+        pytest.param(True, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), True, id="first_attempt_of_a_due_refresh"),
+        pytest.param(
+            True, datetime(2026, 9, 29, 1, 31, tzinfo=UTC), False, id="retry_after_the_wipe_moved_the_due_time"
+        ),
+        # A 1-day interval at 03:00: the 01:31 wipe moved the due time to 03:00 the same day, which is within the
+        # slack of a retry at 02:11.
+        pytest.param(
+            True, datetime(2026, 9, 22, 3, 0, tzinfo=UTC), False, id="retry_after_a_wipe_before_the_chosen_time"
+        ),
+        pytest.param(False, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), False, id="run_not_marked_as_a_refresh"),
     ],
 )
 def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
-    scheduled_full_refresh: bool, due_in_days: int, expected: bool
+    scheduled_full_refresh: bool, next_full_refresh_at: datetime, expected: bool
 ) -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
         sync_type_config={},
-        full_refresh_interval_days=7,
-        next_full_refresh_at=datetime.now(UTC) + timedelta(days=due_in_days),
+        sync_frequency_interval=timedelta(days=1),
+        full_refresh_interval_days=1,
+        next_full_refresh_at=next_full_refresh_at,
     )
     inputs = ImportDataActivityInputs(
         team_id=1,
@@ -1509,4 +1540,7 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         scheduled_full_refresh=scheduled_full_refresh,
     )
 
-    assert _resolve_reset_pipeline(inputs, schema) is expected
+    with time_machine.travel(datetime(2026, 9, 22, 2, 11, tzinfo=UTC), tick=False):
+        assert (
+            _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
+        )

@@ -11,6 +11,7 @@ re-validates everything on save.
 
 import re
 import uuid
+import itertools
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
@@ -82,10 +83,11 @@ _SCALE_SPAN_ALLOWED = 100
 # CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
 _MAX_BUSINESS_CONTEXT_CHARS = 5_000
 # Thinking tokens are drawn from this same budget, and a vague goal makes the model deliberate far
-# longer than it writes: at 4096 the JSON was being cut off mid-object after only ~150 tokens of
-# answer. Doubling it clears that while staying well inside `_MODEL_CALL_TIMEOUT_MS` — a budget the
-# model cannot exhaust before the request times out just trades a quick failure for a slow one.
-_MAX_OUTPUT_TOKENS = 8192
+# longer than it writes: the answer itself stays under ~1k tokens, so a cut-off draft is the
+# reasoning running out of room.
+# A budget the model cannot exhaust before `_MODEL_CALL_TIMEOUT_MS` just trades a quick failure for
+# a slow one, so raise the timeout with it if drafts start timing out instead.
+_MAX_OUTPUT_TOKENS = 16_384
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200
@@ -410,6 +412,26 @@ def _existing_scanners(team: Team, user_access_control: UserAccessControl) -> li
     return out
 
 
+def _free_scanner_name(team_id: int, name: str) -> str:
+    """The drafted name, or the first free "<name> (n)" when the team already has a scanner by that name.
+
+    Names are unique per team, so a taken name would fail only at save, after the person reviewed the
+    draft. Checked against every configured scanner, not only the ones the caller can read, because the
+    constraint covers them all.
+    """
+    # The stem leaves room for a " (n)" suffix, so a candidate cut to fit the column is still checked.
+    stem = name[: _MAX_NAME_LENGTH - 10]
+    taken = set(ReplayScanner.objects.filter(team_id=team_id, name__startswith=stem).values_list("name", flat=True))
+    if name not in taken:
+        return name
+    for n in itertools.count(2):
+        suffix = f" ({n})"
+        candidate = name[: _MAX_NAME_LENGTH - len(suffix)] + suffix
+        if candidate not in taken:
+            return candidate
+    raise AssertionError("unreachable")
+
+
 def _head_and_tail(text: str, cap: int) -> str:
     """Memory facts are appended chronologically, so a head-only slice would drop the newest ones.
     Keep both ends, like CoreMemory.formatted_text does."""
@@ -574,7 +596,8 @@ def draft_scanner_from_goal(
         company=company,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
-    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=events, team_id=team.id)
+    draft = _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=events, team_id=team.id)
+    return replace(draft, name=_free_scanner_name(team.id, draft.name))
 
 
 def _hit_output_cap(response: GenerateContentResponse) -> bool:
@@ -1921,7 +1944,7 @@ def draft_scanner_from_goal_v2(
     )
     # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
     # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
-    draft = replace(draft, credit_limit=monthly_credit_budget)
+    draft = replace(draft, name=_free_scanner_name(team.id, draft.name), credit_limit=monthly_credit_budget)
 
     try:
         solution = _solve_budget(

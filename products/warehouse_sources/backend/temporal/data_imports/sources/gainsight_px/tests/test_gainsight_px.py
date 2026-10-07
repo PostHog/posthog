@@ -245,6 +245,10 @@ VENDOR_PAGE_SIZE_MAXIMA: dict[str, int] = {
     "session_events": 1000,
     "engagement_view_events": 1000,
     "feature_match_events": 1000,
+    "segment_match_events": 1000,
+    "custom_events": 1000,
+    "identify_events": 1000,
+    "survey_responses": 1000,
 }
 
 
@@ -280,6 +284,10 @@ VENDOR_EVENT_DATA_KEYS: dict[str, str] = {
     "session_events": "sessionInitializedEvents",
     "engagement_view_events": "results",
     "feature_match_events": "featureMatchEvents",
+    "segment_match_events": "featureMatchEvents",
+    "custom_events": "customEvents",
+    "identify_events": "identifyEvents",
+    "survey_responses": "results",
 }
 
 

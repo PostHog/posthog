@@ -943,9 +943,9 @@ export interface ExperimentToSavedMetricApi {
     readonly name: string
 }
 
-export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
 
-export const Kind1Api = {
+export const Kind2Api = {
     ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
     ActionsNode: 'ActionsNode',
 } as const
@@ -1281,7 +1281,7 @@ export interface ExperimentApiExposureConfigApi {
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: number | null
     /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-    kind?: Kind1Api | null
+    kind?: Kind2Api | null
     /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
     properties: (
         | EventPropertyFilterApi
@@ -1327,9 +1327,9 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
-export type KindApi = (typeof KindApi)[keyof typeof KindApi]
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
-export const KindApi = {
+export const Kind1Api = {
     EventsNode: 'EventsNode',
     ActionsNode: 'ActionsNode',
 } as const
@@ -1363,7 +1363,7 @@ export interface ExperimentApiEventSourceApi {
     event?: string | null
     /** Action ID. Required for ActionsNode. */
     id?: number | null
-    kind: KindApi
+    kind: Kind1Api
     /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
     math?: ExperimentMetricMathTypeApi | null
     /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -1420,9 +1420,9 @@ export const ExperimentMetricTypeApi = {
     Retention: 'retention',
 } as const
 
-export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+export type Kind3Api = (typeof Kind3Api)[keyof typeof Kind3Api]
 
-export const Kind2Api = {
+export const Kind3Api = {
     EventsNode: 'EventsNode',
     ActionsNode: 'ActionsNode',
     ExperimentExposureNode: 'ExperimentExposureNode',
@@ -1434,7 +1434,7 @@ export interface ExperimentApiRetentionStartApi {
     /** Action ID. Required for ActionsNode. */
     id?: number | null
     /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
-    kind: Kind2Api
+    kind: Kind3Api
     /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
     math?: ExperimentMetricMathTypeApi | null
     /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -2146,55 +2146,37 @@ export interface ExperimentInSessionExposureApi {
 
 /**
  * * `manual` - Manual
- * * `agent_mcp` - Agent (MCP)
+ * * `manual_retry` - Manual Retry
  * * `cold_run` - Cold Run
- * * `stale_refresh` - Stale Refresh
- * * `auto_refresh` - Auto Refresh
+ * * `heal_latest_run` - Heal Latest Run
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
- * * `config_change` - Config Change
- * * `experiment_launch` - Experiment Launch
- * * `experiment_stop` - Experiment Stop
- * * `experiment_update` - Experiment Update
- * * `timeseries_sync` - Timeseries Sync
  */
-export type ExperimentMetricsRecalculationTriggerEnumApi =
-    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+export type ExperimentMetricsRecalculationRequestTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationRequestTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationRequestTriggerEnumApi]
 
-export const ExperimentMetricsRecalculationTriggerEnumApi = {
+export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
     Manual: 'manual',
-    AgentMcp: 'agent_mcp',
+    ManualRetry: 'manual_retry',
     ColdRun: 'cold_run',
-    StaleRefresh: 'stale_refresh',
-    AutoRefresh: 'auto_refresh',
+    HealLatestRun: 'heal_latest_run',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
-    ConfigChange: 'config_change',
-    ExperimentLaunch: 'experiment_launch',
-    ExperimentStop: 'experiment_stop',
-    ExperimentUpdate: 'experiment_update',
-    TimeseriesSync: 'timeseries_sync',
 } as const
 
 /**
  * Request body for triggering a metrics recalculation.
  */
 export interface RecalculateMetricsRequestApi {
-    /** What triggered this recalculation (manual is the default for user-initiated runs)
+    /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp, timeseries_sync and scheduled are set by the server.
      *
      * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
+     * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
+     * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update
-     * * `timeseries_sync` - Timeseries Sync */
-    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
+     * * `metric_config_change` - Metric Config Change */
+    trigger?: ExperimentMetricsRecalculationRequestTriggerEnumApi
 }
 
 /**
@@ -2234,7 +2216,7 @@ export interface ExperimentMetricsRecalculationJobApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Map of metric_uuid to error details */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -2313,7 +2295,7 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Map of metric_uuid to error details */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -2395,7 +2377,7 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Map of metric_uuid to error details */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string

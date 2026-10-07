@@ -23,6 +23,15 @@ TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
+# After SIGTERM plus the grace, the worker exits when every activity that still runs is one the
+# Temporal server already closed (timed out, and retried on another worker if attempts remain).
+# Off by default: without it, such an activity holds the worker for the full graceful shutdown timeout.
+TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED: bool = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED", False, type_cast=str_to_bool
+)
+TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS: float = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS", 180.0, type_cast=float
+)
 MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
@@ -94,10 +103,21 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # entry beats the team override and the default: run cost tracks the kind of work, and
 # implementation runs regularly outspend every other stage. Each interactive cap and the
 # workflows cap clear their observed ceiling with room for the holds, because nothing
-# retries behind a cap that binds mid-run. Suggestion runs stay on the default.
+# retries behind a cap that binds mid-run. Suggestion runs stay on the default. A PostHog
+# Desktop cloud run has no duration cap, so its cap only bounds a runaway run.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS: dict[str, str] = {
+    "signals_implementation": "20",
+    "signals_inbox": "75",
+    "signals_chat": "30",
+    "slack_app": "75",
+    "workflows": "75",
+    "posthog_ai": "75",
+    "posthog_code": "500",
+}
+# A JSON object merged onto the defaults per product. Malformed JSON is captured at mint and
+# leaves the defaults in force.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
-    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
-    '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30", "slack_app": "75", "workflows": "75", "posthog_ai": "75"}',
+    "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES", ""
 )
 SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
@@ -319,9 +339,9 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
-# Defaults to the general-purpose fleet so the daily coordinator always has a live worker. Deploy a
-# fleet polling "autoresearch-task-queue" before setting this env, or the schedule strands its runs.
-AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "general-purpose-task-queue"))
+# Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
+# env var still registers the autoresearch coordinator schedule on the queue that fleet polls.
+AUTORESEARCH_TASK_QUEUE = _set_temporal_task_queue(os.getenv("AUTORESEARCH_TASK_QUEUE", "self-driving-task-queue"))
 # Polled by the temporal-worker-self-driving fleet. The default matches it, so a deploy without the
 # env var still registers the ranking sweep schedule on the queue that fleet polls.
 SELF_DRIVING_TASK_QUEUE = _set_temporal_task_queue(os.getenv("SELF_DRIVING_TASK_QUEUE", "self-driving-task-queue"))

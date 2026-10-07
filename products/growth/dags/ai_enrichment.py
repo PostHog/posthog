@@ -32,15 +32,11 @@ writes (under whatever version is live when its turn comes up) — a real run re
 `candidates > 0, created == 0` and false-alerts. `--expected-version` closes the remaining gap
 between resolving here and the command resolving again for itself: if the two disagree, the
 command aborts loudly as a command failure instead of a confusing silent one.
-
-Environment: sends organization signup data to an external LLM gateway, so — like
-`identity_matching.py` — it is not registered on Cloud EU.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 
-from django.conf import settings
 from django.core.management import call_command
 from django.db.models import CharField, DateTimeField, Exists, F, OuterRef, Q
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -66,10 +62,6 @@ DEFAULT_LABEL_LIMIT = 600
 # 12 hours; this job runs daily against a much smaller per-label cap, so a fraction of that
 # is enough headroom.
 MAX_RUNTIME_SECONDS = 6 * 60 * 60
-
-
-def is_ai_enrichment_registered() -> bool:
-    return settings.CLOUD_DEPLOYMENT != "EU"
 
 
 class AiEnrichmentConfig(dagster.Config):
@@ -273,7 +265,7 @@ def ai_enrichment_job():
 
 @dagster.schedule(
     job=ai_enrichment_job,
-    cron_schedule="0 7 * * *",
+    cron_schedule="11 7 * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )

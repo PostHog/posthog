@@ -33,10 +33,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 ABANDONED_STAGED_PREFIX_TTL = timedelta(days=7)
 _PARQUET_BATCH_SIZE = 50_000
 
-# Same fixed AWS message pyarrow's S3FileSystem surfaces as a bare OSError for a GetObject against a
-# key that no longer exists — matched the same way as the equivalent NoSuchKey race in
+# Two distinct message shapes pyarrow's S3FileSystem can raise as a bare OSError for the same
+# missing-key condition, depending on which call hit it: a direct GetObject (the raw AWS text) vs.
+# `open_input_file`'s own preflight `GetFileInfo` check, which formats a fixed, backend-agnostic
+# "not found" message instead of surfacing the AWS error. `_stage_committed_files` only ever calls
+# `open_input_file` (random-access reads), so only the second shape is reachable from here in
+# practice — matched the same way as the equivalent NoSuchKey race in
 # workflow_activities/repartition_table.py.
-_MISSING_OBJECT_ERROR_NEEDLE = "the specified key does not exist"
+_MISSING_OBJECT_ERROR_NEEDLES = (
+    "the specified key does not exist",
+    "path does not exist",
+)
 
 # delta-rs raises this DeltaError, instead of the OSError above, when the pinned version wasn't
 # vacuumed but the whole table was reset and recommitted from scratch by a later materialize run
@@ -48,7 +55,10 @@ _LOG_SEGMENT_VERSION_MISMATCH_NEEDLE = "not the same as the specified end versio
 
 
 def _is_missing_object_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and _MISSING_OBJECT_ERROR_NEEDLE in str(error).lower()
+    if not isinstance(error, OSError):
+        return False
+    message = str(error).lower()
+    return any(needle in message for needle in _MISSING_OBJECT_ERROR_NEEDLES)
 
 
 def _is_stale_pinned_version_error(error: BaseException) -> bool:

@@ -103,7 +103,7 @@ def test_parse_custom_reports_empty_input_returns_no_reports():
         ("not json", "valid JSON"),
         ('{"name": "x"}', "JSON array"),
         ('[{"dimensions": ["a"], "metrics": ["sessions"]}]', "non-empty 'name'"),
-        ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "built-in report name"),
+        ('[{"name": "website_overview", "dimensions": [], "metrics": ["sessions"]}]', "already a built-in report"),
         (
             '[{"name": "dup", "metrics": ["sessions"]}, {"name": "dup", "metrics": ["sessions"]}]',
             "Duplicate custom report name",
@@ -182,29 +182,35 @@ def test_validate_credentials_names_common_wrong_ids(wrong_id, expected_substrin
     assert expected_substring in (message or "")
 
 
-def _http_error(status_code: int) -> requests.HTTPError:
+def _http_error(status_code: int, body: str = "") -> requests.HTTPError:
     response = mock.MagicMock()
     response.status_code = status_code
+    response.text = body
     return requests.HTTPError(response=response)
 
 
 @pytest.mark.parametrize(
-    "status_code,expected_substring",
+    "status_code,body,expected_substring",
     [
-        (401, "rejected the credentials"),
-        (403, "rejected the credentials"),
-        (404, "was not found"),
-        (500, "couldn't reach Google Analytics"),
+        (401, "", "rejected the credentials"),
+        (403, '{"error": {"status": "PERMISSION_DENIED"}}', "can't read this Google Analytics property"),
+        (
+            403,
+            '{"error": {"details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
+            "allow Google Analytics access",
+        ),
+        (404, "", "was not found"),
+        (500, "", "couldn't reach Google Analytics"),
     ],
 )
-def test_validate_credentials_maps_http_errors(status_code, expected_substring):
+def test_validate_credentials_maps_http_errors(status_code, body, expected_substring):
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
-            side_effect=_http_error(status_code),
+            side_effect=_http_error(status_code, body),
         ),
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)

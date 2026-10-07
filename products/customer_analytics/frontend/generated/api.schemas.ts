@@ -567,6 +567,18 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `private` - Personal
+ * * `team` - Team
+ */
+export type AccountViewVisibilityEnumApi =
+    (typeof AccountViewVisibilityEnumApi)[keyof typeof AccountViewVisibilityEnumApi]
+
+export const AccountViewVisibilityEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+/**
  * * `doc` - doc
  */
 export type AccountViewContentTypeEnumApi =
@@ -623,8 +635,11 @@ export interface AccountViewApi {
     readonly id: string
     /** Name shown in the account view. */
     readonly name: string
-    /** Account views created through this API are private. */
-    readonly visibility: string
+    /** Whether the view is personal or available to the project.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    readonly visibility: AccountViewVisibilityEnumApi
     /** Validated Markdown notebook document. */
     readonly content: AccountViewContentApi
     /** Searchable component labels extracted from content. */
@@ -645,6 +660,12 @@ export interface AccountViewApi {
     readonly created_at: string
     /** When the view was last changed. */
     readonly updated_at: string
+    /** Whether the requesting user can edit the view. */
+    readonly can_edit: boolean
+    /** Whether the requesting user can delete the view. */
+    readonly can_delete: boolean
+    /** Whether the requesting user can change the view visibility. */
+    readonly can_change_visibility: boolean
 }
 
 export interface AccountViewCreateApi {
@@ -657,16 +678,6 @@ export interface AccountViewCreateApi {
     content: AccountViewContentApi
 }
 
-/**
- * * `private` - Personal
- */
-export type AccountViewUpdateVisibilityEnumApi =
-    (typeof AccountViewUpdateVisibilityEnumApi)[keyof typeof AccountViewUpdateVisibilityEnumApi]
-
-export const AccountViewUpdateVisibilityEnumApi = {
-    Private: 'private',
-} as const
-
 export interface AccountViewUpdateApi {
     /**
      * New view name. Omit to keep the current name.
@@ -675,10 +686,11 @@ export interface AccountViewUpdateApi {
     name?: string
     /** Replacement account view components. Omit to keep current content. */
     content?: AccountViewContentApi
-    /** Views can only be private.
+    /** New visibility. Only the creator or a project admin can change it.
      *
-     * * `private` - Personal */
-    visibility?: AccountViewUpdateVisibilityEnumApi
+     * * `private` - Personal
+     * * `team` - Team */
+    visibility?: AccountViewVisibilityEnumApi
     /**
      * Version returned by the last read.
      * @minimum 1
@@ -1166,6 +1178,8 @@ export interface MeetingApi {
     readonly id: string
     /** Meeting title; may be empty. */
     readonly title: string
+    /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+    readonly is_recurring: boolean
     /**
      * Gong call URL matched through the calendar event id; null when no Gong call is available.
      * @nullable
@@ -1755,6 +1769,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -1861,7 +1877,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -2090,6 +2106,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -2104,6 +2121,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -2566,6 +2584,17 @@ export const AnnouncementStatusEnumApi = {
 } as const
 
 /**
+ * * `bot` - SupportHog
+ * * `user` - The person who created it
+ */
+export type AnnouncementSendAsEnumApi = (typeof AnnouncementSendAsEnumApi)[keyof typeof AnnouncementSendAsEnumApi]
+
+export const AnnouncementSendAsEnumApi = {
+    Bot: 'bot',
+    User: 'user',
+} as const
+
+/**
  * * `pending` - Pending
  * * `sent` - Sent
  * * `failed` - Failed
@@ -2616,6 +2645,13 @@ export interface AnnouncementApi {
      * * `partially_failed` - Partially failed
      * * `failed` - Failed */
     readonly status: AnnouncementStatusEnumApi
+    /** Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).
+     *
+     * * `bot` - SupportHog
+     * * `user` - The person who created it */
+    send_as?: AnnouncementSendAsEnumApi
+    /** Slack display name the message was posted under when send_as is 'user'; empty otherwise. */
+    readonly sender_display_name: string
     /** Number of channels this announcement targets. */
     readonly total_channels: number
     /** Number of channels the message was successfully delivered to. */
@@ -4526,10 +4562,10 @@ export interface PatchedGroupUsageMetricApi {
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
  */
-export type PinnedAccountPropertyKindEnumApi =
-    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
 
-export const PinnedAccountPropertyKindEnumApi = {
+export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
 } as const
@@ -4539,7 +4575,7 @@ export interface PinnedAccountPropertyApi {
      *
      * * `custom_property` - Custom property
      * * `relationship` - Relationship */
-    kind: PinnedAccountPropertyKindEnumApi
+    kind: AccountPropertyPinKindEnumApi
     /** Team-scoped custom property or relationship definition UUID. */
     id: string
 }
@@ -4567,11 +4603,25 @@ export interface TaskDigestPreferencesApi {
     cadence: TaskDigestCadenceEnumApi
 }
 
+export interface AccountDetailTabsConfigApi {
+    /** Tab identifiers in the user's preferred order. */
+    ordered_tab_ids: string[]
+    /** Tab identifiers hidden from the tab strip. */
+    hidden_tab_ids: string[]
+    /**
+     * Tab identifier opened by default. Null uses the first available system tab.
+     * @nullable
+     */
+    default_tab_id: string | null
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
+    /** Personal order, visibility, and default for account tabs. */
+    readonly account_detail_tabs: AccountDetailTabsConfigApi
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -4591,6 +4641,8 @@ export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     pinned_properties?: PinnedAccountPropertyApi[]
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
+    /** Complete personal account tab configuration. Omit to keep it unchanged. */
+    account_detail_tabs?: AccountDetailTabsConfigApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {

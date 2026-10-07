@@ -9,7 +9,7 @@ fails an asset.
 """
 
 import datetime
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 import dagster
@@ -21,7 +21,8 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
-from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
+from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
+from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision, PromotionOutcome
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
@@ -71,6 +72,7 @@ class HeadExampleCounts:
     # so a chart shows when the budget starts to cut history.
     example_window_start: datetime.date | None
     example_cap_bound: bool
+    pairs_skipped_missing_label_columns: int
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -108,6 +110,7 @@ def examples_events(
     feature_set: str,
     snapshots: int,
     backfilled_rows: int,
+    excluded: ConsentExclusion,
     per_head: Mapping[str, HeadExampleCounts],
 ) -> list[TrainingEvent]:
     """One event per head with its example and positive counts; the run-level counts repeat on each.
@@ -124,6 +127,8 @@ def examples_events(
                 "run_id": run_id,
                 "snapshots": snapshots,
                 "backfilled_state_rows_excluded": backfilled_rows,
+                "excluded_no_training_consent_reports": excluded.reports,
+                "excluded_no_training_consent_teams": excluded.teams,
                 "head": head,
                 "rows": counts.rows,
                 "positives": counts.positives,
@@ -132,6 +137,7 @@ def examples_events(
                 if counts.example_window_start
                 else None,
                 "example_cap_bound": counts.example_cap_bound,
+                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
             },
         )
         for head, counts in per_head.items()
@@ -144,15 +150,19 @@ def promotion_event(
     run_id: str,
     model_name: str,
     decision: PromotionDecision,
+    outcome: PromotionOutcome,
     promoted: bool,
     champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
+    skipped_gates: Collection[str] = (),
 ) -> TrainingEvent:
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
     `champion_version` is the candidate, so the incumbent is carried separately. Every version here
-    belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
+    belongs to `model_name`: promotion compares a candidate to the champion of its own family.
+
+    `reason` is always the rule's reason, so a forced promotion still records why the rule refused it."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -162,6 +172,9 @@ def promotion_event(
             "would_promote": decision.promote,
             "promoted": promoted,
             "reason": decision.reason,
+            "override": outcome.override,
+            "override_skipped_gates": sorted(skipped_gates),
+            "skipped_heads": list(decision.skipped_heads),
             "champion_version": champion_version,
             "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},

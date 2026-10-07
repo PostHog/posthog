@@ -53,7 +53,7 @@ class JiraSource(ResumableSource[JiraSourceConfig, JiraResumeConfig]):
             name=ExternalDataSourceType.JIRA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Jira",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Atlassian Jira credentials to pull your Jira data into the PostHog Data warehouse.
 
 Create an API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).

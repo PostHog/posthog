@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
 
@@ -251,13 +252,31 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
-            data={"status": "resolved", "severity": "high"},
-        )
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved", "severity": "high"},
+                headers={"X-Posthog-Client": "mcp"},
+            )
         issue.refresh_from_db()
 
         assert response.status_code == 200
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        assert changed_events == [
+            {
+                **changed_events[0],
+                "action": "update",
+                "source": "mcp",
+                "issue_id": str(issue.id),
+                "updated_fields": ["severity", "status"],
+                "status": "resolved",
+                "severity": "high",
+            }
+        ]
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
@@ -307,6 +326,77 @@ class TestErrorTracking(APIBaseTest):
                 }
             ],
         )
+
+    def _issue_noop_update(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}", {"status": "active"}
+
+    def _issue_noop_unassign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": None}
+
+    def _issue_assign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": {"id": self.user.id, "type": "user"}}
+
+    def _issue_bulk_resolve_skips_resolved(self) -> tuple[str, str, dict]:
+        active = self.create_issue(["fingerprint_active"])
+        resolved = self.create_issue(["fingerprint_resolved"])
+        resolved.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved.save()
+        return (
+            "post",
+            "issues/bulk",
+            {"ids": [str(active.id), str(resolved.id)], "action": "set_status", "status": "resolved"},
+        )
+
+    def _issue_merge_drops_missing_source(self) -> tuple[str, str, dict]:
+        target = self.create_issue(["fingerprint_target"])
+        source = self.create_issue(["fingerprint_source"])
+        return "post", f"issues/{target.id}/merge", {"ids": [str(source.id), str(uuid7())]}
+
+    def _issue_split(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
+        return "post", f"issues/{issue.id}/split", {"fingerprints": [{"fingerprint": "fingerprint_two"}]}
+
+    @parameterized.expand(
+        [
+            ("update_without_change", _issue_noop_update, None),
+            ("unassign_when_unassigned", _issue_noop_unassign, None),
+            ("assign", _issue_assign, {"action": "assign", "assignee_type": "user"}),
+            (
+                "bulk_skips_unchanged",
+                _issue_bulk_resolve_skips_resolved,
+                {"action": "bulk_set_status", "issue_count": 1},
+            ),
+            (
+                "merge_skips_missing_source",
+                _issue_merge_drops_missing_source,
+                {"action": "merge", "merged_issue_count": 1},
+            ),
+            ("split", _issue_split, {"action": "split", "fingerprint_count": 1, "new_issue_count": 1}),
+        ]
+    )
+    def test_issue_changed_event_counts_actual_changes(
+        self, _name: str, build_request: Callable[["TestErrorTracking"], tuple[str, str, dict]], expected: dict | None
+    ) -> None:
+        method, path, data = build_request(self)
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = getattr(self.client, method)(
+                f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json"
+            )
+
+        assert response.status_code == 200, response.json()
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        if expected is None:
+            assert changed_events == []
+        else:
+            assert changed_events == [{**changed_events[0], "source": "web", **expected}]
 
     @parameterized.expand(
         [
@@ -1581,6 +1671,8 @@ class TestErrorTracking(APIBaseTest):
 
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "team_id": self.team.id,
             "endpoint": "bulk_start_upload",
             "force": False,
@@ -2117,6 +2209,8 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["code"] == "symbol_set_not_found"
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_uploaded"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,
@@ -2145,6 +2239,8 @@ class TestErrorTracking(APIBaseTest):
         failure_call = patched_capture.call_args_list[0]
         assert failure_call.args[0] == "error_tracking_symbol_set_uploaded"
         assert failure_call.kwargs["properties"] == {
+            **failure_call.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,

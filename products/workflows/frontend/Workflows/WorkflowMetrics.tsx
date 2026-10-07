@@ -23,7 +23,11 @@ import { PushMetricsSummary } from './PushMetricsSummary'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
-import { type EmailMetric, METRIC_COLORS, buildEmailMetricInvocationSearchParams } from './workflowMetricsSummaryLogic'
+import {
+    type EmailMetricName,
+    METRIC_COLORS,
+    buildEmailMetricInvocationSearchParams,
+} from './workflowMetricsSummaryLogic'
 
 const HedgehogGreek = pngHoggie(greekPng)
 
@@ -126,7 +130,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     )
 
     // Drill an email metric into the invocations behind it over the current window.
-    const onEmailMetricClick = (metricKey: EmailMetric): void => {
+    const onEmailMetricClick = (metricKey: EmailMetricName): void => {
         if (!props.id) {
             return
         }

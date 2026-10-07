@@ -587,6 +587,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -601,6 +602,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -1133,7 +1135,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null

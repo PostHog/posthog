@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.inline_scan import create_inline_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -235,3 +236,29 @@ class TestPromptQuestions(APIBaseTest):
         assert stale.prompt_question_source == prompt_fingerprint(PROMPT)
         assert stale.scanner_version == version
         assert ReplayScanner.objects.get(pk=fresh.pk).prompt_question == "Kept as is?"
+
+    def test_inline_scanners_only_ever_get_a_template_question(self) -> None:
+        self.client_mock.return_value.models.generate_content.reset_mock()
+        summarize = create_inline_scanner(
+            team=self.team,
+            key="summarize-button",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": TEMPLATE_PROMPT},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        custom = create_inline_scanner(
+            team=self.team,
+            key="one-off",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "Did the user open the pricing page?"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        assert (summarize.prompt_question, custom.prompt_question) == (TEMPLATE_QUESTION, "")
+        ReplayScanner.all_origins.filter(pk=summarize.pk).update(prompt_question="", prompt_question_source="")
+
+        result = backfill_prompt_questions(team_id=self.team.id, include_inline=True)
+
+        assert result.written == 1
+        assert ReplayScanner.all_origins.get(pk=summarize.pk).prompt_question == TEMPLATE_QUESTION
+        assert ReplayScanner.all_origins.get(pk=custom.pk).prompt_question == ""
+        self.client_mock.return_value.models.generate_content.assert_not_called()

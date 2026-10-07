@@ -11,6 +11,7 @@ from django.core.validators import DomainNameValidator
 import yaml
 
 from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,6 @@ _SANDBOX_URL_SETTINGS = (
     "SANDBOX_API_URL",
     "SANDBOX_LLM_GATEWAY_URL",
     "SANDBOX_AI_GATEWAY_URL",
-    "SANDBOX_MCP_URL",
 )
 
 # Sandbox-host URLs that stay out of the enforced rule: telemetry export is not
@@ -134,6 +134,19 @@ def _is_loopback(hostname: str) -> bool:
         return False
 
 
+def _sandbox_url_values(*, include_debug_only: bool = False) -> list[tuple[str, str | None]]:
+    setting_names = _SANDBOX_URL_SETTINGS + (_DEBUG_ONLY_URL_SETTINGS if include_debug_only else ())
+    values = [(setting_name, getattr(settings, setting_name, None)) for setting_name in setting_names]
+    sandbox_mcp_url = getattr(settings, "SANDBOX_MCP_URL", None)
+    mcp_server_url = getattr(settings, "MCP_SERVER_URL", None)
+    try:
+        mcp_url = resolve_mcp_url(sandbox_mcp_url=sandbox_mcp_url, mcp_server_url=mcp_server_url)
+    except ValueError:
+        mcp_url = sandbox_mcp_url or mcp_server_url
+    values.append(("SANDBOX_MCP_URL" if sandbox_mcp_url else "MCP_SERVER_URL", mcp_url))
+    return values
+
+
 def sandbox_url_setting_domains() -> list[str]:
     """Hostnames parsed from the `SANDBOX_*_URL` settings that are usable on
     the enforced allow rule. Loopback hosts are skipped silently (agentsh
@@ -143,8 +156,7 @@ def sandbox_url_setting_domains() -> list[str]:
     this function exists to prevent.
     """
     domains: list[str] = []
-    for setting_name in _SANDBOX_URL_SETTINGS:
-        value = getattr(settings, setting_name, None)
+    for setting_name, value in _sandbox_url_values():
         if not value:
             continue
         hostname = _hostname_from_url(value)
@@ -190,8 +202,8 @@ def _get_debug_only_domains() -> list[str]:
     the dev ports those services listen on.
     """
     domains: list[str] = ["localhost", "host.docker.internal"]
-    for setting_name in _SANDBOX_URL_SETTINGS + _DEBUG_ONLY_URL_SETTINGS:
-        hostname = _hostname_from_url(getattr(settings, setting_name, None))
+    for _setting_name, value in _sandbox_url_values(include_debug_only=True):
+        hostname = _hostname_from_url(value)
         if hostname and hostname not in domains:
             domains.append(hostname)
     return domains
@@ -206,8 +218,8 @@ def _get_debug_only_ports() -> list[int]:
     syscall layer even when their hostname is allowed.
     """
     ports: list[int] = [8000, 8010]
-    for setting_name in _SANDBOX_URL_SETTINGS + _DEBUG_ONLY_URL_SETTINGS:
-        port = _port_from_url(getattr(settings, setting_name, None))
+    for _setting_name, value in _sandbox_url_values(include_debug_only=True):
+        port = _port_from_url(value)
         if port is not None and port not in ports:
             ports.append(port)
     return ports

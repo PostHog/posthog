@@ -146,6 +146,14 @@ def _take_model_call(team_id: int) -> bool:
     return calls <= MAX_MODEL_CALLS_PER_TEAM_PER_HOUR
 
 
+def template_question(scanner_config: object) -> PromptQuestion | None:
+    """The written question for a template's exact prompt, or None for any other prompt. Needs no model call."""
+    prompt = _prompt_of(scanner_config)
+    if prompt not in TEMPLATE_QUESTIONS:
+        return None
+    return PromptQuestion(question=TEMPLATE_QUESTIONS[prompt], source=prompt_fingerprint(prompt))
+
+
 def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
     """The question for this prompt. Never raises: without a usable model answer it falls back to the prompt's
     first line, so every scanner carries a question to show. `metered` counts the call against the team's
@@ -154,8 +162,8 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, 
     source = prompt_fingerprint(prompt)
     if not prompt.strip():
         return PromptQuestion(question="", source=source)
-    if prompt in TEMPLATE_QUESTIONS:
-        return PromptQuestion(question=TEMPLATE_QUESTIONS[prompt], source=source)
+    if (template := template_question(scanner_config)) is not None:
+        return template
     question = None
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
     if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
@@ -214,6 +222,7 @@ def backfill_prompt_questions(
     Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
     The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
     Each distinct prompt is condensed once per run and scanner type, since many scanners share one word for word.
+    Inline scanners only take a template's question, the same rule `create_inline_scanner` follows.
     """
     scanners = ReplayScanner.all_origins.order_by("created_at")
     if not include_inline:
@@ -223,7 +232,7 @@ def backfill_prompt_questions(
     checked = written = 0
     condensed: dict[tuple[str, str], PromptQuestion] = {}
     for scanner in scanners.only(
-        "id", "team_id", "scanner_type", "scanner_config", "prompt_question_source"
+        "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source"
     ).iterator():
         if limit is not None and written >= limit:
             break
@@ -231,12 +240,15 @@ def backfill_prompt_questions(
         source = prompt_fingerprint(_prompt_of(scanner.scanner_config))
         if source == scanner.prompt_question_source:
             continue
+        inline_template = template_question(scanner.scanner_config) if scanner.origin == ScannerOrigin.INLINE else None
+        if scanner.origin == ScannerOrigin.INLINE and inline_template is None:
+            continue
         if dry_run:
             written += 1
             continue
         # The phrasing depends on the scanner type, so the same prompt on another type gets its own question.
         key = (source, scanner.scanner_type)
-        question = condensed.get(key)
+        question = inline_template or condensed.get(key)
         if question is None:
             question = condense_prompt(
                 team_id=scanner.team_id,

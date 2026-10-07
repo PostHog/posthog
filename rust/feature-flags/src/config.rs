@@ -426,13 +426,23 @@ pub struct Config {
 
     // Upper bound on a single realtime cohort membership lookup (pool acquire + query).
     // Keeps an unreachable behavioral cohorts DB from stalling flag requests for the
-    // pool's full 2s acquire timeout; on timeout the lookup degrades to non-membership.
+    // pool's full acquire timeout plus statement timeout. On timeout the lookup degrades to
+    // non-membership.
     // The default matches the pool's 1s statement timeout: a tighter client-side bound
     // would discard answers the DB would still deliver, flipping flags for the person,
     // so this bound only adds cover where statement_timeout cannot reach (pool acquire
     // stalls, network black holes).
     #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
+
+    // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
+    // check, write, and read, the group type mapping lookup, and the properties fetch.
+    // statement_timeout cannot cancel a query on a database that has stopped answering.
+    // Only this timer bounds the request then. On expiry, the flags that need persons data
+    // return an error and the other flags evaluate normally. The default leaves 2s of the
+    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
+    pub persons_db_deadline_ms: u64,
 
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
@@ -487,6 +497,15 @@ pub struct Config {
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
 
+    // Second gate on the self-heal path, for the S3-hit trigger only. A cache miss is a 503
+    // and is rare; an S3 hit is a successful response and can be orders of magnitude more
+    // frequent, so the two triggers need separate switches. Default off so the enqueue rate
+    // can be watched in one environment before the rest follow. Has no effect while
+    // FLAG_DEFINITIONS_SELF_HEAL_ENABLED is off, which stays the switch that stops every
+    // enqueue.
+    #[envconfig(from = "FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED", default = "false")]
+    pub flag_definitions_rebuild_on_s3_hit_enabled: FlexBool,
+
     // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
     // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
     //
@@ -519,10 +538,13 @@ pub struct Config {
     #[envconfig(default = "4500")]
     pub request_timeout_ms: u64,
 
-    // How long to wait for a connection from the pool before timing out.
-    // Must be well under request_timeout_ms so there's still time for query + response.
-    // With Envoy at 5s and request_timeout at 4.5s, 2s leaves room for a query + serialization.
-    #[envconfig(default = "2")]
+    // How long to wait for a connection from the pool before timing out (whole seconds, minimum 1).
+    // The wait covers queueing for a free connection, the test_before_acquire ping, and opening a
+    // new connection.
+    // This plus each pool's statement timeout must stay well under request_timeout_ms. Then
+    // Postgres cancels a slow query before the request times out, and the connection goes back
+    // to the pool. When the request times out first, sqlx closes the connection instead.
+    #[envconfig(default = "1")]
     pub acquire_timeout_secs: u64,
 
     // Close connections that have been idle for this many seconds
@@ -548,19 +570,23 @@ pub struct Config {
 
     // PostgreSQL statement_timeout for persons reader queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Person and cohort queries should complete well under 3s (P99 hold time is 25ms)
-    // - Default: 3000ms (3 seconds)
+    // - Person and cohort queries should complete well under 1s (P99 hold time is 25ms)
+    // - Default: 1000ms (1 second)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "1000")]
     pub persons_reader_statement_timeout_ms: u64,
 
     // PostgreSQL statement_timeout for writer database queries (milliseconds)
     // - Set to 0 to use database default (typically unlimited)
-    // - Hash key override writes have retry logic (2 attempts, 100ms backoff)
-    // - 3s per attempt with retries gives 6s total before failure
-    // - Default: 3000ms (3 seconds)
+    // - Hash key override writes retry a transient error and a foreign key violation, which
+    //   occurs when a person is deleted during the write. A statement that hits this timeout is
+    //   not retried.
+    // - Hash key override inserts have a longer latency tail than person reads. A timed-out insert
+    //   returns an error for every experience continuity flag in the response, so this timeout is
+    //   longer than the persons reader timeout.
+    // - Default: 2000ms (2 seconds)
     // - This timeout is enforced server-side and properly kills queries
-    #[envconfig(default = "3000")]
+    #[envconfig(default = "2000")]
     pub writer_statement_timeout_ms: u64,
 
     // How often to report database pool metrics (seconds)
@@ -679,6 +705,10 @@ pub struct Config {
 
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
+
+    /// Serve the v3 record on `/flags?v=3` and above. Off, those requests get the v2 record.
+    #[envconfig(from = "FLAGS_V3_RESPONSE_ENABLED", default = "false")]
+    pub flags_v3_response_enabled: bool,
 
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
@@ -842,6 +872,12 @@ pub struct Config {
     // BATCH_FLAG_EVAL_MAX_LIMIT persons sequentially.
     #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
     pub batch_flag_eval_timeout_ms: u64,
+
+    // Statement timeout for the batch evaluation person scan (milliseconds). It replaces the
+    // persons reader pool's timeout, which is sized for /flags. It also bounds how long one
+    // scan holds a persons reader connection that /flags traffic needs.
+    #[envconfig(from = "BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS", default = "10000")]
+    pub batch_flag_eval_scan_statement_timeout_ms: u64,
 
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
@@ -1082,27 +1118,41 @@ impl Config {
     /// `test_flag_definitions_billing_counter` — their negative-case sleeps
     /// must cover at least one full flush window.
     pub fn default_test_config() -> Self {
+        Self::test_config_with_env(|name| std::env::var(name).ok())
+    }
+
+    fn test_config_with_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let url = |name: &str, default: &str| {
+            env(name)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| default.to_string())
+        };
+        let database_url = url(
+            "TEST_DATABASE_URL",
+            "postgres://posthog:posthog@localhost:5432/test_posthog",
+        );
+        let persons_database_url = url(
+            "TEST_PERSONS_DATABASE_URL",
+            "postgres://posthog:posthog@localhost:5432/posthog_persons",
+        );
         Self {
             continuous_profiling: ContinuousProfilingConfig::default(),
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
-            redis_url: "redis://localhost:6379/".to_string(),
+            redis_url: url("TEST_REDIS_URL", "redis://localhost:6379/"),
             redis_reader_url: "".to_string(),
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_rebuild_on_s3_hit_enabled: FlexBool(false),
             flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
-            write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
-                .to_string(),
-            read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            persons_write_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
-                .to_string(),
-            persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
-                .to_string(),
-            behavioral_cohorts_read_database_url:
-                "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            write_database_url: database_url.clone(),
+            read_database_url: database_url.clone(),
+            persons_write_database_url: persons_database_url.clone(),
+            persons_read_database_url: persons_database_url,
+            behavioral_cohorts_read_database_url: database_url,
             flags_secret_keys: String::new(),
             secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
@@ -1110,6 +1160,7 @@ impl Config {
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
+            persons_db_deadline_ms: 30_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1148,6 +1199,7 @@ impl Config {
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
             flags_session_replay_quota_check: false,
+            flags_v3_response_enabled: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             flag_definitions_conditional_rate_per_minute: 6000,
@@ -1194,6 +1246,7 @@ impl Config {
             internal_request_token: None,
             batch_flag_eval_max_limit: 10_000,
             batch_flag_eval_timeout_ms: 120_000,
+            batch_flag_eval_scan_statement_timeout_ms: 10_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1280,6 +1333,12 @@ impl Config {
         }
     }
 
+    /// The budget for all persons DB work in one flag evaluation, or `None` when disabled.
+    pub fn persons_db_deadline(&self) -> Option<std::time::Duration> {
+        (self.persons_db_deadline_ms > 0)
+            .then(|| std::time::Duration::from_millis(self.persons_db_deadline_ms))
+    }
+
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
@@ -1349,6 +1408,7 @@ mod tests {
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
+        assert!(!config.flags_v3_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently
@@ -1358,7 +1418,7 @@ mod tests {
 
     #[test]
     fn test_default_test_config() {
-        let config = Config::default_test_config();
+        let config = Config::test_config_with_env(|_| None);
         assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
         assert_eq!(
             config.write_database_url,
@@ -1387,24 +1447,38 @@ mod tests {
     }
 
     #[test]
+    fn test_default_test_config_env_overrides() {
+        let config = Config::test_config_with_env(|name| match name {
+            "TEST_DATABASE_URL" => Some("postgres://db/main".to_string()),
+            "TEST_PERSONS_DATABASE_URL" => Some("postgres://db/persons".to_string()),
+            "TEST_REDIS_URL" => Some("redis://cache/2".to_string()),
+            _ => None,
+        });
+        assert_eq!(config.write_database_url, "postgres://db/main");
+        assert_eq!(config.read_database_url, "postgres://db/main");
+        assert_eq!(
+            config.behavioral_cohorts_read_database_url,
+            "postgres://db/main"
+        );
+        assert_eq!(config.persons_write_database_url, "postgres://db/persons");
+        assert_eq!(config.persons_read_database_url, "postgres://db/persons");
+        assert_eq!(config.redis_url, "redis://cache/2");
+    }
+
+    #[test]
     fn test_default_test_config_static() {
         let config = &*DEFAULT_TEST_CONFIG;
+        let expected = Config::default_test_config();
         assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
-        assert_eq!(
-            config.write_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
-        );
-        assert_eq!(
-            config.read_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
-        );
+        assert_eq!(config.write_database_url, expected.write_database_url);
+        assert_eq!(config.read_database_url, expected.read_database_url);
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.min_non_persons_reader_connections, 0);
         assert_eq!(config.min_non_persons_writer_connections, 0);
         assert_eq!(config.min_persons_reader_connections, 0);
         assert_eq!(config.min_persons_writer_connections, 0);
-        assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.redis_url, expected.redis_url);
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
             config.new_analytics_capture_excluded_team_ids,

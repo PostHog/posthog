@@ -118,7 +118,9 @@ describe('oauthAuthorizeLogic', () => {
         // Privileged/hidden objects are never grantable via /authorize; including them
         // would make the server reject the whole submit.
         expect(scopes).not.toContain('llm_gateway:read')
-        expect(scopes).not.toContain('metrics:read')
+        expect(scopes).not.toContain('wizard_session:read')
+        // metrics is OAuth-grantable, so the fallback keeps it.
+        expect(scopes).toContain('metrics:read')
     })
 
     it('uses the server-computed read set when expanding the wildcard', () => {

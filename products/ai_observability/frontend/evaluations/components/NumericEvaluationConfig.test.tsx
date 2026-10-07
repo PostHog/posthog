@@ -7,6 +7,20 @@ import { NumericEvaluationConfig } from './NumericEvaluationConfig'
 describe('NumericEvaluationConfig', () => {
     afterEach(cleanup)
 
+    it.each([{}, { min: 0 }, { max: 10 }, { min: 1, max: 1 }])(
+        'requires a score range only for System One: %j',
+        (config) => {
+            const { getByLabelText, getByText } = render(
+                <NumericEvaluationConfig config={config} onChange={jest.fn()} requiresBounds />
+            )
+            getByLabelText('Minimum')
+            getByLabelText('Maximum')
+            getByText('System One numeric evaluations require a minimum score below the maximum score.')
+            expect(numericOutputConfigError(config)).toBeNull()
+            expect(numericOutputConfigError({ min: -2, max: 4 }, true)).toBeNull()
+        }
+    )
+
     it.each([
         ['min', 'Minimum (optional)'],
         ['max', 'Maximum (optional)'],
