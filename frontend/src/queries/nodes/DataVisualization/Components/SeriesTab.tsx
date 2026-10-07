@@ -174,7 +174,7 @@ export const SeriesTab = (): JSX.Element => {
                     }}
                 />
 
-                {breakdownSplitsValue && <SeriesBreakdownSelector />}
+                {selectedSeriesBreakdownColumn && <SeriesBreakdownSelector />}
 
                 {drawsOnePartPerSeries(parts.xData, parts.yData) ? (
                     <YSeriesList label="Values" addLabel="Add value" showAdd={!hideAddYSeries} />

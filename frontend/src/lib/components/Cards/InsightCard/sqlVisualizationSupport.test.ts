@@ -97,6 +97,26 @@ describe('dashboard SQL visualization support', () => {
         }
     )
 
+    it.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut, ChartDisplayType.ActionsProportionBar])(
+        'the SQL editor picker disables %s when the results have no numeric column',
+        (displayType) => {
+            const columns = columnsFromResponse({
+                columns: ['country', 'browser'],
+                types: [
+                    ['country', 'String'],
+                    ['browser', 'String'],
+                ],
+                result: [['US', 'Chrome']],
+            })
+
+            const option = getTableDisplayOptions(columns, [], ChartDisplayType.ActionsTable, undefined, false, true)
+                .flatMap((group: any) => (Array.isArray(group.options) ? group.options : []))
+                .find((candidate: any) => candidate.value === displayType)
+
+            expect(option?.disabledReason).toBe('Requires at least one numeric column')
+        }
+    )
+
     it.each([responses['date and numeric'], responses['a single numeric column']])(
         'sets up a dashboard Metric from numeric results',
         (response) => {

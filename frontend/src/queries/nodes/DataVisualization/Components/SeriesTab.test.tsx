@@ -17,11 +17,12 @@ const renderPartOfWholeSeriesTab = (
     display: ChartDisplayType,
     xAxis: { column: string } | undefined,
     valueColumns: string[],
-    seriesBreakdownColumn?: string
+    seriesBreakdownColumn?: string,
+    rows: unknown[][] = [['Mon', 3, 5, 'US']]
 ): ReturnType<typeof render> => {
     initKeaTests()
     const cachedResults: HogQLQueryResponse = {
-        results: [['Mon', 3, 5, 'US']],
+        results: rows,
         columns: ['day', 'signups', 'logins', 'country'],
         types: [
             ['day', 'String'],
@@ -37,7 +38,7 @@ const renderPartOfWholeSeriesTab = (
         chartSettings: { xAxis, yAxis: valueColumns.map((column) => ({ column })), seriesBreakdownColumn },
     }
     const props: DataVisualizationLogicProps = {
-        key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}`,
+        key: `series-tab-part-of-whole-${display}-${!!xAxis}-${valueColumns.length}-${seriesBreakdownColumn}-${rows.length}`,
         query,
         cachedResults,
         dataNodeCollectionId: 'series-tab-part-of-whole',
@@ -121,6 +122,18 @@ describe('SeriesTab', () => {
             String(labelDisabled)
         )
         expect(container.querySelector('[title="Delete series breakdown"]') !== null).toBe(!!seriesBreakdownColumn)
+    })
+
+    it('keeps a selected breakdown removable when the results have no rows', () => {
+        const { container } = renderPartOfWholeSeriesTab(
+            ChartDisplayType.ActionsProportionBar,
+            { column: 'day' },
+            ['signups'],
+            'country',
+            []
+        )
+
+        expect(container.querySelector('[title="Delete series breakdown"]')).not.toBeNull()
     })
 
     it('lets each value column of a part-of-whole chart edit its label and color', async () => {

@@ -145,11 +145,13 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
                     label: 'Pie chart',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsDonut,
                     icon: <IconDonutChart />,
                     label: 'Donut chart',
+                    disabledReason: !numericalColumns.length ? 'Requires at least one numeric column' : undefined,
                 },
                 ...(proportionBarEnabled
                     ? [
@@ -157,6 +159,9 @@ export function getTableDisplayOptions(
                               value: ChartDisplayType.ActionsProportionBar,
                               icon: <IconProportionBarChart />,
                               label: 'Proportion bar',
+                              disabledReason: !numericalColumns.length
+                                  ? 'Requires at least one numeric column'
+                                  : undefined,
                           },
                       ]
                     : []),
