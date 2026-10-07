@@ -4,15 +4,19 @@ Kept out of the source and schema viewsets so the destination set is edited thro
 shared, tested path rather than two near-copies.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from products.warehouse_sources.backend.facade.destination_health import resume_destination
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
+    ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     ExternalDataSourceDestination,
@@ -79,7 +83,45 @@ def _resolve_destinations(team_id: int, destination_ids: list) -> list[ExternalD
     return destinations
 
 
-def set_source_destinations(*, team_id: int, source_id: Any, destination_ids: list | None) -> list[str]:
+def _resume_paused(
+    destinations: list[ExternalDataDestination], authorize: Callable[[list[ExternalDataSchema]], None]
+) -> None:
+    # Selecting a paused destination again is how a user turns it back on after fixing it.
+    paused = [
+        destination for destination in destinations if destination.status == ExternalDataDestination.Status.PAUSED
+    ]
+    if not paused:
+        return
+
+    source_ids = (
+        ExternalDataSourceDestination.objects.for_team(paused[0].team_id)
+        .filter(destination__in=paused)
+        .values_list("source_id", flat=True)
+    )
+    schema_ids = (
+        ExternalDataSchemaDestination.objects.for_team(paused[0].team_id)
+        .filter(destination__in=paused)
+        .values_list("schema_id", flat=True)
+    )
+    schemas = list(
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id=paused[0].team_id)
+        .filter(Q(source_id__in=source_ids) | Q(id__in=schema_ids))
+        .select_related("table", "source")
+        .distinct()
+    )
+    authorize(schemas)
+    for destination in paused:
+        resume_destination(destination)
+
+
+def set_source_destinations(
+    *,
+    team_id: int,
+    source_id: Any,
+    destination_ids: list | None,
+    authorize_resume: Callable[[list[ExternalDataSchema]], None],
+) -> list[str]:
     """Replace a source's destination set. Returns the ids now attached."""
     if not destination_ids:
         raise ValidationError({"destination_ids": EMPTY_SET_MESSAGE})
@@ -96,10 +138,17 @@ def set_source_destinations(*, team_id: int, source_id: Any, destination_ids: li
             ExternalDataSourceDestination.objects.for_team(team_id).create(
                 team_id=team_id, source_id=source_id, destination=destination
             )
+        _resume_paused(destinations, authorize_resume)
     return [str(d.id) for d in destinations]
 
 
-def set_schema_destinations(*, team_id: int, schema_id: Any, destination_ids: list | None) -> list[str] | None:
+def set_schema_destinations(
+    *,
+    team_id: int,
+    schema_id: Any,
+    destination_ids: list | None,
+    authorize_resume: Callable[[list[ExternalDataSchema]], None],
+) -> list[str] | None:
     """Replace a table's destination override, or clear it so the table follows its source.
 
     Null clears the override. An empty list is rejected rather than treated as "sync nowhere":
@@ -125,4 +174,5 @@ def set_schema_destinations(*, team_id: int, schema_id: Any, destination_ids: li
             ExternalDataSchemaDestination.objects.for_team(team_id).create(
                 team_id=team_id, schema_id=schema_id, destination=destination
             )
+        _resume_paused(destinations, authorize_resume)
     return [str(d.id) for d in destinations]
