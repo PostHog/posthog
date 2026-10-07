@@ -1600,11 +1600,11 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
 }
 
 #[rstest]
-#[case::statement_timeout(Some(200), "statement timeout")]
-#[case::lock_timeout(None, "lock timeout")]
+#[case::statement_timeout(200, "statement timeout")]
+#[case::lock_timeout(4000, "lock timeout")]
 #[tokio::test]
 async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
-    #[case] statement_timeout_ms: Option<u64>,
+    #[case] statement_timeout_ms: u64,
     #[case] expected_error: &str,
 ) {
     let ctx = TestContext::new().await;
@@ -1612,10 +1612,7 @@ async fn test_upsert_hash_key_overrides_fails_fast_behind_a_locked_person_row(
         .insert_person("upsert_locked_user", None)
         .await
         .expect("Failed to insert person");
-    let storage = match statement_timeout_ms {
-        Some(ms) => TestContext::storage_with_statement_timeout(ms),
-        None => ctx.storage.clone(),
-    };
+    let storage = ctx.storage_with_hash_key_override_statement_timeout(statement_timeout_ms);
 
     // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
     // person row.

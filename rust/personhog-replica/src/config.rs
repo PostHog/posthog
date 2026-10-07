@@ -36,6 +36,12 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Statement timeout (ms) for the INSERT in UpsertHashKeyOverrides. Keep it
+    /// below the router's backend_timeout_ms, with room for pool acquire and
+    /// round trips.
+    #[envconfig(default = "4000")]
+    pub hash_key_override_statement_timeout_ms: u64,
+
     /// Max connections for the bulk pool (large batch reads, deletes).
     /// Kept small so bulk queries can't starve the fast pool.
     #[envconfig(default = "5")]
