@@ -437,6 +437,29 @@ The `rest_source` framework reaches a safe point after each page and before each
 The same condition decides when a `resume_hook` runs. When `items` returns the `Resource` directly, the hook runs before the page reaches the pipeline, so a page and its cursor commit together and a hand-off repeats no rows. When a source wraps the `Resource`, the hook runs when the wrapper asks for the next page, so a hand-off reads the last page again. Return the `Resource` directly when you can: use `data_map`, `add_map` and `add_filter` for row changes. A wrapper that hands each page on unchanged and holds no rows can keep the framework behavior by returning `Resource(wrapper, name=..., hints=resource._hints)` (see the usage report in `anthropic/anthropic.py`).
 Do not call `safe_point()` or `commit()` in a `resume_hook`.
 
+### The source contract
+
+A worker that shuts down hands each running import to another worker. Every source with extraction code must make that possible:
+
+1. Bounded calls: each request has a read timeout, and one request with its retries and waits holds the worker for 5 minutes at most, also after a 429 with a large `Retry-After`.
+2. A safe point for each request: the source makes no more than 3 requests in a row with no yield and no safe point.
+3. Resume state is staged before the `yield` it covers.
+
+`sources/tests/test_source_contract.py` runs each source in the registry against a fake HTTP server that stalls, rate-limits and returns empty pages. It compares the result with `sources/tests/source_contract_baseline.txt`, which lists each source that fails a condition or that the fake server cannot drive. A new source must pass; the baseline may only get shorter.
+`posthog/test/repo_invariants/test_warehouse_source_static_contract.py` and `test_resume_state_staged_before_yield.py` check the same contract in the source text of every source: no raw `time.sleep`, no session call without `timeout=`, no wrapper around a framework `Resource` without a safe point, and no `save_state` after the `yield`.
+
+```bash
+pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py posthog/test/repo_invariants/test_warehouse_source_static_contract.py posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
+
+When a fix makes an entry wrong, regenerate the baseline and commit it:
+
+```bash
+SOURCE_CONTRACT_WRITE_BASELINE=1 pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py -p no:xdist
+python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
+python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+```
+
 ### Webhook source pattern
 
 - Implement `webhook_template` returning a `HogFunctionTemplateDC` that transforms incoming webhook payloads.
