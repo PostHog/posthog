@@ -71,6 +71,22 @@ def test_tools_never_reveal_content_outside_the_checkout(
         assert all((checkout / line).resolve().is_relative_to(checkout.resolve()) for line in listed)
 
 
+@pytest.mark.parametrize("ripgrep", [True, False], ids=["rg", "python"])
+def test_grep_returns_clipped_output_when_a_broad_pattern_matches_too_much(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch, ripgrep: bool
+) -> None:
+    if not ripgrep:
+        monkeypatch.setattr(openai_reviewer.shutil, "which", lambda name: None)
+    elif openai_reviewer.shutil.which("rg") is None:
+        pytest.skip("ripgrep is not installed")
+    (checkout / "src" / "big.txt").write_text("match this line\n" * 20_000)
+
+    output = RepoTools(checkout).call("grep", json.dumps({"pattern": "match", "path": None, "glob": None}))
+
+    assert not output.startswith("error")
+    assert output.endswith(f"(output truncated at {openai_reviewer.TOOL_OUTPUT_MAX_CHARS} characters)")
+
+
 def _pr() -> PRData:
     return PRData(
         number=7,

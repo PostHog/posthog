@@ -15,6 +15,8 @@ import re
 import copy
 import json
 import shutil
+import tempfile
+import threading
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePath
@@ -184,14 +186,42 @@ class RepoTools:
         if glob:
             command.append(f"--glob={glob}")
         command += ["--", pattern, relative]
-        result = subprocess.run(
-            command, cwd=self.root, capture_output=True, text=True, errors="replace", timeout=GREP_TIMEOUT_SECONDS
-        )
-        if result.returncode == 1:
+        with tempfile.TemporaryFile(mode="w+", errors="replace") as stderr:
+            process = subprocess.Popen(
+                command, cwd=self.root, stdout=subprocess.PIPE, stderr=stderr, text=True, errors="replace"
+            )
+            timed_out = threading.Event()
+
+            def stop_on_timeout() -> None:
+                timed_out.set()
+                process.kill()
+
+            timer = threading.Timer(GREP_TIMEOUT_SECONDS, stop_on_timeout)
+            timer.start()
+            try:
+                # A broad pattern can match gigabytes, so read only what the clip keeps and stop rg there.
+                if process.stdout is None:
+                    raise ToolError("rg started without an output pipe")
+                output = process.stdout.read(TOOL_OUTPUT_MAX_CHARS + 1)
+                if len(output) > TOOL_OUTPUT_MAX_CHARS:
+                    process.kill()
+                    process.wait()
+                    return output
+                returncode = process.wait()
+            finally:
+                timer.cancel()
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+            stderr.seek(0)
+            errors = stderr.read().strip()
+        if timed_out.is_set():
+            raise ToolError(f"grep timed out after {GREP_TIMEOUT_SECONDS} seconds")
+        if returncode == 1:
             return "(no matches)"
-        if result.returncode != 0:
-            raise ToolError(result.stderr.strip() or f"rg exited with {result.returncode}")
-        return result.stdout
+        if returncode != 0:
+            raise ToolError(errors or f"rg exited with {returncode}")
+        return output
 
     def _python_grep(self, regex: re.Pattern[str], target: Path, glob: str | None) -> str:
         files = [target] if target.is_file() else self._walk_files(target)
