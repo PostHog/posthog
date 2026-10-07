@@ -1127,7 +1127,6 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("tracing_attribute_breakdown", "tracing/spans/attribute-breakdown/", {}),
             ("tracing_trace_by_id", "tracing/spans/trace/zzz/", {}),
             ("metrics_query", "metrics/query/", {}),
-            ("metrics_explain", "metrics/explain/", {}),
             ("experiments_setup_context", "experiments/setup_context/", {}),
         ]
     )
