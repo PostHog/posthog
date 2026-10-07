@@ -7,11 +7,12 @@ export interface TeamUtmDefaults {
     params: UtmTagValues
 }
 
+/** Drops empty values and trims the rest, the same way the team API stores them. */
 export function cleanUtmParams(params: UtmTagValues | null | undefined): UtmTagValues {
     const cleaned: UtmTagValues = {}
     for (const key of UTM_TAG_KEYS) {
-        const value = params?.[key]
-        if (value?.trim()) {
+        const value = params?.[key]?.trim()
+        if (value) {
             cleaned[key] = value
         }
     }
