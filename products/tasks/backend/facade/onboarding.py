@@ -49,7 +49,7 @@ ONBOARDING_SESSION_FREE_MODEL = "@cf/zai-org/glm-5.2"
 ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = [*MCP_READ_SCOPES, "task:write"]
 
-SPACES_FLAGS = ("code-spaces-layout",)
+SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
 ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
 
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"

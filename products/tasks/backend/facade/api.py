@@ -11335,6 +11335,11 @@ def forward_thread_message(
     return "ok", _thread_message_to_dto(message)
 
 
+# Threads are a Channels (project-bluebird) surface, so agent-authored thread
+# updates are gated on the same flag — evaluated for the task creator.
+AGENT_THREAD_UPDATES_FLAG = "project-bluebird"
+
+
 def _create_agent_thread_message(task: Task, content: str, *, event: str, payload: dict | None = None) -> None:
     """Write an agent-authored thread message and index its mentions.
 
@@ -11370,8 +11375,22 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
 
 
 def _agent_thread_updates_enabled(creator: User | None) -> bool:
-    """A missing creator still means no post: agent thread updates are keyed to the task creator."""
-    return creator is not None
+    """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
+    if creator is None:
+        return False
+    # Local dev rarely has the server-side flag client wired up, and failing
+    # closed there silently drops every agent thread update (PR and canvas
+    # announcements vanish from task threads with nothing in the logs).
+    if settings.DEBUG:
+        return True
+    distinct_id = creator.distinct_id or f"user_{creator.id}"
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(AGENT_THREAD_UPDATES_FLAG, distinct_id, send_feature_flag_events=False)
+        )
+    except Exception:
+        logger.warning("Agent thread update flag check failed", extra={"user_id": creator.id}, exc_info=True)
+        return False
 
 
 def _commit_push_head_sha(output: object) -> str:
