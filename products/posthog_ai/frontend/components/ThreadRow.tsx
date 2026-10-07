@@ -141,7 +141,7 @@ export const ThreadRow = memo(function ThreadRow({
             return <QuillAssistantMessage item={item} />
         }
         return (
-            <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
+            <MessageTemplate type="ai" wrapperClassName="max-w-4/5 has-[table]:max-w-full">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
             </MessageTemplate>
         )
