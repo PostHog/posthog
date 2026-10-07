@@ -94,7 +94,7 @@ interface SQLEditorProps {
     queryPaneMinHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
-    /** Treat the whole editor text as one query, and refuse to run more than one statement. */
+    /** Refuse to run more than one statement, for hosts that save the editor text as one query. A selection still runs on its own. */
     singleStatement?: boolean
     /** Leave out the setup agent and MCP suggestions, for hosts where they do not apply. */
     hideAgentHints?: boolean
