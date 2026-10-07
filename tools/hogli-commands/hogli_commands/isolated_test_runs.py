@@ -25,8 +25,10 @@ MAX_NAME_LENGTH = 16
 _POSTGRES_DATABASE = re.compile(r"test_posthog_iso_(?P<name>[a-z0-9]+)(?:_[a-z0-9_]+)?")
 _CLICKHOUSE_DATABASE = re.compile(r"posthog_test_iso_(?P<name>[a-z0-9]+)(?:_gw\d+)?")
 
-# Matches APPLICATION_NAME_PREFIX in posthog/test/isolated_databases.py, which a running isolated run holds.
+# Both match posthog/test/isolated_databases.py: a running isolated run sets this application_name, and
+# holds an advisory lock on hashtext(<lock prefix><its Postgres test database>) for as long as it runs.
 _RUNNING_APPLICATION_NAME_PREFIX = "posthog-test-isolation:"
+_RUN_LOCK_PREFIX = "posthog-test-isolation:"
 
 
 def isolation_name(raw: str) -> str:
@@ -125,11 +127,24 @@ def isolated_clean(names: tuple[str, ...], drop_all: bool, yes: bool) -> None:
             raise SystemExit(1)
 
         for group in selected:
-            for database in group.postgres:
-                connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
-            for database in group.clickhouse:
-                clickhouse.drop(database)
-            click.secho(f"Dropped {group.name}", fg="green")
+            # A run that starts after the pg_stat_activity snapshot above would lose its ClickHouse database,
+            # so hold its locks while dropping. A run that starts now stops at its own lock instead.
+            lock_keys = {f"{_RUN_LOCK_PREFIX}test_posthog_iso_{group.name}"} | {
+                f"{_RUN_LOCK_PREFIX}{database}" for database in group.postgres
+            }
+            locked = [
+                connection.execute("SELECT pg_try_advisory_lock(hashtext(%s))", (key,)).fetchone() == (True,)
+                for key in sorted(lock_keys)
+            ]
+            if all(locked):
+                for database in group.postgres:
+                    connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+                for database in group.clickhouse:
+                    clickhouse.drop(database)
+                click.secho(f"Dropped {group.name}", fg="green")
+            else:
+                click.secho(f"Skipped {group.name}: a test run with that name just started", fg="yellow")
+            connection.execute("SELECT pg_advisory_unlock_all()")
 
 
 def _echo_group(group: IsolatedDatabases) -> None:
