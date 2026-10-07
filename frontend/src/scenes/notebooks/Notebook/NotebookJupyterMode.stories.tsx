@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -142,5 +142,21 @@ export const JupyterMode: Story = {
         ;[CELLS.load, CELLS.count, CELLS.frame, CELLS.error, CELLS.sql].forEach((nodeId, index) =>
             logic?.actions.assignExecutionCount(nodeId, index + 1)
         )
+
+        const canvas = within(canvasElement)
+        await waitFor(() => {
+            if (!canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart has not rendered by default')
+            }
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show table' }))
+        await waitFor(() => {
+            canvas.getByRole('button', { name: 'Show chart' })
+            if (canvasElement.querySelector('.DataVisualization')) {
+                throw new Error('SQL chart is still visible after switching to the table')
+            }
+        })
+        fireEvent.click(canvas.getByRole('button', { name: 'Show chart' }))
+        await waitFor(() => canvas.getByRole('button', { name: 'Show table' }))
     },
 }

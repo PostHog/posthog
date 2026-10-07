@@ -216,7 +216,7 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
     const cachedResults = useMemo(() => (result ? toCachedResults(result) : null), [result])
-    const activeTab = attributes.outputTab === OutputTab.Visualization ? OutputTab.Visualization : OutputTab.Results
+    const activeTab = attributes.outputTab === OutputTab.Results ? OutputTab.Results : OutputTab.Visualization
 
     // The stored viz config wins, but the source always tracks the node's current code — and the
     // connection it runs on, so anything the viz layer re-queries lands on the same engine.
@@ -522,7 +522,7 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: null,
         },
         outputTab: {
-            default: OutputTab.Results,
+            default: OutputTab.Visualization,
         },
         vizQuery: {
             default: null,
