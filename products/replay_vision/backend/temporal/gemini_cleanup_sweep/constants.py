@@ -4,7 +4,6 @@ SCHEDULE_ID = "replay-vision-gemini-cleanup-sweep-schedule"
 WORKFLOW_ID = "replay-vision-gemini-cleanup-sweep"
 WORKFLOW_NAME = "replay-vision-gemini-cleanup-sweep"
 SCHEDULE_TYPE = "replay-vision-gemini-cleanup-sweep"
-SCHEDULED_JOB_NAME = "gemini_cleanup_sweep"
 
 SCHEDULE_INTERVAL = timedelta(minutes=5)
 

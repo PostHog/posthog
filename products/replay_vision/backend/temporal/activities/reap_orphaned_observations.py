@@ -13,7 +13,11 @@ from temporalio.client import Client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
 from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (
@@ -23,11 +27,7 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.metrics import (
-    record_failure_kind,
-    record_in_flight_observations,
-    record_scheduled_job_run,
-)
+from products.replay_vision.backend.temporal.metrics import push_in_flight_observation_gauges, record_failure_kind
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 logger = structlog.get_logger(__name__)
@@ -42,18 +42,13 @@ def _measure_in_flight() -> None:
     now = datetime.now(UTC)
     with bounded_queries(REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT):
         rows = {
-            row["status"]: row
-            for row in ReplayObservation.objects.filter(status__in=_LIVE_STATUSES)
+            row["status"]: (row["count"], (now - row["oldest"]).total_seconds())
+            for row in ReplayObservation.objects.filter(status__in=IN_FLIGHT_STATUSES)
             .order_by()
             .values("status")
             .annotate(count=Count("id"), oldest=Min("created_at"))
         }
-    for status in _LIVE_STATUSES:
-        row = rows.get(status)
-        count = row["count"] if row else 0
-        oldest_age = (now - row["oldest"]).total_seconds() if row and row["oldest"] else 0.0
-        record_in_flight_observations(status.value, count, oldest_age)
-    record_scheduled_job_run("observation_backlog")
+    push_in_flight_observation_gauges({status.value: rows.get(status, (0, 0.0)) for status in IN_FLIGHT_STATUSES})
 
 
 def _list_stale_observations() -> list[dict[str, Any]]:

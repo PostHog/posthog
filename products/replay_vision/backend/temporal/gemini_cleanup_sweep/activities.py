@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from itertools import islice
 
 import structlog
 from google.genai import Client as RawGenAIClient
@@ -17,7 +18,6 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     DESCRIBE_CONCURRENCY,
     MAX_FILES_PER_SWEEP,
     MAX_STORAGE_LIST_FILES,
-    SCHEDULED_JOB_NAME,
     STORAGE_LIST_PAGE_SIZE,
     SWEEP_MIN_AGE,
 )
@@ -32,14 +32,18 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
     GeminiStorageUsage,
     TrackedFile,
 )
-from products.replay_vision.backend.temporal.metrics import (
-    record_gemini_cleanup_backlog,
-    record_gemini_cleanup_files,
-    record_gemini_storage,
-    record_scheduled_job_run,
-)
+from products.replay_vision.backend.temporal.metrics import push_gemini_cleanup_gauges, record_gemini_cleanup_files
 
 logger = structlog.get_logger(__name__)
+
+_FILE_RESULTS = (
+    "deleted",
+    "delete_failed",
+    "skipped_running",
+    "skipped_too_young",
+    "skipped_temporal_error",
+    "skipped_invalid_value",
+)
 
 _TERMINAL_STATUSES = frozenset(
     {
@@ -83,7 +87,6 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
 
     total_tracked = await index_size()
-    record_gemini_cleanup_backlog(total_tracked)
     hit_max_files_cap = total_tracked > MAX_FILES_PER_SWEEP
 
     scanned = 0
@@ -142,17 +145,10 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     delete_failed = sum(1 for r in delete_results if not r)
 
     storage = await _measure_storage(raw_client)
-
-    result = base_result.model_copy(
-        update={
-            "deleted": deleted,
-            "delete_failed": delete_failed,
-            "storage_files": storage.files if storage else None,
-            "storage_bytes": storage.total_bytes if storage else None,
-            "storage_listing_truncated": storage.truncated if storage else False,
-        }
-    )
-    _record_sweep_metrics(result, storage)
+    result = base_result.model_copy(update={"deleted": deleted, "delete_failed": delete_failed, "storage": storage})
+    for name in _FILE_RESULTS:
+        record_gemini_cleanup_files(name, getattr(result, name))
+    await asyncio.to_thread(push_gemini_cleanup_gauges, total_tracked, storage)
     logger.info(
         "replay_vision.cleanup_sweep.cycle_complete",
         scanned=result.scanned,
@@ -163,30 +159,27 @@ async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
         skipped_temporal_error=result.skipped_temporal_error,
         delete_failed=result.delete_failed,
         hit_max_files_cap=result.hit_max_files_cap,
-        storage_files=result.storage_files,
-        storage_bytes=result.storage_bytes,
-        storage_listing_truncated=result.storage_listing_truncated,
+        storage=storage.model_dump() if storage else None,
         signals_type="cleanup-sweep",
     )
     return result
 
 
 def _list_storage(raw_client: RawGenAIClient) -> GeminiStorageUsage:
+    now = datetime.now(UTC)
     files = 0
     total_bytes = 0
-    oldest_created_at: datetime | None = None
-    for file in raw_client.files.list(config={"page_size": STORAGE_LIST_PAGE_SIZE}):
+    oldest_created_at = now
+    for file in islice(raw_client.files.list(config={"page_size": STORAGE_LIST_PAGE_SIZE}), MAX_STORAGE_LIST_FILES):
         files += 1
         total_bytes += file.size_bytes or 0
-        if file.create_time and (oldest_created_at is None or file.create_time < oldest_created_at):
+        if file.create_time and file.create_time < oldest_created_at:
             oldest_created_at = file.create_time
-        if files >= MAX_STORAGE_LIST_FILES:
-            break
     return GeminiStorageUsage(
         files=files,
         total_bytes=total_bytes,
-        oldest_created_at=oldest_created_at,
-        truncated=files >= MAX_STORAGE_LIST_FILES,
+        oldest_age_seconds=(now - oldest_created_at).total_seconds(),
+        truncated=files == MAX_STORAGE_LIST_FILES,
     )
 
 
@@ -209,23 +202,3 @@ async def _measure_storage(raw_client: RawGenAIClient) -> GeminiStorageUsage | N
             signals_type="cleanup-sweep",
         )
     return storage
-
-
-def _record_sweep_metrics(result: CleanupSweepResult, storage: GeminiStorageUsage | None) -> None:
-    for name, count in (
-        ("deleted", result.deleted),
-        ("delete_failed", result.delete_failed),
-        ("skipped_running", result.skipped_running),
-        ("skipped_too_young", result.skipped_too_young),
-        ("skipped_temporal_error", result.skipped_temporal_error),
-        ("skipped_invalid_value", result.skipped_invalid_value),
-    ):
-        record_gemini_cleanup_files(name, count)
-    if storage is None:
-        record_gemini_storage(None, None, None)
-    else:
-        oldest_age = (
-            (datetime.now(UTC) - storage.oldest_created_at).total_seconds() if storage.oldest_created_at else 0.0
-        )
-        record_gemini_storage(storage.files, storage.total_bytes, oldest_age)
-    record_scheduled_job_run(SCHEDULED_JOB_NAME)

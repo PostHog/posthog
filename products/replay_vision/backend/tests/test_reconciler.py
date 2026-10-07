@@ -2,6 +2,7 @@ import uuid
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
@@ -12,7 +13,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from prometheus_client import REGISTRY
+from prometheus_client import CollectorRegistry
 from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
@@ -544,6 +545,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         }
 
     rows = await sync_to_async(_setup)()
+    pushed = CollectorRegistry()
     temporal = _StubReapTemporal(
         {"wf-gone-1": "not_found", "wf-timed-out": "closed", "wf-open": "open", "wf-err": "rpc_error"}
     )
@@ -552,7 +554,11 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
+        with patch(
+            "products.replay_vision.backend.temporal.metrics.pushed_metrics_registry",
+            lambda _job: nullcontext(pushed),
+        ):
+            reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -569,8 +575,8 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
     # The backlog is measured before reaping, so it counts every row the setup left in flight.
     for status in ("pending", "running"):
-        assert REGISTRY.get_sample_value("replay_vision_in_flight_observations", {"status": status}) == 3, status
-    oldest_pending = REGISTRY.get_sample_value(
+        assert pushed.get_sample_value("replay_vision_in_flight_observations", {"status": status}) == 3, status
+    oldest_pending = pushed.get_sample_value(
         "replay_vision_oldest_in_flight_observation_age_seconds", {"status": "pending"}
     )
     assert oldest_pending is not None and oldest_pending >= stale.total_seconds()

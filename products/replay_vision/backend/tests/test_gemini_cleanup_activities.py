@@ -1,5 +1,4 @@
 import json
-import math
 import datetime as dt
 from dataclasses import dataclass
 
@@ -8,7 +7,6 @@ from unittest.mock import AsyncMock, patch
 
 from google.genai import types
 from google.genai.errors import APIError
-from prometheus_client import REGISTRY
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -20,7 +18,11 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_KEY_TTL,
     SWEEP_MIN_AGE,
 )
-from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import CleanupSweepInputs, CleanupSweepResult
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
+    CleanupSweepInputs,
+    CleanupSweepResult,
+    GeminiStorageUsage,
+)
 
 _NOW = dt.datetime(2026, 6, 12, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -127,7 +129,9 @@ async def test_no_keys_returns_zeros(activity_environment, fixed_now, gemini_red
     p1, p2 = _patch_clients(raw, tmp)
     with p1, p2:
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
-    assert result == CleanupSweepResult(storage_files=0, storage_bytes=0)
+    assert result == CleanupSweepResult(
+        storage=GeminiStorageUsage(files=0, total_bytes=0, oldest_age_seconds=0.0, truncated=False)
+    )
     assert raw.files.deleted == []
 
 
@@ -356,15 +360,13 @@ async def test_reports_storage_from_the_full_gemini_listing(activity_environment
     p1, p2 = _patch_clients(raw, tmp)
     with p1, p2:
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
-    assert (result.storage_files, result.storage_bytes, result.storage_listing_truncated) == (3, 1000, False)
-    assert REGISTRY.get_sample_value("replay_vision_gemini_storage_bytes") == 1000
-    assert REGISTRY.get_sample_value("replay_vision_gemini_oldest_file_age_seconds") == 30 * 3600
+    assert result.storage == GeminiStorageUsage(
+        files=3, total_bytes=1000, oldest_age_seconds=30 * 3600, truncated=False
+    )
 
 
 @pytest.mark.asyncio
-async def test_storage_listing_failure_still_deletes_and_blanks_the_gauges(
-    activity_environment, fixed_now, gemini_redis
-):
+async def test_storage_listing_failure_still_deletes(activity_environment, fixed_now, gemini_redis):
     await _track(gemini_redis, file_name="files/old", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
     raw, tmp = _StubRawClient(), _StubTemporal({"wf-1": _Outcome(status=WorkflowExecutionStatus.COMPLETED)})
     raw.files.list_raises = RuntimeError("simulated")
@@ -372,5 +374,4 @@ async def test_storage_listing_failure_still_deletes_and_blanks_the_gauges(
     with p1, p2:
         result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
     assert result.deleted == 1
-    assert result.storage_files is None
-    assert math.isnan(REGISTRY.get_sample_value("replay_vision_gemini_storage_bytes") or 0.0)
+    assert result.storage is None
