@@ -41,6 +41,9 @@ export interface ChartDisplayOptionEligibility {
     isTrends: boolean
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
+    /** The insight's current display, so a flag-gated type a saved insight already uses still
+     *  gets an option (disabled) instead of disappearing from the picker entirely. */
+    currentDisplay?: ChartDisplayType
 }
 
 const COUNTRY_PROPERTIES = new Set(['$geoip_country_code', '$geoip_country_name'])
@@ -96,6 +99,7 @@ export function getChartDisplayOptions({
     isTrends,
     breakdown,
     breakdowns,
+    currentDisplay,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -203,14 +207,19 @@ export function getChartDisplayOptions({
                     description: 'Proportions of a whole as a ring.',
                     disabledReason: trendsOnlyDisabledReason,
                 },
-                ...(hasProportionBarChart
+                ...(hasProportionBarChart || currentDisplay === ChartDisplayType.ActionsProportionBar
                     ? [
                           {
                               display: ChartDisplayType.ActionsProportionBar,
                               icon: 'proportionBar' as const,
                               label: 'Proportion bar',
                               description: 'Proportions of a whole as one flat bar.',
-                              disabledReason: trendsOnlyDisabledReason,
+                              // A saved insight can already use this display before the flag is on.
+                              // Keep it selectable once enabled; otherwise show it (so the picker
+                              // doesn't fall back to the raw enum) but don't allow picking it fresh.
+                              disabledReason: hasProportionBarChart
+                                  ? trendsOnlyDisabledReason
+                                  : (trendsOnlyDisabledReason ?? "This chart type isn't available yet."),
                           },
                       ]
                     : []),

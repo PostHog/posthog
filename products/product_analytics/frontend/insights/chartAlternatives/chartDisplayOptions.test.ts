@@ -80,6 +80,16 @@ describe('getChartDisplayOptions', () => {
             undefined,
         ],
         ['nothing in the way', RENDERS_EVERYTHING, ChartDisplayType.ActionsLineGraph, undefined],
+        [
+            'a saved insight already using proportion bar while its flag is off',
+            {
+                ...RENDERS_EVERYTHING,
+                hasProportionBarChart: false,
+                currentDisplay: ChartDisplayType.ActionsProportionBar,
+            },
+            ChartDisplayType.ActionsProportionBar,
+            "This chart type isn't available yet.",
+        ],
     ])('says why %s disables a chart type', (_case, eligibility, display, disabledReason) => {
         const reasons = disabledReasons(eligibility)
 
