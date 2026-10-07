@@ -71,7 +71,6 @@ _ROW_LIMIT = 5000
 # callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
 DEFAULT_AGGREGATION_ROW_LIMIT = 100
 
-RECENT_TRACES_CHILD_SKEW_MINUTES = 1
 RECENT_TRACES_SPANS_PER_TRACE = 10
 
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
@@ -593,7 +592,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
         # span of the selected traces so the waterfall gets its children.
         root_only = self.query.rootSpans is True
-        recent_traces = not by_duration and self.query.traceId is None
+        recent_traces = not by_duration and order_dir == "DESC" and self.query.traceId is None
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
@@ -641,7 +640,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         if self._unbounded_trace_lookup:
             trace_filter = self._unbounded_trace_filter()
         elif recent_traces:
-            trace_filter = self._recent_traces_filter(subquery_where, order_dir)
+            trace_filter = self._recent_traces_filter(subquery_where)
         else:
             trace_id_query = parse_select(
                 """
@@ -723,25 +722,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         assert isinstance(query, ast.SelectQuery)
 
         if recent_traces:
-            assert query.where is not None
-            query.where = ast.And(
-                exprs=[
-                    query.where,
-                    parse_expr(
-                        "timestamp >= if({enough}, tupleElement(({selected}), 2) - INTERVAL {margin} MINUTE, {date_from})",
-                        placeholders={
-                            "enough": self._recent_traces_enough(subquery_where, order_dir),
-                            "selected": self._recent_traces_selected(subquery_where, order_dir),
-                            "margin": ast.Constant(value=RECENT_TRACES_CHILD_SKEW_MINUTES),
-                            "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        },
-                    ),
-                ]
-            )
-            query.settings = HogQLQuerySettings(
-                query_plan_max_limit_for_top_k_optimization=self._recent_spans_limit,
-                optimize_use_projection_filtering=False if order_dir == "DESC" else None,
-            )
+            query.settings = HogQLQuerySettings(query_plan_max_limit_for_top_k_optimization=self._recent_spans_limit)
 
         # Root rows drive the displayed list order. Time sorts order them by timestamp; duration sorts
         # by the per-trace duration window (constant within a trace, so spans of a trace stay grouped).
@@ -780,17 +761,16 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
     def _recent_spans_limit(self) -> int:
         return (self.query.limit or 1) * RECENT_TRACES_SPANS_PER_TRACE
 
-    def _recent_spans(self, where: ast.Expr, order_dir: str) -> ast.SelectQuery:
-        edge = "min" if order_dir == "DESC" else "max"
+    def _recent_spans(self, where: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
-            f"""
-            SELECT (groupArray(trace_id), groupArray(timestamp), groupArray(is_root_span), {edge}(timestamp), count())
+            """
+            SELECT (groupArray(trace_id), groupArray(timestamp), groupArray(is_root_span), min(timestamp), count())
             FROM (
                 SELECT trace_id, timestamp, is_root_span
                 FROM posthog.trace_spans
-                WHERE {{where}}
-                ORDER BY timestamp {order_dir}, trace_id {order_dir}
-                LIMIT {{limit}}
+                WHERE {where}
+                ORDER BY timestamp DESC, trace_id DESC
+                LIMIT {limit}
             )
         """,
             placeholders={"where": clone_expr(where), "limit": ast.Constant(value=self._recent_spans_limit)},
@@ -798,7 +778,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _recent_spans_rows(self, where: ast.Expr, order_dir: str) -> ast.SelectQuery:
+    def _recent_spans_rows(self, where: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
             """
             SELECT tupleElement(span, 1) AS trace_id, tupleElement(span, 2) AS ts, tupleElement(span, 3) AS root
@@ -806,12 +786,12 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 SELECT arrayJoin(arrayZip(tupleElement(({spans}), 1), tupleElement(({spans}), 2), tupleElement(({spans}), 3))) AS span
             )
         """,
-            placeholders={"spans": self._recent_spans(where, order_dir)},
+            placeholders={"spans": self._recent_spans(where)},
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _recent_traces_started_earlier(self, where: ast.Expr, order_dir: str) -> ast.SelectQuery:
+    def _recent_traces_started_earlier(self, where: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
             """
             SELECT groupUniqArray(trace_id)
@@ -822,71 +802,64 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": clone_expr(where),
-                "spans": self._recent_spans(where, order_dir),
-                "rows": self._recent_spans_rows(where, order_dir),
+                "spans": self._recent_spans(where),
+                "rows": self._recent_spans_rows(where),
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query.settings = HogQLQuerySettings(optimize_use_projection_filtering=True)
         return query
 
-    def _recent_traces_selected(self, where: ast.Expr, order_dir: str) -> ast.SelectQuery:
-        complete: ast.Expr = ast.Constant(value=True)
-        if order_dir == "DESC":
-            complete = parse_expr(
-                "max(root) = 1 OR NOT has(({started_earlier}), trace_id)",
-                placeholders={"started_earlier": self._recent_traces_started_earlier(where, order_dir)},
-            )
+    def _recent_traces_selected(self, where: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
-            f"""
-            SELECT (groupArray(trace_id), min(trace_key), count())
+            """
+            SELECT (groupArray(trace_id), count())
             FROM (
                 SELECT trace_id, min(ts) AS trace_key
-                FROM ({{rows}})
+                FROM ({rows})
                 GROUP BY trace_id
-                HAVING {{complete}}
-                ORDER BY trace_key {order_dir}, trace_id {order_dir}
-                LIMIT {{limit}}
+                HAVING max(root) = 1 OR NOT has(({started_earlier}), trace_id)
+                ORDER BY trace_key DESC, trace_id DESC
+                LIMIT {limit}
             )
         """,
             placeholders={
-                "rows": self._recent_spans_rows(where, order_dir),
-                "complete": complete,
+                "rows": self._recent_spans_rows(where),
+                "started_earlier": self._recent_traces_started_earlier(where),
                 "limit": ast.Constant(value=self.query.limit),
             },
         )
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _recent_traces_enough(self, where: ast.Expr, order_dir: str) -> ast.Expr:
+    def _recent_traces_enough(self, where: ast.Expr) -> ast.Expr:
         return parse_expr(
-            "tupleElement(({selected}), 3) >= {limit} OR tupleElement(({spans}), 5) < {spans_limit}",
+            "tupleElement(({selected}), 2) >= {limit} OR tupleElement(({spans}), 5) < {spans_limit}",
             placeholders={
-                "selected": self._recent_traces_selected(where, order_dir),
-                "spans": self._recent_spans(where, order_dir),
+                "selected": self._recent_traces_selected(where),
+                "spans": self._recent_spans(where),
                 "limit": ast.Constant(value=self.query.limit),
                 "spans_limit": ast.Constant(value=self._recent_spans_limit),
             },
         )
 
-    def _recent_traces_filter(self, where: ast.Expr, order_dir: str) -> ast.Expr:
+    def _recent_traces_filter(self, where: ast.Expr) -> ast.Expr:
         return parse_expr(
-            f"""
+            """
             trace_id IN (
-                SELECT trace_id FROM (SELECT arrayJoin(tupleElement(({{selected}}), 1)) AS trace_id) WHERE {{enough}}
+                SELECT trace_id FROM (SELECT arrayJoin(tupleElement(({selected}), 1)) AS trace_id) WHERE {enough}
                 UNION ALL
                 SELECT trace_id
                 FROM posthog.trace_spans
-                WHERE {{where}} AND NOT {{fallback_enough}}
+                WHERE {where} AND NOT {fallback_enough}
                 GROUP BY trace_id
-                ORDER BY min(timestamp) {order_dir}, trace_id {order_dir}
-                LIMIT {{limit}}
+                ORDER BY min(timestamp) DESC, trace_id DESC
+                LIMIT {limit}
             )
         """,
             placeholders={
-                "selected": self._recent_traces_selected(where, order_dir),
-                "enough": self._recent_traces_enough(where, order_dir),
-                "fallback_enough": self._recent_traces_enough(where, order_dir),
+                "selected": self._recent_traces_selected(where),
+                "enough": self._recent_traces_enough(where),
+                "fallback_enough": self._recent_traces_enough(where),
                 "where": clone_expr(where),
                 "limit": ast.Constant(value=self.query.limit),
             },

@@ -338,17 +338,27 @@ class TestTraceSpansRecentTraceSelection(_TraceSpansTestBase):
 
     @parameterized.expand(
         [
-            ("all_spans_fit_in_the_recent_window", 3, {5, 4, 3}),
-            ("trace_started_earlier_is_not_ranked_by_its_newest_span", 2, {5, 4}),
-            ("too_few_complete_traces_falls_back_to_grouping", 1, {5}),
+            ("all_spans_fit_in_the_recent_window", "DESC", 3, None, {5, 4, 3}),
+            ("trace_started_earlier_is_not_ranked_by_its_newest_span", "DESC", 2, None, {5, 4}),
+            ("too_few_complete_traces_falls_back_to_grouping", "DESC", 1, None, {5}),
+            ("newest_first_continuation", "DESC", 10, (70, 4), {3, 2, 1}),
+            ("oldest_first_continuation", "ASC", 10, (70, 4), {5}),
         ]
     )
-    def test_newest_traces_rank_by_their_earliest_span(self, _name, limit, expected):
+    def test_traces_rank_by_their_earliest_span(self, _name, order_direction, limit, cursor, expected):
+        after = None
+        if cursor is not None:
+            offset_s, trace = cursor
+            cursor_ts = (dt.datetime(2026, 6, 2, 8, 0, 0, tzinfo=dt.UTC) + dt.timedelta(seconds=offset_s)).isoformat()
+            after = base64.b64encode(
+                json.dumps({"timestamp": cursor_ts, "trace_id": format(trace, "032x")}).encode("utf-8")
+            ).decode("utf-8")
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             orderBy="timestamp",
-            orderDirection="DESC",
+            orderDirection=order_direction,
             limit=limit,
+            after=after,
             rootSpans=False,
             prefetchSpans=20,
         )

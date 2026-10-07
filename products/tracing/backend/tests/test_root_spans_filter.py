@@ -21,6 +21,7 @@ CHILD_NAME = "redis_cluster.discovery"
 # Trace B: its root runs on service "worker" (won't match a "web" filter), but a child runs on "web".
 OTHER_ROOT_NAME = "POST /webhook"
 EARLY_CHILD_NAME = "queue.wait"
+LATE_CHILD_NAME = "email.send"
 
 
 def _b64(raw: bytes) -> str:
@@ -70,6 +71,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             # Trace B: root on "worker" (won't match a "web" filter), child on "web" (will).
             _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
             _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
+            _row(7, trace_b, _b64((7).to_bytes(8, "big")), root_b, LATE_CHILD_NAME, "delayed", 5 * 60 * 1000),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -118,14 +120,35 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertNotIn(OTHER_ROOT_NAME, names)
 
-    def test_single_trace_lookup_keeps_children_that_start_before_the_root(self):
+    @parameterized.expand(
+        [
+            (
+                "single_trace_lookup",
+                {"traceId": (1).to_bytes(16, "big").hex(), "limit": 1, "rootSpans": True},
+                1,
+                {ROOT_NAME, CHILD_NAME, "clickhouse.query", EARLY_CHILD_NAME},
+            ),
+            (
+                "root_span_list_keeps_children_before_the_root",
+                {"limit": 100, "rootSpans": True, "serviceNames": ["web"]},
+                1,
+                {ROOT_NAME, CHILD_NAME, "clickhouse.query", EARLY_CHILD_NAME},
+            ),
+            (
+                "list_matched_on_a_late_child_keeps_the_earlier_spans",
+                {"limit": 100, "rootSpans": False, "serviceNames": ["delayed"]},
+                2,
+                {OTHER_ROOT_NAME, CHILD_NAME, LATE_CHILD_NAME},
+            ),
+        ]
+    )
+    def test_prefetch_holds_every_span_of_the_trace(self, _name, query_fields, trace, expected):
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            traceId=(1).to_bytes(16, "big").hex(),
             orderBy="timestamp",
-            limit=1,
-            rootSpans=True,
             prefetchSpans=20,
+            **query_fields,
         )
-        names = {r["name"] for r in TraceSpansQueryRunner(query, self.team).run().results}
-        self.assertEqual(names, {ROOT_NAME, CHILD_NAME, "clickhouse.query", EARLY_CHILD_NAME})
+        trace_hex = (trace).to_bytes(16, "big").hex().upper()
+        results = TraceSpansQueryRunner(query, self.team).run().results
+        self.assertEqual({r["name"] for r in results if r["trace_id"] == trace_hex}, expected)
