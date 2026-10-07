@@ -3,6 +3,7 @@ import {
     getActiveAccountTabId,
     getDefaultAccountTabId,
     isAccountTabVisible,
+    listAccountTabs,
     listOrderedAccountTabs,
     listVisibleAccountTabs,
     reorderAccountTab,
@@ -29,6 +30,10 @@ const tabs: AccountTabDefinition[] = [
 ]
 
 describe('account tabs', () => {
+    it('does not add a system tab for the properties widget', () => {
+        expect(listAccountTabs({}, []).map(({ id }) => id)).not.toContain('system:properties')
+    })
+
     it('falls back from an unavailable system route but keeps an unknown view route', () => {
         expect(getActiveAccountTabId(tabs, emptyConfig, 'system:tasks', 1)).toBe('system:notes')
         expect(getActiveAccountTabId(tabs, emptyConfig, 'view:missing', 1)).toBe('view:missing')

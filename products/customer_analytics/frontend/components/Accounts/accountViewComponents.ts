@@ -3,7 +3,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import type { AccountExpansionTab } from './accountsExpansionLogic'
 
-export type AccountViewComponentKind = AccountExpansionTab
+export type AccountViewComponentKind = AccountExpansionTab | 'properties'
 
 export interface AccountViewComponentDefinition {
     kind: AccountViewComponentKind
@@ -11,9 +11,17 @@ export interface AccountViewComponentDefinition {
     label: string
     systemTabId: `system:${AccountViewComponentKind}`
     featureFlag?: FeatureFlagKey
+    viewOnly?: boolean
 }
 
 export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
+    {
+        kind: 'properties',
+        tagName: 'Properties',
+        label: 'Properties',
+        systemTabId: 'system:properties',
+        viewOnly: true,
+    },
     { kind: 'notes', tagName: 'Notes', label: 'Notes', systemTabId: 'system:notes' },
     {
         kind: 'tasks',
@@ -62,6 +70,15 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
 export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet): AccountViewComponentDefinition[] {
     return ACCOUNT_VIEW_COMPONENTS.filter(
         (component) => !component.featureFlag || !!featureFlags[component.featureFlag]
+    )
+}
+
+export function listAvailableAccountViewSystemComponents(
+    featureFlags: FeatureFlagsSet
+): (AccountViewComponentDefinition & { kind: AccountExpansionTab })[] {
+    return listAvailableAccountViewComponents(featureFlags).filter(
+        (component): component is AccountViewComponentDefinition & { kind: AccountExpansionTab } =>
+            !component.viewOnly && component.kind !== 'properties'
     )
 }
 

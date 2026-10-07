@@ -14,6 +14,7 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyUpdatesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertyUpdatesLogic'
 import { SALESFORCE_ORIGIN } from './constants'
 
 const ORGANIZATION_GROUP_TYPE_INDEX = 0
@@ -166,6 +167,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
     key((props) => props.accountId),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
+        logic: [accountPropertyUpdatesLogic],
     })),
     actions({
         openEditor: true,
@@ -324,6 +326,16 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        [accountPropertyUpdatesLogic.actionTypes.accountUpdated]: ({ projectId, account }) => {
+            if (projectId === values.currentTeamId && account.id === props.accountId && account !== values.account) {
+                actions.loadAccountSuccess(account)
+            }
+        },
+        loadAccountSuccess: ({ account }) => {
+            if (account && values.currentTeamId) {
+                accountPropertyUpdatesLogic.actions.accountUpdated(values.currentTeamId, account)
+            }
+        },
         openEditor: () => {
             actions.setFormValues(values.currentFieldValues)
         },

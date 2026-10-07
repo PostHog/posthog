@@ -222,6 +222,36 @@ describe('accountSidebarPropertiesLogic', () => {
         }
     })
 
+    it('refreshes every mounted relationship tile after a property widget save', async () => {
+        logic = accountSidebarPropertiesLogic({
+            projectId: MOCK_DEFAULT_TEAM.id,
+            accountId: 'account-1',
+            instanceId: 'view:properties',
+            propertyReferences: [{ kind: 'relationship', id: relationshipDefinition.id }],
+        })
+        logic.mount()
+        const first = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'first' })
+        const second = accountRelationshipsLogic({ accountId: 'account-1', instanceId: 'second' })
+        first.mount()
+        second.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.saveRelationship('relationship:relationship-1', [2, 4], 'account_view')
+            ).toFinishAllListeners()
+            for (const tile of [first, second]) {
+                expect(
+                    tile.values.activeRelationships
+                        .filter((row) => row.definition.id === relationshipDefinition.id)
+                        .map((row) => row.user?.id)
+                ).toEqual([2, 4])
+            }
+        } finally {
+            first.unmount()
+            second.unmount()
+        }
+    })
+
     it.each([
         ['text', 'Growth'],
         ['number', 0],
@@ -247,6 +277,7 @@ describe('accountSidebarPropertiesLogic', () => {
     it.each([
         { source: undefined, expectedSource: 'account_sidebar' },
         { source: 'list_expansion', expectedSource: 'list_expansion' },
+        { source: 'account_view', expectedSource: 'account_view' },
     ] as const)(
         'reports saved values and assignments with $expectedSource attribution',
         async ({ source, expectedSource }) => {
@@ -264,7 +295,7 @@ describe('accountSidebarPropertiesLogic', () => {
                 logic.actions.saveRelationship('relationship:relationship-1', [2], source)
             ).toFinishAllListeners()
             expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
-                role: relationshipDefinition.name,
+                ...(source === 'account_view' ? {} : { role: relationshipDefinition.name }),
                 is_assigned: true,
                 assigned_user_id: 2,
                 source: expectedSource,
@@ -476,6 +507,89 @@ describe('accountSidebarPropertiesLogic', () => {
         }).toFinishAllListeners()
         expect(logic.values.editingPropertyKey).toBeNull()
         expect(write).not.toHaveBeenCalled()
+    })
+
+    it('loads values when an empty widget is configured without remounting it', async () => {
+        useMocks({
+            get: { '/api/projects/:project_id/user_customer_analytics_config/@me/': { pinned_properties: [] } },
+        })
+        const props = { projectId: 1, accountId: 'account-1', instanceId: 'view:first', propertyReferences: [] }
+        logic = accountSidebarPropertiesLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.propertyData).toBeNull()
+        expect(logic.values.propertiesPanelState).toBe('ready')
+        const configured = accountSidebarPropertiesLogic.build({
+            ...props,
+            propertyReferences: [{ kind: 'custom_property', id: definition.id }],
+        })
+        expect(configured).toBe(logic)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.propertiesPanelState).toBe('ready')
+        expect(logic.values.sidebarProperties).toMatchObject([{ key: 'custom:property-1', value: 'Starter' }])
+        expect(accountSidebarConfigLogic({ projectId: 1 }).values.config?.pinned_properties).toEqual([])
+    })
+
+    it('keeps widget selections and edits separate while sharing saved values with the sidebar', async () => {
+        silenceKeaLoadersErrors()
+        await mount()
+        const first = accountSidebarPropertiesLogic({
+            projectId: 1,
+            accountId: 'account-1',
+            instanceId: 'view:first',
+            propertyReferences: [{ kind: 'custom_property', id: definition.id }],
+        })
+        const second = accountSidebarPropertiesLogic({
+            projectId: 1,
+            accountId: 'account-1',
+            instanceId: 'view:second',
+            propertyReferences: [
+                { kind: 'custom_property', id: definition.id },
+                { kind: 'relationship', id: relationshipDefinition.id },
+            ],
+        })
+        first.mount()
+        second.mount()
+        try {
+            await expectLogic(first).toFinishAllListeners()
+            await expectLogic(second).toFinishAllListeners()
+            expect(first.values.sidebarProperties.map(({ key }) => key)).toEqual(['custom:property-1'])
+            expect(second.values.sidebarProperties.map(({ key }) => key)).toEqual([
+                'custom:property-1',
+                'relationship:relationship-1',
+            ])
+            first.actions.editProperty(first.values.sidebarProperties[0])
+            second.actions.editProperty(second.values.sidebarProperties[1])
+            useMocks({ post: { [VALUES_URL]: () => [500, { detail: 'Try again' }] } })
+            await expectLogic(first, () =>
+                first.actions.saveCustomProperty('custom:property-1', 'Changed', 'account_view')
+            ).toFinishAllListeners()
+            expect(first.values.propertySaveFailed).toBe(true)
+            expect(first.values.editingPropertyKey).toBe('custom:property-1')
+            expect(second.values.editingPropertyKey).toBe('relationship:relationship-1')
+            useMocks({
+                post: {
+                    [VALUES_URL]: async ({ request }) => {
+                        const body = (await request.json()) as CustomPropertyValueWriteApi
+                        storedValue = body.value
+                        return [201, { id: 'saved-value', definition_id: body.definition, value: storedValue }]
+                    },
+                },
+            })
+            await expectLogic(first, () =>
+                first.actions.saveCustomProperty('custom:property-1', 'Changed', 'account_view')
+            ).toFinishAllListeners()
+            await waitFor(() => expect(second.values.sidebarProperties[0]).toMatchObject({ value: 'Changed' }))
+            expect(logic.values.sidebarProperties[1]).toMatchObject({ value: 'Changed' })
+            expect(second.values.editingPropertyKey).toBe('relationship:relationship-1')
+            expect(accountSidebarConfigLogic({ projectId: 1 }).values.config?.pinned_properties).toEqual([
+                { kind: 'relationship', id: relationshipDefinition.id },
+                { kind: 'custom_property', id: definition.id },
+            ])
+        } finally {
+            first.unmount()
+            second.unmount()
+        }
     })
 
     it('does not show another account values while loading', async () => {

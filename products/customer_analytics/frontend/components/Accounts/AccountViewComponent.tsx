@@ -2,6 +2,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AccountPropertiesWidget } from '../../scenes/CustomerAnalyticsAccountScene/AccountPropertiesWidget'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
@@ -18,6 +19,7 @@ interface AccountViewComponentProps {
     kind: AccountViewComponentKind
     accountId: string
     externalId: string
+    projectId?: number
     instanceId?: string
     initialConfig?: AccountViewTileConfig
     onConfigChange?: (config: AccountViewTileConfig) => void
@@ -28,6 +30,7 @@ export function AccountViewComponent({
     kind,
     accountId,
     externalId,
+    projectId,
     instanceId,
     initialConfig,
     onConfigChange,
@@ -35,6 +38,8 @@ export function AccountViewComponent({
 }: AccountViewComponentProps): JSX.Element {
     const tileProps = { instanceId, initialConfig, onConfigChange }
     switch (kind) {
+        case 'properties':
+            return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
         case 'notes':
             return <AccountNotesExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'tasks':

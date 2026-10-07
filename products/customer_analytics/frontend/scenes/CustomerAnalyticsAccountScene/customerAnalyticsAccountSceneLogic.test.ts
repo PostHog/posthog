@@ -18,6 +18,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyUpdatesLogic } from './accountPropertyUpdatesLogic'
 import { scene } from './CustomerAnalyticsAccountScene'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 import {
@@ -115,6 +116,33 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.accountLoadError).toBeNull()
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
     })
+
+    it.each([false, true])(
+        'applies widget saves without replacing an open account editor draft (external route: %s)',
+        async (externalRoute) => {
+            mockAccountsRetrieve.mockResolvedValue(account)
+            mockAccountsByExternalIdRetrieve.mockResolvedValue(account)
+            if (externalRoute) {
+                router.actions.push(urls.customerAnalyticsAccountByExternalId(account.external_id!))
+                mountExternalIdLogic(account.external_id!)
+            } else {
+                mountLogic()
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.openAccountEditor()
+            logic.actions.setAccountFormValue('website_domain', 'draft.example.com')
+            accountPropertyUpdatesLogic.actions.accountUpdated(PROJECT_ID, {
+                ...account,
+                properties: { website_domain: 'saved.example.com', billing_id: 'saved-billing' },
+            })
+            expect(logic.values.account?.properties).toEqual({
+                website_domain: 'saved.example.com',
+                billing_id: 'saved-billing',
+            })
+            expect(logic.values.accountForm.website_domain).toBe('draft.example.com')
+            expect(logic.values.accountEditorOpen).toBe(true)
+        }
+    )
 
     it('loads a UUID account while the account scene flag is disabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {

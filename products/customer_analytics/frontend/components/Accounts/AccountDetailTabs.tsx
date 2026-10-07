@@ -8,7 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accountBillingLogic } from './accountBillingLogic'
 import { AccountExpansionTab, getVisibleAccountExpansionTab } from './accountsExpansionLogic'
 import { AccountViewComponent } from './AccountViewComponent'
-import { listAvailableAccountViewComponents } from './accountViewComponents'
+import { listAvailableAccountViewSystemComponents } from './accountViewComponents'
 
 interface AccountDetailTabsProps {
     accountId: string
@@ -30,7 +30,7 @@ export function AccountDetailTabs({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     const { featureFlags } = useValues(featureFlagLogic)
     const visibleActiveTab = getVisibleAccountExpansionTab(activeTab, featureFlags)
-    const components = listAvailableAccountViewComponents(featureFlags)
+    const components = listAvailableAccountViewSystemComponents(featureFlags)
 
     return (
         <LemonTabs
