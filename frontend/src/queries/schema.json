@@ -2924,6 +2924,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "session",
                 "hogql",
                 "cohort",
@@ -6155,6 +6156,9 @@
                     },
                     "type": "array"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6204,6 +6208,12 @@
                             "type": "null"
                         }
                     ]
+                },
+                "topN": {
+                    "$ref": "#/definitions/BITopN"
+                },
+                "totals": {
+                    "$ref": "#/definitions/BITotals"
                 },
                 "values": {
                     "items": {
@@ -6326,6 +6336,62 @@
             "enum": ["asc", "desc"],
             "type": "string"
         },
+        "BITableCalculation": {
+            "additionalProperties": false,
+            "properties": {
+                "computeUsing": {
+                    "description": "Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions.",
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/BITableCalculationType"
+                },
+                "window": {
+                    "$ref": "#/definitions/positive_integer",
+                    "description": "Number of points, including the current point, in a trailing moving average."
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "BITableCalculationType": {
+            "enum": ["percent_of_total", "running_total", "difference", "percent_change", "moving_average", "rank"],
+            "type": "string"
+        },
+        "BITopN": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/positive_integer"
+                },
+                "fieldId": {
+                    "type": "string"
+                },
+                "includeOther": {
+                    "type": "boolean"
+                },
+                "measureIndex": {
+                    "$ref": "#/definitions/non_negative_integer"
+                }
+            },
+            "required": ["fieldId", "count", "measureIndex", "includeOther"],
+            "type": "object"
+        },
+        "BITotals": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "type": "boolean"
+                },
+                "rows": {
+                    "type": "boolean"
+                },
+                "subtotals": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "BIValue": {
             "additionalProperties": false,
             "properties": {
@@ -6340,6 +6406,9 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "tableCalculation": {
+                    "$ref": "#/definitions/BITableCalculation"
                 }
             },
             "required": ["field", "aggregation"],
@@ -6764,6 +6833,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -29387,6 +29457,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30973,6 +31047,7 @@
                 "customerio-webhook",
                 "customerio-track",
                 "apns",
+                "apple-ads",
                 "postgresql",
                 "aws-s3",
                 "aws-redshift",
@@ -39117,15 +39192,11 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
                     "type": "string"
                 },
                 "kind": {
                     "const": "MetricsQuery",
-                    "type": "string"
-                },
-                "minInterval": {
-                    "description": "Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick",
                     "type": "string"
                 },
                 "modifiers": {
@@ -39613,6 +39684,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -50770,7 +50842,7 @@
                 },
                 "error_code": {
                     "default": null,
-                    "description": "Stable machine-readable code for the error (the DRF exception code), when known.",
+                    "description": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
                     "type": ["string", "null"]
                 },
                 "error_message": {

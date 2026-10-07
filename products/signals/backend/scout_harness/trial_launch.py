@@ -166,8 +166,8 @@ def assert_trial_environment_ready() -> None:
         ensure_scout_trial_capture_ready()
     except GatewayNotConfiguredError as error:
         raise ScoutTrialLaunchError(str(error)) from None
-    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_MINT_KEY):
-        raise ScoutTrialLaunchError("Scout trials require the Go sandbox gateway URL and mint credential.")
+    if not settings.AI_GATEWAY_API_KEY:
+        raise ScoutTrialLaunchError("Scout trials require AI_GATEWAY_API_KEY for private report checks.")
 
 
 def load_trial_context(team_id: int, context_id: UUID | str) -> TrialContext:

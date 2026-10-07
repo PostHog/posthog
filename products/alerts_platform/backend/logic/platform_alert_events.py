@@ -13,7 +13,7 @@ engine only remembers a bounded window of them.
 
 import json
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import fields
 from datetime import datetime
 from typing import Any
@@ -150,18 +150,25 @@ FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
   AND evaluation_key = %(evaluation_key)s
-  AND kind != %(check_kind)s
+  AND (kind != %(check_kind)s OR has(%(incident_grouping_keys)s, grouping_key))
 ORDER BY grouping_key, occurred_at DESC
 LIMIT 1 BY grouping_key
 """
 
 
-def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+def announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    incident_grouping_keys: Collection[str] = (),
+) -> EvaluationAnnouncement | None:
     """What one evaluation left for a destination to say, or None when it announced nothing.
 
     Rows whose kind is `CHECK` are excluded here rather than in the caller. They are recorded so
     a comparison can read every check, and they say nothing, so a message built from one would
-    have no headline.
+    have no headline. The exception is a group in `incident_grouping_keys`: cooldown or mute held
+    its announcement, but its firing still opened or closed, and a paging destination needs that row.
 
     `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
     engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
@@ -175,6 +182,7 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             "configuration_id": configuration_id,
             "evaluation_key": evaluation_key,
             "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
         },
         team_id=team_id,
     )

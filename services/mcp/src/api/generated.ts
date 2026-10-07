@@ -2714,7 +2714,7 @@ export namespace Schemas {
       end_time?: string | null;
       /** If the query failed, this will be set to true. More information can be found in the error_message field. */
       error?: boolean | null;
-      /** Stable machine-readable code for the error (the DRF exception code), when known. */
+      /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
       error_code?: string | null;
       error_message?: string | null;
       expiration_time?: string | null;
@@ -3167,6 +3167,7 @@ export namespace Schemas {
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
+      Element: 'element',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
@@ -3182,6 +3183,7 @@ export namespace Schemas {
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
+      Element: 'element',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
@@ -7166,6 +7168,8 @@ export namespace Schemas {
     export interface HogQLFilters {
       /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
       breakdownFilter?: BreakdownFilter | null;
+      /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+      compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
       /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -8503,6 +8507,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       AwsRedshift: 'aws-redshift',
@@ -10698,6 +10703,21 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface BITopN {
+      /** @minimum 1 */
+      count: number;
+      fieldId: string;
+      includeOther: boolean;
+      /** @minimum 0 */
+      measureIndex: number;
+    }
+
+    export interface BITotals {
+      columns?: boolean | null;
+      rows?: boolean | null;
+      subtotals?: boolean | null;
+    }
+
     export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
 
 
@@ -10711,16 +10731,38 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
+
+
+    export const BITableCalculationType = {
+      PercentOfTotal: 'percent_of_total',
+      RunningTotal: 'running_total',
+      Difference: 'difference',
+      PercentChange: 'percent_change',
+      MovingAverage: 'moving_average',
+      Rank: 'rank',
+    } as const;
+
+    export interface BITableCalculation {
+      /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+      computeUsing?: string | null;
+      type: BITableCalculationType;
+      /** Number of points, including the current point, in a trailing moving average. */
+      window?: number | null;
+    }
+
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
       field: BIField;
       label?: string | null;
+      tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
       chartType: ChartDisplayType;
       columns: BIField[];
+      compareFilter?: CompareFilter | null;
       /** Column that receives the worksheet and dashboard date range. */
       dateField?: BIField | null;
       dateRange?: DateRange | null;
@@ -10730,6 +10772,8 @@ export namespace Schemas {
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;
       source?: BIDataSource | null;
+      topN?: BITopN | null;
+      totals?: BITotals | null;
       values: BIValue[];
     }
 
@@ -13311,11 +13355,6 @@ export namespace Schemas {
     export type AutoresearchModelModelRecipe = { [key: string]: unknown };
 
     /**
-     * Global feature importance and directionality. Used to explain top drivers on the model card.
-     */
-    export type AutoresearchModelModelExplanation = { [key: string]: unknown };
-
-    /**
      * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
      */
     export type AutoresearchModelMetrics = { [key: string]: unknown };
@@ -13334,6 +13373,57 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     */
+    export type FeatureDirectionEnum = typeof FeatureDirectionEnum[keyof typeof FeatureDirectionEnum];
+
+
+    export const FeatureDirectionEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+    } as const;
+
+    export interface FeatureImportance {
+      /**
+         * Feature column name, as returned by the feature SQL.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+         * @minimum 0
+         */
+      importance: number;
+      /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative */
+      direction: FeatureDirectionEnum;
+    }
+
+    /**
+     * Global feature importances for the model card.
+     */
+    export interface ModelExplanationField {
+      /**
+         * At most 30 features, strongest first.
+         * @maxItems 30
+         */
+      top_features?: FeatureImportance[];
+      /**
+         * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+         * @maxLength 500
+         */
+      method?: string;
+      /**
+         * Optional caveat shown under the chart.
+         * @maxLength 500
+         */
+      note?: string;
+    }
+
     export interface AutoresearchModel {
       /** Unique UUID of this model version. */
       readonly id: string;
@@ -13350,7 +13440,7 @@ export namespace Schemas {
       /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
       model_recipe: AutoresearchModelModelRecipe;
       /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-      model_explanation: AutoresearchModelModelExplanation;
+      model_explanation: ModelExplanationField;
       /**
          * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
          * @nullable
@@ -23637,11 +23727,6 @@ export namespace Schemas {
     }
 
     /**
-     * Global feature importance / directionality bundle for the champion model card.
-     */
-    export type CompleteTrainingRunModelExplanation = { [key: string]: unknown };
-
-    /**
      * Input for finalizing a training run. The backend selects/promotes the champion.
      */
     export interface CompleteTrainingRun {
@@ -23651,7 +23736,7 @@ export namespace Schemas {
          */
       best_iteration_id?: string | null;
       /** Global feature importance / directionality bundle for the champion model card. */
-      model_explanation?: CompleteTrainingRunModelExplanation;
+      model_explanation?: ModelExplanationField;
       /**
          * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
          * @maxLength 2000
@@ -26767,7 +26852,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
-      last_accessed_at?: string | null;
+      readonly last_accessed_at: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
       /**
@@ -26802,6 +26887,10 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: unknown[];
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+       *
+       * * `21` - Everyone in the project can edit
+       * * `37` - Only those invited to this dashboard can edit */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: PrivilegeLevelEnum;
@@ -26892,7 +26981,7 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       tags?: unknown[];
-      /** Controls who can edit the dashboard.
+      /** Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
        *
        * * `21` - Everyone in the project can edit
        * * `37` - Only those invited to this dashboard can edit */
@@ -27150,6 +27239,131 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    export type DashboardWriteOpenApiFilters = { [key: string]: unknown };
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiVariables = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedFilters = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
+
+    export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface DashboardWriteOpenApi {
+      readonly id: number;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      description?: string;
+      pinned?: boolean;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** @nullable */
+      readonly last_accessed_at: string | null;
+      /** @nullable */
+      readonly last_viewed_at: string | null;
+      /**
+         * Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.
+         * @nullable
+         */
+      readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
+      readonly is_shared: boolean;
+      deleted?: boolean;
+      readonly creation_mode: DashboardCreationModeEnum;
+      readonly filters: DashboardWriteOpenApiFilters;
+      /** @nullable */
+      readonly variables: DashboardWriteOpenApiVariables;
+      /**
+         * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+         * @nullable
+         */
+      breakdown_colors?: BreakdownColorConfig[] | null;
+      /**
+         * ID of the color theme used for chart visualizations.
+         * @nullable
+         */
+      data_color_theme_id?: number | null;
+      tags?: unknown[];
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
+      readonly effective_restriction_level: RestrictionLevelEnum;
+      readonly effective_privilege_level: PrivilegeLevelEnum;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      readonly access_control_version: string;
+      /** @nullable */
+      last_refresh?: string | null;
+      /** @nullable */
+      readonly persisted_filters: DashboardWriteOpenApiPersistedFilters;
+      /** @nullable */
+      readonly persisted_variables: DashboardWriteOpenApiPersistedVariables;
+      readonly team_id: number;
+      /**
+         * List of quick filter IDs associated with this dashboard
+         * @nullable
+         */
+      quick_filter_ids?: string[] | null;
+      /** Dashboard display settings. */
+      readonly customization: DashboardCustomization;
+      /** Named tile density preset. Use tight, condensed, standard, relaxed, or wide.
+       *
+       * * `tight` - tight
+       * * `condensed` - condensed
+       * * `standard` - standard
+       * * `relaxed` - relaxed
+       * * `wide` - wide */
+      grid_spacing?: TileSpacingEnum;
+      /** How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.
+       *
+       * * `vertical` - vertical
+       * * `horizontal` - horizontal
+       * * `stable` - stable */
+      layout_compaction?: LayoutCompactionEnum;
+      /** @nullable */
+      readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
+      /** Template key to create the dashboard from a predefined template. */
+      use_template?: string;
+      /**
+         * ID of an existing dashboard to duplicate.
+         * @nullable
+         */
+      use_dashboard?: number | null;
+      /** When deleting, also delete insights that are only on this dashboard. */
+      delete_insights?: boolean;
+      _create_in_folder?: string;
     }
 
     export interface DataCatalogCertification {
@@ -30670,6 +30884,7 @@ export namespace Schemas {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -30785,6 +31000,14 @@ export namespace Schemas {
      * * `LettrLabs` - LettrLabs
      * * `GrafanaIRM` - GrafanaIRM
      * * `Tessitura` - Tessitura
+     * * `ChargebackStop` - ChargebackStop
+     * * `Chargeflow` - Chargeflow
+     * * `Dreamdata` - Dreamdata
+     * * `GoogleBusinessProfile` - GoogleBusinessProfile
+     * * `Ledyer` - Ledyer
+     * * `Supermetrics` - Supermetrics
+     * * `SQLite` - SQLite
+     * * `Modal` - Modal
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -32031,6 +32254,7 @@ export namespace Schemas {
       WhatsappBusinessManagement: 'WhatsappBusinessManagement',
       WhoGho: 'WhoGho',
       Whop: 'Whop',
+      Wistia: 'Wistia',
       Wiz: 'Wiz',
       Wompi: 'Wompi',
       Workiz: 'Workiz',
@@ -32146,6 +32370,14 @@ export namespace Schemas {
       LettrLabs: 'LettrLabs',
       GrafanaIRM: 'GrafanaIRM',
       Tessitura: 'Tessitura',
+      ChargebackStop: 'ChargebackStop',
+      Chargeflow: 'Chargeflow',
+      Dreamdata: 'Dreamdata',
+      GoogleBusinessProfile: 'GoogleBusinessProfile',
+      Ledyer: 'Ledyer',
+      Supermetrics: 'Supermetrics',
+      SQLite: 'SQLite',
+      Modal: 'Modal',
     } as const;
 
     /**
@@ -33406,6 +33638,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -33520,7 +33753,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -36029,6 +36270,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -36143,7 +36385,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -47286,6 +47536,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -47400,7 +47651,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -48681,6 +48940,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -48795,7 +49055,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -55242,11 +55510,9 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
       interval?: string | null;
       kind?: 'MetricsQuery';
-      /** Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick */
-      minInterval?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: MetricsQueryResponse | null;
@@ -57685,6 +57951,7 @@ export namespace Schemas {
 
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -57739,6 +58006,7 @@ export namespace Schemas {
 
     export const IntegrationKindEnum = {
       Anthropic: 'anthropic',
+      AppleAds: 'apple-ads',
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
@@ -57793,6 +58061,7 @@ export namespace Schemas {
       /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
        *
        * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
@@ -59442,7 +59711,7 @@ export namespace Schemas {
 
     export interface LeakedKeyReport {
       /**
-         * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+         * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
          * @maxLength 200
          */
       token: string;
@@ -59451,6 +59720,7 @@ export namespace Schemas {
     /**
      * * `personal_api_key` - personal_api_key
      * * `project_secret_api_key` - project_secret_api_key
+     * * `team_secret_token` - team_secret_token
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token
      */
@@ -59460,17 +59730,19 @@ export namespace Schemas {
     export const LeakedKeyReportResponseTypeEnum = {
       PersonalApiKey: 'personal_api_key',
       ProjectSecretApiKey: 'project_secret_api_key',
+      TeamSecretToken: 'team_secret_token',
       OauthAccessToken: 'oauth_access_token',
       OauthRefreshToken: 'oauth_refresh_token',
     } as const;
 
     export interface LeakedKeyReportResponse {
-      /** Whether a matching PostHog key or token was found and revoked. */
+      /** Whether a matching PostHog key or token was found. It was revoked, or, for team_secret_token, its project admins were told to rotate it. */
       found: boolean;
-      /** The type of key that was found and revoked, or null if no match was found.
+      /** The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.
        *
        * * `personal_api_key` - personal_api_key
        * * `project_secret_api_key` - project_secret_api_key
+       * * `team_secret_token` - team_secret_token
        * * `oauth_access_token` - oauth_access_token
        * * `oauth_refresh_token` - oauth_refresh_token */
       type: LeakedKeyReportResponseTypeEnum | null;
@@ -60007,6 +60279,22 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `pagerduty` - pagerduty
+     */
+    export type LogsAlertDestinationTypeEnum = typeof LogsAlertDestinationTypeEnum[keyof typeof LogsAlertDestinationTypeEnum];
+
+
+    export const LogsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+    } as const;
+
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id: string;
@@ -60091,7 +60379,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60107,20 +60395,63 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info
+     */
+    export type PagerDutySeverityEnum = typeof PagerDutySeverityEnum[keyof typeof PagerDutySeverityEnum];
+
+
+    export const PagerDutySeverityEnum = {
+      Critical: 'critical',
+      Error: 'error',
+      Warning: 'warning',
+      Info: 'info',
+    } as const;
+
+    /**
+     * * `us` - us
+     * * `eu` - eu
+     */
+    export type PagerDutyRegionEnum = typeof PagerDutyRegionEnum[keyof typeof PagerDutyRegionEnum];
+
+
+    export const PagerDutyRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Whether every HogFunction in the group is enabled, so the destination notifies for all alert event kinds. This is the stored setting: a destination PostHog stopped delivering to after repeated failures still reads as true. */
       enabled: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     /**
@@ -60211,7 +60542,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -60234,8 +60565,9 @@ export namespace Schemas {
        *
        * * `slack` - slack
        * * `webhook` - webhook
-       * * `teams` - teams */
-      type: NotificationDestinationTypeEnum;
+       * * `teams` - teams
+       * * `pagerduty` - pagerduty */
+      type: LogsAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -60244,6 +60576,20 @@ export namespace Schemas {
       slack_channel_name?: string;
       /** HTTPS endpoint to post to. Required for webhook and teams. */
       webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface LogsAlertDeleteDestination {
@@ -63611,6 +63957,8 @@ export namespace Schemas {
       readonly id: string;
       /** Meeting title; may be empty. */
       readonly title: string;
+      /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+      readonly is_recurring: boolean;
       /**
          * Gong call URL matched through the calendar event id; null when no Gong call is available.
          * @nullable
@@ -64081,10 +64429,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `second` - second
+     * * `second_15` - second_15
+     * * `second_30` - second_30
      * * `minute` - minute
      * * `minute_5` - minute_5
      * * `minute_15` - minute_15
+     * * `minute_30` - minute_30
      * * `hour` - hour
      * * `hour_6` - hour_6
      * * `day` - day
@@ -64094,10 +64444,12 @@ export namespace Schemas {
 
 
     export const MetricQueryIntervalEnum = {
-      Second: 'second',
+      Second15: 'second_15',
+      Second30: 'second_30',
       Minute: 'minute',
       Minute5: 'minute_5',
       Minute15: 'minute_15',
+      Minute30: 'minute_30',
       Hour: 'hour',
       Hour6: 'hour_6',
       Day: 'day',
@@ -70847,6 +71199,8 @@ export namespace Schemas {
       lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
+      /** True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored. */
+      stale: boolean;
     }
 
     export interface SignalReportList {
@@ -78727,7 +79081,7 @@ export namespace Schemas {
       /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Derived from LogsAlertEvent rows walked in chronological order; consecutive identical intervals are collapsed. Drives the 'Last 24h' status bar on the alert list. */
       readonly state_timeline?: readonly LogsAlertStateInterval[];
       /** Notification destination types configured for this alert — e.g. 'slack', 'webhook'. Empty list means no notifications will fire. One or more destinations should be added after creating an alert. */
-      readonly destination_types?: readonly NotificationDestinationTypeEnum[];
+      readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
          * @nullable
@@ -79422,11 +79776,12 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       tags?: string[];
-      /** Who can edit this dashboard.
-       *
-       * * `21` - Everyone in the project can edit
-       * * `37` - Only those invited to this dashboard can edit */
-      restriction_level?: RestrictionLevelEnum;
+      /**
+         * Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.
+         * @minimum 21
+         * @maximum 21
+         */
+      restriction_level?: number;
       /**
          * List of quick filter IDs associated with this dashboard.
          * @nullable
@@ -97172,6 +97527,8 @@ export namespace Schemas {
       caption?: string | null;
       /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
       credentialFields: string[];
+      /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+      integrationField?: string | null;
       label: string;
       name: string;
       placeholder?: string | null;
@@ -98567,6 +98924,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -98681,7 +99039,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -99978,6 +100344,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -100092,7 +100459,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -101371,6 +101746,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -101485,7 +101861,15 @@ export namespace Schemas {
        * * `ExactOnline` - ExactOnline
        * * `LettrLabs` - LettrLabs
        * * `GrafanaIRM` - GrafanaIRM
-       * * `Tessitura` - Tessitura */
+       * * `Tessitura` - Tessitura
+       * * `ChargebackStop` - ChargebackStop
+       * * `Chargeflow` - Chargeflow
+       * * `Dreamdata` - Dreamdata
+       * * `GoogleBusinessProfile` - GoogleBusinessProfile
+       * * `Ledyer` - Ledyer
+       * * `Supermetrics` - Supermetrics
+       * * `SQLite` - SQLite
+       * * `Modal` - Modal */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -101801,7 +102185,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing $feature_flag_called to events for the teams it writes to flag_evaluations.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -101883,7 +102267,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. This is the stored mode: while the FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab read events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -110627,10 +111011,12 @@ export namespace Schemas {
       bucketStart: string;
       /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
@@ -110720,10 +111106,12 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
       /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
        *
-       * * `second` - second
+       * * `second_15` - second_15
+       * * `second_30` - second_30
        * * `minute` - minute
        * * `minute_5` - minute_5
        * * `minute_15` - minute_15
+       * * `minute_30` - minute_30
        * * `hour` - hour
        * * `hour_6` - hour_6
        * * `day` - day
@@ -120228,6 +120616,7 @@ export namespace Schemas {
     export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -120294,6 +120683,7 @@ export namespace Schemas {
     export const IntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
