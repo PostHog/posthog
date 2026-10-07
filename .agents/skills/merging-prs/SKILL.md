@@ -19,7 +19,7 @@ description: >
 Merges into `master` go **exclusively** through the [Trunk](https://trunk.io) merge queue.
 `gh pr merge` and the GitHub merge button are blocked by branch ruleset.
 To merge, you enqueue the PR with the `trunk` CLI, then watch it until Trunk lands it.
-Use the `trunk` CLI for every queue action (enqueue, status, cancel), and post `/trunk ...` comments on the PR only when the CLI is not available.
+Use the `trunk` CLI for queue actions (enqueue, status, cancel). Post a `/trunk ...` comment on the PR only when the CLI is not available, or for an option the CLI does not have (see step 2).
 The CLI talks to Trunk over an authenticated session and reports the result at once. A comment adds noise to the PR thread, and you only learn whether Trunk took it from the bot's reply.
 
 ## Required user approval
@@ -194,7 +194,7 @@ When the guard blocks you, leave the branch alone and put further changes on a n
 To update the queued PR on purpose, run `trunk merge cancel <n>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
 
 The check fails open — missing `gh` or `trunk`, not logged in, offline, API errors — and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
-`trunk login` arms it and enables `trunk merge` and `trunk merge cancel`, so run the one-time interactive login before you use this skill.
+`trunk login` arms it and enables `trunk merge` and `trunk merge cancel`, so run the one-time interactive login when you can. Without it, the PR comments in steps 2 and 5 still work.
 
 ## Hard rules
 
