@@ -179,11 +179,10 @@ GROUP BY model
 ORDER BY total_cost DESC
 ```
 
-The `cache_hit_rate` uses the provider-aware formula from
-[cache accounting](./cache-accounting.md) — it branches on
+The `cache_hit_rate` uses the provider-aware formula. It branches on
 `$ai_cache_reporting_exclusive` so the denominator is correct for both
-exclusive and inclusive providers without hardcoding any provider or model
-names. If a single model mixes both reporting styles across events
+exclusive providers (`input + cache_read + cache_creation`) and inclusive
+providers (`input` alone), without hardcoding any provider or model names. If a single model mixes both reporting styles across events
 (unusual), split by `$ai_cache_reporting_exclusive` in the GROUP BY
 instead of `any()`.
 

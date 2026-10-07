@@ -35,7 +35,3 @@ WHERE event = '$ai_generation'
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY model, properties.$ai_cache_reporting_exclusive
 ```
-
-The same provider-aware `if(...)` formula is what powers `cache_hit_rate`
-in the [breakdown patterns](./breakdown-patterns.md) "input vs output vs
-cache economics" recipe.
