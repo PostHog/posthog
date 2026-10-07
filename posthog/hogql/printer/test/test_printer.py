@@ -4073,8 +4073,9 @@ class TestPrinter(BaseTest):
         # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
         # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
         assert "(SELECT * FROM " in printed
-        assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
+        assert "SETTINGS optimize_move_to_prewhere = 0, date_time_overflow_behavior = 'saturate')" in printed
         assert printed.count("optimize_move_to_prewhere") == 1
+        assert printed.count("date_time_overflow_behavior") == 1
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")

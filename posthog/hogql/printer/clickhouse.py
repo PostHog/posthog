@@ -1104,8 +1104,10 @@ class ClickHousePrinter(BasePrinter):
         # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
         # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
         # See ClickHouse issue 80443.
+        # A synced date outside the Date32 range (1900 to 2299) makes the Parquet reader fail the
+        # whole query, so the read clamps such values to the range bounds instead.
         if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
-            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0, date_time_overflow_behavior = 'saturate')"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table, S3Table) and (
