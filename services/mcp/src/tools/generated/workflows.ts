@@ -592,6 +592,9 @@ const workflowsTestRun = (): ToolBase<ReturnType<typeof WorkflowsTestRunSchema>,
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsTestRunSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.testing_v2 !== undefined) {
+            body['testing_v2'] = params.testing_v2
+        }
         if (params.globals !== undefined) {
             body['globals'] = params.globals
         }

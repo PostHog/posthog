@@ -51,6 +51,7 @@ export function EmailActionTestContent(): JSX.Element | null {
         sampleGlobalsLoading,
         sampleGlobalsError,
         testEmailAddress,
+        testingV2Enabled,
         emailAddressOverride,
         runTestDisabledReason,
     } = useValues(hogFlowEditorNotificationTestLogic(logicProps))
@@ -117,25 +118,33 @@ export function EmailActionTestContent(): JSX.Element | null {
                                 size="small"
                                 bordered
                                 label={
-                                    <Tooltip title="When off, the test does not send the email. It logs it instead.">
+                                    <Tooltip
+                                        title={
+                                            testingV2Enabled
+                                                ? 'When off, the test does not send the email. It logs it instead.'
+                                                : 'When off, HTTP requests are mocked instead of sent.'
+                                        }
+                                    >
                                         <span className="flex gap-2">
-                                            Send real email to
+                                            {testingV2Enabled ? 'Send real email to' : 'Make real HTTP requests'}
                                             <IconInfo className="text-lg" />
                                         </span>
                                     </Tooltip>
                                 }
                             />
-                            <LemonInput
-                                type="email"
-                                size="small"
-                                value={emailAddressOverride ?? ''}
-                                onChange={setEmailAddressOverride}
-                                placeholder={testEmailAddress || 'Enter email address'}
-                                disabledReason={value ? 'Turn on "Send real email to" to change the address' : null}
-                                aria-label="Test email address"
-                                className="flex-1 min-w-40"
-                                data-attr="workflow-test-email-recipient"
-                            />
+                            {testingV2Enabled && (
+                                <LemonInput
+                                    type="email"
+                                    size="small"
+                                    value={emailAddressOverride ?? ''}
+                                    onChange={setEmailAddressOverride}
+                                    placeholder={testEmailAddress || 'Enter email address'}
+                                    disabledReason={value ? 'Turn on "Send real email to" to change the address' : null}
+                                    aria-label="Test email address"
+                                    className="flex-1 min-w-40"
+                                    data-attr="workflow-test-email-recipient"
+                                />
+                            )}
                         </div>
                     )}
                 </LemonField>
@@ -321,6 +330,18 @@ export function EmailActionTestContent(): JSX.Element | null {
                             <ProfilePicture name={asDisplay(sampleGlobals.person)} />
                             <div className="flex-1">
                                 <div className="font-semibold">{sampleGlobals.person.name || 'Sample Person'}</div>
+                                {!testingV2Enabled && (
+                                    <>
+                                        <LemonLabel>Email address</LemonLabel>
+                                        <LemonInput
+                                            value={testEmailAddress}
+                                            onChange={setEmailAddressOverride}
+                                            placeholder="Enter email address"
+                                            type="email"
+                                            className="mt-1"
+                                        />
+                                    </>
+                                )}
                             </div>
                         </div>
                     ) : null}

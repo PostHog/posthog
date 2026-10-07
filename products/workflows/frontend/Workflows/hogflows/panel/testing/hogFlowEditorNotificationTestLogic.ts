@@ -31,7 +31,8 @@ const STANDARD_SEARCH_RANGE = `-7d`
 export interface hogFlowEditorNotificationTestLogicValues {
     selectedNodeId: string | null // hogFlowEditorLogic
     emailAddressOverride: string | null // testEmailRecipientLogic
-    testEmailAddress: string // testEmailRecipientLogic
+    testEmailRecipientAddress: string // testEmailRecipientLogic
+    testingV2Enabled: boolean // testEmailRecipientLogic
     workflow: HogFlow // workflowLogic
     workflowSanitized: HogFlow // workflowLogic
     isTestInvocationSubmitting: boolean
@@ -49,6 +50,7 @@ export interface hogFlowEditorNotificationTestLogicValues {
     samplePersonsLoading: boolean
     selectedPersonDistinctId: string | null
     showTestInvocationErrors: boolean
+    testEmailAddress: string
     testInvocation: HogflowTestInvocation
     testInvocationAllErrors: Record<string, any>
     testInvocationChanged: boolean
@@ -189,6 +191,10 @@ export interface hogFlowEditorNotificationTestLogicActions {
 export interface hogFlowEditorNotificationTestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        testEmailAddress: (
+            testEmailRecipientAddress: any,
+            sampleGlobals: CyclotronJobInvocationGlobals | null
+        ) => string
         runTestDisabledReason: (
             sampleGlobals: CyclotronJobInvocationGlobals | null,
             testInvocation: HogflowTestInvocation,
@@ -225,7 +231,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             hogFlowEditorLogic,
             ['selectedNodeId'],
             testEmailRecipientLogic,
-            ['emailAddressOverride', 'testEmailAddress'],
+            ['emailAddressOverride', 'testEmailAddress as testEmailRecipientAddress', 'testingV2Enabled'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId'], testEmailRecipientLogic, ['setEmailAddressOverride']],
     })),
@@ -361,6 +367,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 try {
                     const parsedGlobals = JSON.parse(testInvocation.globals)
 
+                    // nosemgrep: prefer-codegen-api-namespaced-workflows
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: testInvocation.mock_async_functions
                             ? values.workflowSanitized
@@ -376,6 +383,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                             ),
                         },
                         mock_async_functions: testInvocation.mock_async_functions,
+                        testing_v2: values.testingV2Enabled,
                         current_action_id: values.selectedNodeId ?? undefined,
                     })
 
@@ -404,6 +412,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         },
     })),
     selectors({
+        testEmailAddress: [
+            (s) => [s.testEmailRecipientAddress, s.sampleGlobals],
+            (address: string, globals: CyclotronJobInvocationGlobals | null): string =>
+                address || globals?.person?.properties?.email || '',
+        ],
         runTestDisabledReason: [
             (s) => [s.sampleGlobals, s.testInvocation, s.testEmailAddress],
             (

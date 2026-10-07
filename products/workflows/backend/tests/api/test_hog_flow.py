@@ -2617,7 +2617,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "missing its resolution edge" in str(response.json())
 
-    def test_can_call_a_test_invocation(self):
+    @parameterized.expand([(False, False, 200), (False, True, 403), (True, True, 200)])
+    def test_can_call_a_test_invocation(self, flag_enabled: bool, testing_v2: bool, expected_status: int) -> None:
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -2625,9 +2626,15 @@ class TestHogFlowAPI(APIBaseTest):
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
-        with patch(
-            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
-        ) as mock_invoke:
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.posthog_feature_flag_enabled",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+        ):
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
 
             response = self.client.post(
@@ -2635,10 +2642,14 @@ class TestHogFlowAPI(APIBaseTest):
                 data={
                     "globals": {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}},
                     "mock_async_functions": True,
+                    "testing_v2": testing_v2,
                 },
             )
 
-            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.status_code == expected_status, response.json()
+            if expected_status == 403:
+                mock_invoke.assert_not_called()
+                return
             assert response.json() == {"status": "success"}
 
             assert mock_invoke.call_count == 1

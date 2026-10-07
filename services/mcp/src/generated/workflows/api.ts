@@ -928,10 +928,15 @@ export const HogFlowsInvocationsCreateParams = () => zod.object({
         ),
 })
 
+export const hogFlowsInvocationsCreateBodyTestingV2Default = false
 export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = () => zod.object({
+    testing_v2: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyTestingV2Default)
+        .describe('Use the enhanced testing experience. Requires workflows-testing-v2 for this project and caller.'),
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()

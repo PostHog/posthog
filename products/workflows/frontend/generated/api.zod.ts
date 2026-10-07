@@ -1838,6 +1838,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const hogFlowsInvocationsCreateBodyTestingV2Default = false
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
@@ -1874,6 +1875,10 @@ export const hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 export const hogFlowsInvocationsCreateBodyUseDraftDefault = false
 
 export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
+    testing_v2: zod
+        .boolean()
+        .default(hogFlowsInvocationsCreateBodyTestingV2Default)
+        .describe('Use the enhanced testing experience. Requires workflows-testing-v2 for this project and caller.'),
     configuration: zod
         .object({
             id: zod.uuid(),

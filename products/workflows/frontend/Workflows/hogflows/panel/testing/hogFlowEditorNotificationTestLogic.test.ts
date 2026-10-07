@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -30,8 +31,8 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/persons/': { results: [] },
-                '/api/environments/@current/hog_flows/test-workflow-id/': {
+                '/api/projects/:team_id/persons/': { results: [] },
+                '/api/projects/:team_id/hog_flows/test-workflow-id/': {
                     id: 'test-workflow-id',
                     team_id: 1,
                     name: 'Test Workflow',
@@ -39,11 +40,12 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                     actions: [],
                     edges: [],
                 },
-                '/api/environments/@current/messaging_categories': { results: [] },
+                '/api/projects/:team_id/messaging_categories': { results: [] },
             },
         })
 
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags(['workflows-testing-v2'], { 'workflows-testing-v2': true })
 
         workflowLogicInstance = workflowLogic({ id: 'test-workflow-id' })
         workflowLogicInstance.mount()
@@ -323,7 +325,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/persons/': {
+                    '/api/projects/:team_id/persons/': {
                         results: [
                             {
                                 id: 'person-1',
@@ -352,7 +354,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/persons/': {
+                    '/api/projects/:team_id/persons/': {
                         results: [
                             {
                                 id: 'person-2',
@@ -390,7 +392,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/persons/': {
+                    '/api/projects/:team_id/persons/': {
                         results: [
                             {
                                 id: 'person-1',
@@ -489,11 +491,12 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
         let postedBody: Record<string, any> | null = null
 
-        beforeEach(() => {
+        beforeEach(async () => {
+            await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
             postedBody = null
             useMocks({
                 post: {
-                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                    '/api/projects/:team_id/hog_flows/:id/invocations': async ({ request }) => {
                         postedBody = (await request.json()) as Record<string, any>
                         return [200, { status: 'success', nextActionId: null, logs: [] }]
                     },
@@ -517,12 +520,14 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 false,
                 null,
                 { to: { email: MOCK_DEFAULT_USER.email }, cc: '', bcc: '' },
+                true,
             ],
             [
                 'sends a real test only to the address typed for tests',
                 false,
                 'qa@example.com',
                 { to: { email: 'qa@example.com' }, cc: '', bcc: '' },
+                true,
             ],
             [
                 'leaves the recipients of a mocked test as configured',
@@ -533,8 +538,19 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                     cc: 'account-manager@example.com',
                     bcc: 'audit@example.com',
                 },
+                true,
             ],
-        ])('%s', async (_, mocked, typedAddress, expectedRecipients) => {
+            [
+                'keeps the selected person recipient when enhanced testing is off',
+                false,
+                null,
+                { to: { email: 'customer@example.com' }, cc: '', bcc: '' },
+                false,
+            ],
+        ])('%s', async (_, mocked, typedAddress, expectedRecipients, enabled) => {
+            featureFlagLogic.actions.setFeatureFlags(enabled ? ['workflows-testing-v2'] : [], {
+                'workflows-testing-v2': enabled,
+            })
             if (typedAddress) {
                 logic.actions.setEmailAddressOverride(typedAddress)
             }
@@ -552,6 +568,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                 expect(action.config.inputs.email.value).toMatchObject({ ...expectedRecipients, subject: 'Welcome' })
             }
             expect(postedBody!.globals.person.properties.email).toEqual('customer@example.com')
+            expect(postedBody!.testing_v2 ?? false).toEqual(enabled)
         })
 
         it.each([

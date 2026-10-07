@@ -53323,6 +53323,8 @@ export namespace Schemas {
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
     export interface HogFlowInvocation {
+      /** Use the enhanced testing experience. Requires workflows-testing-v2 for this project and caller. */
+      testing_v2?: boolean;
       /** Optional override; omit to use saved definition. */
       configuration?: HogFlow;
       /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
