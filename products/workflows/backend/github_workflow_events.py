@@ -13,8 +13,6 @@ import json
 import uuid
 from typing import Any
 
-from django.conf import settings
-
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
@@ -186,9 +184,6 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
     Never raises. This runs inside the webhook fan-out, which owes GitHub a fast response and
     shares the request with the tasks, conversations and loops handlers.
     """
-    if not settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED:
-        return
-
     installation_id = (payload.get("installation") or {}).get("id")
     if installation_id is None:
         return

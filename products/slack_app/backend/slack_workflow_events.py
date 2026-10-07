@@ -8,8 +8,6 @@ wants, and the CDP consumer evaluates that, so nothing here needs to know a trig
 import uuid
 from typing import Any
 
-from django.conf import settings
-
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
@@ -64,7 +62,7 @@ def is_triggering_message(event: dict[str, Any]) -> bool:
     Exposed so the webhook can decide about a cross-region mirror without spending a probe or a
     hop on the subtypes (edits, joins, deletions) no trigger fires on.
     """
-    return bool(settings.SLACK_WORKFLOW_TRIGGERS_ENABLED) and event.get("subtype") in _TRIGGERING_SUBTYPES
+    return event.get("subtype") in _TRIGGERING_SUBTYPES
 
 
 def emit_slack_message_event(
