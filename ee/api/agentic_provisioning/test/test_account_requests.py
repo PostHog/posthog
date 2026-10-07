@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -53,11 +54,12 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(data["oauth"]["code"]) > 0
         assert User.objects.filter(email="newuser@example.com").exists()
 
-    def test_new_user_creates_org_and_team(self):
+    def test_new_user_creates_org_and_team_attributed_to_partner(self):
         self._post_account_request(self._account_request_payload())
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+        assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
 
     def test_new_user_starts_unverified(self):
         # Partner-asserted email ownership is not trusted: the user must prove they own

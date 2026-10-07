@@ -543,27 +543,30 @@ elif [[ -n "$_flox_rustc_ver" ]]; then
 fi
 
 # ── macOS SDK check for lld (aarch64-darwin only) ──────────────────
-# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs drop the
-# arm64-macos slice from their libSystem/libc/libm .tbd stubs and add an
-# arm64e.x1 slice that lld cannot parse, which fails every Rust link with
-# undefined libc symbols. Pin SDKROOT to the newest SDK lld can still read.
+# rust/.cargo/config.toml links Rust via lld here. Newer macOS SDKs add an
+# arm64e.x1 slice to their libSystem/libc/libm .tbd stubs. lld cannot parse
+# that slice, so it discards the whole stub and every Rust link fails with
+# undefined libc symbols. An SDK can lack an arm64-macos slice and still link,
+# because lld links arm64 output against an arm64e-macos slice.
+# Pin SDKROOT to the newest SDK lld can still read.
 if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && command -v lld >/dev/null 2>&1; then
-  _sdk_links_arm64() {
-    local tbd="$1/usr/lib/libSystem.tbd"
+  _sdk_lld_can_link() {
+    local tbd="$1/usr/lib/libSystem.tbd" targets
     [[ -r "$tbd" ]] || return 1
-    awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd" |
-      grep -qE '(^|[][ ,])arm64-macos([],]|$)'
+    targets=$(awk '/^targets:/{f=1} f{print} f&&/]/{exit}' "$tbd")
+    grep -qE '(^|[][[:space:],])arm64e?-macos([][:space:],]|$)' <<<"$targets" &&
+      ! grep -qF 'arm64e.x1' <<<"$targets"
   }
 
   _active_sdk=$(xcrun --show-sdk-path 2>/dev/null)
-  if [[ -n "$_active_sdk" ]] && ! _sdk_links_arm64 "$_active_sdk"; then
+  if [[ -n "$_active_sdk" ]] && ! _sdk_lld_can_link "$_active_sdk"; then
     _sdk_dirs=(/Library/Developer/CommandLineTools/SDKs)
     _xcode_dev_dir=$(xcode-select -p 2>/dev/null)
     [[ -n "$_xcode_dev_dir" ]] && _sdk_dirs+=("$_xcode_dev_dir/Platforms/MacOSX.platform/Developer/SDKs")
 
     _lld_sdk=""
     while IFS=$'\t' read -r _ _candidate; do
-      if _sdk_links_arm64 "$_candidate"; then
+      if _sdk_lld_can_link "$_candidate"; then
         _lld_sdk="$_candidate"
         break
       fi
@@ -582,11 +585,11 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
       done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
     else
       warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
-      echo -e "    ${C_DIM}$(basename "$_active_sdk") has no arm64-macos slice in its .tbd stubs.${C_RESET}"
+      echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
       echo -e "    ${C_DIM}Fix: install an older SDK, or drop -fuse-ld=lld from rust/.cargo/config.toml.${C_RESET}"
     fi
   fi
-  unset -f _sdk_links_arm64
+  unset -f _sdk_lld_can_link
 fi
 
 # Share a single Cargo target dir so worktrees skip redundant linking

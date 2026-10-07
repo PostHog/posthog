@@ -68,6 +68,7 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
@@ -188,11 +189,11 @@ from posthog.models import Team, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.models.team.team_event_volume import events_last_year_for
 from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
-    QUERY_FAILURE_CACHING_FLAG,
     Budget,
     QueryFailureCache,
     QueryFailureRecord,
@@ -539,7 +540,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
     if not budget_enabled():
         return None
     try:
-        spec = budget_spec_for(team.organization)
+        spec = budget_spec_for(team.organization, events_last_year_for(team.pk))
         remaining = refill_and_read(str(team.pk), spec)
         if remaining is None:
             return None
@@ -577,6 +578,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
@@ -621,7 +623,7 @@ def get_query_runner(
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
-    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+    if kind in ("DataTableNode", "DataVisualizationNode", "BIVisualizationNode", "InsightVizNode"):
         source = get_from_dict_or_attr(query, "source")
         return get_query_runner(
             query=source,
@@ -1585,6 +1587,15 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+            MarketingAnalyticsSearchQueryRunner,
+        )
+
+        return MarketingAnalyticsSearchQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
+
     if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_retention_query_runner import (
             MarketingAnalyticsRetentionQueryRunner,
@@ -2067,7 +2078,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raw_results: Optional[bytes] = None
         # The breaker record is only needed here to gate async dispatch; blocking execution is
         # gated once, inside _execute_and_cache_blocking.
-        include_failure = self._query_failure_caching_enabled and execution_mode in (
+        include_failure = execution_mode in (
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
@@ -2197,10 +2208,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # cached raw results (if any) must not leak onto the fresh response.
         self.raw_cached_results_bytes = None
         return None
-
-    @cached_property
-    def _query_failure_caching_enabled(self) -> bool:
-        return self._team_flag_enabled_locally(QUERY_FAILURE_CACHING_FLAG)
 
     @cached_property
     def _query_single_flight_enabled(self) -> bool:
@@ -2475,8 +2482,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # The forced dispatch skips the result cache, but not the breaker: the
                         # enqueued job runs under the async budget, so only failures that cover
                         # that budget forbid it.
-                        if self._query_failure_caching_enabled:
-                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
+                        self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
                         # We should always kick off async calculation and disregard the cache.
                         # cache_hit is left unset on this path because the cache wasn't consulted.
                         slo.tag(execution_path="async_dispatched")
@@ -2579,15 +2585,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _raise_if_breaker_forbids(self, cache_manager: QueryCache, user: Optional[User]) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         self._raise_if_failure_fresh_for(
             cache_manager.open_failure(), budget_for_limit_context(self.limit_context), user
         )
 
     def _record_breaker_failure(self, cache_manager: QueryCache, exc: Exception) -> None:
-        if not self._query_failure_caching_enabled:
-            return
         # Transient error classes classify to None and are never recorded.
         failure_kind = classify_failure(exc, self.team.pk)
         if failure_kind is not None:
@@ -2896,7 +2898,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
 
-            if not has_error and self._query_failure_caching_enabled:
+            if not has_error:
                 # Deliberately outside the cache-write condition above: a successful export or
                 # debug run doesn't cache its result but must still close the failure breaker.
                 cache_manager.clear_failure()

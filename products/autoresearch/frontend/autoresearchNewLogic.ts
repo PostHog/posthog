@@ -167,7 +167,10 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     const teamId = values.currentTeamId
                     const { horizon_days, training_lookback_days, training_population, inference_population } =
                         values.newPipeline
-                    if (!teamId || !hasTarget(values.newPipeline)) {
+                    const { horizon_days: horizonError, training_lookback_days: lookbackError } =
+                        values.newPipelineValidationErrors
+                    // A cleared number input holds NaN, which serializes to null and the API rejects.
+                    if (!teamId || !hasTarget(values.newPipeline) || horizonError || lookbackError) {
                         return null
                     }
                     const { target_event, target_definition } = targetRequestFields(values.newPipeline)
@@ -222,13 +225,17 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                         ? 'Prediction horizon must be at least 1 day'
                         : formValues.horizon_days > 365
                           ? 'Prediction horizon must be 365 days or fewer'
-                          : undefined,
+                          : !Number.isInteger(formValues.horizon_days)
+                            ? 'Prediction horizon must be a whole number of days'
+                            : undefined,
                 training_lookback_days:
                     !formValues.training_lookback_days || formValues.training_lookback_days < 7
                         ? 'Training lookback must be at least 7 days'
                         : formValues.training_lookback_days > 730
                           ? 'Training lookback must be 730 days or fewer'
-                          : undefined,
+                          : !Number.isInteger(formValues.training_lookback_days)
+                            ? 'Training lookback must be a whole number of days'
+                            : undefined,
             }),
             submit: async (payload: NewPipelineFormValues) => {
                 if (!values.currentTeamId) {

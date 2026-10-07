@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 from uuid import UUID
 
@@ -78,7 +79,12 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 style="form",
                 explode=False,
                 description="Filter by one or more comma-separated run statuses.",
-            )
+            ),
+            OpenApiParameter(
+                name="created_after",
+                type=datetime,
+                description="Only return runs created after this timestamp.",
+            ),
         ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )

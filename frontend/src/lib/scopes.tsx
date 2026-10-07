@@ -4,6 +4,16 @@ import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+export const countScopeRowsByLevel = (rows: { value: ScopeAccessLevel }[]): Record<ScopeAccessLevel, number> => {
+    const counts: Record<ScopeAccessLevel, number> = { none: 0, read: 0, write: 0 }
+    for (const row of rows) {
+        counts[row.value] += 1
+    }
+    return counts
+}
+
 export type APIScope = {
     key: APIScopeObject
     objectName: string
@@ -249,6 +259,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'today', objectName: 'Today briefing', objectPlural: 'Today briefings' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
     { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
@@ -266,14 +277,10 @@ export const API_SCOPES: APIScope[] = [
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every grantable scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here —
+// Every scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here,
+// except the OAuth-hidden ones in `OAUTH_SCOPES_HIDDEN` (lib/oauthScopes.generated), which no picker shows.
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
-    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
-    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
@@ -281,6 +288,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
+    cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
@@ -318,9 +326,23 @@ export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
-export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
-    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
-)
+// A preset must not set a level the key picker cannot show, or the picker shows the level on a
+// disabled segment. A write on a write-disabled object falls back to read, which write implies on the
+// server anyway. A scope with no allowed level is dropped.
+export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
+    ...new Set(
+        scopes.flatMap((scope) => {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+                return [scope]
+            }
+            const [object, action] = scope.split(':')
+            const read = `${object}:read`
+            return action === 'write' && API_KEY_CREATION_RENDERABLE_SCOPES.has(read) ? [read] : []
+        })
+    ),
+]
+
+export const AGENT_CLI_API_KEY_SCOPES = clampToKeyCreationScopes(AGENT_USE_CASE_SCOPES)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -356,9 +378,11 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
-        scopes: API_SCOPES.filter(
-            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
-        ).map(({ key }) => `${key}:write`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system').map(
+                ({ key }) => `${key}:write`
+            )
+        ),
         access_type: 'all',
     },
     {
@@ -370,7 +394,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`)
+        ),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -393,10 +419,9 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
-// The product areas that the scope pickers use to group objects, in display order. Each grantable
-// scope object in `ScopeObjectEnumApi` is in exactly one group, and scopes.test.ts fails until a new
-// object has a group. OAuth-hidden objects go in the last group, "Internal tools". The pickers do not
-// show those objects, so a person never sees that group.
+// The product areas that the scope pickers use to group objects, in display order. Each scope object
+// in `ScopeObjectEnumApi` is in exactly one group, except the OAuth-hidden ones, which no picker shows.
+// scopes.test.ts fails until a new object has a group.
 export type APIScopeGroup = {
     label: string
     objects: APIScopeObject[]
@@ -410,6 +435,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'insight_variable',
             'dashboard',
             'dashboard_template',
+            'cross_project_dashboard',
             'query',
             'notebook',
             'canvas',
@@ -506,6 +532,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'today',
             'loop',
             'signal_scout',
             'review_hog',
@@ -556,10 +583,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'file_system',
             'file_system_shortcut',
         ],
-    },
-    {
-        label: 'Internal tools',
-        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 

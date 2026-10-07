@@ -108,6 +108,18 @@ export const Narrow: Story = {
 /** A check's whole life in the log: scheduled, run, stopped, and retired without a verdict. */
 const checkLifecycleArtefacts = [
     {
+        id: 'check-inconclusive',
+        type: 'check_result',
+        created_at: '2026-10-27T10:00:00Z',
+        content: {
+            check_id: 'check-d',
+            kind: 'metric_threshold',
+            title: 'Export failures stay below the goal',
+            outcome: 'inconclusive',
+            explanation: 'The measurement window cannot fit before expiry.',
+        },
+    },
+    {
         id: 'check-expired',
         type: 'check_expired',
         created_at: '2026-10-27T09:00:00Z',
@@ -237,4 +249,102 @@ const linkArtefacts = [
 export const LinkedReportGates: Story = {
     parameters: { mockDate: '2026-09-23T10:00:00Z' },
     args: { artefacts: linkArtefacts },
+}
+
+/** A staff-only scoring pass: the served model, one challenger, and one model that could not score. */
+const rankingArtefacts = [
+    {
+        id: 'work-release',
+        type: 'work_release',
+        created_at: '2026-09-29T09:58:00Z',
+        content: { reason: 'taken_over' },
+    },
+    {
+        id: 'work-claim',
+        type: 'work_claim',
+        created_at: '2026-09-29T09:56:00Z',
+        content: { display_name: 'Ada' },
+    },
+    {
+        id: 'ranking-score',
+        type: 'ranking_score',
+        created_at: '2026-09-29T09:00:00Z',
+        content: {
+            scored_at: '2026-09-29T09:00:00Z',
+            manifest_version: '12',
+            served_key: 'report_embeddings@2026-09-28',
+            results: {
+                'report_embeddings@2026-09-28': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['served'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.78, pr_merged: 0.52, dismiss_wrong: 0.14, reviewer_fix: 0.04 },
+                    lifts: { action: 1.3, pr_merged: 2.6, dismiss_wrong: 0.7 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'reviewer_fix', readable: false },
+                        ],
+                    },
+                },
+                'report_embeddings@2026-09-29': {
+                    model_name: 'report_embeddings',
+                    model_version: '2026-09-29',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 3,
+                    status: 'scored',
+                    scores: { action: 0.74, pr_merged: 0.55, dismiss_wrong: 0.11 },
+                    metadata: {
+                        heads: [
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
+                        ],
+                    },
+                },
+                'signal_counts@2026-09-28': {
+                    model_name: 'signal_counts',
+                    model_version: '2026-09-28',
+                    model_kind: 'xgboost',
+                    roles: ['challenger'],
+                    feature_schema_version: 1,
+                    status: 'skipped',
+                    skip_reason: 'missing report vector',
+                    scores: {},
+                    metadata: {},
+                },
+            },
+        },
+    },
+]
+
+const openOtherModels: Story['play'] = async ({ canvas }) => {
+    // The list renders after play starts, so wait for the disclosure or the snapshot catches it closed.
+    const summary = await canvas.findByText(/Other models/)
+    summary.closest('details')?.setAttribute('open', '')
+}
+
+export const RankingScore: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+}
+export const RankingScoreNarrow: Story = {
+    parameters: { mockDate: '2026-09-29T10:00:00Z' },
+    args: { artefacts: rankingArtefacts },
+    play: openOtherModels,
+    decorators: [
+        (Story) => (
+            // About 520px of scene, the width left next to the nav sidebar and an open side panel.
+            <div className="w-[20rem] p-5">
+                <Story />
+            </div>
+        ),
+    ],
 }

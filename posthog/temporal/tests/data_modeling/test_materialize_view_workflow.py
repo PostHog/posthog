@@ -422,6 +422,9 @@ class TestQualityGateBranching:
         assert execute_activity.await_args_list[1].args[1].engine == DataModelingJobEngine.MANAGED_WAREHOUSE
         collect.assert_awaited_once()
         assert start_shadow.call_args.args[1].use_trino is trino_patch
+        assert start_shadow.call_args.kwargs["start_to_close_timeout"] == dt.timedelta(
+            minutes=365 if trino_patch else 20
+        )
 
 
 def _cancelled_child_error() -> ChildWorkflowError:

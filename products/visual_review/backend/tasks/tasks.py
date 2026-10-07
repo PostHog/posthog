@@ -34,6 +34,8 @@ _DEBT_DIGEST_LOCK_SECONDS = 900
 # A child task worth running is a child task worth running today. A worker draining a backlog past
 # this drops it, and the next morning's run recomputes what is still owed.
 _DEBT_DIGEST_EXPIRY_SECONDS = 60 * 60
+# A notice that sat in a backed-up queue no longer reports something that just happened.
+QUARANTINE_NOTICE_EXPIRY_SECONDS = 15 * 60
 
 # Past the sweep budget in logic/retention.py and below the grace period a deploy gives a busy
 # worker. A sweep that overruns its budget then fails with a logged error. Without the limit the
@@ -241,3 +243,51 @@ def send_visual_review_debt_digest(team_id: int, repo_id: str) -> None:
         return
 
     debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.notify_quarantine_owners",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
+    """Tell the team that owns a just-quarantined story, in its Slack channel."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_quarantine_notice(UUID(entry_id), team_id)
+    except Exception:
+        # Nothing retries a notice: a late one no longer reports something that just happened.
+        logger.warning("visual_review.quarantine_notice_failed", entry_id=entry_id, team_id=team_id, exc_info=True)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
+    """Apply the pending lift requests that a completed default-branch run proves ready."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import quarantine_lifts  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_lifts.reconcile_lift_requests(UUID(run_id))
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.quarantine_lift_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        # `retry(exc=e)` re-raises `e` once the budget is spent, so check the budget first.
+        if self.max_retries is not None and self.request.retries >= self.max_retries:
+            # The next default-branch run checks the same requests again.
+            logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
+            return
+        raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)

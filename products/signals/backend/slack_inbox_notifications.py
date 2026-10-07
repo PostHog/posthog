@@ -29,6 +29,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
     escape_slack_mrkdwn as _escape_mrkdwn,
+    markdown_links_to_labels,
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
@@ -127,21 +128,6 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
         return True
     # Lower index = higher priority (P0 < P4).
     return report_rank <= min_rank
-
-
-def _report_repository(report: SignalReport) -> str | None:
-    """The repository the report's research selected, from the latest repo_selection artefact."""
-    art = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION).order_by("-created_at").first()
-    if art is None:
-        return None
-    try:
-        data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    repo = data.get("repository")
-    return repo.strip() if isinstance(repo, str) and repo.strip() else None
 
 
 def _latest_priority(report: SignalReport) -> str | None:
@@ -306,6 +292,9 @@ def _summary_excerpt(summary: str) -> str:
     first_line = text.splitlines()[0].strip()
     if not first_line:
         return ""
+    if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
+        return first_line
+    first_line = markdown_links_to_labels(first_line)
     if len(first_line) <= _SUMMARY_EXCERPT_MAX_LEN:
         return first_line
     return first_line[: _SUMMARY_EXCERPT_MAX_LEN - 3].rstrip() + "..."
@@ -733,7 +722,7 @@ def _deliver_to_routes(
     signals: list[dict] | None = None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
-    repository = _report_repository(report)
+    repository = report.selected_repository()
     sent = 0
     for route in routes:
         if _deliver_route_notification(

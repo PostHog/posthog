@@ -21,6 +21,7 @@ the main account content on wide account scenes.
 At the top of the sidebar, the left action opens a modal where you add the account to your event stream. If your stream isn't set up or is turned off, the modal links to the event stream settings. The back arrow on the settings page returns to the account. The right action edits the account.
 The account editor includes the name, website domain, billing ID, Slack channel ID, Salesforce ID, email domains, and known emails.
 It also includes the Stripe ID when the account already has one. The external ID remains read-only.
+The external ID shows under the account name on every account page, with a copy button.
 Saving refreshes the account title and breadcrumb. A failed save keeps the editor open for retry.
 
 Pinned rows load current values for the selected account. Missing custom values display

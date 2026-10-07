@@ -25,6 +25,7 @@ export const SECTIONS = [
     { id: 'toolbar-size', title: 'Toolbar bundle' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
+    { id: 'mcp-agent-api', title: 'MCP agent API' },
     { id: 'playwright', title: 'Playwright' },
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
@@ -40,6 +41,7 @@ export const SECTIONS = [
     { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
     { id: 'replay-anonymizer-crate', title: 'posthog-replay-anonymizer version' },
     { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'hogbox-preview', title: 'Hogbox preview' },
     { id: 'docs-preview', title: 'Docs preview' },
     { id: 'hobby-deploy', title: 'Hobby preview' },
     { id: 'survey-sdk', title: 'Survey SDK reminder' },
@@ -168,7 +170,8 @@ export async function gh(token, url, options = {}) {
 }
 
 // Resolve the PR-comment context from the Actions environment, or null (reason logged)
-// when this run cannot comment — missing env or not a pull_request event.
+// when this run cannot comment — missing env, or neither a pull_request event nor a
+// PR_NUMBER (a workflow_dispatch payload carries no pull_request, so its caller names the PR).
 export function resolvePrContext(activity) {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
     const repo = process.env.GITHUB_REPOSITORY
@@ -177,9 +180,10 @@ export function resolvePrContext(activity) {
         console.info(`Missing GitHub environment (token/repository/event) — skipping ${activity}.`)
         return null
     }
-    const prNumber = JSON.parse(fs.readFileSync(eventPath, 'utf-8')).pull_request?.number
+    const prNumber =
+        JSON.parse(fs.readFileSync(eventPath, 'utf-8')).pull_request?.number || Number(process.env.PR_NUMBER) || null
     if (!prNumber) {
-        console.info(`Not a pull request event — skipping ${activity}.`)
+        console.info(`Not a pull request event and no PR_NUMBER — skipping ${activity}.`)
         return null
     }
     return { token, repo, prNumber }
@@ -252,9 +256,17 @@ function isWriteConflict(err) {
  * @param {{ id: string, summary: string, body: string }} section
  * @param {{ legacyPrefixes?: string[] }} options
  */
-export async function clearSectionIfPresent({ id, summary, body }, options = {}) {
+export async function clearSectionIfPresent(section, options = {}) {
+    await updateSectionIfPresent({ ...section, status: 'ok' }, options)
+}
+
+/**
+ * @param {{ id: string, status: string, summary: string, body: string }} section
+ * @param {{ legacyPrefixes?: string[] }} options
+ */
+export async function updateSectionIfPresent({ id, status, summary, body }, options = {}) {
     const { legacyPrefixes = [] } = options
-    const context = resolvePrContext(`clearing "${id}"`)
+    const context = resolvePrContext(`updating "${id}"`)
     if (!context) {
         return
     }
@@ -267,10 +279,10 @@ export async function clearSectionIfPresent({ id, summary, body }, options = {})
         return
     }
     if (!reportComment || !parseSections(reportComment.body).has(id)) {
-        console.info(`No existing "${id}" section — nothing to clear.`)
+        console.info(`No existing "${id}" section — nothing to update.`)
         return
     }
-    await postSection({ id, status: 'ok', summary, body })
+    await postSection({ id, status, summary, body })
 }
 
 // Post or update this run's section into the shared comment. Fork PRs run with a

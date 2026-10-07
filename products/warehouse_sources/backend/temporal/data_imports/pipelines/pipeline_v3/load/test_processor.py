@@ -19,11 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_covers_batch
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.post_load_phases import (
+    SUMMARY_EVENT,
+    post_load_phase,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
     _enrich_cdc_rows,
@@ -259,6 +264,7 @@ def _message(**overrides: Any) -> dict[str, Any]:
 
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
+_POST_LOAD_RESULT = PostLoadResult(queryable_folder="folder", table_size_written=True)
 
 
 class TestProcessMessageOwnershipGate:
@@ -496,7 +502,7 @@ class TestMarkJobCompleted:
 
 class TestRedeliveredFinalBatchPostLoad:
     @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -641,7 +647,7 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -685,7 +691,9 @@ class TestProcessMessages:
         assert mock_post_load.await_args is not None
         assert mock_post_load.await_args.kwargs["row_count"] == 6
         mock_mark_completed.assert_called_once()
-        mock_trigger.assert_called_once()
+        # Without the flag the post-import workflow opens the table again to measure a size that
+        # post-load already recorded.
+        mock_trigger.assert_called_once_with(ANY, True)
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet")
@@ -776,7 +784,7 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -929,7 +937,7 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -965,7 +973,9 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(
+        f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=PostLoadResult(queryable_folder=None)
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -1106,6 +1116,22 @@ class TestPostImportTrigger:
 
         assert mock_connect.call_count == 2
         mock_capture.assert_not_called()
+
+    @parameterized.expand([("size_written", True), ("size_not_written", False)])
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_tells_the_workflow_whether_post_load_wrote_the_table_size(
+        self, _case: str, table_size_written: bool, mock_connect: AsyncMock
+    ) -> None:
+        # The workflow skips its size activity on True. A dropped False would leave a table that
+        # post-load could not size with no size at all.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(return_value=None)
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal(), table_size_written)
+
+        assert client.start_workflow.await_args is not None
+        assert client.start_workflow.await_args.args[1].table_size_written is table_size_written
 
     @patch(f"{_PROCESSOR}.capture_exception")
     @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
@@ -1446,13 +1472,24 @@ class TestReadExistingRowsByFirstPk:
             assert set(result.column("id").to_pylist()) == set(expected_ids)
 
 
+def _post_load_summary(mock_logger: MagicMock) -> dict[str, Any]:
+    summaries = [call.kwargs for call in mock_logger.info.call_args_list if call.args == (SUMMARY_EVENT,)]
+    assert len(summaries) == 1
+    return summaries[0]
+
+
 class TestBatchPhaseReports:
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}.mark_batch_as_processed")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=None)
+    @patch(
+        f"{_PROCESSOR}.run_post_load_operations",
+        new_callable=AsyncMock,
+        return_value=PostLoadResult(queryable_folder=None),
+    )
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
@@ -1471,7 +1508,13 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
+        async def post_load(**_kwargs: Any) -> PostLoadResult:
+            with post_load_phase("delta_maintenance"):
+                return PostLoadResult(queryable_folder=None)
+
+        _post_load.side_effect = post_load
         delta_table = MagicMock()
         delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
         delta_table.file_uris.return_value = []
@@ -1488,12 +1531,18 @@ class TestBatchPhaseReports:
             "post_load",
             "finalize",
         ]
+        summary = _post_load_summary(mock_logger)
+        assert summary["phase_names"] == ["delta_maintenance", "job_completion", "post_import_trigger"]
+        assert (summary["external_data_job_id"], summary["run_uuid"], summary["outcome"]) == ("job-1", "run-9", "ok")
 
+    @patch(f"{_PROCESSOR}.logger")
     @patch(f"{_PROCESSOR}.report_phase")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
     @patch(f"{_PROCESSOR}._mark_job_completed")
-    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(
+        f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=PostLoadResult(queryable_folder=None)
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
     @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
@@ -1509,9 +1558,11 @@ class TestBatchPhaseReports:
         _trigger: MagicMock,
         _analytics: MagicMock,
         mock_report_phase: MagicMock,
+        mock_logger: MagicMock,
     ) -> None:
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         process_message(_message(is_final_batch=True))
 
         assert [call.args[0] for call in mock_report_phase.call_args_list] == ["deliver", "post_load", "finalize"]
+        assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]

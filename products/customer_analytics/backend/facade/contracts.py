@@ -59,6 +59,12 @@ class PinnedAccountProperty:
     id: UUID
 
 
+class InvalidPinnedAccountProperties(ValueError):
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
 TASK_DIGEST_SEND_TIME_FORMAT = "%H:%M"
 
 
@@ -75,9 +81,17 @@ class TaskDigestPreferences:
 
 
 @dataclass(frozen=True)
+class AccountDetailTabsConfig:
+    ordered_tab_ids: list[str] = field(default_factory=list)
+    hidden_tab_ids: list[str] = field(default_factory=list)
+    default_tab_id: str | None = None
+
+
+@dataclass(frozen=True)
 class UserCustomerAnalyticsConfig:
     pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
     task_digest: TaskDigestPreferences = field(default_factory=TaskDigestPreferences)
+    account_detail_tabs: AccountDetailTabsConfig = field(default_factory=AccountDetailTabsConfig)
 
 
 RelationshipSourceValue = Literal["human", "workflow", "ai", "salesforce_claim", "migration"]
@@ -213,6 +227,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    is_recurring: bool
     gong_url: str | None
     start_time: datetime
     end_time: datetime | None
@@ -805,7 +820,7 @@ class AccountDetails:
 class AccountView:
     id: UUID
     name: str
-    visibility: Literal["private"]
+    visibility: Literal["private", "team"]
     content: dict[str, Any]
     text_content: str
     version: int
@@ -813,6 +828,9 @@ class AccountView:
     last_modified_by: int | None
     created_at: datetime
     updated_at: datetime
+    can_edit: bool
+    can_delete: bool
+    can_change_visibility: bool
 
 
 @stdlib_dataclass(frozen=True)
@@ -1352,6 +1370,8 @@ class AnnouncementView:
     short_id: str = ""
     message: str = ""
     status: str = ""
+    send_as: str = "bot"
+    sender_display_name: str = ""
     total_channels: int = 0
     sent_count: int = 0
     failed_count: int = 0

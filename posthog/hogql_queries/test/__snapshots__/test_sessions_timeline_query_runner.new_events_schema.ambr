@@ -28,7 +28,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -101,7 +103,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -174,7 +178,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -247,7 +253,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -320,7 +328,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -393,7 +403,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,
@@ -466,7 +478,9 @@
                if(not(empty(event_source__override.distinct_id)), event_source__override.person_id, event_source.person_id) AS person_id,
                toTimeZone(event_source.timestamp, 'UTC') AS timestamp,
                event_source.event AS event,
-               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), ','), '}')) AS properties,
+               JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                    and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                         and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(event_source.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(event_source.properties.`$feature_flags`), mapValues(event_source.properties.`$feature_flags`)), if(empty(event_source.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), event_source.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(event_source.temporary_properties)))), ','), '}')) AS properties,
                event_source.distinct_id AS distinct_id,
                event_source.elements_chain AS elements_chain,
                event_source.properties.`$session_id` AS session_id,

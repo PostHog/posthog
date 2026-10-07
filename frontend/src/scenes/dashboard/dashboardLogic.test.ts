@@ -328,6 +328,13 @@ describe('dashboardLogic', () => {
     })
 
     describe('malformed dashboard id', () => {
+        it('mounts and reports not found when id props are omitted during a scene transition', async () => {
+            const invalidLogic = dashboardLogic.build()
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
@@ -2816,8 +2823,8 @@ describe('dashboardLogic', () => {
                             query_async: true,
                             complete: false,
                             error: true,
-                            error_code: null,
-                            error_message: 'concurrency_limit_exceeded',
+                            error_code: 'rate_limited',
+                            error_message: 'Queries are a little too busy right now.',
                         },
                     }))
 

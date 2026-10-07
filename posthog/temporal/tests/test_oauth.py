@@ -54,6 +54,10 @@ class TestResolveScopes(SimpleTestCase):
     def test_read_only_is_default(self) -> None:
         assert resolve_scopes() == resolve_scopes("read_only")
 
+    def test_scout_judge_has_no_live_project_or_shared_internal_scopes(self) -> None:
+        assert resolve_scopes("signals_scout_judge") == ["scout_experiment_internal:read"]
+        assert resolve_scopes("signals_scout_judge", include_internal_scopes=False) == []
+
     def test_full_preset(self) -> None:
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES + [CONTEXT_LAYER_INTERNAL_SCOPE])

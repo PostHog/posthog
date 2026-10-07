@@ -29,6 +29,10 @@ from pydantic.dataclasses import dataclass
 BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
 
 
+class InvalidBatchExportFilters(ValueError):
+    """Raised when event filters are not a list of filters a batch export can apply."""
+
+
 @dataclass(frozen=True)
 class BatchExportRef:
     """The bare identity of a batch export, for listing it by name."""

@@ -21,7 +21,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import (
@@ -39,6 +38,11 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     insert_into_http_activity,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
+)
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     NeverFinishingActivity,
     mocked_start_batch_export_run,
@@ -81,7 +85,7 @@ async def assert_clickhouse_records_in_mock_server(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     backfill_details: BackfillDetails | None = None,
-    filters: list[dict[str, str | list[str] | None]] | None = None,
+    filters: list[dict[str, str | bool | list[str] | None]] | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records

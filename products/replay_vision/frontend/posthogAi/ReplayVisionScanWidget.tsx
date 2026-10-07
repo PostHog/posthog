@@ -102,7 +102,11 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
         <div className="px-3 py-2 text-sm">
             {title && <p className="m-0 font-semibold">{title}</p>}
             {body && <p className="m-0 mt-0.5 text-secondary">{body}</p>}
-            <Link to={urls.replayVisionObservation(observation.id)} className="text-xs">
+            <Link
+                data-attr="vision-scan-widget-open-observation"
+                to={urls.replayVisionObservation(observation.id)}
+                className="text-xs"
+            >
                 View details
             </Link>
         </div>

@@ -50,6 +50,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -90,6 +91,7 @@ PRODUCTS_APPS = [
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
@@ -104,6 +106,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
+    "products.alerts_platform.backend.apps.AlertsPlatformConfig",
     "products.actions.backend.apps.ActionsConfig",
     "products.autoresearch.backend.apps.AutoresearchConfig",
     "products.product_analytics.backend.apps.ProductAnalyticsConfig",
@@ -122,6 +125,8 @@ PRODUCTS_APPS = [
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
+    "products.webmcp.backend.apps.WebmcpConfig",
+    "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -148,6 +153,7 @@ INSTALLED_APPS = [
     "axes",
     "django_structlog",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     *PRODUCTS_APPS,
     "django_otp",
     "django_otp.plugins.otp_static",
@@ -550,6 +556,12 @@ if DEBUG:
 
 SPECTACULAR_SETTINGS = {
     "OAS_VERSION": "3.1.0",
+    # drf-spectacular loads the Swagger and Redoc UIs from a public CDN by default. The app policy
+    # refuses that CDN, which leaves both pages blank, and a third-party script on this origin
+    # would run with the visitor's session. The sidecar package serves them from our static files.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     "SERVERS": [
         {"url": "https://us.posthog.com", "description": "PostHog Cloud US"},
         {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
@@ -596,6 +608,9 @@ SPECTACULAR_SETTINGS = {
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
+            # tasks' SpaceGoalPeriod measures a goal over day/week/month and alerts_platform's
+            # recurrence unit repeats on one, so the pairs match and neither name fits both.
+            "CalendarUnitEnum": "products.alerts_platform.backend.facade.enums.PlatformAlertConfigurationRecurrenceUnit.choices",
             # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
             # Matches Subscription frequency (daily/weekly/monthly).
@@ -617,6 +632,8 @@ SPECTACULAR_SETTINGS = {
             "RoleEnum": ["primary", "supporting"],
             # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
             "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
+            # The API-only pin kind uses StrEnum; name its component without a Django Choices class.
+            "AccountPropertyPinKindEnum": "products.customer_analytics.backend.facade.enums.ACCOUNT_PROPERTY_PIN_KIND_CHOICES",
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
             # The subset a client may write. Shared by the single-issue and bulk write serializers,
@@ -624,12 +641,17 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
+            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
+            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
+            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
+            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
             # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
+            "AIEventPropertyEnum": "products.access_control.backend.facade.enums.AI_EVENT_PROPERTY_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
@@ -649,6 +671,9 @@ SPECTACULAR_SETTINGS = {
             "DiagnosticSeverityEnum": ["error", "warning"],
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
+            "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
+            "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
             "ConfidenceTierEnum": ["low", "medium", "high"],
             #
@@ -664,8 +689,10 @@ SPECTACULAR_SETTINGS = {
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
+            "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+            "DismissalReasonEnum": "products.signals.backend.views.SIGNAL_REPORT_DISMISSAL_REASON_CHOICES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
             #
             # The choices come from a typing.Literal via get_args; there is no class.
@@ -820,6 +847,7 @@ SPECTACULAR_SETTINGS = {
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
             "StaffCacheKindEnum": ["evaluation", "definitions"],
+            "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
             # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
@@ -901,6 +929,10 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
+
+# Chrome origin trial tokens, comma-separated. Each token is bound to one origin, so each deployment sets its own.
+# Tokens are base64, so they never contain a comma.
+ORIGIN_TRIAL_TOKENS = get_list(os.getenv("ORIGIN_TRIAL_TOKENS", ""))
 
 ####
 # Proxy and IP egress config
@@ -1004,6 +1036,12 @@ API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR: int = get_from_env(
 )
 API_QUERIES_BUDGET_PAID_MULTIPLIER: float = get_from_env("API_QUERIES_BUDGET_PAID_MULTIPLIER", 10.0, type_cast=float)
 API_QUERIES_BUDGET_CAPACITY_HOURS: float = get_from_env("API_QUERIES_BUDGET_CAPACITY_HOURS", 24.0, type_cast=float)
+API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR", 82_000.0, type_cast=float
+)
+API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR: float = get_from_env(
+    "API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR", 5_000_000_000_000.0, type_cast=float
+)
 
 ####
 # /api/environments deprecation
@@ -1303,9 +1341,13 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
-# Decision model behind the preview HogQL `__preview_promptJev` function. Per environment, so a
+# Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
-HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jevk5-fp8-0.2")
+HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
+# Limits for one `jev`/`decide` query: rows read per SELECT, and model decisions across the whole query.
+# Each decision is a billed gateway call, so these bound the cost of one query.
+HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
+HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
@@ -1363,6 +1405,28 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
+# PostHog Desktop on the Go ai-gateway: the URL is the ai-gateway host because gateway.* cannot
+# validate a phe_. A dedicated relay-team phs_ keeps the mint ceiling to desktop tokens. Unset
+# refuses as `unconfigured`, which keeps the app on the legacy gateway.
+DESKTOP_GATEWAY_URL = get_from_env("DESKTOP_GATEWAY_URL", "")
+DESKTOP_GATEWAY_MINT_KEY = get_from_env("DESKTOP_GATEWAY_MINT_KEY", "")
+DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "200")
+# Per-team cap overrides as a JSON object of team id to dollars, e.g. {"2": "500"}.
+DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+# A plan, access or membership change outlives a token by at most this long. All mints share the
+# gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
+# gateway answers 429 and the app stays on the legacy gateway.
+DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
+# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
+DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
+# Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
+# open project on each device mints about 13 times an hour.
+DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+# Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the
+# posthog-desktop-signup-gate flag is on for them, unless posthog-desktop-access-override matches
+# them. An empty value turns the signup gate off.
+DESKTOP_SIGNUP_CUTOFF = get_from_env("DESKTOP_SIGNUP_CUTOFF", "" if TEST else "2026-10-01T00:00:00+00:00")
+
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an
 # internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
@@ -1388,6 +1452,7 @@ AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
+CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

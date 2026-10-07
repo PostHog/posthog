@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
     ABANDONED_STAGED_PREFIX_TTL,
     AccountPropertyRowSink,
+    _is_missing_object_error,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink"
@@ -51,6 +52,24 @@ def test_all_account_property_artifacts_use_the_data_modeling_prefix() -> None:
 
     expected_root = settings.BUCKET_URL.removeprefix("s3://").rstrip("/")
     assert all(path.startswith(f"{expected_root}/") for path in paths)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        # `open_input_file`'s preflight GetFileInfo check (the only path `_stage_committed_files`
+        # exercises) surfaces a missing key through this backend-agnostic pyarrow message, not the
+        # raw AWS text below.
+        (OSError(2, "Path does not exist 'bucket/key'. Detail: [errno 2] No such file or directory"), True),
+        # A direct GetObject 404 raises this raw AWS text instead — kept recognized too, matching the
+        # equivalent classifier in workflow_activities/repartition_table.py.
+        (OSError("AWS Error NO_SUCH_KEY during GetObject operation: The specified key does not exist."), True),
+        (OSError("Permission denied: bucket policy forbids this operation"), False),
+        (ValueError("Path does not exist 'bucket/key'"), False),
+    ],
+)
+def test_is_missing_object_error_classifies_both_pyarrow_message_shapes(error: Exception, expected: bool) -> None:
+    assert _is_missing_object_error(error) is expected
 
 
 class _S3ClientContext:
@@ -165,8 +184,10 @@ async def test_stages_an_exact_delta_snapshot_after_materialization() -> None:
 async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_vacuum_race() -> None:
     # The pinned delta_version can sit queued behind the staging child workflow for hours. If the
     # same view materializes again in the meantime, its vacuum can reclaim that version's files
-    # before we read them (AWS NO_SUCH_KEY). Staging must recover by re-reading whatever is
-    # committed now instead of failing the whole sync.
+    # before we read them. `_stage_committed_files` reads via `open_input_file` (random access), whose
+    # preflight `GetFileInfo` check surfaces a missing key as pyarrow's own generic "not found" message
+    # rather than the raw AWS NoSuchKey text a direct GetObject would raise. Staging must recover by
+    # re-reading whatever is committed now instead of failing the whole sync.
     sink = _sink()
     fresh_table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
     fresh_output = pa.BufferOutputStream()
@@ -183,8 +204,8 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_vacuum_
     def _open_input_file(path):
         if path == "data-warehouse/dlt/vacuumed.parquet":
             raise OSError(
-                "AWS Error NO_SUCH_KEY during GetObject operation: The specified key does not "
-                "exist. (Request ID: TESTREQUESTID)"
+                2,
+                f"Path does not exist '{path}'. Detail: [errno 2] No such file or directory",
             )
         return pa.BufferReader(fresh_output.getvalue())
 

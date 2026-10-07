@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -16,7 +16,7 @@ const isStale = (lastSeen: string): boolean => dayjs().diff(dayjs(lastSeen)) > S
 const STAT_LABELS = ['Services', 'Metric names', 'Active series'] as const
 
 // Header text only, so the placeholder table has the same columns as the real one.
-const SERVICE_COLUMN_TITLES = ['Service', 'Metrics', 'Active series', 'Last seen']
+const SERVICE_COLUMN_TITLES = ['Service', 'Metrics', 'Active series']
 
 // `null` renders the placeholder. One component for both states, so the loading
 // card cannot drift from the loaded one and change size when the data lands.
@@ -169,17 +169,6 @@ export const MetricsOverview = (): JSX.Element => {
                         align: 'right',
                         render: (_, service) => humanFriendlyNumber(service.series),
                         sorter: (a, b) => a.series - b.series,
-                    },
-                    {
-                        title: 'Last seen',
-                        key: 'last_seen',
-                        render: (_, service) => (
-                            <span className="flex items-center gap-2">
-                                <TZLabel time={service.last_seen} />
-                                {isStale(service.last_seen) && <LemonTag type="warning">quiet</LemonTag>}
-                            </span>
-                        ),
-                        sorter: (a, b) => a.last_seen.localeCompare(b.last_seen),
                     },
                 ]}
             />

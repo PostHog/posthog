@@ -18,7 +18,7 @@ WINDOW_SCAN_CAP = 1000
 MAX_JUDGED_PER_SCANNER = 100
 # The newest-first pick would retry a deterministically failing batch every hour and starve older
 # rows for the whole window. After this many batch-attributable failures (an invalid answer, a
-# gateway refusal that is not a rate limit) a row is recorded as judged with no score, so it
+# gateway refusal the batch caused) a row is recorded as judged with no score, so it
 # settles into the recency filler tier like a prose-less row — for the life of the cache entry,
 # since every sweep over an active scanner refreshes the TTL. Environmental failures (an outage,
 # a rate limit, a misconfigured gateway) charge no attempt, so a bad hour parks nothing.

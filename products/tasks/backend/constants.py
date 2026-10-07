@@ -57,6 +57,9 @@ AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
+# Matches the cap PostHog Code applies to its local personalization.
+AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
 SAME_RUN_RESUME_STATE_KEY = "same_run_resume"
 SAME_RUN_RESUME_IDLE_STATE_KEY = "same_run_resume_idle"
 _LEGACY_SAME_RUN_RESUME_STATE_KEY = "handoff_resumed"

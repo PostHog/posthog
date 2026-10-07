@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -20,6 +21,7 @@ _CUSTOM = f"{REVIEW_HOG_BLIND_SPOTS_PREFIX}security-sweep"
 class TestReviewBlindSpotsConfigAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         sync_canonical_blind_spots(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/blind_spots"
 

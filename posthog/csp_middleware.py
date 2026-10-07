@@ -76,12 +76,11 @@ REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 #
 # The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
 # `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
-# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+# the bare `/exporter`. Sync to the URL patterns, not to that list.
 EMBEDDABLE_PATH_PREFIXES = (
     "/shared_dashboard/",
     "/shared/",
     "/embedded/",
-    "/interview/",
     "/exporter/",
     "/external_surveys/",
 )
@@ -90,6 +89,19 @@ EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
 
 def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
+
+
+def app_frame_ancestor_sources() -> list[str]:
+    """The origins that may frame the app, as `frame-ancestors` sources.
+
+    A frame the app embeds has these origins in its ancestor chain too, so its own policy must
+    admit them.
+    """
+    sources = ["https://posthog.com", "https://preview.posthog.com"]
+    if not (settings.DEBUG or settings.TEST) and settings.SITE_URL.endswith(".dev.posthog.dev"):
+        # The posthog.com dev server frames the dev app.
+        sources.append("http://localhost:8001")
+    return sources
 
 
 CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG = "csp-enforce-other-signed-out-pages"
@@ -238,10 +250,15 @@ class CSPMiddleware:
         is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
+            admin_bundle_origin = ""
+            if request.path == "/admin/tasks/task/infrastructure/":
+                bundle_url = urlsplit(settings.JS_URL)
+                if bundle_url.scheme in ("http", "https") and bundle_url.netloc:
+                    admin_bundle_origin = f"{bundle_url.scheme}://{bundle_url.netloc}"
             csp_parts = [
                 "default-src 'self'",
-                "style-src 'self' 'unsafe-inline'",
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                f"style-src 'self' 'unsafe-inline' {admin_bundle_origin}".rstrip(),
+                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}' {admin_bundle_origin}".rstrip(),
                 "font-src data: https://fonts.gstatic.com",
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images
@@ -258,6 +275,9 @@ class CSPMiddleware:
                 "frame-src https://posthog.com",
                 "base-uri 'self'",
             ]
+            if admin_bundle_origin and settings.DEBUG:
+                websocket_origin = admin_bundle_origin.replace("https://", "wss://").replace("http://", "ws://")
+                csp_parts.append(f"connect-src 'self' {admin_bundle_origin} {websocket_origin}")
 
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:
@@ -274,18 +294,22 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'default="{reporting_endpoint}"'
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
-            # The view picked this policy for this document: a canvas artifact runs untrusted code,
-            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
-            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
-            # match. Adding it report-only is no better, because these documents never aim to
-            # satisfy it, so each load would report a violation of a policy we chose not to apply.
+            # The view picked this policy for this document: a canvas artifact and the draft canvas
+            # sandbox document run untrusted code, and the workflow asset endpoint sandboxes
+            # captured email HTML. The app policy would drop that sandbox and impose a
+            # frame-ancestors list the app's own origin does not match. Adding it report-only is no
+            # better, because these documents never aim to satisfy it, so each load would report a
+            # violation of a policy we chose not to apply.
             return response
         else:
             resource_url = "https://*.posthog.com"
             # Enforced for every viewer, flag or not, because this directive is what admits these
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
-            frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            # `'self'` lets the app show one of its own pages in a frame, such as a PostHog object
+            # cited in a task's Artifacts tab. It stays out of app_frame_ancestor_sources(), because
+            # the canvas sandbox document on the user-content origin shares that list.
+            frame_ancestors = f"frame-ancestors 'self' {' '.join(app_frame_ancestor_sources())}"
             js_url = urlsplit(settings.JS_URL)
             bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
@@ -293,8 +317,6 @@ class CSPMiddleware:
                 resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
-                # The posthog.com dev server frames the dev app.
-                frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
@@ -376,9 +398,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
-                # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

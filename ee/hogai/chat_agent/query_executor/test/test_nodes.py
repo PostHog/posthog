@@ -243,7 +243,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         assert isinstance(msg, AssistantMessage)
         self.assertEqual(
             msg.content,
-            "There was an error running this query: Error executing query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
+            "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
         )
         self.assertEqual(msg.type, "ai")
         self.assertIsNotNone(msg.id)

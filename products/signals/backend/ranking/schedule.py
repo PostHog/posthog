@@ -15,6 +15,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from products.signals.backend.ranking.sweep import SCORING_WORKFLOW_NAME, ScoreInboxReportsInput
@@ -38,7 +39,13 @@ async def create_inbox_ranking_scoring_schedule(client: Client) -> None:
             task_queue=settings.SELF_DRIVING_TASK_QUEUE,
             execution_timeout=interval,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=interval)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=interval, offset=deterministic_offset(INBOX_RANKING_SCORING_SCHEDULE_ID, interval)
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, INBOX_RANKING_SCORING_SCHEDULE_ID):

@@ -298,3 +298,63 @@ class QueueJobLease(models.Model):
         indexes = [
             models.Index(fields=["expires_at"], name="qjl_expires_at_idx"),
         ]
+
+
+class QueueSchedulerState(models.Model):
+    """One row per schedule: its cadence and epoch-aligned next due time.
+
+    Written by the scheduler's refresh and claim passes. All access
+    is via raw SQL in ``core/scheduler_state.py`` — this model exists for
+    migration and introspection.
+    """
+
+    kind = models.CharField(max_length=100)
+    schedule_key = models.CharField(max_length=200)
+    team_id = models.BigIntegerField()
+    interval_seconds = models.BigIntegerField()
+    offset_seconds = models.IntegerField()
+    next_due_at = models.DateTimeField()
+    refreshed_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    __repr__ = sane_repr("kind", "schedule_key", "team_id", "next_due_at")
+
+    class Meta:
+        db_table = "queueschedulerstate"
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "schedule_key"], name="qss_kind_key_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["next_due_at"], name="qss_next_due_idx"),
+            models.Index(fields=["refreshed_at"], name="qss_refreshed_idx"),
+        ]
+
+
+class QueueSchedulerDecision(models.Model):
+    """Append-only scheduler decision per (kind, schedule key, due time).
+
+    The unique (kind, schedule_key, due_at) tuple allows a cadence offset change to fire
+    again inside the same offset-free boundary. All access is via raw SQL in
+    ``core/scheduler_state.py``.
+    """
+
+    team_id = models.BigIntegerField()
+    kind = models.CharField(max_length=100)
+    schedule_key = models.CharField(max_length=200)
+    window_boundary = models.DateTimeField()
+    due_at = models.DateTimeField()
+    decision = models.CharField(max_length=32)
+    interval_seconds = models.BigIntegerField()
+    late_seconds = models.FloatField()
+    observed_at = models.DateTimeField(auto_now_add=True)
+
+    __repr__ = sane_repr("kind", "schedule_key", "window_boundary", "decision")
+
+    class Meta:
+        db_table = "queueschedulerdecision"
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "schedule_key", "due_at"], name="qsd_kind_key_due_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["observed_at"], name="qsd_observed_at_idx"),
+        ]

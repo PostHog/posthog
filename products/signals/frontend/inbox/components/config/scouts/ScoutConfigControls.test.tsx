@@ -204,8 +204,11 @@ describe('ScoutConfigForm', () => {
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
     // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
     it.each([
-        ['Claude Sonnet 5', 'claude-sonnet-5'],
+        ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
+        ['Claude Opus 5.5', 'claude-opus-5-5'],
+        ['GPT-6 Luna', 'gpt-6-luna'],
         ['GPT-5.6 Luna', 'gpt-5.6-luna'],
+        ['GPT-6 Sol', 'gpt-6-sol'],
         ['GPT-6 Astra', 'gpt-6-astra'],
     ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
         featureFlagLogic.mount()
@@ -226,6 +229,21 @@ describe('ScoutConfigForm', () => {
         fireEvent.click(getByLabelText(modelSelectLabel))
         fireEvent.click(getByText('Default'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })
+        unmount()
+    })
+
+    it('keeps showing a stored pin that the picker no longer offers', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
+            [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
+        })
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, model: 'claude-opus-5' }} onUpdate={jest.fn()} />
+        )
+
+        const select = getByLabelText('signals-scout-general model')
+        expect(select).toHaveTextContent('claude-opus-5')
+        expect(select).not.toHaveTextContent('Default')
         unmount()
     })
 

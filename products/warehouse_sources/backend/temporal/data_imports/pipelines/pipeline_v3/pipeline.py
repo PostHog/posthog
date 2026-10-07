@@ -11,11 +11,7 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.activity_context import (
-    current_activity_attempt,
-    current_workflow_id,
-    current_workflow_run_id,
-)
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.utils import get_machine_id
 
@@ -28,6 +24,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
+    current_import_attempt,
+    current_import_attempt_cause,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     cleanup_memory,
     commit_source_cursor,
@@ -69,6 +69,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sin
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.handoff_checkpoint import (
+    IncrementalBatchRangeReader,
+    IncrementalHandoffCheckpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -140,6 +144,18 @@ class PipelineV3(Generic[ResumableData]):
     _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
+    # Set only for a run that can continue from its last queued batch after an interruption.
+    _handoff_checkpoint: IncrementalHandoffCheckpoint | None = None
+    _batch_range_reader: IncrementalBatchRangeReader
+    _staged_handoff_resume_value: Any = None
+    _staged_handoff_resume_owner: str | None = None
+    # True once this attempt has queued a batch of its own, rather than only inheriting the
+    # resume value an earlier attempt recorded. Decides who owns the queue rows the value describes.
+    _queued_own_batch: bool = False
+    # True when this attempt reads the source after a value an earlier attempt of the run recorded.
+    _continues_incremental_handoff: bool = False
+    _resumed_incremental_run_uuid: str | None = None
+    _sent_resumed_run_finalization: bool = False
 
     def __init__(
         self,
@@ -152,6 +168,9 @@ class PipelineV3(Generic[ResumableData]):
         *,
         models: "ImportJobModels",
         source_cursor_manager: SourceCursorManager[Any] | None = None,
+        incremental_checkpoints_allowed: bool = False,
+        resumed_incremental_run_uuid: str | None = None,
+        resumed_incremental_value: Any = None,
     ) -> None:
         self._resource = source_response
         self._source_cursor_manager = source_cursor_manager
@@ -180,9 +199,11 @@ class PipelineV3(Generic[ResumableData]):
             or source_response.cdc_write_mode is not None
         )
 
-        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
+        self._delta_table_ref = DeltaTableRef(
+            self._resource_name, self._job, self._logger, expect_missing=models.table is None
+        )
 
-        attempt = current_activity_attempt()
+        attempt = current_import_attempt()
         self._attempt = attempt
         self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
@@ -225,7 +246,22 @@ class PipelineV3(Generic[ResumableData]):
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
-        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        # The earlier attempts of this run queued every row up to the value this attempt reads after,
+        # and this attempt does not extract those rows again. The queue must therefore treat it as a
+        # resume: a fresh run replaces the queue rows of earlier attempts and overwrites on batch 0.
+        self._continues_incremental_handoff = resumed_incremental_value is not None
+        self._resumed_incremental_run_uuid = resumed_incremental_run_uuid
+        self._sent_resumed_run_finalization = False
+        is_resume = self._continues_incremental_handoff or (
+            self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        )
+        if incremental_checkpoints_allowed and self._tracks_handoff_checkpoint(source_response, reset_pipeline):
+            self._handoff_checkpoint = IncrementalHandoffCheckpoint(resumed_incremental_value)
+            self._batch_range_reader = IncrementalBatchRangeReader(self._schema)
+
+        # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
+        # so the query that tells the warehouse from an external destination cannot run here.
+        self._external_destination_ids: list[str] = list(models.external_destination_ids)
 
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
@@ -271,6 +307,24 @@ class PipelineV3(Generic[ResumableData]):
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
 
+    def _tracks_handoff_checkpoint(self, source_response: SourceResponse, reset_pipeline: bool) -> bool:
+        """Whether a later attempt of this run can continue from the batches this attempt queues.
+
+        The source must promise ascending order, and nothing else may own the restart point: a
+        source that resumes from its own cursor reads that cursor, and a reset reloads the table.
+        A run that writes several tables keeps one queue per table, which one value cannot cover.
+        """
+        return (
+            self._schema.is_incremental
+            and bool(self._schema.incremental_field)
+            and source_response.sort_mode == "asc"
+            and not reset_pipeline
+            and self._resumable_source_manager is None
+            and not source_response.lanes
+            and source_response.cdc_write_mode is None
+            and self._run_uuid is not None
+        )
+
     # The seams below are where a run that writes several tables from one read plugs in (see
     # `lanes.py`). Each default is exactly what a single-table run has always done.
 
@@ -296,6 +350,7 @@ class PipelineV3(Generic[ResumableData]):
             # Snapshotted on the job when the run started. Empty for every run before
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
+            "external_destination_ids": list(self._external_destination_ids),
             **self._producer_kwargs,
         }
 
@@ -311,7 +366,20 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
+        # `hold_batch` only inserts the batch this attempt is already holding, not the one it is
+        # about to hold. A row from this attempt exists in the queue only once this call flushes one.
+        flushes_a_held_batch = self._pg_producer.has_held_batch
+        try:
+            self._pg_producer.hold_batch(batch_result, cumulative_row_count=row_count)
+        except Exception:
+            # The insert that failed belongs to the batch before this one. The checkpoint already
+            # counts that batch, so no later value of it is safe. The value staged earlier stays valid.
+            self._handoff_checkpoint = None
+            raise
+        if flushes_a_held_batch:
+            # This attempt now owns an inserted queue row, so any resume value it stages from here
+            # describes rows it holds, not rows an earlier attempt queued.
+            self._queued_own_batch = True
         return pa_table.num_rows
 
     def _total_batches(self) -> int:
@@ -319,7 +387,7 @@ class PipelineV3(Generic[ResumableData]):
 
     def _consumer_finalizes_this_run(self) -> bool:
         """Whether the load consumer will finalize THIS job, so the workflow must not."""
-        return self._total_batches() > 0
+        return self._total_batches() > 0 or self._sent_resumed_run_finalization
 
     async def _send_final_batches(self, total_batches: int, row_count: int) -> str | None:
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
@@ -335,7 +403,9 @@ class PipelineV3(Generic[ResumableData]):
 
     def _release_held_batches(self) -> None:
         """Put every held queue row into the queue now, as a non-final row."""
-        self._pg_producer.release_held_batch()
+        if self._pg_producer.release_held_batch():
+            # The row this attempt was holding is inserted now, so it owns a queue row of its own.
+            self._queued_own_batch = True
 
     def _mark_first_ever_sync(self) -> None:
         self._pg_producer.is_first_ever_sync = True
@@ -377,14 +447,59 @@ class PipelineV3(Generic[ResumableData]):
             self._release_held_batches()
         await asyncio.to_thread(self._resumable_source_manager.commit)
 
+    async def _stage_handoff_resume_value(self, *, force: bool = False) -> None:
+        """Persist the checkpoint's value. Call it only when every observed batch has its queue row.
+
+        Until this attempt queues a batch of its own, the value is still inherited from an earlier
+        attempt and describes rows that attempt's queue holds. The owner recorded alongside it
+        stays that earlier attempt's run until this one actually queues a row, so a later zero-batch
+        continuation finalizes whichever run truly holds the queued rows.
+        """
+        if self._handoff_checkpoint is None:
+            return
+        resume_value = self._handoff_checkpoint.resume_value
+        # None (the common case) means "whichever run stages this", resolved against `run_uuid` on
+        # the model side. Only the inheritance window - before this attempt has queued a batch of
+        # its own - needs an explicit owner, so a zero-batch continuation still finalizes the run
+        # that holds the rows instead of this one, which holds none yet.
+        owner_run_uuid = None if self._queued_own_batch else self._resumed_incremental_run_uuid
+        if (
+            not force
+            and resume_value == self._staged_handoff_resume_value
+            and owner_run_uuid == self._staged_handoff_resume_owner
+        ):
+            return
+        await database_sync_to_async_pool(self._schema.stage_handoff_resume_value)(
+            self._s3_batch_writer.get_run_uuid(), resume_value, owner_run_uuid
+        )
+        self._staged_handoff_resume_value = resume_value
+        self._staged_handoff_resume_owner = owner_run_uuid
+
+    async def _advance_handoff_checkpoint(self, pa_table: pa.Table) -> None:
+        if self._handoff_checkpoint is None:
+            return
+        # Staging this batch inserted the queue row of the batch before it, so the value from before
+        # this batch is safe now. The row of this batch is still held back.
+        await self._stage_handoff_resume_value()
+        if pa_table.num_rows > 0:
+            self._handoff_checkpoint.observe(self._batch_range_reader.read(pa_table))
+        if self._handoff_checkpoint.resume_value is None:
+            # The checkpoint became void. The next attempt must not use the value staged earlier.
+            await self._stage_handoff_resume_value()
+
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
-        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        resumes_source_cursor = (
+            self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        )
+        should_resume = resumes_source_cursor or self._continues_incremental_handoff
         source_is_resumable = self._resumable_source_manager is not None
 
-        if should_resume:
+        if resumes_source_cursor:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
+        elif self._continues_incremental_handoff:
+            await self._logger.ainfo("V3 Pipeline: Continuing the incremental import after its last queued batch")
 
         team_id_str = str(self._job.team_id)
         schema_id_str = str(self._schema.id)
@@ -395,7 +510,7 @@ class PipelineV3(Generic[ResumableData]):
         # work. A rising distribution means runs are restarting and re-extracting what earlier
         # attempts already staged.
         if activity.in_activity():
-            get_run_attempt_metric(source_type).record(self._attempt)
+            get_run_attempt_metric(source_type, current_import_attempt_cause()).record(self._attempt)
 
         start_time = time.perf_counter()
         status = "success"
@@ -415,13 +530,7 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            await reset_rows_synced_if_needed(self._job, should_resume)
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -471,7 +580,6 @@ class PipelineV3(Generic[ResumableData]):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
-                    partition_count_fallback=self._resource.partition_count,
                 )
 
             async def stage_remaining_rows() -> None:
@@ -492,6 +600,11 @@ class PipelineV3(Generic[ResumableData]):
                     chunk_index += 1
                 # Every yielded row is staged now, so whatever the source staged last is safe.
                 await self._commit_resume_state()
+
+            if self._attempt > 1:
+                # Written before this attempt can replace the queue rows of an earlier attempt, so the
+                # attempt after this one never reads a value that describes rows which are gone.
+                await self._stage_handoff_resume_value(force=True)
 
             items = self._resource.items()
             safe_point_scope = self._activate_safe_point(items)
@@ -540,6 +653,12 @@ class PipelineV3(Generic[ResumableData]):
                         await self._commit_resume_state()
 
                     if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                        if self._handoff_checkpoint is not None and self._shutdown_monitor.is_worker_shutdown():
+                            # The next attempt continues after the last staged batch, so staging the
+                            # buffered rows now keeps it from extracting them again. A source with its
+                            # own cursor does not get this: its cursor can be behind the buffered rows,
+                            # and staging them would load them a second time after the resume.
+                            await stage_remaining_rows()
                         self._shutdown_monitor.raise_if_is_worker_shutdown()
                     awaiting_source = True
             except Exception:
@@ -556,7 +675,6 @@ class PipelineV3(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await stage_remaining_rows()
-
             await self._finalize(row_count=row_count)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
@@ -564,10 +682,16 @@ class PipelineV3(Generic[ResumableData]):
             # See the PipelineResult docstring for the full ownership contract.
             consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
-            return {
-                "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
-                "consumer_manages_job_status": consumer_will_hear_about_this_run,
-            }
+            result = PipelineResult(
+                should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run(),
+                consumer_manages_job_status=consumer_will_hear_about_this_run,
+            )
+            if self._resource.on_complete is not None:
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
+            return result
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
@@ -577,6 +701,12 @@ class PipelineV3(Generic[ResumableData]):
                 self._release_held_batches()
             except Exception:
                 self._logger.exception("V3 Pipeline: Failed to enqueue the held batch after the extraction error")
+            else:
+                # Every staged batch has its queue row now, so the next attempt can continue after them.
+                try:
+                    await self._stage_handoff_resume_value()
+                except Exception:
+                    self._logger.exception("V3 Pipeline: Failed to record where the next attempt can continue")
             raise
         finally:
             duration = time.perf_counter() - start_time
@@ -659,6 +789,7 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
+        await self._advance_handoff_checkpoint(pa_table)
 
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger
@@ -700,6 +831,15 @@ class PipelineV3(Generic[ResumableData]):
         total_batches = self._total_batches()
 
         if total_batches == 0:
+            if self._continues_incremental_handoff:
+                if self._resumed_incremental_run_uuid is None:
+                    raise RuntimeError("A resumed incremental import has no queue run to finalize")
+                await asyncio.to_thread(
+                    self._pg_producer.send_final_batch_for_resumed_run, self._resumed_incremental_run_uuid
+                )
+                self._sent_resumed_run_finalization = True
+                return
+
             # A zero-batch run still ran the full extraction, which is what the fast-return
             # valve counts. Post-load stamps this on every other path but never runs here: with
             # no batches the load consumer is never notified. Without this a v3 schema whose

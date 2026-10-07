@@ -17,9 +17,10 @@ import {
     AnyResponseType,
     DashboardFilter,
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLVariable,
     InsightVizNode,
+    MetricsQuery,
     Node,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -143,7 +144,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
             <DataTableVisualization
                 attachTo={props.attachTo}
                 query={query}
-                setQuery={setQuery as unknown as (query: DataVisualizationNode) => void}
+                setQuery={setQuery as unknown as (query: VisualizationNode) => void}
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 context={queryContext}
@@ -189,6 +190,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 cachedResults={props.cachedResults}
                 context={queryContext}
+                editMode={!!editMode && !readOnly}
+                setQuery={setQuery as unknown as (query: MetricsQuery) => void}
             />
         )
     } else if (isMetricsHistogramQuery(query)) {
