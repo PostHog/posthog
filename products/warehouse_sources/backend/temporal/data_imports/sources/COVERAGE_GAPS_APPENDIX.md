@@ -4746,6 +4746,7 @@ Diffed against: <https://docs.onkernel.com/llms.txt>
 - [ ] `proxies (list proxies)` — lookup resolving proxy IDs referenced by browser sessions (medium)
 - [ ] `invocations/{id}/browsers` — join table mapping invocations to the browser sessions they created (low)
 - [ ] `extensions (list browser extensions)` — extension inventory per project (low)
+- [x] `browsers/{id_or_name}/telemetry/events` — archived per-session telemetry events (console, network, page, interaction) within the 30-day retention window (medium)
 
 Note: Docs expose a clean llms.txt enumerating every API-reference page. The bulk of the API is imperative browser control (filesystem, mouse/keyboard, processes, playwright exec, SSE streams) that has no warehouse value — excluded, along with api-keys and org/project limits. Note the docs' canonical host is kernel.sh/docs, while docs.onkernel.com redirects to it.
 
