@@ -173,6 +173,56 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 2
 
+    def test_list_reads_champions_in_one_query(self):
+        validated = self._make_pipeline(name="Validated")
+        AutoresearchModel.objects.create(
+            pipeline=validated,
+            role=AutoresearchModel.Role.ARCHIVED,
+            model_recipe={"stub": True},
+            recipe_hash="old",
+            metrics={"realized": {"lift_at_10": 9.0, "prediction_date": "2026-01-01"}},
+        )
+        AutoresearchModel.objects.create(
+            pipeline=validated,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="validated",
+            holdout_score=0.81,
+            realized_score=0.78,
+            is_preliminary=False,
+            metrics={"realized": {"lift_at_10": 2.4, "prediction_date": "2026-01-02"}},
+        )
+        preliminary = self._make_pipeline(name="Preliminary")
+        AutoresearchModel.objects.create(
+            pipeline=preliminary,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="preliminary",
+            holdout_score=0.72,
+            is_preliminary=True,
+        )
+        self._make_pipeline(name="Untrained")
+
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.get(f"{self.base_url}/")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert sum("autoresearchmodel" in q["sql"].lower() for q in queries.captured_queries) == 1
+        by_name = {row["name"]: row for row in resp.json()["results"]}
+        assert {
+            name: (
+                row["champion_holdout_auc"],
+                row["champion_realized_auc"],
+                row["champion_lift_at_10"],
+                row["champion_is_preliminary"],
+            )
+            for name, row in by_name.items()
+        } == {
+            "Validated": (0.81, 0.78, 2.4, False),
+            "Preliminary": (0.72, None, None, True),
+            "Untrained": (None, None, None, None),
+        }
+
     def test_archived_pipelines_excluded_from_list(self):
         self._make_pipeline(name="Active")
         self._make_pipeline(name="Archived", status=AutoresearchPipeline.Status.ARCHIVED)
