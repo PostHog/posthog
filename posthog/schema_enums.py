@@ -286,6 +286,7 @@ class AssistantEventMultipleBreakdownFilterType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     SESSION = "session"
     HOGQL = "hogql"
     COHORT = "cohort"
@@ -667,6 +668,15 @@ class BISortDirection(StrEnum):
     DESC = "desc"
 
 
+class BITableCalculationType(StrEnum):
+    PERCENT_OF_TOTAL = "percent_of_total"
+    RUNNING_TOTAL = "running_total"
+    DIFFERENCE = "difference"
+    PERCENT_CHANGE = "percent_change"
+    MOVING_AVERAGE = "moving_average"
+    RANK = "rank"
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
@@ -713,6 +723,7 @@ class BreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
@@ -1810,6 +1821,7 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     APNS = "apns"
+    APPLE_ADS = "apple-ads"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     AWS_REDSHIFT = "aws-redshift"
@@ -2166,6 +2178,7 @@ class MultipleBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
+    ELEMENT = "element"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"

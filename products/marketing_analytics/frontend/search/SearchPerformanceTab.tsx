@@ -12,7 +12,7 @@ import {
 
 import { urls } from 'scenes/urls'
 
-import { SEARCH_PLATFORM_LABELS, SearchChannel, SearchPlatform, requiredSearchTables } from './searchPerformance'
+import { SearchChannel } from './searchPerformance'
 import { SearchPerformanceDetail } from './SearchPerformanceDetail'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
@@ -25,7 +25,7 @@ export function SearchPerformanceTab(): JSX.Element {
         sourcesError,
         sources,
         allSearchSources,
-        pendingSources,
+        sourceNotices,
         readySources,
         displayMetrics,
         hasPaidSources,
@@ -86,13 +86,13 @@ export function SearchPerformanceTab(): JSX.Element {
                             available under Keywords and queries.
                         </LemonBanner>
                     )}
-                    {pendingSources.map((source) => (
+                    {sourceNotices.map(({ sourceId, message }) => (
                         <LemonBanner
-                            key={source.id}
+                            key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(source.id) }}
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
                         >
-                            {`${source.description || SEARCH_PLATFORM_LABELS[source.source_type as SearchPlatform]}: enable ${requiredSearchTables(source, breakdown)} and wait for the first sync to finish.`}
+                            {message}
                         </LemonBanner>
                     ))}
                     {sources.length === 0 && (hasActiveFilters || allSearchSources.length > 0) && (
@@ -128,7 +128,7 @@ export function SearchPerformanceTab(): JSX.Element {
                                                 value: 'conversions',
                                                 label: 'Spend and conversions',
                                                 disabledReason: !hasPaidSources
-                                                    ? 'Organic search does not report spend or conversions'
+                                                    ? 'Spend and conversions require synced ad platform data. Check your source settings or filters. Google Search Console only reports organic traffic.'
                                                     : undefined,
                                             },
                                         ]}

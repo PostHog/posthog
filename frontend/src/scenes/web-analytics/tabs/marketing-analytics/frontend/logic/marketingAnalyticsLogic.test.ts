@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -113,6 +114,8 @@ describe('marketingAnalyticsLogic', () => {
                             {
                                 name: 'search_analytics_by_query_page',
                                 should_sync: true,
+                                last_synced_at: dayjs(),
+                                sync_frequency: '24hour',
                                 table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
                             } as ExternalDataSourceSchema,
                         ],

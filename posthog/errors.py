@@ -1135,21 +1135,23 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
 # The error name holds no stored data values, so it is safe to show for an error the query caused,
 # even when the full message is not. Server faults and compiler syntax errors stay out, because
 # callers cannot act on them.
-USER_ERROR_CODE_NAMES = frozenset(
-    meta.name.lower()
-    for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
-    if meta.get_category() == QueryErrorCategory.USER_ERROR and meta.name != "SYNTAX_ERROR"
-)
+def is_clickhouse_query_rejection(code_name: str) -> bool:
+    code_name = code_name.upper()
+    return code_name != "SYNTAX_ERROR" and any(
+        meta.name == code_name and meta.get_category() == QueryErrorCategory.USER_ERROR
+        for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
+    )
 
 
 def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Return user-safe copy for a known internal ClickHouse error, or None for an unknown error."""
     if not code_name:
         return None
-    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name.upper()):
+    code_name = code_name.upper()
+    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name):
         return message
-    if code_name.lower() in USER_ERROR_CODE_NAMES:
-        return f"ClickHouse rejected the query with error {code_name.upper()}."
+    if is_clickhouse_query_rejection(code_name):
+        return f"ClickHouse rejected the query with error {code_name}."
     return None
 
 

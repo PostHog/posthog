@@ -71,6 +71,7 @@ class TestFormulaParser:
             ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
             ("empty", "   ", frozenset({"a"})),
             ("bad_char", "a ^ b", frozenset({"a", "b"})),
+            ("non_finite_literal", "9" * 400, frozenset({"a"})),
             ("nesting_too_deep_parens", "(" * 40 + "a" + ")" * 40, frozenset({"a"})),
             ("nesting_too_deep_unary", "-" * 40 + "a", frozenset({"a"})),
         ]
