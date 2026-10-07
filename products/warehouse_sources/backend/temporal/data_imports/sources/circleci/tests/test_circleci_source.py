@@ -1,3 +1,7 @@
+from urllib.parse import urlparse
+
+from unittest import mock
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.settings import (
@@ -57,6 +61,30 @@ class TestCircleCISource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["pipelines"])
         assert len(schemas) == 1
         assert schemas[0].name == "pipelines"
+
+    @parameterized.expand(
+        [
+            ("v2", "/api/v2/pipeline"),
+            ("v3", "/api/v3/projects"),
+            # An unpinned call (pre-creation validation) resolves to the v3 default.
+            (None, "/api/v3/projects"),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.circleci.circleci.make_tracked_session"
+    )
+    def test_validate_credentials_probes_the_pinned_api(self, api_version, expected_org_probe_path, mock_session):
+        collaborations = mock.MagicMock(status_code=200)
+        collaborations.json.return_value = [{"id": "org-uuid", "slug": "gh/posthog"}]
+        ok = mock.MagicMock(status_code=200)
+        mock_session.return_value.get.side_effect = lambda url, **kwargs: (
+            collaborations if "/me/collaborations" in url else ok
+        )
+
+        assert self.source.validate_credentials(self.config, self.team_id, api_version=api_version) == (True, None)
+
+        last_url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(last_url).path == expected_org_probe_path
 
     def test_get_schemas_filtered_unknown_name_returns_empty(self):
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

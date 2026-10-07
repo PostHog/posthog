@@ -59,6 +59,13 @@ class TestAccountRequests(ProvisioningTestBase):
         assert len(data["oauth"]["code"]) > 0
         assert User.objects.filter(email="newuser@example.com").exists()
 
+    def test_new_user_refused_by_an_access_rule_gets_no_account(self):
+        with patch("ee.api.agentic_provisioning.accounts.signup_refused", return_value=True):
+            res = self._post_account_request(self._account_request_payload())
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "access_blocked"
+        assert not User.objects.filter(email="newuser@example.com").exists()
+
     @parameterized.expand(
         [
             ("terms_accepted", timedelta(days=-1), timedelta(days=-1)),

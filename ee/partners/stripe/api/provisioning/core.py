@@ -258,6 +258,8 @@ def handle_new_user(
     # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
 
+    # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
+    # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
         stripe_app = get_stripe_oauth_app()
     except StripeOAuthAppMissingError:

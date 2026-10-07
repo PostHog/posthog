@@ -6,6 +6,9 @@ The sessions-precomputation reader is retired.
 Marketing attribution no longer reads `web_sessions_dimensional_preaggregated` or queues session-cache refreshes.
 The independent writer, Dagster job and schedule definitions, table, and schema remain in place.
 
+The Marketing analytics table keeps column headers visible while its rows scroll in a viewport capped at 28 rem.
+Reload and Export stay outside the row viewport.
+
 ## Query behavior
 
 A materialized CTE selects pageview session IDs and current person IDs once per query.
