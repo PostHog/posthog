@@ -120,6 +120,7 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
 
 
 class CohortPersonsResponseSerializer(serializers.Serializer):
@@ -1488,10 +1489,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
                     flag_names = [flag.name or flag.key for flag in flags_with_cohort]
-                    raise ValidationError(
+                    message = (
                         f"This cohort is used in {len(flags_with_cohort)} feature flag(s): {', '.join(flag_names)}. "
                         "Remove the cohort from these flags, or archive the flags, before deleting it."
                     )
+                    # Resuming a survey enables its targeting flag. That save fails once the flag is archived.
+                    survey_flag_ids = Survey.get_internal_flag_ids(project_id=cohort.team.project_id)
+                    if any(flag.id in survey_flag_ids for flag in flags_with_cohort):
+                        message += " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
+                    raise ValidationError(message)
 
                 # Check if cohort is used in test_account_filters
                 teams_with_cohort = Team.objects.filter(

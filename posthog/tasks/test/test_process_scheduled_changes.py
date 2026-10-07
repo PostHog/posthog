@@ -23,6 +23,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -174,6 +175,36 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         assert failing.executed_at is not None
         assert applying.failure_reason is None
         assert applying.executed_at is not None
+
+    def test_scheduled_enable_of_a_flag_on_a_deleted_cohort_fails_without_retry(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+        feature_flag = FeatureFlag.objects.create(
+            name="Flag 1",
+            key="flag-1",
+            active=False,
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]},
+            team=self.team,
+            created_by=self.user,
+        )
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        feature_flag.refresh_from_db()
+        scheduled_change.refresh_from_db()
+        assert feature_flag.active is False
+        assert scheduled_change.executed_at is not None
+        assert scheduled_change.failure_reason is not None
+        failure_data = json.loads(scheduled_change.failure_reason)
+        assert failure_data["error_classification"] == "unrecoverable"
+        assert "Cohort 'Retired cohort'" in failure_data["error"]
 
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(

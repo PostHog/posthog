@@ -53,6 +53,7 @@ from products.cohorts.backend.models.util import count_cohort_members, list_coho
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 
@@ -5398,10 +5399,11 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("active", {"active": True}, True),
-            ("disabled", {"active": False}, True),
-            ("archived", {"active": False, "archived": True}, False),
-            ("soft_deleted", {"active": True, "deleted": True}, False),
+            ("active", {"active": True}, False, True),
+            ("disabled", {"active": False}, False, True),
+            ("stopped_survey_targeting", {"active": False}, True, True),
+            ("archived", {"active": False, "archived": True}, False, False),
+            ("soft_deleted", {"active": True, "deleted": True}, False, False),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -5410,6 +5412,7 @@ email@example.org,
         self,
         _name: str,
         flag_state: dict[str, bool],
+        survey_targeting: bool,
         blocks: bool,
         patch_calculate_cohort: MagicMock,
         patch_capture: MagicMock,
@@ -5420,7 +5423,7 @@ email@example.org,
         )
         cohort_id = response.json()["id"]
 
-        FeatureFlag.objects.create(
+        flag = FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
             name="Flag using cohort",
@@ -5428,6 +5431,14 @@ email@example.org,
             created_by=self.user,
             **flag_state,
         )
+        if survey_targeting:
+            Survey.objects.create(
+                team=self.team,
+                name="Stopped survey",
+                type=Survey.SurveyType.POPOVER,
+                questions=[{"id": "q1", "type": "open", "question": "Hi"}],
+                targeting_flag=flag,
+            )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
@@ -5435,12 +5446,16 @@ email@example.org,
         )
 
         if blocks:
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-            self.assertEqual(
-                response.json()["detail"],
+            expected_detail = (
                 "This cohort is used in 1 feature flag(s): Flag using cohort. "
-                "Remove the cohort from these flags, or archive the flags, before deleting it.",
+                "Remove the cohort from these flags, or archive the flags, before deleting it."
             )
+            if survey_targeting:
+                expected_detail += (
+                    " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
+                )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            self.assertEqual(response.json()["detail"], expected_detail)
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(Cohort.objects.get(id=cohort_id).deleted, not blocks)

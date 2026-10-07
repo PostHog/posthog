@@ -1478,7 +1478,7 @@ class FeatureFlagSerializer(
             self._validate_dependency_formats(stored_filters, traverse=True)
             for located in _iter_flag_filter_properties(stored_filters.get("groups")):
                 if located.prop.get("type") == "cohort":
-                    self._cohort_for_condition(located.prop.get("value"))
+                    self._validate_cohort_reference(located.prop.get("value"))
         except serializers.ValidationError as exc:
             raise serializers.ValidationError({"filters": exc.detail}) from exc
 
@@ -2263,7 +2263,7 @@ class FeatureFlagSerializer(
                     raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
             if located.prop.get("type") == "cohort":
-                initial_cohort = self._cohort_for_condition(located.prop.get("value"))
+                initial_cohort = self._validate_cohort_reference(located.prop.get("value"))
                 # Static cohorts (including one-time snapshots) hold a
                 # materialised person list.  The populating criteria may
                 # still be stored on the record, but they are inert – the
@@ -2330,7 +2330,7 @@ class FeatureFlagSerializer(
                 code="unsupported_dependency_config_version",
             ) from exc
 
-    def _cohort_for_condition(self, cohort_id: Any) -> Cohort:
+    def _validate_cohort_reference(self, cohort_id: Any) -> Cohort:
         """Return the cohort a release condition targets, or raise if the flag cannot evaluate it.
 
         The flag evaluator loads only non-deleted cohorts. A condition on a deleted cohort
@@ -2345,8 +2345,9 @@ class FeatureFlagSerializer(
                 code="cohort_does_not_exist",
             )
         if cohort.deleted:
+            label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
             raise serializers.ValidationError(
-                detail=f"Cohort '{cohort.name}' (ID {cohort.pk}) has been deleted. Choose another cohort or remove this condition.",
+                detail=f"{label} has been deleted. Choose another cohort or remove this condition.",
                 code="cohort_does_not_exist",
             )
         return cohort

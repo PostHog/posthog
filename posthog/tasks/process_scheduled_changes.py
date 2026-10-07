@@ -13,6 +13,7 @@ from celery import current_task
 from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
+from rest_framework import serializers
 
 from posthog.exceptions_capture import capture_exception
 
@@ -58,6 +59,7 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     # Exception types that indicate permanent failures
     unrecoverable_types = (
         ValidationError,
+        serializers.ValidationError,  # The flag serializer raises DRF's ValidationError, not Django's
         ObjectDoesNotExist,
         IntegrityError,
         ValueError,  # Bad payload structure
