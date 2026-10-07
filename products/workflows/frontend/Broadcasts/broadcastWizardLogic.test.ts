@@ -159,6 +159,13 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.name).toEqual('Fix shipped')
         expect(logic.values.stepValidationErrors.recipients).toEqual(['Choose who gets this email'])
 
+        logic.actions.setAudienceProperties([
+            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsSet },
+        ])
+        expect(logic.values.stepValidationErrors.recipients).toEqual([])
+        logic.actions.setAudienceProperties([])
+        expect(logic.values.stepValidationErrors.recipients).toEqual(['Choose who gets this email'])
+
         logic.actions.sendToEveryoneAfterRejectedLink()
         expect(logic.values.stepValidationErrors.recipients).toEqual([])
     })

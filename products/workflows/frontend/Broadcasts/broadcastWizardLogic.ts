@@ -65,13 +65,15 @@ import {
     getBroadcastStatus,
 } from './broadcastsLogic'
 import {
-    COMPOSER_DRAFT_PARAM,
-    COMPOSER_DRAFT_VALUE,
     advanceAgentDraft,
     broadcastPath,
+    COMPOSER_DRAFT_PARAM,
+    COMPOSER_DRAFT_VALUE,
     editedFields,
     loadComposerDraft,
+    loadEntrySource,
     saveComposerDraft,
+    saveEntrySource,
     snapshotBroadcast,
 } from './broadcastUsage'
 
@@ -491,7 +493,8 @@ export interface broadcastWizardLogicMeta {
             recurringStartsAt: string | null,
             integrations: IntegrationType[] | null,
             integrationsLoading: boolean,
-            linkAudienceRejected: boolean
+            linkAudienceRejected: boolean,
+            audienceProperties: AnyPropertyFilter[]
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -673,12 +676,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             },
         ],
         // Kept for the launch event, so a launch counts toward the product it started from.
-        // Set when a link's audience couldn't be used, so the empty default (everyone) needs an explicit choice.
+        // Set when a link's audience couldn't be used. While the audience is empty, sending to everyone needs an explicit choice.
         linkAudienceRejected: [
             false,
             {
                 rejectLinkAudience: () => true,
-                setAudienceProperties: () => false,
                 sendToEveryoneAfterRejectedLink: () => false,
             },
         ],
@@ -979,6 +981,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.integrations,
                 s.integrationsLoading,
                 s.linkAudienceRejected,
+                s.audienceProperties,
             ],
             (
                 goalEnabled: boolean,
@@ -989,7 +992,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 recurringStartsAt: string | null,
                 integrations: IntegrationType[] | null,
                 integrationsLoading: boolean,
-                linkAudienceRejected: boolean
+                linkAudienceRejected: boolean,
+                audienceProperties: AnyPropertyFilter[]
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -999,7 +1003,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     review: [],
                 }
 
-                if (linkAudienceRejected) {
+                if (linkAudienceRejected && audienceProperties.length === 0) {
                     errors.recipients.push('Choose who gets this email')
                 }
 
@@ -1228,6 +1232,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
             ) {
+                if (values.entrySource) {
+                    saveEntrySource(values.broadcastId, values.entrySource)
+                }
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
@@ -1572,7 +1579,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
                     has_goal: values.goalEnabled,
-                    entry_source: values.entrySource,
+                    entry_source: values.entrySource ?? loadEntrySource(broadcastId),
                     seconds_since_created: activated
                         ? Math.round((Date.now() - new Date(activated.created_at).getTime()) / 1000)
                         : null,

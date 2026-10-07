@@ -153,7 +153,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                     Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.
                 </p>
             </div>
-            {linkAudienceRejected && (
+            {linkAudienceRejected && audienceProperties.length === 0 && (
                 <LemonBanner
                     type="warning"
                     action={{
