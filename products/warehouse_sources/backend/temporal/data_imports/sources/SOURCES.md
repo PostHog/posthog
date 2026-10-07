@@ -91,6 +91,7 @@ the row lists both.
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | appstack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| arcade                           | HTTP                        | requests                                                        | ✅                          |
 | argocd                           | HTTP                        | requests                                                        | ✅                          |
 | asaas                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | asana                            | HTTP                        | requests                                                        | ✅                          |
@@ -981,7 +982,6 @@ doesn't conflict with concurrent PRs.
 - appfolio
 - apptivo
 - appwrite
-- arcade
 - arxiv
 - asknicely
 - athenahealth
