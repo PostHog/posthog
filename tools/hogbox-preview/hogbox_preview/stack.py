@@ -341,6 +341,7 @@ class PostHogPreviewStack:
         self.up_web()
         self.wait_for_health()
         self.deep_health()
+        self.report_pipeline_health()
         return url
 
     def swap_frontend_only(self) -> str:
@@ -990,6 +991,26 @@ class PostHogPreviewStack:
         # Django is a heavy import; first health can take ~7 min.
         with timing.span("health-poll"):
             self.backend.wait_http_ok("/_health", expect=200, timeout=900)
+
+    def report_pipeline_health(self, settle_seconds: int = 90) -> None:
+        services = " ".join([*self.SELF_CAPTURE_SERVICES, *self.TELEMETRY_SERVICES])
+        compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
+        report = "/tmp/hogbox-pipeline-health.txt"
+        script = (
+            f"cd {self.repo_dir} && sleep {settle_seconds}; exec > {report} 2>&1; "
+            f"for svc in {services}; do "
+            f'cid=$({compose} ps -aq "$svc"); '
+            'if [ -z "$cid" ]; then echo "PIPELINE $svc missing"; continue; fi; '
+            "state=$(docker inspect -f '{{.State.Status}} restarts={{.RestartCount}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}' \"$cid\"); "
+            'echo "PIPELINE $svc $state"; '
+            'case "$state" in "running restarts=0 "*) ;; *) docker logs --tail 25 "$cid" 2>&1 | cut -c1-400 | sed "s/^/  $svc | /";; esac; '
+            "done; free -m | sed 's/^/  memory | /'"
+        )
+        try:
+            self.backend.run_long(script, name="pipeline-health", timeout=settle_seconds + 300)
+            sys.stderr.write(f"{self.backend.exec(f'cat {report}', timeout=60).stdout}\n")
+        except RuntimeError as e:
+            sys.stderr.write(f"[hogbox-preview] pipeline health report failed: {e}\n")
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were
