@@ -104,6 +104,7 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
         self.assertIn("No recordings found", result_text)
+        self.assertIn("Keep the user's scope", result_text)
         self.assertIsNone(artifact)
 
     def _event_filters(self, event: str, properties: list[dict] | None = None) -> MaxRecordingUniversalFilters:
@@ -170,6 +171,7 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("No recordings found", result_text)
         self.assertIn(expected, result_text)
+        self.assertIn("Keep the user's scope", result_text)
         if expected_offer:
             self.assertIn(expected_offer, result_text)
         else:
