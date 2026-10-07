@@ -53,7 +53,7 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
         cleanup()
     })
 
-    function renderPopover(): void {
+    function renderPopover(onSelectSessionId?: (sessionId: string) => void): void {
         const taxonomicGroupTypes = [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.EventProperties,
@@ -67,7 +67,10 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
                     onChange={jest.fn()}
                     taxonomicGroupTypes={taxonomicGroupTypes}
                 >
-                    <RecordingsUniversalFilterAddFilterPopover taxonomicGroupTypes={taxonomicGroupTypes} />
+                    <RecordingsUniversalFilterAddFilterPopover
+                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        onSelectSessionId={onSelectSessionId}
+                    />
                 </UniversalFilters>
             </Provider>
         )
@@ -160,5 +163,31 @@ describe('RecordingsUniversalFilterAddFilterPopover', () => {
                 dwellMs: expect.any(Number),
             })
         })
+    })
+
+    it.each([
+        {
+            name: 'clicking the suggestion',
+            select: () => userEvent.click(screen.getByTestId('replay-filters-session-id-suggestion')),
+        },
+        {
+            name: 'pressing Enter',
+            select: () => fireEvent.keyDown(screen.getByTestId('replay-filters-add-filter-input'), { key: 'Enter' }),
+        },
+    ])('offers a session ID filter for a pasted UUID and applies it on $name', async ({ select }) => {
+        const onSelectSessionId = jest.fn()
+        renderPopover(onSelectSessionId)
+
+        const input = screen.getByTestId('replay-filters-add-filter-input')
+        await userEvent.click(input)
+        fireEvent.change(input, { target: { value: 'not-a-session-id' } })
+        expect(screen.queryByTestId('replay-filters-session-id-suggestion')).not.toBeInTheDocument()
+
+        fireEvent.change(input, { target: { value: ' 0199ed4a-5c03-0000-3220-df21df612e95 ' } })
+        expect(await screen.findByTestId('replay-filters-session-id-suggestion')).toBeInTheDocument()
+        await select()
+
+        expect(onSelectSessionId).toHaveBeenCalledWith('0199ed4a-5c03-0000-3220-df21df612e95')
+        expect(screen.getByTestId('replay-filters-add-filter-input')).toHaveValue('')
     })
 })

@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { deepEqual as equal } from 'fast-equals'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import {
@@ -47,6 +48,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { isUUIDLike } from 'lib/utils/guards'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -594,8 +596,11 @@ function SavedFilterNameEditor({
 
 export function RecordingsUniversalFilterAddFilterPopover({
     taxonomicGroupTypes,
+    onSelectSessionId,
 }: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
+    /** When set, a UUID-like query offers a "Session ID" filter above the taxonomic results. */
+    onSelectSessionId?: (sessionId: string) => void
 }): JSX.Element {
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
     const [addFilterSearchQuery, setAddFilterSearchQuery] = useState('')
@@ -621,15 +626,46 @@ export function RecordingsUniversalFilterAddFilterPopover({
         setAddFilterSearchQuery('')
     }
 
+    const sessionIdQuery = addFilterSearchQuery.trim()
+    const showSessionIdSuggestion = !!onSelectSessionId && isUUIDLike(sessionIdQuery)
+
+    const selectSessionId = (): void => {
+        onSelectSessionId?.(sessionIdQuery)
+        posthog.capture('taxonomic filter item selected', {
+            groupType: 'session_ids',
+            sourceGroupType: 'session_ids',
+            hadSearchInput: true,
+            position: 0,
+        })
+        closePopover()
+    }
+
     const popover = (
         <Popover
             overlay={
-                <UniversalFilters.PureTaxonomicFilter
-                    onChange={closePopover}
-                    searchQuery={addFilterSearchQuery}
-                    hideSearchInput
-                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
-                />
+                <>
+                    {showSessionIdSuggestion && (
+                        <div className="p-1 border-b">
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                data-attr="replay-filters-session-id-suggestion"
+                                onClick={selectSessionId}
+                                sideIcon={<LemonTag size="small">Session ID</LemonTag>}
+                            >
+                                <span className="truncate">
+                                    Show recording <span className="font-mono">{sessionIdQuery}</span>
+                                </span>
+                            </LemonButton>
+                        </div>
+                    )}
+                    <UniversalFilters.PureTaxonomicFilter
+                        onChange={closePopover}
+                        searchQuery={addFilterSearchQuery}
+                        hideSearchInput
+                        taxonomicFilterLogicKey={taxonomicFilterLogicKey}
+                    />
+                </>
             }
             placement="bottom-start"
             matchWidth
@@ -658,6 +694,9 @@ export function RecordingsUniversalFilterAddFilterPopover({
                     onKeyDown={(e) => {
                         if (e.key === 'Escape') {
                             closePopover()
+                            e.preventDefault()
+                        } else if (e.key === 'Enter' && showSessionIdSuggestion) {
+                            selectSessionId()
                             e.preventDefault()
                         }
                     }}
@@ -951,7 +990,16 @@ export const ReplayFiltersTab = ({
                                     setFilters({ filter_group: newFilterGroup })
                                 }}
                             >
-                                <RecordingsUniversalFilterAddFilterPopover taxonomicGroupTypes={taxonomicGroupTypes} />
+                                <RecordingsUniversalFilterAddFilterPopover
+                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                    onSelectSessionId={(sessionId) =>
+                                        setFilters({
+                                            session_ids: Array.from(
+                                                new Set([...(filters.session_ids ?? []), sessionId])
+                                            ),
+                                        })
+                                    }
+                                />
                             </UniversalFilters>
                         )}
                 </div>
