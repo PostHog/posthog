@@ -38,6 +38,7 @@ import {
     ChartSettings,
     ChartSettingsDisplay,
     ChartSettingsFormatting,
+    DashboardFilter,
     ConditionalFormattingRule,
     VisualizationNode,
     HeatmapSettings,
@@ -124,6 +125,7 @@ export interface DataVisualizationLogicProps {
     loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    filtersOverride?: DashboardFilter | null
     limitContext?: 'posthog_ai'
 }
 
@@ -182,7 +184,10 @@ export const formatDataWithSettings = (
         dataAsString = `${decimalPlaces != null ? data.toFixed(decimalPlaces) : data}`
 
         if (settings?.formatting?.style === 'number') {
-            dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
+            dataAsString = data.toLocaleString(undefined, {
+                minimumFractionDigits: decimalPlaces,
+                maximumFractionDigits: decimalPlaces,
+            })
         }
 
         if (settings?.formatting?.style === 'short') {
@@ -190,7 +195,7 @@ export const formatDataWithSettings = (
         }
 
         if (settings?.formatting?.style === 'percent') {
-            dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
+            dataAsString = `${data.toLocaleString(undefined, { minimumFractionDigits: decimalPlaces, maximumFractionDigits: decimalPlaces })}%`
         }
     }
 
@@ -954,6 +959,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
             }),
             [
@@ -976,6 +982,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
+                filtersOverride: props.filtersOverride,
                 limitContext: props.limitContext,
             }),
             ['loadData'],

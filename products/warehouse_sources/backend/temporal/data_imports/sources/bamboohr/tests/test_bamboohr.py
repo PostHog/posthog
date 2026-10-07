@@ -645,6 +645,42 @@ class TestApplicationsPagination:
         assert _page_from_url(url) == expected
 
 
+class TestPageLinksPagination:
+    @parameterized.expand(
+        [
+            ("timesheets", "v1/time-tracking/timesheets", {"sort": "startDate asc", "pageSize": 200}, {}),
+            ("hour_entries", "v1/time-tracking/hour-entries", {"sort": "date asc", "pageSize": 200}, {}),
+            ("clock_entries", "v1/time-tracking/clock-entries", {"sort": "start asc", "pageSize": 200}, {}),
+            ("holidays", "v1/holidays", {"orderBy": "startDate asc", "pageSize": 100}, {"next": None}),
+            ("custom_fields", "v1/hris/custom-fields", {"pageSize": 1000}, {"next": None}),
+            ("archived_custom_fields", "v1/hris/custom-fields/archived", {"pageSize": 1000}, {}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_pages_by_the_next_link(
+        self, endpoint: str, path: str, params: dict[str, Any], last_links: dict[str, Any], MockSession
+    ) -> None:
+        page1 = {
+            "data": [{"id": 1}],
+            "meta": {"page": 1, "pageSize": 1, "totalPages": 2, "totalItems": 2},
+            "_links": {"next": {"href": f"https://acme.bamboohr.com/api/{path}?page=2&pageSize=1"}},
+        }
+        page2 = {
+            "data": [{"id": 2}],
+            "meta": {"page": 2, "pageSize": 1, "totalPages": 2, "totalItems": 2},
+            "_links": last_links,
+        }
+
+        rows, requests_made, _manager = _run(endpoint, [_response(page1), _response(page2)], MockSession)
+
+        assert [r["id"] for r in rows] == [1, 2]
+        # The next link points at the company domain, so the walk stays on the gateway and only
+        # reuses the link's page number.
+        assert [r["url"] for r in requests_made] == [f"https://api.bamboohr.com/api/gateway.php/acme/{path}"] * 2
+        assert requests_made[0]["params"] == params
+        assert requests_made[1]["params"] == {**params, "page": 2}
+
+
 class TestLocationsPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_walks_every_page_of_active_and_archived_locations(self, MockSession) -> None:

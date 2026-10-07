@@ -50,8 +50,10 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
+    UnsupportedSyncTypeError,
     mark_schema_running_unless_halted,
     resolve_destinations,
+    resolve_sync_type,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -254,6 +256,58 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
         if instance.sync_frequency_interval is None:
             raise ValidationError(NO_SYNC_FREQUENCY_ERROR)
         sync_external_data_job_workflow(instance, create=True, should_sync=instance.should_sync)
+
+
+def resync_schema(instance: ExternalDataSchema) -> Response:
+    if is_any_external_data_schema_paused(instance.team_id):
+        return Response(
+            status=status.HTTP_400_BAD_REQUEST,
+            data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
+        )
+
+    cdc_resync = instance.is_cdc
+    if cdc_resync:
+        # Capture must finish a reset that overlaps a running streaming sync.
+        if hand_reset_to_capture_if_sync_running(instance, logger):
+            return Response(status=status.HTTP_200_OK)
+    else:
+        latest_running_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+
+    updates: dict[str, Any] = {"reset_pipeline": True}
+    removes: list[str] = []
+    if cdc_resync:
+        updates["cdc_mode"] = "snapshot"
+        removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
+        # Keep buffered changes that capture wrote after the snapshot began.
+        if resnapshot_stays_in_buffer(instance):
+            updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+
+    # Save the reset before the workflow reads this schema, under the helper's row lock.
+    extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
+    instance.sync_type_config = update_sync_type_config_keys(
+        instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
+    )
+    if cdc_resync:
+        instance.initial_sync_complete = False
+
+    try:
+        _trigger_schema_sync(instance)
+    except temporalio.service.RPCError as e:
+        # Leave the reset pending, but do not show Running without a workflow.
+        logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+        return Response(
+            data={"detail": "Couldn't start the sync. Try again in a few minutes."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    mark_schema_running_unless_halted(instance)
+    return Response(status=status.HTTP_200_OK)
 
 
 # Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
@@ -771,7 +825,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
-        ret["sync_type"] = ExternalDataSchema.SyncType(instance.sync_type) if instance.sync_type is not None else None
+        try:
+            ret["sync_type"] = resolve_sync_type(instance.sync_type)
+        except UnsupportedSyncTypeError:
+            # Returning None keeps the list and settings pages loading so the user can pick a valid type.
+            ret["sync_type"] = None
         ret["sync_frequency"] = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         ret["sync_time_of_day"] = (
             self.fields["sync_time_of_day"].to_representation(instance.sync_time_of_day)
@@ -2064,70 +2122,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         },
     )
     @action(methods=["POST"], detail=True)
-    def resync(self, request: Request, *args: Any, **kwargs: Any):
+    def resync(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
-
-        if is_any_external_data_schema_paused(self.team_id):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
-            )
-
-        cdc_resync = instance.is_cdc
-        if cdc_resync:
-            # A sync that hands over after the reset would leave the reset pending on a streaming
-            # table, whose next run wipes it. Capture finishes the reset once that sync stops.
-            if hand_reset_to_capture_if_sync_running(instance, logger):
-                return Response(status=status.HTTP_200_OK)
-        else:
-            latest_running_job = (
-                ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
-                .order_by("-created_at")
-                .first()
-            )
-            if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-                cancel_external_data_workflow(latest_running_job.workflow_id)
-
-        updates: dict[str, Any] = {"reset_pipeline": True}
-        removes: list[str] = []
-        if cdc_resync:
-            # Reset CDC state so the next run does a full re-snapshot
-            updates["cdc_mode"] = "snapshot"
-            removes = ["cdc_last_log_position", CDC_RESET_PENDING_KEY]
-            # Without the marker, the next capture run would empty the buffer, deleting changes a
-            # capture run already in progress wrote after the snapshot started reading.
-            if resnapshot_stays_in_buffer(instance):
-                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
-
-        # Merge under a row lock so this reset can't clobber a concurrent CDC extract activity's
-        # sync_type_config writes. Persist BEFORE triggering the workflow so the Postgres source
-        # sees cdc_mode="snapshot" when it reloads the schema from DB — otherwise a race: the
-        # workflow starts, loads stale "streaming" mode, consumes the change buffer instead, and
-        # the full-refresh never runs.
-        # initial_sync_complete is saved in the same transaction as cdc_mode via extra_model_fields
-        # so no reader can observe cdc_mode="snapshot" with initial_sync_complete=True.
-        extra: dict[str, Any] = {"initial_sync_complete": False} if cdc_resync else {}
-        instance.sync_type_config = update_sync_type_config_keys(
-            instance.id, instance.team_id, updates=updates, removes=removes, extra_model_fields=extra
-        )
-        if cdc_resync:
-            instance.initial_sync_complete = False
-
-        try:
-            _trigger_schema_sync(instance)
-        except temporalio.service.RPCError as e:
-            # Only mark the schema Running once the trigger succeeded: a Running status with no
-            # workflow behind it sticks forever (nothing finalizes it) and blocks cancel. The
-            # sync_type_config reset above stays; the schema's intent is still "resync next run".
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-            return Response(
-                data={"detail": "Couldn't start the sync. Try again in a few minutes."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        mark_schema_running_unless_halted(instance)
-
-        return Response(status=status.HTTP_200_OK)
+        return resync_schema(instance)
 
     @extend_schema(
         request=None,

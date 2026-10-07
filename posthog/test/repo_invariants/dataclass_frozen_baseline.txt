@@ -83,7 +83,6 @@
 1 products/apm/backend/logic/anomaly_detection/types.py
 1 products/apm/backend/logic/anomaly_detection/validation/simulation.py
 1 products/approvals/backend/decorators.py
-1 products/batch_exports/backend/presentation/views/batch_export.py
 1 products/batch_exports/backend/presentation/views/destination_tests/base.py
 1 products/batch_exports/backend/debug/debugger.py
 1 products/batch_exports/backend/temporal/destinations/azure_blob_batch_export.py
@@ -630,8 +629,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/gorgias.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gorgias/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/grafana/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/granola.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/granola/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/greenhouse/greenhouse.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/gridly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gridly/settings.py
@@ -734,7 +731,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaviyo/klaviyo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/knock/knock.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/knowbe4/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kommo/kommo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/kong_konnect.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kong_konnect/settings.py
@@ -791,9 +787,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/loops.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/loops/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/luma.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/luma/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/mailchimp.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailerlite/mailerlite.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailerlite/settings.py

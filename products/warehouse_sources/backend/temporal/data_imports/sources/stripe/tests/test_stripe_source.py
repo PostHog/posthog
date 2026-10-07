@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
@@ -1152,6 +1153,7 @@ class TestWebhookEventMapping:
 
     @parameterized.expand(
         [
+            (BALANCE_TRANSACTION_RESOURCE_NAME,),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
             (SETUP_ATTEMPT_RESOURCE_NAME,),
             (SHIPPING_RATE_RESOURCE_NAME,),
@@ -1449,6 +1451,12 @@ class TestWebhookUpsertCollapse:
             # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
             # reinstate the older state.
             ("older event delivered last", [(1700000100, "paid"), (1700000050, "open")], "paid"),
+            # Stripe does not deliver events in order and the webhook handler does not finish them
+            # in order, so on a `created` tie the stale snapshot can be the last row.
+            ("tie with the stale snapshot last", [(1700000100, "paid"), (1700000100, "open")], "paid"),
+            ("tie between draft and open", [(1700000100, "open"), (1700000100, "draft")], "open"),
+            # An uncollectible invoice can still be paid or voided.
+            ("tie after uncollectible", [(1700000100, "void"), (1700000100, "uncollectible")], "void"),
         ]
     )
     def test_latest_state_per_object_wins(
@@ -1683,6 +1691,9 @@ class TestSchemaWebhookCapability:
         for name, schema in self.by_name.items():
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
+
+    def test_balance_transaction_does_not_offer_webhook_sync(self):
+        assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
 
 
 class TestCreateWebhookPermissionErrorCopy:

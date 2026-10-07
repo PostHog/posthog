@@ -116,7 +116,7 @@ class TestBuildParams:
         assert params["call_start_after_unix"] == 1700000000
         assert params["summary_mode"] == "include"
 
-    @parameterized.expand([("agents",), ("voices",)])
+    @parameterized.expand([("agents",), ("voices",), ("triage_tickets",)])
     def test_full_refresh_endpoints_never_send_a_time_filter(self, endpoint: str) -> None:
         # Full-refresh endpoints have no server-side updated-since filter; sending one would 4xx.
         params = _build_params(ELEVENLABS_ENDPOINTS[endpoint], True, 1700000000, "created_at_unix")
@@ -294,6 +294,7 @@ class TestSourceResponse:
             ("conversations", ["conversation_id"], "desc", "start_time_unix_secs"),
             ("agents", ["agent_id"], "asc", "created_at_unix_secs"),
             ("voices", ["voice_id"], "asc", "created_at_unix"),
+            ("triage_tickets", ["agentqa_ticket_id"], "desc", "created_at_unix_secs"),
         ]
     )
     @mock.patch(SESSION_PATCH)
