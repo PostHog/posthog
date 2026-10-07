@@ -13,8 +13,10 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
+import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 
+import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import {
     PENDING_MAX_CONTEXT_KEY,
@@ -53,6 +55,54 @@ describe('maxLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it.each(['scene', SIDE_PANEL_PANEL_ID])(
+        'moves files and the draft to the new composer from %s',
+        async (panelId) => {
+            logic = maxLogic({ panelId })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+            maxGlobalLogic.actions.setPhaiViewMode('legacy')
+            const files = [new File(['demo'], 'notes.txt', { type: 'text/plain' })]
+            const seed = composerSeedLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+
+            const panel = runnerPanelLogic({ panelId: panelId === SIDE_PANEL_PANEL_ID ? 'max-side-panel' : undefined })
+            const unmountPanel = panel.mount()
+            panel.actions.setActiveCreation({
+                streamKey: 'previous-task',
+                taskId: 'previous-task',
+                runId: 'previous-run',
+            })
+            panel.actions.setHistoryExpanded(true)
+            maxContextLogic.actions.addOrUpdateContextNotebook({ short_id: 'example-notebook', title: 'Demo notebook' })
+
+            logic.actions.attachFilesToNewChat(files, 'Read these notes')
+
+            expect(seed.values.seed).toMatchObject({ prompt: 'Read these notes', files, autoSubmit: false })
+            expect(maxGlobalLogic.values.effectivePhaiView).toBe('new')
+            expect(panel.values.activeCreation).toBeNull()
+            expect(panel.values.historyExpanded).toBe(false)
+            expect(JSON.parse(seed.values.seed!.contextItems![0].value!).notebooks).toEqual([
+                expect.objectContaining({ id: 'example-notebook', name: 'Demo notebook' }),
+            ])
+            unmountPanel()
+        }
+    )
+
+    it('keeps the legacy view when file selection is canceled or the new runtime is unavailable', () => {
+        logic = maxLogic({ panelId: 'scene' })
+        logic.mount()
+        maxGlobalLogic.actions.setPhaiViewMode('legacy')
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+        logic.actions.attachFilesToNewChat([], 'Keep this draft')
+        expect(maxGlobalLogic.values.effectivePhaiView).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        logic.actions.attachFilesToNewChat([new File(['demo'], 'notes.txt')], 'Keep this draft')
+        expect(maxGlobalLogic.values.phaiViewMode).toBe('legacy')
+        expect(composerSeedLogic().values.seed).toBeNull()
     })
 
     afterEach(async () => {
