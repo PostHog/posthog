@@ -1032,6 +1032,25 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             with self.assertRaises(ExposedHogQLError):
                 TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
+    def test_trends_data_warehouse_missing_view_names_the_view(self):
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            series=[
+                DataWarehouseNode(
+                    id="view_from_another_project",
+                    table_name="view_from_another_project",
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+        )
+
+        with self.assertRaisesMessage(
+            ExposedHogQLError, "`view_from_another_project` does not exist in this project. Create it"
+        ):
+            TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
     def test_trends_breakdown_by_warehouse_person_property_with_missing_column(self):
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         DataWarehouseTable.objects.create(

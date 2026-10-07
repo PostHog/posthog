@@ -45,6 +45,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -205,6 +206,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+        self._raise_for_missing_data_warehouse_tables()
+
         queries = []
         with self.timings.measure("trends_to_query"):
             earliest_timestamp = self._earliest_timestamp
@@ -234,6 +237,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 queries.append(query)
 
         return queries
+
+    def _raise_for_missing_data_warehouse_tables(self) -> None:
+        # Saved views belong to one project, so an insight copied from another project can name a missing view.
+        for series in self.query.series:
+            if not isinstance(series, DataWarehouseNode):
+                continue
+            database = self.shared_database
+            if database.has_table(series.table_name) or database.is_table_access_denied(series.table_name):
+                continue
+            raise QueryError(
+                f"The data warehouse table or view `{series.table_name}` does not exist in this project. "
+                "Create it in this project, or edit the insight to use a table or view that exists."
+            )
 
     def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
