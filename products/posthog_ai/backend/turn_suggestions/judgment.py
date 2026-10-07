@@ -206,9 +206,9 @@ def judge_configured() -> bool:
     return system_one_configured()
 
 
-def _judge_client(team_id: int | None) -> SystemOneClient:
+def _judge_client(team_id: int | None, model: str = JUDGE_MODEL) -> SystemOneClient:
     return build_system_one_client(
-        model=JUDGE_MODEL,
+        model=model,
         ai_product=JUDGE_SOURCE,
         team_id=team_id,
         timeout=JUDGE_TIMEOUT_SECONDS,
@@ -333,13 +333,17 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
 
 
 def judge_turn(
-    transcript: TurnTranscript, *, available: frozenset[OfferKind], team_id: int | None = None
+    transcript: TurnTranscript,
+    *,
+    available: frozenset[OfferKind],
+    team_id: int | None = None,
+    model: str = JUDGE_MODEL,
 ) -> TurnJudgment | None:
     """One Jev request. ``None`` means the call failed, was shed, or no server is configured.
     ``available`` must hold at least one offer, because the offer question needs an option.
     ``team_id`` labels the gateway's event with the team the turn belongs to."""
     try:
-        result = _judge_client(team_id).decide(
+        result = _judge_client(team_id, model).decide(
             state=build_judge_state(transcript), questions=build_judge_questions(transcript, available)
         )
     except SystemOneNotConfigured as error:

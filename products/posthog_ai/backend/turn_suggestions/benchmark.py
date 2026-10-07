@@ -107,6 +107,18 @@ class SystemOneEndpoint:
         return bool(self.username) and parts.scheme == "http" and not _is_loopback(parts.hostname or "")
 
 
+@frozen
+class GatewayModel:
+    """A model on the configured ai-gateway, asked the way production asks Jev. The gateway translates
+    the System One request for any decision model it routes, so a vendor's model compares with Jev here."""
+
+    model: str
+
+    @property
+    def label(self) -> str:
+        return f"ai-gateway {self.model}"
+
+
 def _is_loopback(host: str) -> bool:
     if host == "localhost":
         return True
@@ -277,12 +289,14 @@ def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> Turn
     return read_judgment(parse_system_one_response(response.json(), questions), case.transcript, case.available)
 
 
-def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | None) -> CaseResult:
+def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | GatewayModel | None) -> CaseResult:
     started = time.monotonic()
     judgment: TurnJudgment | None = None
     failure: str | None = None
     if endpoint is None:
         judgment = judge_turn(case.transcript, available=case.available)
+    elif isinstance(endpoint, GatewayModel):
+        judgment = judge_turn(case.transcript, available=case.available, model=endpoint.model)
     else:
         try:
             judgment = _judge_at_endpoint(case, endpoint)
@@ -303,11 +317,11 @@ def run_cases(
     *,
     workers: int,
     on_result: Callable[[CaseResult], None],
-    endpoint: SystemOneEndpoint | None = None,
+    endpoint: SystemOneEndpoint | GatewayModel | None = None,
 ) -> list[CaseResult]:
     """Judge every case, calling ``on_result`` as each answer arrives so a caller can print it live.
-    ``endpoint`` sends the judgments to that server instead of the configured one. The results come back in
-    the order of ``cases``."""
+    ``endpoint`` sends the judgments to that server, or to that model on the configured gateway, instead of
+    Jev. The results come back in the order of ``cases``."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in as_completed([pool.submit(_judge, case, endpoint) for case in cases]):

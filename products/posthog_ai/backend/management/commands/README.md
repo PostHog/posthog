@@ -62,6 +62,7 @@ Do not pass credentials in `--endpoint`, because the shell keeps them in its his
 To choose the judges for one run:
 
 - `--endpoint URL` judges with that URL instead of the variable. Repeat it to add more.
+- `--gateway-model MODEL` also judges with that model on the configured ai-gateway, such as `openai/gpt-6-luna`. The gateway translates the request for any decision model it routes. Repeat it to add more.
 - `--skip-jev` judges with the endpoints only.
 - `--jev-only` ignores the variable and judges with Jev alone, which gives the single-judge output above.
 

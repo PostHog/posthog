@@ -16,13 +16,21 @@ from openai.resources.chat.completions import Completions
 from parameterized import parameterized
 
 from posthog.celery_queues import CeleryQueue
-from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, SystemOneResult
+from posthog.llm.system_one import (
+    Answer,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    SystemOneNotConfigured,
+    SystemOneResult,
+)
 from posthog.redis import get_client
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.benchmark import (
     BenchmarkCase,
     CaseResult,
+    GatewayModel,
     JudgeRun,
     SystemOneEndpoint,
     best_threshold,
@@ -830,6 +838,14 @@ class TestBenchmark(SimpleTestCase):
         assert result.judgment is None
         assert result.error is not None and result.error.startswith("malformed answer: ")
         assert "model" not in post.call_args.kwargs["json"]
+
+    def test_a_gateway_model_judge_asks_the_gateway_for_that_model(self):
+        case = load_cases()[0]
+
+        with patch(f"{JUDGMENT}.build_system_one_client", side_effect=SystemOneNotConfigured) as build:
+            run_cases([case], workers=1, on_result=lambda _: None, endpoint=GatewayModel(model="openai/gpt-6-luna"))
+
+        assert build.call_args.kwargs["model"] == "openai/gpt-6-luna"
 
 
 class TestClassifyTurn(SimpleTestCase):
