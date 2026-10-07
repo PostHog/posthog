@@ -4022,8 +4022,8 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             if (!isSameTimestamp(preview.draft_updated_at, stagedWorkflow?.draft_updated_at)) {
                 // The draft moved again after the preview, so the diffs would not show what Publish promotes.
-                lemonToast.error(
-                    'The staged changes changed while the preview loaded. Review them, then publish again.'
+                lemonToast.warning(
+                    'Someone updated the staged changes while the preview loaded. Review the latest version, then publish again.'
                 )
                 actions.loadWorkflow()
                 return

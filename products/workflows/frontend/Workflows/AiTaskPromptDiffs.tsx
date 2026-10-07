@@ -24,6 +24,8 @@ const DIFF_OPTIONS: MonacoDiffEditorProps['options'] = {
     // measured height and cuts off the last lines.
     automaticLayout: true,
     scrollbar: { alwaysConsumeMouseWheel: false },
+    // The prompt list counts any difference as a change, so the diff must show whitespace-only edits too.
+    ignoreTrimWhitespace: false,
 }
 
 export function AiTaskPromptDiffs({ changes }: { changes: AiTaskPromptChange[] }): JSX.Element {
@@ -32,11 +34,11 @@ export function AiTaskPromptDiffs({ changes }: { changes: AiTaskPromptChange[] }
     const isDarkMode = document.body.getAttribute('theme') === 'dark'
 
     return (
-        // The dialog renders in its own React root, outside the app's chunk-load recovery. Without this
-        // boundary, a failed editor load would unmount the whole dialog and its publish button.
-        <ErrorBoundary>
-            <div className="flex flex-col gap-2" data-attr="workflow-publish-ai-task-prompt-diffs">
-                <span className="font-semibold">Changed AI task instructions</span>
+        <div className="flex flex-col gap-2" data-attr="workflow-publish-ai-task-prompt-diffs">
+            <span className="font-semibold">Changed AI task instructions</span>
+            {/* The dialog renders in its own React root, outside the app's chunk-load recovery. Without this
+                boundary, a failed editor load would unmount the whole dialog and its publish button. */}
+            <ErrorBoundary>
                 {changes.map((change) => (
                     <div key={change.actionId} className="flex flex-col gap-1">
                         <span className="text-xs text-secondary break-words">{change.stepName}</span>
@@ -55,7 +57,7 @@ export function AiTaskPromptDiffs({ changes }: { changes: AiTaskPromptChange[] }
                         </div>
                     </div>
                 ))}
-            </div>
-        </ErrorBoundary>
+            </ErrorBoundary>
+        </div>
     )
 }
