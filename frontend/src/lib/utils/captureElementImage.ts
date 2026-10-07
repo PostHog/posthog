@@ -27,10 +27,17 @@ function getStylePropertyNames(): string[] {
     return names
 }
 
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
+const RESOURCE_FETCH_TIMEOUT_MS = 15000
+
 /** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
 export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
     const blob = await toBlob(element, {
         includeStyleProperties: getStylePropertyNames(),
+        imagePlaceholder: BLANK_IMAGE,
+        onImageErrorHandler: () => {},
+        fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS) },
         ...options,
     })
 

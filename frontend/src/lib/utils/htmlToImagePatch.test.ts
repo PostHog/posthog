@@ -1,5 +1,8 @@
 import { readFileSync } from 'fs'
-import { resolveUrl } from 'html-to-image/lib/util'
+import { getFontEmbedCSS } from 'html-to-image'
+import { cloneNode } from 'html-to-image/lib/clone-node'
+import { resourceToDataURL } from 'html-to-image/lib/dataurl'
+import * as imageUtils from 'html-to-image/lib/util'
 import { dirname, join } from 'path'
 
 // html-to-image resolves a relative `url()` inside @font-face against the stylesheet's own href.
@@ -28,7 +31,105 @@ import { dirname, join } from 'path'
 // so nothing in this repo loads it.
 describe('html-to-image patch', () => {
     const packageRoot = dirname(dirname(require.resolve('html-to-image')))
+    afterEach(() => {
+        jest.restoreAllMocks()
+        document.body.innerHTML = ''
+    })
+
     const STYLESHEET = 'https://app-static-prod.posthog.com/static/index-46THL72U.css'
+    const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+
+    it.each([
+        [
+            'video with an undecodable poster',
+            (createImage: jest.SpyInstance): HTMLElement => {
+                createImage.mockRejectedValueOnce(new Event('error'))
+                const video = document.createElement('video')
+                video.poster = 'data:image/png;base64,aW52YWxpZA=='
+                return video
+            },
+        ],
+        [
+            'video with an unreadable frame',
+            (): HTMLElement => {
+                const video = document.createElement('video')
+                Object.defineProperty(video, 'currentSrc', { value: 'https://example.com/video.mp4' })
+                jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+                jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => {
+                    throw new DOMException('Canvas is tainted', 'SecurityError')
+                })
+                return video
+            },
+        ],
+    ])('keeps the box of a %s', async (_label, buildElement) => {
+        const image = document.createElement('img')
+        const createImage = jest.spyOn(imageUtils, 'createImage').mockResolvedValue(image)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        const element = buildElement(createImage)
+        element.style.cssText = 'width: 240px; height: 120px; display: block'
+
+        const clone = await cloneNode(element, {
+            imagePlaceholder: PLACEHOLDER,
+            includeStyleProperties: ['width', 'height', 'display'],
+        })
+
+        expect(clone).toBe(image)
+        expect(image.style.width).toBe('240px')
+        expect(image.style.height).toBe('120px')
+        expect(image.style.display).toBe('block')
+        expect(createImage).toHaveBeenLastCalledWith(PLACEHOLDER)
+    })
+
+    it('replaces a tainted canvas with a blank image of the same size', async () => {
+        jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(function (this: HTMLCanvasElement) {
+            return `data:image/png;blank-${this.width}x${this.height}`
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = 240
+        canvas.height = 120
+        Object.defineProperty(canvas, 'toDataURL', {
+            value: () => {
+                throw new DOMException('Canvas is tainted', 'SecurityError')
+            },
+        })
+        const image = document.createElement('img')
+        const createImage = jest.spyOn(imageUtils, 'createImage').mockResolvedValue(image)
+
+        await expect(cloneNode(canvas, {})).resolves.toBe(image)
+        expect(createImage).toHaveBeenCalledWith('data:image/png;blank-240x120')
+    })
+
+    it.each([
+        ['import', (href: string): CSSRule[] => [{ type: CSSRule.IMPORT_RULE, href } as CSSImportRule]],
+        [
+            'cross-origin',
+            (): CSSRule[] => {
+                throw new DOMException('Cross-origin stylesheet', 'SecurityError')
+            },
+        ],
+    ])('settles an aborted %s stylesheet fetch', async (kind, readRules) => {
+        const controller = new AbortController()
+        const node = document.createElement('div')
+        const sheet = {
+            href: `https://example.com/${kind}.css`,
+            get cssRules(): CSSRule[] {
+                return readRules(this.href)
+            },
+        }
+        Object.defineProperty(node, 'ownerDocument', { value: { styleSheets: [sheet] } })
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        jest.spyOn(global, 'fetch').mockImplementation(
+            (_url, init) =>
+                new Promise((_resolve, reject) => {
+                    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+                })
+        )
+
+        const result = getFontEmbedCSS(node, { fetchRequestInit: { signal: controller.signal } })
+        controller.abort()
+
+        await expect(result).resolves.toBe('')
+    })
 
     // Expectations are written out rather than computed, so the assertion does not restate the
     // implementation it is checking.
@@ -42,12 +143,36 @@ describe('html-to-image patch', () => {
         ['parent segment', '../assets/Inter.woff2', 'https://app-static-prod.posthog.com/assets/Inter.woff2'],
         ['absolute, returned untouched', 'https://cdn.example.com/Inter.woff2', 'https://cdn.example.com/Inter.woff2'],
     ])('resolves a %s font URL against the stylesheet', (_label, url, expected) => {
-        expect(resolveUrl(url, STYLESHEET)).toBe(expected)
+        expect(imageUtils.resolveUrl(url, STYLESHEET)).toBe(expected)
     })
 
     it.each(['es/util.js', 'lib/util.js'])('does not assign <base href> on a detached document in %s', (file) => {
         const source = readFileSync(join(packageRoot, file), 'utf-8')
 
         expect(source).not.toMatch(/createElement\(['"]base['"]\)/)
+    })
+
+    it('retries an image after a failed fetch without caching its placeholder', async () => {
+        const iframe = document.createElement('iframe')
+        document.body.appendChild(iframe)
+        const { Blob } = iframe.contentWindow as Window & typeof globalThis
+        const url = 'https://example.com/avatar.png'
+        const fetch = jest
+            .spyOn(global, 'fetch')
+            .mockRejectedValueOnce(new DOMException('Resource unavailable', 'AbortError'))
+            .mockResolvedValue({
+                status: 200,
+                blob: async () => new Blob(['recovered'], { type: 'image/png' }),
+            } as Response)
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+        expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(PLACEHOLDER)
+        expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(
+            'data:image/png;base64,cmVjb3ZlcmVk'
+        )
+        expect(await resourceToDataURL(url, 'image/png', { imagePlaceholder: PLACEHOLDER })).toBe(
+            'data:image/png;base64,cmVjb3ZlcmVk'
+        )
+        expect(fetch).toHaveBeenCalledTimes(2)
     })
 })
