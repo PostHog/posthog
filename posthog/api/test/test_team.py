@@ -449,8 +449,10 @@ def team_api_test_factory():
             denied_filter = deny_warehouse_table_to_member(self.organization, self.team, self.user)
             filters_before = self.team.test_account_filters
 
+            # The filter that does not compile must neither break the save nor hide the denial.
             response = self.client.patch(
-                f"/api/environments/{self.team.id}/", {"test_account_filters": [denied_filter]}
+                f"/api/environments/{self.team.id}/",
+                {"test_account_filters": [{"type": "hogql", "key": ""}, denied_filter]},
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
