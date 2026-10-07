@@ -44,8 +44,7 @@ def enable_materialization(
 
     Every refusal raises a DRF error: 400 for a cadence the lineage forbids, 403 without edit access
     to the view or read access to its tables, and 500 when scheduling fails. The `materialize` action
-    and a create that asks for a cadence both call this, so a view created with a cadence gets the
-    same checks, schedule and activity entry as one materialized afterwards.
+    and creates or updates that enable materialization all share these checks, scheduling and activity logging.
     """
     try:
         enable_saved_query_materialization(

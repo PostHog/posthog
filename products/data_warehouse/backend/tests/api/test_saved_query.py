@@ -21,7 +21,12 @@ from rest_framework.test import APIRequestFactory
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import (
+    UnsatisfiableFrequencyError,
+    get_declared_target,
+    mark_node_suspended,
+    suspension_state,
+)
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -1082,7 +1087,6 @@ class TestSavedQuery(APIBaseTest):
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), expected_target)
         reconcile.assert_called_once()
-        # a cadence on a view that is not materialized materializes it; on one that is, it only retargets
         self.assertTrue(updated.is_materialized)
         self.assertEqual(
             ActivityLog.objects.filter(item_id=saved_query["id"], activity="materialization_enabled").exists(),
@@ -1314,10 +1318,13 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("consumer_view", str(response.json()))
-        # the refusal comes from materializing the view, which runs last inside the update's transaction
         unchanged = DataWarehouseSavedQuery.objects.get(id=upstream["id"])
         self.assertFalse(unchanged.is_materialized)
-        self.assertFalse(unchanged.column_annotations.exists())
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=unchanged)
+            .exists()
+        )
 
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
@@ -1352,7 +1359,9 @@ class TestSavedQuery(APIBaseTest):
     def test_create_with_a_sync_frequency_materializes_the_view(
         self, _name: str, fields: dict[str, str], expected_interval: timedelta | None
     ) -> None:
-        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
+        temporal = AsyncMock()
+        temporal.list_schedules.return_value.__aiter__.return_value = []
+        with patch("products.data_modeling.backend.schedule.async_connect", return_value=temporal):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -1368,11 +1377,14 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()["sync_frequency"], fields.get("sync_frequency") if materialized else None)
         saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         self.assertEqual(saved_query.is_materialized, materialized)
-        self.assertEqual(saved_query.sync_frequency_interval, expected_interval)
+        self.assertIsNone(saved_query.sync_frequency_interval)
+        node = Node.objects.get(saved_query=saved_query)
+        self.assertEqual(get_declared_target(node), expected_interval)
+        self.assertEqual(node.type, NodeType.MAT_VIEW if materialized else NodeType.VIEW)
         if materialized:
-            schedule_materialization.assert_called_once_with(trigger_immediate_run=True, triggered_by_id=self.user.pk)
+            temporal.list_schedules.assert_called()
         else:
-            schedule_materialization.assert_not_called()
+            temporal.list_schedules.assert_not_called()
         self.assertEqual(
             ActivityLog.objects.filter(item_id=saved_query.id, activity="materialization_enabled").exists(),
             materialized,

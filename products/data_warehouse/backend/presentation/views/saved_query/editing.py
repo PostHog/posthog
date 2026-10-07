@@ -635,11 +635,10 @@ class DataWarehouseSavedQuerySerializer(
                 detail=Detail(name=view.name, changes=changes),
             )
 
-            # Best effort sync to the data modeling DAG representation. It reads the node's
-            # placement, so it stays under the row lock a move also takes: outside it a move can
+            # The sync reads the node's placement, so it stays under the row lock a move also takes: a move can
             # land between the read and the sync, which would then create a second node in the
-            # DAG the move just left. The savepoint keeps a failed sync best effort without
-            # poisoning the update's own transaction.
+            # DAG the move just left. The savepoint lets ordinary edits survive a failed sync without
+            # poisoning the transaction.
             if "query" in validated_data and not dag_given:
                 try:
                     with transaction.atomic():
@@ -648,6 +647,10 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    if materializes:
+                        raise exceptions.APIException(
+                            "Could not update this view's dependencies for materialization. Try again or contact support."
+                        ) from e
 
             if materializes:
                 # Last, because the full saves of `view` above would write a stale is_materialized
