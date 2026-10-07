@@ -356,6 +356,45 @@ export const OtelMetricTypeEnumApi = {
     Summary: 'summary',
 } as const
 
+/**
+ * * `none` - none
+ * * `sum` - sum
+ * * `avg` - avg
+ * * `count` - count
+ * * `min` - min
+ * * `max` - max
+ * * `p95` - p95
+ * * `rate` - rate
+ * * `increase` - increase
+ * * `histogram_quantile` - histogram_quantile
+ */
+export type MetricQueryAggregationEnumApi =
+    (typeof MetricQueryAggregationEnumApi)[keyof typeof MetricQueryAggregationEnumApi]
+
+export const MetricQueryAggregationEnumApi = {
+    None: 'none',
+    Sum: 'sum',
+    Avg: 'avg',
+    Count: 'count',
+    Min: 'min',
+    Max: 'max',
+    P95: 'p95',
+    Rate: 'rate',
+    Increase: 'increase',
+    HistogramQuantile: 'histogram_quantile',
+} as const
+
+/**
+ * * `rate` - rate
+ * * `increase` - increase
+ */
+export type RangeFunctionEnumApi = (typeof RangeFunctionEnumApi)[keyof typeof RangeFunctionEnumApi]
+
+export const RangeFunctionEnumApi = {
+    Rate: 'rate',
+    Increase: 'increase',
+} as const
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -418,6 +457,7 @@ export interface _MetricClauseApi {
     metricType?: OtelMetricTypeEnumApi | null
     /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
      *
+     * * `none` - none
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
@@ -427,7 +467,12 @@ export interface _MetricClauseApi {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi
+    aggregation?: MetricQueryAggregationEnumApi
+    /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+     *
+     * * `rate` - rate
+     * * `increase` - increase */
+    rangeFunction?: RangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile'.
      * @minimum 0
@@ -455,8 +500,9 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
+    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
      *
+     * * `none` - none
      * * `sum` - sum
      * * `avg` - avg
      * * `count` - count
@@ -466,7 +512,12 @@ export interface _MetricQueryBodyApi {
      * * `rate` - rate
      * * `increase` - increase
      * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi
+    aggregation?: MetricQueryAggregationEnumApi
+    /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
+     *
+     * * `rate` - rate
+     * * `increase` - increase */
+    rangeFunction?: RangeFunctionEnumApi | null
     /**
      * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
      * @minimum 0

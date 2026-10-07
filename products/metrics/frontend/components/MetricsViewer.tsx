@@ -45,7 +45,13 @@ import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
-import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
+import {
+    LIVE_REFRESH_MS,
+    MAX_CLAUSES,
+    MAX_UNAGGREGATED_SERIES,
+    metricsViewerLogic,
+    sanitizeFormulaInput,
+} from './metricsViewerLogic'
 
 const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
 const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table', 'heatmap']
@@ -111,6 +117,7 @@ export const MetricsViewer = (): JSX.Element => {
         isAddToDashboardModalOpen,
         hasMetricName,
         hasResults,
+        seriesCapReached,
         displayType,
         metricsDisplay,
         heatmapEligible,
@@ -381,7 +388,7 @@ export const MetricsViewer = (): JSX.Element => {
                             size="small"
                             type="secondary"
                             onClick={openStarterDashboardModal}
-                            tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
+                            tooltip="Create a dashboard with one insight per metric, charted as one line per series"
                             data-attr="metrics-viewer-starter-dashboard"
                             disabledReason={insightEditorDisabledReason}
                         >
@@ -407,6 +414,12 @@ export const MetricsViewer = (): JSX.Element => {
             )}
             <div className="flex flex-col xl:flex-row gap-3 items-stretch">
                 <div className="flex-1 min-w-0">
+                    {seriesCapReached && (
+                        <LemonBanner type="info" className="mb-2" data-attr="metrics-series-cap-banner">
+                            Showing the {MAX_UNAGGREGATED_SERIES} most recently active series. Add a filter or an
+                            operation to narrow the chart.
+                        </LemonBanner>
+                    )}
                     <div className="relative h-[360px] border rounded p-3">
                         {!hasMetricName ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">

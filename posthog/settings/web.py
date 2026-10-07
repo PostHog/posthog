@@ -625,6 +625,20 @@ SPECTACULAR_SETTINGS = {
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # Metrics query clauses accept 'none' (one line per series); the anomaly and explain bodies do not.
+            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+            "MetricQueryAggregationEnum": [
+                "none",
+                "sum",
+                "avg",
+                "count",
+                "min",
+                "max",
+                "p95",
+                "rate",
+                "increase",
+                "histogram_quantile",
+            ],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             #

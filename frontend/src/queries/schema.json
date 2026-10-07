@@ -39312,7 +39312,8 @@
             "additionalProperties": false,
             "properties": {
                 "aggregation": {
-                    "$ref": "#/definitions/MetricsAggregation"
+                    "$ref": "#/definitions/MetricsAggregation",
+                    "description": "Omit to get one line per series (at most 100), without combining them"
                 },
                 "filters": {
                     "items": {
@@ -39340,9 +39341,13 @@
                 "quantile": {
                     "description": "In (0, 1); required for `quantile` / `histogram_quantile` aggregations",
                     "type": "number"
+                },
+                "rangeFunction": {
+                    "$ref": "#/definitions/MetricsRangeFunction",
+                    "description": "Applied to each series before `aggregation`, like `rate()` in PromQL"
                 }
             },
-            "required": ["name", "metricName", "aggregation"],
+            "required": ["name", "metricName"],
             "type": "object"
         },
         "MetricsQueryFilter": {
@@ -39487,6 +39492,11 @@
             },
             "required": ["labels", "points"],
             "type": "object"
+        },
+        "MetricsRangeFunction": {
+            "description": "Counter-aware transform applied to each series before any aggregation",
+            "enum": ["rate", "increase"],
+            "type": "string"
         },
         "MetricsReducer": {
             "description": "How a series collapses to one number for the scalar panels and legend calcs.",

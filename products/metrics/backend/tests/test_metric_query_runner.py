@@ -19,7 +19,7 @@ from posthog.clickhouse.client.connection import Workload
 
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
     MetricQueryRunner,
@@ -1804,6 +1804,91 @@ class TestNonFiniteAggregatesOnSamples(TestNonFiniteAggregates):
 
 class TestRateIncreaseOnSamples(TestRateIncrease):
     runner_class = MetricSamplesQueryRunner
+
+
+class TestUnaggregatedSeries(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        truncate_metrics_tables()
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_pod(self, pod: str, points, metric_name: str = "requests_total") -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name=metric_name,
+            metric_type="sum",
+            is_monotonic=True,
+            points=points,
+            resource_labels={"k8s.pod.name": pod},
+            labels={"env": "prod"},
+        )
+
+    def _run(self, **clause_overrides):
+        clause: dict[str, Any] = {
+            "name": "a",
+            "metric_name": "requests_total",
+            "aggregation": MetricAggregation.NONE,
+        }
+        clause.update(clause_overrides)
+        return run_metric_query(
+            team=self.team,
+            request=MetricQueryRequest(
+                clauses=(MetricQueryClause(**clause),),
+                date_from=self.anchor - dt.timedelta(minutes=1),
+                date_to=self.anchor + dt.timedelta(minutes=2),
+                interval="minute",
+            ),
+        )
+
+    def test_one_series_per_physical_series_keeping_only_distinguishing_labels(self):
+        self._seed_pod("web-1", [(self.anchor + dt.timedelta(seconds=10), 5.0)])
+        self._seed_pod("web-2", [(self.anchor + dt.timedelta(seconds=10), 7.0)])
+
+        series = self._run()
+
+        self.assertEqual({s.labels["k8s.pod.name"] for s in series}, {"web-1", "web-2"})
+        self.assertTrue(all("env" not in s.labels for s in series))
+        self.assertEqual(
+            {s.labels["k8s.pod.name"]: [p.value for p in s.points][-1] for s in series},
+            {"web-1": 5.0, "web-2": 7.0},
+        )
+
+    def test_keeps_the_most_recently_reporting_series_when_over_the_cap(self):
+        for index in range(4):
+            self._seed_pod(f"web-{index}", [(self.anchor + dt.timedelta(seconds=index * 10), 1.0)])
+
+        with patch("products.metrics.backend.metric_query_runner.MAX_RAW_SERIES", 2):
+            series = self._run()
+
+        self.assertEqual({s.labels["k8s.pod.name"] for s in series}, {"web-2", "web-3"})
+
+    def test_rate_function_runs_per_series_and_sums_like_the_legacy_rate(self):
+        for pod, last in (("web-1", 60.0), ("web-2", 6.0)):
+            self._seed_pod(
+                pod,
+                [(self.anchor + dt.timedelta(seconds=0), 0.0), (self.anchor + dt.timedelta(seconds=30), last)],
+            )
+
+        per_series = self._run(range_function=MetricRangeFunction.RATE)
+        summed = self._run(aggregation=MetricAggregation.SUM, range_function=MetricRangeFunction.RATE)
+        legacy = self._run(aggregation=MetricAggregation.RATE)
+
+        self.assertEqual(
+            {s.labels["k8s.pod.name"]: [p.value for p in s.points][-1] for s in per_series},
+            {"web-1": 1.0, "web-2": 0.1},
+        )
+        self.assertEqual([p.value for p in summed[0].points], [p.value for p in legacy[0].points])
+
+    def test_rejects_group_by_without_an_aggregation(self):
+        with self.assertRaises(ValueError):
+            MetricQueryClause(
+                name="a",
+                metric_name="requests_total",
+                aggregation=MetricAggregation.NONE,
+                group_by=(MetricGroupBy(key="env"),),
+            )
 
 
 class TestBuildMetricQueryRunner(APIBaseTest):

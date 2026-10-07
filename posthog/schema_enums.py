@@ -2162,6 +2162,11 @@ class MetricsOtelType(StrEnum):
     SUMMARY = "summary"
 
 
+class MetricsRangeFunction(StrEnum):
+    RATE = "rate"
+    INCREASE = "increase"
+
+
 class MetricsReducer(StrEnum):
     LAST = "last"
     MEAN = "mean"
