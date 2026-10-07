@@ -6837,6 +6837,17 @@ No material gaps found.
 
 Note: The entire published Plunk API is seven operations: four listable collections (contacts, campaigns, templates, segments) plus three write-only actions (POST /v1/send, POST /v1/track, POST /v1/verify). PostHog already exposes all four listable collections, so there is nothing left to sync. Workflows and events are documented as product concepts but have no REST endpoints in the spec or in the API reference section of https://docs.useplunk.com/llms.txt.
 
+## Polymarket — gaps
+
+Today (5): `biggest_winners`, `events`, `markets`, `series`, `tags`
+
+Diffed against: <https://data-api.polymarket.com/v2/openapi.json>
+
+- [x] `/v2/biggest-winners` — the all-time board of the biggest single winning positions (medium)
+- [ ] `/v2/resolutions` — resolution lifecycle state per market (low)
+
+Note: `/v2/resolutions` only looks up up to 20 condition or event ids per call and has no list mode, so syncing it as a table means fanning out across the whole Gamma event catalog on every full refresh. The markets table already carries each market's resolution status.
+
 ## PrefectCloud — gaps
 
 Today (6): `deployments`, `flow_runs`, `flows`, `task_runs`, `work_pools`, `work_queues`
