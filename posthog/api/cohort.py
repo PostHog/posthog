@@ -1699,7 +1699,7 @@ def _filter_flags_referencing_cohort(
             seen_cohorts_cache=seen_cohorts_cache,
             stop_traversal_at_static=stop_traversal_at_static,
             # A non-integer id cannot reach this cohort. Raising on it would fail the whole lookup.
-            skip_invalid_cohort_ids=True,
+            invalid_cohort_ids="skip",
         )
     ]
 

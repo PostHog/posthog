@@ -5399,11 +5399,12 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("active", {"active": True}, False, True),
-            ("disabled", {"active": False}, False, True),
-            ("stopped_survey_targeting", {"active": False}, True, True),
-            ("archived", {"active": False, "archived": True}, False, False),
-            ("soft_deleted", {"active": True, "deleted": True}, False, False),
+            ("active", {"active": True}, False, False, True),
+            ("disabled", {"active": False}, False, False, True),
+            ("disabled_with_non_numeric_cohort_id", {"active": False}, False, True, True),
+            ("stopped_survey_targeting", {"active": False}, True, False, True),
+            ("archived", {"active": False, "archived": True}, False, False, False),
+            ("soft_deleted", {"active": True, "deleted": True}, False, False, False),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -5413,6 +5414,7 @@ email@example.org,
         _name: str,
         flag_state: dict[str, bool],
         survey_targeting: bool,
+        non_numeric_cohort_id: bool,
         blocks: bool,
         patch_calculate_cohort: MagicMock,
         patch_capture: MagicMock,
@@ -5423,9 +5425,12 @@ email@example.org,
         )
         cohort_id = response.json()["id"]
 
+        groups = [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]
+        if non_numeric_cohort_id:
+            groups.insert(0, {"properties": [{"key": "id", "value": "not-an-id", "type": "cohort"}]})
         flag = FeatureFlag.objects.create(
             team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            filters={"groups": groups},
             name="Flag using cohort",
             key="cohort-flag",
             created_by=self.user,
@@ -5458,58 +5463,6 @@ email@example.org,
             self.assertEqual(response.json()["detail"], expected_detail)
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(Cohort.objects.get(id=cohort_id).deleted, not blocks)
-
-    @parameterized.expand(
-        [
-            ("non_numeric_only", ["not-an-id"], False),
-            ("non_numeric_and_target", ["not-an-id", "target"], True),
-        ]
-    )
-    @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_deleting_cohort_skips_non_numeric_cohort_ids_in_flags(
-        self,
-        _name: str,
-        condition_values: list[str],
-        blocks: bool,
-        patch_calculate_cohort: MagicMock,
-        patch_capture: MagicMock,
-    ) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
-        )
-        cohort_id = response.json()["id"]
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {"key": "id", "type": "cohort", "value": cohort_id if value == "target" else value}
-                        ]
-                    }
-                    for value in condition_values
-                ]
-            },
-            name="Flag using cohort",
-            key="cohort-flag",
-            created_by=self.user,
-            active=False,
-        )
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
-            data={"deleted": True},
-        )
-
-        self.assertEqual(
-            response.status_code,
-            status.HTTP_400_BAD_REQUEST if blocks else status.HTTP_200_OK,
-            response.json(),
-        )
         self.assertEqual(Cohort.objects.get(id=cohort_id).deleted, not blocks)
 
     @patch("posthog.api.cohort.report_user_action")
