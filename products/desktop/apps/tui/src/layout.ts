@@ -241,6 +241,62 @@ export function newChatIn(state: LayoutState, paneId: string): LayoutState {
   };
 }
 
+// A split inside a split that runs the same way gets only its parent's share, so its panes come out narrower.
+// Merging them gives every pane along a row or column an even share.
+function flattened(node: LayoutNode): LayoutNode {
+  if (node.kind === "pane") return node;
+  const children = node.children
+    .map(flattened)
+    .flatMap((child) =>
+      child.kind === "split" && child.direction === node.direction
+        ? child.children
+        : [child],
+    );
+  return children.length === 1 ? children[0] : { ...node, children };
+}
+
+// Evens out a workspace's panes; null when they are already as even as they can be.
+export function optimizeWorkspace(
+  state: LayoutState,
+  workspaceId: string,
+): LayoutState | null {
+  const workspace = state.workspaces.find((w) => w.id === workspaceId);
+  if (!workspace) return null;
+  const root = flattened(workspace.root);
+  if (JSON.stringify(root) === JSON.stringify(workspace.root)) return null;
+  return {
+    ...state,
+    workspaces: state.workspaces.map((w) =>
+      w.id === workspaceId ? { ...w, root } : w,
+    ),
+  };
+}
+
+// Shows a split pane's task full width in the main view, the way All tasks opens it, and leaves the split as it is.
+export function expandPane(state: LayoutState, paneId: string): LayoutState {
+  const pane = findPane(state, paneId);
+  if (!pane?.taskId) return state;
+  const main = state.workspaces.find((w) => w.root.kind === "pane");
+  if (!main) {
+    const workspace = newWorkspace(pane.taskId, pane.title);
+    return {
+      workspaces: [...state.workspaces, workspace],
+      activeWorkspaceId: workspace.id,
+      focus: "pane",
+    };
+  }
+  const root = main.root as PaneNode;
+  return {
+    workspaces: state.workspaces.map((w) =>
+      w.id === main.id
+        ? { ...w, root: { ...root, taskId: pane.taskId, title: pane.title } }
+        : w,
+    ),
+    activeWorkspaceId: main.id,
+    focus: "pane",
+  };
+}
+
 // Splits are kept; of the single-pane views, only the active one (or else the last) survives.
 function withOneMainView(state: LayoutState): LayoutState {
   const singles = state.workspaces.filter((w) => w.root.kind === "pane");

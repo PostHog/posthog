@@ -7,9 +7,11 @@ import type { Composer } from "../composer";
 import { messageOf } from "../errors";
 import {
   assignTask,
+  expandPane,
   findPane,
   type LayoutState,
   newChatIn,
+  optimizeWorkspace,
   renameTask,
   renameWorkspace,
   workspaceOf,
@@ -217,12 +219,31 @@ export function useSend({
       }
       return;
     }
+    if (slash?.command === "optimize" || slash?.command === "expand") {
+      const workspace = workspaceOf(layout, paneId);
+      if (!workspace || workspace.root.kind === "pane") {
+        flashNotice(
+          slash.command === "expand"
+            ? "This chat is already full width"
+            : "This chat isn't in a workspace. Split it with Ctrl+\\ first",
+          here,
+        );
+      } else if (slash.command === "expand") {
+        if (pane?.taskId) setLayout((state) => expandPane(state, paneId));
+        else flashNotice("There's no chat here to open yet", here);
+      } else {
+        const even = optimizeWorkspace(layout, workspace.id);
+        if (even) setLayout(even);
+        else flashNotice("The panes are already as even as they can be", here);
+      }
+      return;
+    }
     if (slash?.command === "rename-workspace") {
       const workspace = workspaceOf(layout, paneId);
       const name = slash.args.trim();
       if (!workspace || workspace.root.kind === "pane")
         flashNotice(
-          "This chat isn't in a workspace. Split it with Ctrl+S first",
+          "This chat isn't in a workspace. Split it with Ctrl+\\ first",
           here,
         );
       else if (!name)
