@@ -40,6 +40,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.client.limit import app_org_concurrency_slot
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -495,7 +496,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
-        # ClickHouse returns the column names and types for a LIMIT 0 query without reading any data.
+        # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
         select_query = parse_select(query["query"])
         _limit_to_zero_rows(select_query)
         _InSubqueryZeroRows().visit(select_query)
@@ -505,7 +506,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
             tag_contains_user_hogql()
             # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
-            response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+            with app_org_concurrency_slot(self.team):
+                response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
         result = response.types
 
         if result is None:

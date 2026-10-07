@@ -8,6 +8,15 @@ from django.db.models.query import QuerySet as DjangoQuerySet
 
 from parameterized import parameterized
 
+from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
+
+from posthog import redis
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
+
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
@@ -128,6 +137,53 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+
+
+class TestGetColumnsConcurrency(BaseTest):
+    @parameterized.expand(
+        [
+            ("browser", None, False),
+            ("oauth", AccessMethod.OAUTH, False),
+            ("api_key", AccessMethod.PERSONAL_API_KEY, True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_shares_the_query_runner_organization_limit(
+        self, _name: str, access_method: AccessMethod | None, is_api_key: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT, "limit": 1}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.addCleanup(redis.get_client().delete, f"org_app_concurrency_limit:{self.organization.id}")
+        saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": "SELECT 1 AS value"})
+        column_types = [("value", "UInt8")]
+
+        def infer_while_query_runs(*args: object, **kwargs: object) -> tuple[list[tuple[int]], list[tuple[str, str]]]:
+            with (
+                tags_context(access_method=access_method),
+                patch("posthog.hogql.query.sync_execute", return_value=([], column_types)),
+            ):
+                if is_api_key:
+                    columns = saved_query.get_columns(user=self.user)
+                    assert columns["value"]["clickhouse"] == "UInt8"
+                else:
+                    with self.assertRaises(ConcurrencyLimitExceeded):
+                        saved_query.get_columns(user=self.user)
+            return [(1,)], column_types
+
+        runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1 AS value"), team=self.team, user=self.user)
+        with (
+            tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY, access_method=None),
+            patch("posthog.hogql.query.sync_execute", side_effect=infer_while_query_runs),
+        ):
+            result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(result, CachedHogQLQueryResponse)
+        assert result.results == [(1,)]
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([], column_types)):
+            columns = saved_query.get_columns(user=self.user)
+        assert columns["value"]["clickhouse"] == "UInt8"
 
 
 class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):

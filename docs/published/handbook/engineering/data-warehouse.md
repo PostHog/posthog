@@ -18,6 +18,10 @@ This reservation does not add qualified names to existing models or require a na
 
 ## SQL editor drafts
 
+Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
+Scalar subqueries can still read data, so column inference shares the organization's foreground query concurrency limit.
+API-key requests and background jobs retain the query runner's existing exemptions from that limit.
+
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
