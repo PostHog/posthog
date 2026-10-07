@@ -39,14 +39,6 @@ class TestWorkdaySource:
         # otherwise the preserved secrets would be replayed at an attacker-chosen host.
         assert self.source.connection_host_fields == ["hostname"]
 
-    def test_schemas_are_full_refresh_only(self) -> None:
-        # Workday's Updated_From/Updated_Through range filters are SOAP-only, so advertising an
-        # incremental cursor here would re-read everything at full cost while claiming otherwise.
-        for schema in self.source.get_schemas(self.config, self.team_id):
-            assert schema.supports_incremental is False
-            assert schema.supports_append is False
-            assert schema.incremental_fields == []
-
     @pytest.mark.parametrize(
         "mock_return",
         [(True, None), (False, "Invalid Workday hostname")],

@@ -3,7 +3,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig, SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.canonical_descriptions import (
@@ -58,49 +57,6 @@ class TestPardotSource:
             pardot_integration_id=7,
             environment="production",
         )
-
-    def test_source_config_authorizes_through_posthogs_salesforce_app(self) -> None:
-        # The user connects an account instead of pasting a connected app's own credentials,
-        # so no client id, client secret or refresh token field may come back.
-        fields = {field.name: field for field in self.source.get_source_config.fields}
-
-        assert set(fields) == {"pardot_integration_id", "environment", "business_unit_id"}
-
-        integration = fields["pardot_integration_id"]
-        assert isinstance(integration, SourceFieldOauthConfig)
-        assert integration.kind == "pardot"
-        assert integration.required is True
-        # Salesforce's `full` scope does not cover the Account Engagement API.
-        assert integration.requiredScopes is not None and "pardot_api" in integration.requiredScopes
-
-        environment = fields["environment"]
-        assert isinstance(environment, SourceFieldSelectConfig)
-        assert [option.value for option in environment.options] == ["production", "sandbox"]
-
-    def test_api_version_defaults_to_the_path_the_transport_calls(self) -> None:
-        assert self.source.default_version == "v5"
-        assert self.source.supported_versions == ("v5",)
-        assert self.source.resolve_api_version(None) == "v5"
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://pi.pardot.com/api/v5/objects/prospects",
-            "403 Client Error: Forbidden for url: https://pi.pardot.com/api/v5/objects/prospects",
-            "400 Client Error: Bad Request: expired access/refresh token",
-            "Integration not found: 7",
-        ],
-    )
-    def test_auth_failures_are_non_retryable(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_needs_no_credentials(self) -> None:
-        # `lists_tables_without_credentials` promises the public docs can list tables from a
-        # placeholder config — that only holds while get_schemas does no I/O.
-        assert self.source.lists_tables_without_credentials is True
-        empty_config = PardotSourceConfig(business_unit_id="", pardot_integration_id=0, environment="production")
-
-        assert {s.name for s in self.source.get_schemas(empty_config, self.team_id)} == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "probe_result",

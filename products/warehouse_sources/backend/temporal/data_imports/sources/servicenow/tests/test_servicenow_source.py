@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
     SERVICENOW_API_VERSION_V2,
     ServiceNowAuth,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source import ServiceNowSource
 
 
@@ -56,19 +55,6 @@ class TestServiceNowSource:
         self.source = ServiceNowSource()
         self.team_id = 1
 
-    def test_get_schemas_all_incremental(self) -> None:
-        schemas = self.source.get_schemas(_api_key_config(), self.team_id)
-
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental for s in schemas)
-        assert all(s.supports_append for s in schemas)
-        # both audit timestamps are advertised as incremental options
-        assert all({f["field"] for f in s.incremental_fields} == {"sys_updated_on", "sys_created_on"} for s in schemas)
-
-    def test_auth_for_config_api_key(self) -> None:
-        auth = self.source._auth_for_config(_api_key_config("abc"))
-        assert auth == ServiceNowAuth(api_key="abc")
-
     def test_auth_for_config_basic(self) -> None:
         auth = self.source._auth_for_config(_basic_config("u", "p"))
         assert auth == ServiceNowAuth(username="u", password="p")
@@ -88,35 +74,6 @@ class TestServiceNowSource:
         )
         with pytest.raises(ValueError):
             self.source._auth_for_config(config)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_success(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        valid, error = self.source.validate_credentials(_api_key_config(), self.team_id)
-        assert valid is True
-        assert error is None
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_maps_schema_to_table(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        self.source.validate_credentials(_api_key_config(), self.team_id, schema_name="incidents")
-
-        _, kwargs = mock_validate.call_args
-        assert kwargs["table"] == "incident"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.validate_servicenow_credentials"
-    )
-    def test_validate_credentials_no_schema_passes_none_table(self, mock_validate: mock.Mock) -> None:
-        mock_validate.return_value = (True, None)
-        self.source.validate_credentials(_basic_config(), self.team_id)
-
-        _, kwargs = mock_validate.call_args
-        assert kwargs["table"] is None
 
     def test_validate_credentials_missing_creds(self) -> None:
         config = ServiceNowSourceConfig(

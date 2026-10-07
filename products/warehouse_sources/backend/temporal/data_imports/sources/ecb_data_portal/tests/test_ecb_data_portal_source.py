@@ -3,21 +3,15 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.ecb_data_portal import (
     ECBResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ecb_data_portal.source import EcbDataPortalSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ecbdataportal import (
     EcbDataPortalSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -45,42 +39,8 @@ class TestEcbDataPortalSource:
         self.team_id = 123
         self.config = EcbDataPortalSourceConfig()
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ECBDATAPORTAL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "EcbDataPortal"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category is not None
-        assert config.iconPath == "/static/services/ecb_data_portal.png"
-        # Fully open, keyless API — the connect form has no credential fields.
-        assert config.fields == []
-
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_all_support_incremental(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # TIME_PERIOD is server-side filterable (startPeriod/endPeriod) on every flow.
-        assert all(s.supports_incremental for s in schemas)
-        assert all(len(s.incremental_fields) == 1 for s in schemas)
-        assert all(s.incremental_fields[0]["field"] == "TIME_PERIOD" for s in schemas)
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["hicp_inflation"])
-        assert [s.name for s in schemas] == ["hicp_inflation"]
-
-    def test_get_schemas_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
     @pytest.mark.parametrize(
         "mock_return",

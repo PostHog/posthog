@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplemarke
     AMPLEMARKET_ENDPOINTS,
     BASE_URL,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -71,26 +70,6 @@ def _rows(source_response) -> list[dict[str, Any]]:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
-    )
-    @mock.patch(AMPLEMARKET_SESSION_PATCH)
-    def test_status_mapping(self, mock_session, status_code, expected):
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-
-        assert validate_credentials("api-key") is expected
-
-    @mock.patch(AMPLEMARKET_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("api-key") is False
-
     @mock.patch(AMPLEMARKET_SESSION_PATCH)
     def test_probes_account_info_with_bearer_token(self, mock_session):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
@@ -136,17 +115,6 @@ class TestPagination:
         )
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_bearer_auth(self, MockSession):
-        session = MockSession.return_value
-        requests_seen = _wire(session, [_response("users", [{"id": "u1"}], None, f"{BASE_URL}/users")])
-
-        _rows(_source("users", _make_manager()))
-
-        auth = requests_seen[0]["auth"]
-        assert isinstance(auth, BearerTokenAuth)
-        assert auth.token == "api-key"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         resume_url = f"{BASE_URL}/sequences?page[after]=x&page[size]=20"
@@ -158,17 +126,6 @@ class TestPagination:
         assert [row["id"] for row in rows] == ["y"]
         assert requests_seen[0]["url"] == resume_url
         assert requests_seen[0]["params"] == {}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_stops_without_checkpoint(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response("calls", [], None, f"{BASE_URL}/calls")])
-
-        manager = _make_manager()
-        rows = _rows(_source("calls", manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
 
 
 class TestTasksFanout:

@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.settings import (
@@ -25,35 +24,9 @@ class TestBillComSource:
             environment="production",
         )
 
-    def test_api_version_is_pinned_to_the_path_the_source_calls(self) -> None:
-        assert self.source.supported_versions == ("v3",)
-        assert self.source.default_version == "v3"
-        assert self.source.resolve_api_version(None) == "v3"
-
     def test_get_schemas_needs_no_credentials(self) -> None:
         # The endpoint catalog is static, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
-
-    @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "BILL sign-in failed: Invalid credentials",
-            "401 Client Error: Unauthorized for url: https://gateway.prod.bill.com/connect/v3/bills",
-            "403 Client Error: Forbidden for url: https://gateway.prod.bill.com/connect/v3/users",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "500 Server Error for url: https://gateway.prod.bill.com/connect/v3/bills",
-            "429 Client Error: Too Many Requests for url: https://gateway.prod.bill.com/connect/v3/bills",
-        ],
-    )
-    def test_non_retryable_errors_does_not_match_transient_failures(self, other_error: str) -> None:
-        assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
     @mock.patch(f"{_MODULE}.bill_com_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

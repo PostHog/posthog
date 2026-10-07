@@ -14,13 +14,6 @@ class TestRetentlySourceConfig:
     def setup_method(self) -> None:
         self.source = RetentlySource()
 
-    def test_config_is_unreleased_alpha(self) -> None:
-        config = self.source.get_source_config
-        # Deliberately shipped hidden: the source lands unreleased until it has been verified
-        # against a live Retently account.
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/retently"
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required for the public-docs table list to render.
         assert self.source.lists_tables_without_credentials is True

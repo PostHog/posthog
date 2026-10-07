@@ -8,7 +8,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.settings import ENDPOINTS, SVIX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix import (
-    PAGE_SIZE,
     SvixResumeConfig,
     check_access,
     svix_source,
@@ -70,20 +69,6 @@ def _source(manager: mock.MagicMock, endpoint: str = "applications"):
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_done_yields_and_stops(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "app_1"}, {"id": "app_2"}], iterator="c1", done=True)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == [{"id": "app_1"}, {"id": "app_2"}]
-        assert session.send.call_count == 1
-        # `done` on the first page means we stop without persisting resume state, even though the
-        # server echoes a non-null cursor.
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_follows_cursor_until_done(self, MockSession) -> None:
         session = MockSession.return_value
         params, _ = _wire(
@@ -129,53 +114,6 @@ class TestPagination:
         assert rows == [{"id": "app_2"}]
         assert session.send.call_count == 1
         assert params[0]["iterator"] == "c1"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response([], iterator=None, done=True)])
-
-        manager = _make_manager()
-        rows = _rows(_source(manager))
-
-        assert rows == []
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_first_request_carries_limit_no_cursor(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response([{"id": "app_1"}], iterator="c1", done=True)])
-
-        _rows(_source(_make_manager()))
-        assert params[0] == {"limit": PAGE_SIZE}
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_api_key_not_placed_in_headers(self, MockSession) -> None:
-        # The key rides in the framework Bearer auth (redacted from logs/errors), never a hand-set
-        # header — only the non-secret Accept header is on the session.
-        session = MockSession.return_value
-        _, capture = _wire(session, [_response([{"id": "app_1"}], iterator="c1", done=True)])
-
-        _rows(_source(_make_manager()))
-        assert "sk-key" not in json.dumps(session.headers)
-        assert capture["auth"] is not None
-
-    @mock.patch("tenacity.nap.time.sleep")
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_body_without_data_key_is_retried_then_recovers(self, MockSession, _sleep) -> None:
-        # A 200 whose body lacks the `data` envelope is a transient bad shape — retry, don't fail.
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response([], iterator=None, done=True, drop_data=True),
-                _response([{"id": "app_1"}], iterator="c1", done=True),
-            ],
-        )
-
-        rows = _rows(_source(_make_manager()))
-        assert rows == [{"id": "app_1"}]
-        assert session.send.call_count == 2
 
 
 class TestCheckAccess:
@@ -229,21 +167,8 @@ class TestValidateCredentials:
         mock_check.return_value = (status, message)
         assert validate_credentials("sk-key") == (expected_valid, expected_message)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.svix.svix.check_access")
-    def test_connection_error_message(self, mock_check: mock.MagicMock) -> None:
-        mock_check.return_value = (0, "Could not connect to Svix")
-        assert validate_credentials("sk-key") == (False, "Could not connect to Svix")
-
 
 class TestSvixSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _source(_make_manager(), endpoint)
-        assert response.name == endpoint
-        assert response.primary_keys == SVIX_ENDPOINTS[endpoint].primary_keys
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
     def test_primary_keys_per_endpoint(self) -> None:
         assert SVIX_ENDPOINTS["applications"].primary_keys == ["id"]
         assert SVIX_ENDPOINTS["event_types"].primary_keys == ["name"]

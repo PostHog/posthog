@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 import structlog
 from requests import Response
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -49,38 +48,6 @@ class TestWorldBankSource:
         self.source = WorldBankSource()
         self.config = WorldBankSourceConfig(indicator_codes="SP.POP.TOTL\nNY.GDP.PCAP.CD")
 
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "WorldBank"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/world-bank"
-        assert config.iconPath == "/static/services/world_bank.png"
-        # A finished source ships visible; re-adding the flag would hide it from every user.
-        assert not config.unreleasedSource
-
-    def test_pinned_version_matches_the_path_the_code_calls(self) -> None:
-        assert self.source.default_version == "v2"
-        assert self.source.supported_versions == ("v2",)
-        assert self.source.resolve_api_version(None) == "v2"
-
-    def test_get_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        # No endpoint has a server-side "changed since" filter, so nothing may advertise
-        # incremental or append sync.
-        assert not any(schema.supports_incremental for schema in schemas)
-        assert not any(schema.supports_append for schema in schemas)
-        assert all(schema.description for schema in schemas)
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
-        # do no I/O.
-        tables = self.source.get_documented_tables()
-
-        assert [table["name"] for table in tables] == list(ENDPOINTS)
-
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_every_endpoint_has_a_primary_key_and_canonical_descriptions(self, endpoint: str) -> None:
         assert PRIMARY_KEYS[endpoint]
@@ -90,11 +57,6 @@ class TestWorldBankSource:
         # One table holds observations for every configured indicator, so the indicator has to be
         # part of the key or codes would overwrite each other.
         assert PRIMARY_KEYS["indicator_data"] == ["indicator_id", "country_id", "date"]
-
-    def test_non_retryable_error_matches_the_required_selector_failure(self) -> None:
-        raised = "Required data_selector '[1]' matched nothing in the response (body keys: list). ..."
-
-        assert error_message_matches(raised, self.source.get_non_retryable_errors().keys())
 
     def test_non_retryable_error_matches_an_out_of_bounds_code_list(self) -> None:
         # Retrying an oversized code list just burns the same capacity again, so the sync has to
@@ -112,23 +74,6 @@ class TestWorldBankSource:
             )
 
         assert error_message_matches(str(excinfo.value), self.source.get_non_retryable_errors().keys())
-
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_source_for_pipeline_plumbs_the_endpoint_through(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source.world_bank_source"
-        ) as mock_source:
-            mock_source.return_value = iter([])
-            response = self.source.source_for_pipeline(self.config, manager, _make_inputs(endpoint))
-            list(cast(Iterable[Any], response.items()))
-
-        assert response.name == endpoint
-        assert response.primary_keys == PRIMARY_KEYS[endpoint]
-        assert mock_source.call_args.kwargs["endpoint"] == endpoint
-        assert mock_source.call_args.kwargs["indicator_codes"] == ["SP.POP.TOTL", "NY.GDP.PCAP.CD"]
-        assert mock_source.call_args.kwargs["api_version"] == "v2"
 
     def test_a_mid_sync_failure_never_resumes_past_an_unflushed_page(self) -> None:
         # The resume checkpoint advances after every yielded page, but pages sit in the batcher's

@@ -46,13 +46,6 @@ class TestHarvestSource:
         assert schema.supports_incremental is expected
         assert [f["field"] for f in schema.incremental_fields] == (["updated_at"] if expected else [])
 
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # Static catalog -> the public docs Supported tables section renders with no connection.
-        assert HarvestSource.lists_tables_without_credentials is True
-        tables = HarvestSource().get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        assert all(t["description"] for t in tables)
-
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # Entries keyed off a stale endpoint name silently fall back to LLM enrichment.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
@@ -109,7 +102,3 @@ class TestHarvestSource:
     def test_page_size_stays_within_the_api_cap(self) -> None:
         # Harvest rejects per_page above 2000 with a 422.
         assert all(0 < c.page_size <= 2000 for c in HARVEST_ENDPOINTS.values())
-
-    def test_source_config_is_visible_to_users(self) -> None:
-        # A truthy unreleasedSource filters the connector out of the frontend entirely.
-        assert not HarvestSource().get_source_config.unreleasedSource

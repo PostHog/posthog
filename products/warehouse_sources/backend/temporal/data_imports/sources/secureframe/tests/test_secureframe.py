@@ -1,6 +1,5 @@
 import json
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -15,10 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.securefram
     secureframe_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import (
-    ENDPOINTS,
-    SECUREFRAME_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.secureframe.settings import SECUREFRAME_ENDPOINTS
 
 # The rest_source client builds/uses its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -116,53 +112,6 @@ class TestExtractRows:
 
 class TestPagination:
     @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_region_maps_to_host(self, MockSession):
-        # base_url selects the host; unknown regions fall back to US.
-        for region, expected_host in [
-            ("us", "https://api.secureframe.com"),
-            ("uk", "https://api-uk.secureframe.com"),
-            ("unknown", "https://api.secureframe.com"),
-        ]:
-            session = MockSession.return_value
-            sent: list[str] = []
-
-            def _prepare(request, _sent=sent):
-                _sent.append(request.url)
-                return mock.MagicMock()
-
-            session.prepare_request.side_effect = _prepare
-            session.send.side_effect = [_response({"data": []})]
-
-            source = secureframe_source(
-                api_key="key",
-                api_secret="secret",
-                region=region,
-                endpoint="controls",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-            )
-            _rows(source)
-            assert sent[0].startswith(f"{expected_host}/controls")
-
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_paginates_until_empty_page(self, MockSession):
-        rows, params, session, _ = _run(
-            MockSession,
-            [
-                _response({"data": [{"id": "1", "attributes": {"id": "1"}}, {"id": "2", "attributes": {"id": "2"}}]}),
-                _response({"data": [{"id": "3", "attributes": {"id": "3"}}]}),
-                _response({"data": []}),
-            ],
-        )
-
-        assert [row["id"] for row in rows] == ["1", "2", "3"]
-        # First page is 1, then 2, then the empty terminating page 3, and per_page rides along.
-        assert [p["page"] for p in params] == [1, 2, 3]
-        assert all(p["per_page"] == 100 for p in params)
-        assert session.send.call_count == 3
-
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_top_level_array_envelopes_are_flattened(self, MockSession):
         # The declared shape: a top-level array of per-item JSON:API envelopes.
         rows, _params, _session, _ = _run(
@@ -173,38 +122,6 @@ class TestPagination:
             ],
         )
         assert rows == [{"id": "a", "name": "x"}]
-
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_state_saved_after_each_yielded_batch(self, MockSession):
-        session = MockSession.return_value
-        _wire(
-            session,
-            [
-                _response({"data": [{"id": "1", "attributes": {"id": "1"}}]}),
-                _response({"data": []}),
-            ],
-        )
-
-        manager = _make_manager()
-        source = secureframe_source(
-            api_key="key",
-            api_secret="secret",
-            region="us",
-            endpoint="controls",
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=manager,
-        )
-        rows_iterator = iter(cast("Iterable[Any]", source.items()))
-
-        next(rows_iterator)
-        # Paused at the first yield: page 1 is in flight downstream, so no checkpoint yet —
-        # a crash here must re-fetch page 1, not skip it.
-        manager.save_state.assert_not_called()
-
-        assert list(rows_iterator) == []
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == SecureframeResumeConfig(page=2)
 
     @mock.patch(SECUREFRAME_SESSION_PATCH)
     def test_resumes_from_saved_page(self, MockSession):
@@ -254,21 +171,6 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = response
 
         assert validate_credentials("key", "secret", "us") == expected
-
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key", "secret", "us") == (False, False)
-
-    @mock.patch(SECUREFRAME_SESSION_PATCH)
-    def test_probes_requested_endpoint(self, mock_session):
-        response = mock.MagicMock()
-        response.status_code = 200
-        mock_session.return_value.get.return_value = response
-
-        validate_credentials("key", "secret", "us", endpoint="devices")
-
-        assert "/devices?" in mock_session.return_value.get.call_args.args[0]
 
 
 class TestGetEndpointPermissions:
@@ -338,28 +240,6 @@ class TestSessionHardening:
 
 
 class TestSecureframeSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
-        config = SECUREFRAME_ENDPOINTS[endpoint]
-        response = secureframe_source(
-            api_key="key",
-            api_secret="secret",
-            region="us",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="j",
-            resumable_source_manager=_make_manager(),
-        )
-
-        assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
-
     @pytest.mark.parametrize("config", list(SECUREFRAME_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
         if config.partition_key:

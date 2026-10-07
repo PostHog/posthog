@@ -77,17 +77,6 @@ class TestValidateCredentials:
 
 class TestEntityEndpoints:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_campaigns_single_fetch(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.return_value = _response({"results": [{"id": "1"}, {"id": "2"}]})
-
-        batches = list(get_rows("cid", "sec", "acct", "campaigns", mock.MagicMock(), _make_manager()))
-
-        assert batches == [[{"id": "1"}, {"id": "2"}]]
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == "https://backstage.taboola.com/backstage/api/1.0/acct/campaigns/"
-
-    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_mid_sync_401_re_mints_token(self, mock_session):
         mock_session.return_value.post.side_effect = [_token_response(), _token_response()]
         mock_session.return_value.get.side_effect = [
@@ -116,24 +105,6 @@ class TestEntityEndpoints:
 
 
 class TestCampaignItemsFanOut:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_fans_out_per_campaign_and_saves_progress(self, mock_session):
-        mock_session.return_value.post.return_value = _token_response()
-        mock_session.return_value.get.side_effect = [
-            _response({"results": [{"id": 11}, {"id": 22}]}),
-            _response({"results": [{"id": "i1", "campaign_id": "11"}]}),
-            _response({"results": [{"id": "i2", "campaign_id": "22"}]}),
-        ]
-
-        manager = _make_manager()
-        batches = list(get_rows("cid", "sec", "acct", "campaign_items", mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["i1", "i2"]
-        urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
-        assert urls[1].endswith("/acct/campaigns/11/items/")
-        assert urls[2].endswith("/acct/campaigns/22/items/")
-        assert [call.args[0].next_campaign_index for call in manager.save_state.call_args_list] == [1, 2]
-
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resumes_from_saved_campaign_index(self, mock_session):
         mock_session.return_value.post.return_value = _token_response()

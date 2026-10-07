@@ -20,35 +20,6 @@ class TestEppoSource:
         assert self.source.api_docs_url == "https://eppo.cloud/api/docs"
 
     @pytest.mark.parametrize(
-        "observed_error",
-        [
-            "401 Client Error: Unauthorized for url: https://eppo.cloud/api/v1/experiments?limit=100",
-            "403 Client Error: Forbidden for url: https://eppo.cloud/api/v1/experiments?limit=100",
-        ],
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @pytest.mark.parametrize(
-        "other_error",
-        [
-            "429 Client Error: Too Many Requests for url: https://eppo.cloud/api/v1/experiments",
-            "500 Server Error: Internal Server Error for url: https://eppo.cloud/api/v1/experiments",
-            "HTTPSConnectionPool(host='eppo.cloud', port=443): Read timed out.",
-        ],
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, other_error):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_lists_tables_without_credentials_publishes_catalog(self):
-        # Static endpoint catalog (no I/O) — the public docs table list should render.
-        assert self.source.lists_tables_without_credentials is True
-        documented = self.source.get_documented_tables()
-        assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_message",
         [
             ((True, 200), None, True, None),

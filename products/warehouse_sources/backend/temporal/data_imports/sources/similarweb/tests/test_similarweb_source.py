@@ -15,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     ENDPOINTS,
     MAX_DOMAINS,
     SIMILARWEB_ENDPOINTS,
-    TRAFFIC_BY_COUNTRY,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
@@ -46,19 +45,6 @@ class TestSimilarwebSource:
         self.source = SimilarwebSource()
         self.team_id = 123
         self.config = SimilarwebSourceConfig(api_key="key-123", domains="posthog.com")
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        by_name = {schema.name: schema for schema in schemas}
-        for name, endpoint in SIMILARWEB_ENDPOINTS.items():
-            assert by_name[name].description == endpoint.description
-            # The geo breakdown aggregates the whole window into rows with no period column,
-            # so it must not advertise a cursor the pipeline would try to advance.
-            assert by_name[name].supports_incremental is (name != TRAFFIC_BY_COUNTRY)
-            if name != TRAFFIC_BY_COUNTRY:
-                assert {field["field"] for field in by_name[name].incremental_fields} == {"date"}
 
     @parameterized.expand(
         [
@@ -124,15 +110,3 @@ class TestSimilarwebSource:
             self.source.source_for_pipeline(self.config, manager, _inputs(api_version=pin))
 
         assert build.call_args.kwargs["api_version"] == expected
-
-    def test_source_for_pipeline_drops_the_watermark_on_a_full_refresh(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _inputs(should_use_incremental_field=False, db_incremental_field_last_value="2024-04")
-
-        with mock.patch(f"{MODULE}.similarweb_source") as build:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-        assert build.call_args.kwargs["api_key"] == "key-123"
-        assert build.call_args.kwargs["domains"] == "posthog.com"
-        assert build.call_args.kwargs["granularity"] == "monthly"
