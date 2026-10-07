@@ -12,7 +12,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -191,7 +191,7 @@ export function TrendsPieChart({
         ]
     )
 
-    const proportionBarConfig: ProportionBarConfig = useMemo(() => ({ legend: legendConfig }), [legendConfig])
+    const proportionBarConfig: ProportionBarConfig = useChartConfig(() => ({ legend: legendConfig }), [legendConfig])
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
     // ActionsPie.tsx — `onClick={hasDataWarehouseSeries ? undefined : onClick}`); match that here.

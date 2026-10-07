@@ -11,7 +11,7 @@ import {
 } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PieChartConfig, ProportionBarConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 
 import { ChartDisplayType } from '~/types'
@@ -91,7 +91,7 @@ export const SqlPieGraph = ({
         [showLegend, chartSettings.legendPosition, isProportionBar, hiddenKeys, legendRenderItem]
     )
 
-    const proportionBarConfig: ProportionBarConfig = useMemo(() => ({ legend: legendConfig }), [legendConfig])
+    const proportionBarConfig: ProportionBarConfig = useChartConfig(() => ({ legend: legendConfig }), [legendConfig])
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
 
