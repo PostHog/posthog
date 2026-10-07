@@ -50,8 +50,9 @@ class TestExternalTicketAPI(BaseTest):
 
     # -- Authentication ---------------------------------------------------
 
-    def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
-        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+    @parameterized.expand([("read", ["support_ticket:read"]), ("write", ["support_ticket:write"])])
+    def test_get_accepts_project_secret_api_key_with_support_ticket_scope(self, _name, scopes):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(scopes)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
 
@@ -80,10 +81,6 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.ticket.refresh_from_db()
         self.assertEqual(self.ticket.status, Status.RESOLVED)
-
-    def test_get_accepts_project_secret_api_key_with_write_scope(self):
-        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:write"])))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
     def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name, token_field):
