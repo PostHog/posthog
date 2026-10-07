@@ -104,6 +104,14 @@ const config: StorybookConfig = {
                     '@posthog/shared-onboarding': path.resolve(REPO_ROOT, 'docs', 'onboarding'),
                     '@posthog/quill': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'quill', 'src'),
                     '@posthog/quill-charts': path.resolve(REPO_ROOT, 'packages', 'quill', 'packages', 'charts', 'src'),
+                    '@posthog/agent-contracts': path.resolve(
+                        REPO_ROOT,
+                        'packages',
+                        'agent',
+                        'packages',
+                        'agent-contracts',
+                        'src'
+                    ),
                 },
             },
             define: {

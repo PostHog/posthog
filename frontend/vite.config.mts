@@ -81,6 +81,7 @@ export default defineConfig(({ mode }) => {
                     'node_modules/@posthog/llm-normalizer/src/types.ts'
                 ),
                 '@posthog/llm-normalizer': resolve(__dirname, 'node_modules/@posthog/llm-normalizer/src/index.ts'),
+                '@posthog/agent-contracts': resolve(__dirname, '../packages/agent/packages/agent-contracts/src'),
                 // These @tiptap packages live only in frontend/node_modules, which products/*/frontend
                 // files can't reach by walking up from their own directory. Alias each package
                 // individually: a blanket '@tiptap' prefix would also rewrite the imports *inside*

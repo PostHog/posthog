@@ -1,3 +1,10 @@
+export {
+  type AcpConversationNotification,
+  type AcpConversationSessionUpdate,
+  type AcpToolCallSessionUpdate,
+  agentConversationEventToAcpNotification,
+  agentConversationEventToSessionUpdate,
+} from "./acp-conversation";
 export * from "./adapter";
 export {
   buildActionUrl,
