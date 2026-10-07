@@ -28,11 +28,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaTableRef,
     _purge_s3_prefix,
     live_row_count,
+    live_size_mib,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     make_local_table_ref,
     make_logger,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
+    _live_delta_size_mib,
+)
+
+_TABLE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
 
 def table_ref():
@@ -578,6 +584,15 @@ def _upserted_with_deltalite(uri: str) -> None:
     deltalite.DeltaLiteTable.open(uri).upsert(_rows([3, 10, 11], "a"), primary_keys=["id"], partition_key="part")
 
 
+def _overwritten_without_partitions(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([7], "c"), mode="overwrite")
+
+
+def _compacted_without_partitions(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([5, 6], "b"), mode="append")
+    deltalake.DeltaTable(uri).optimize.compact()
+
+
 def _compacted(uri: str) -> None:
     _appended(uri)
     deltalake.DeltaTable(uri).optimize.compact()
@@ -655,6 +670,69 @@ class TestLiveRowCount:
         ref = make_local_table_ref(str(self.tmp_path / "missing"))
 
         assert await ref.get_live_row_count() is None
+        assert await ref.get_live_size_mib() is None
+
+    @parameterized.expand(
+        [
+            ("append_only", True, lambda uri: None),
+            ("append", True, _appended),
+            ("full_refresh", True, _overwritten),
+            ("delete", True, _deleted_from),
+            ("empty_table", True, _emptied),
+            ("merge", True, _merged),
+            ("deltalite_upsert", True, _upserted_with_deltalite),
+            ("compaction", True, _compacted),
+            ("vacuum", True, _vacuumed),
+            ("unpartitioned", False, lambda uri: None),
+            ("unpartitioned_full_refresh", False, _overwritten_without_partitions),
+            ("unpartitioned_compaction", False, _compacted_without_partitions),
+        ]
+    )
+    def test_size_matches_the_published_files_and_the_size_activity(
+        self, _name: str, partitioned: bool, history: Callable[[str], None]
+    ) -> None:
+        # The loader records this number in place of the size activity, and billing sums it. It has
+        # to be the bytes of the files the query folder holds, with no removed file counted.
+        uri = self._create(self.tmp_path) if partitioned else self._create_unpartitioned(self.tmp_path)
+        history(uri)
+        table = deltalake.DeltaTable(uri)
+
+        published_mib = sum(Path(path).stat().st_size for path in table.file_uris()) / (1024 * 1024)
+        with patch(f"{_TABLE_MODULE}.delta_storage_options", return_value={}):
+            activity_mib = _live_delta_size_mib(uri)
+
+        assert live_size_mib(table) == published_mib == activity_mib
+
+    @parameterized.expand(
+        [
+            ("a_file_without_a_size", MagicMock(return_value={"a.parquet": 10, "b.parquet": None})),
+            ("an_unreadable_log", MagicMock(side_effect=Exception("Generic delta kernel error"))),
+        ]
+    )
+    def test_no_size_when_the_log_cannot_give_every_file_size(self, _name: str, get_add_file_sizes: MagicMock) -> None:
+        # None keeps the recorded size and leaves the measurement to the size activity. A partial
+        # sum or a 0 would under-report the table.
+        table = MagicMock()
+        table._table.get_add_file_sizes = get_add_file_sizes
+
+        assert live_size_mib(table) is None
+
+    @pytest.mark.asyncio
+    async def test_ref_reads_the_size_after_a_deltalite_commit(self) -> None:
+        uri = self._create(self.tmp_path)
+        ref = make_local_table_ref(uri)
+        size_before = await ref.get_live_size_mib()
+
+        deltalite.DeltaLiteTable.open(uri).upsert(_rows([10, 11], "a"), primary_keys=["id"], partition_key="part")
+        ref.note_deltalite_commit(None)
+
+        assert await ref.get_live_size_mib() == live_size_mib(deltalake.DeltaTable(uri)) != size_before
+
+    @staticmethod
+    def _create_unpartitioned(tmp_path: Path) -> str:
+        uri = str(tmp_path / "t")
+        deltalake.write_deltalake(uri, _rows([1, 2, 3, 4], "a"))
+        return uri
 
     @pytest.fixture(autouse=True)
     def _tmp(self, tmp_path: Path) -> None:

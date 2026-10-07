@@ -176,6 +176,24 @@ def live_row_count(delta_table: deltalake.DeltaTable) -> int | None:
     return int(pc.sum(num_records).as_py() or 0)
 
 
+def live_size_mib(delta_table: deltalake.DeltaTable) -> float | None:
+    """Size of the table's live files in MiB, summed from the `size` of each Add action.
+
+    The query folder holds a copy of exactly the live files, so this sum is the size of that folder,
+    without a listing of it. The read takes the file sizes alone, not the per-column statistics.
+
+    None when the log cannot give a size for each live file. The caller then leaves the recorded
+    size as it is, because a partial sum would record a table as smaller than it is.
+    """
+    try:
+        sizes = delta_table._table.get_add_file_sizes()
+    except Exception:
+        return None
+    if any(size is None for size in sizes.values()):
+        return None
+    return sum(sizes.values()) / (1024 * 1024)
+
+
 class DeltaTableRef:
     """Handle to one schema's Delta table: uri/credentials, the cached open (with corrupt-table
     auto-heal), corruption detection, reset, file listing, and the first-sync flag.
@@ -470,3 +488,12 @@ class DeltaTableRef:
         if row_count is None:
             await self._logger.adebug("The Delta log has no complete row count, counting the published files")
         return row_count
+
+    async def get_live_size_mib(self) -> float | None:
+        """The size of the table's live files from the Delta log, or None when the log cannot give it
+        (see `live_size_mib`)."""
+        delta_table = await self.get_delta_table()
+        if delta_table is None:
+            return None
+
+        return await asyncio.to_thread(live_size_mib, delta_table)
