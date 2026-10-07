@@ -7,10 +7,18 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 QUO_BASE_URL = "https://api.quo.com"
 
+# v1 carries its version in the URL path. Dated versions drop the path prefix and require the
+# version in a header on every request; Quo has no default version, so a missing header is a 400.
+QUO_API_VERSION_V1 = "v1"
+QUO_API_VERSION_2026_03_30 = "2026-03-30"
+QUO_API_VERSION_HEADER = "Quo-Api-Version"
+
 # Quo caps `maxResults` at 100 on calls, messages and conversations, and at 50 on contacts.
 # The users endpoint declares no maximum in the OpenAPI spec, so it stays on the lower cap.
 MAX_PAGE_SIZE = 100
 SMALL_PAGE_SIZE = 50
+# Dated versions cap `limit` at 50 on every list endpoint.
+DATED_PAGE_SIZE = 50
 
 
 @frozen
@@ -84,6 +92,40 @@ QUO_ENDPOINTS: dict[str, QuoEndpointConfig] = {
         partition_key="createdAt",
         fan_out_over_conversations=True,
     ),
+}
+
+
+@frozen
+class QuoDatedEndpointConfig:
+    path: str
+    page_size: int = DATED_PAGE_SIZE
+    # Incremental field name -> the bracketed range filter that bounds it.
+    incremental_params: dict[str, str] = field(default_factory=dict)
+    # Optional payload sections that the dated list omits unless asked for.
+    include: str | None = None
+
+
+# Tables missing here have no dated equivalent and stay on their v1 path under every version.
+# 2026-03-30 lists calls and messages workspace-wide, so neither fans out over conversations.
+QUO_2026_03_30_ENDPOINTS: dict[str, QuoDatedEndpointConfig] = {
+    "phone_numbers": QuoDatedEndpointConfig(path="/phone-numbers", include="restrictions"),
+    "users": QuoDatedEndpointConfig(path="/users"),
+    "contacts": QuoDatedEndpointConfig(path="/contacts"),
+    "conversations": QuoDatedEndpointConfig(
+        path="/conversations",
+        incremental_params={"createdAt": "createdAt[gte]", "updatedAt": "updatedAt[gte]"},
+    ),
+    "calls": QuoDatedEndpointConfig(
+        path="/calls",
+        incremental_params={"createdAt": "createdAt[gte]"},
+        include="summary",
+    ),
+    # /messages accepts only the exclusive `gt`/`lt` pair on createdAt.
+    "messages": QuoDatedEndpointConfig(path="/messages", incremental_params={"createdAt": "createdAt[gt]"}),
+}
+
+DATED_ENDPOINTS_BY_VERSION: dict[str, dict[str, QuoDatedEndpointConfig]] = {
+    QUO_API_VERSION_2026_03_30: QUO_2026_03_30_ENDPOINTS,
 }
 
 ENDPOINTS = tuple(QUO_ENDPOINTS.keys())

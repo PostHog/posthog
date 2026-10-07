@@ -25,6 +25,15 @@ PARQUET_READ_DURATION_SECONDS = Histogram(
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
 
+# One series for each step and no team or schema label: every batch of every table observes each
+# step, so a tenant label would multiply the series by the number of schemas.
+BATCH_STEP_DURATION_SECONDS = Histogram(
+    "warehouse_load_batch_step_duration_seconds",
+    "Duration of one step of a batch load, by step",
+    labelnames=["step"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+)
+
 # TODO: the `team_id`/`schema_id` labels below are high cardinality — keep only for the gated rollout
 # so we can debug per-team behaviour, then drop them before fully rolling out (per-team diagnosability
 # is also covered by the `warehouse_repartition_*` capture events).

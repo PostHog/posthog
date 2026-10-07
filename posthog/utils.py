@@ -66,9 +66,8 @@ from products.feature_flags.backend.persisted_flags import get_dynamic_persisted
 
 tracer = trace.get_tracer(__name__)
 
-# Cardinality is bounded: render_template is only called with the literal template
-# names "index.html", "demo.html", and "render_query.html" — 3 templates × 2 auth
-# states = 6 series total.
+# Cardinality is bounded because every render_template caller passes a literal template
+# name, so each template adds one series per auth state.
 TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
     "posthog_template_context_duration_seconds",
     "Time spent building the SPA template context (get_context_for_template).",

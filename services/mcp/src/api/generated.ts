@@ -40958,12 +40958,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -41590,12 +41590,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -77533,12 +77533,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -95837,21 +95837,21 @@ export namespace Schemas {
     } as const;
 
     export interface ScoutRubricReferenceTextDocument {
-      /** Path of the reference supplied to the generator. */
+      /** Path of the captured reference file. */
       path: string;
-      /** Content type of the supplied reference. */
+      /** Content type of the captured reference file. */
       content_type: string;
-      /** Exact reference text supplied to the generator. */
+      /** Saved reference text used for judging. */
       content: string;
     }
 
     export interface ScoutRubricReferenceLimitsDocument {
       /**
-         * Number of reference files not supplied.
+         * Number of files missing from the saved reference.
          * @minimum 0
          */
       omitted_files: number;
-      /** Reference paths whose supplied content was truncated. */
+      /** Paths of files truncated in the saved reference. */
       truncated_files: string[];
     }
 
@@ -95864,11 +95864,11 @@ export namespace Schemas {
       skill_name: string;
       /** Skill version used for generation. */
       skill_version: number;
-      /** Scout description supplied to the generator. */
+      /** Scout description captured for this reference. */
       description: string;
-      /** Exact instructions supplied to the generator. */
+      /** Saved scout instructions used for judging. */
       instructions: string;
-      /** Whether the supplied instructions were truncated. */
+      /** Whether the saved instructions were truncated. */
       instructions_truncated: boolean;
       /** Report capabilities used to select the source rules.
        *
@@ -95877,15 +95877,15 @@ export namespace Schemas {
        * * `edit` - Edit
        * * `both` - Both */
       report_channel: ScoutRubricReportChannelEnum;
-      /** Exact report-disposition rules supplied to the generator. */
+      /** Report-disposition rules captured for this reference. */
       report_disposition_instructions: string;
-      /** Reference-file inventory supplied to the generator. */
+      /** Reference-file inventory captured for this reference. */
       reference_files: string[];
       /** Whether the reference-file inventory was truncated. */
       reference_files_truncated: boolean;
-      /** Reference texts supplied to the generator. */
+      /** Saved reference texts used for judging. */
       reference_texts: ScoutRubricReferenceTextDocument[];
-      /** Limits on the supplied reference texts. */
+      /** Missing or truncated text in the saved reference. */
       reference_limits: ScoutRubricReferenceLimitsDocument;
     }
 
@@ -103227,26 +103227,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `sum` - sum
-     * * `avg` - avg
-     * * `min` - min
-     * * `max` - max
-     * * `quantile` - quantile
-     * * `count_series` - count_series
-     */
-    export type SpatialReducerEnum = typeof SpatialReducerEnum[keyof typeof SpatialReducerEnum];
-
-
-    export const SpatialReducerEnum = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Min: 'min',
-      Max: 'max',
-      Quantile: 'quantile',
-      CountSeries: 'count_series',
-    } as const;
-
-    /**
      * Raw cached payload as stored in Redis, or null on a miss.
      * @nullable
      */
@@ -107353,26 +107333,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `none` - none
-     * * `last` - last
-     * * `avg_over_time` - avg_over_time
-     * * `sum_over_time` - sum_over_time
-     * * `increase` - increase
-     * * `pooled_samples` - pooled_samples
-     */
-    export type TemporalReducerEnum = typeof TemporalReducerEnum[keyof typeof TemporalReducerEnum];
-
-
-    export const TemporalReducerEnum = {
-      None: 'none',
-      Last: 'last',
-      AvgOverTime: 'avg_over_time',
-      SumOverTime: 'sum_over_time',
-      Increase: 'increase',
-      PooledSamples: 'pooled_samples',
-    } as const;
-
-    /**
      * Anthropic text, image, or tool content blocks.
      */
     export type TerminalAIMessageContent = string | {[key: string]: JsonValue}[];
@@ -107513,12 +107473,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -112002,101 +111962,6 @@ export namespace Schemas {
       results: _MetricAttributeValue[];
     }
 
-    export interface _MetricSampleView {
-      /** Sample timestamp, ISO 8601. */
-      time: string;
-      /** Raw stored reading, before any reduction. */
-      value: number;
-    }
-
-    /**
-     * Per-data-point attributes identifying the series.
-     */
-    export type _MetricSeriesBreakdownLabels = {[key: string]: string};
-
-    /**
-     * Resource attributes identifying the scrape target.
-     */
-    export type _MetricSeriesBreakdownResourceLabels = {[key: string]: string};
-
-    export interface _MetricSeriesBreakdown {
-      /** Service that reported this series. */
-      service_name: string;
-      /** Per-data-point attributes identifying the series. */
-      labels: _MetricSeriesBreakdownLabels;
-      /** Resource attributes identifying the scrape target. */
-      resource_labels: _MetricSeriesBreakdownResourceLabels;
-      /** The series' raw samples in this bucket, oldest first, trimmed for display. */
-      samples: _MetricSampleView[];
-      /** How many samples the series actually sent, even when 'samples' was trimmed. */
-      sample_count: number;
-      /** Whether 'samples' lists fewer samples than arrived. */
-      samples_truncated: boolean;
-      /**
-         * What this series contributed after the per-series reduction. Null for percentiles, which read the pooled readings and so have no single per-series contribution.
-         * @nullable
-         */
-      value: number | null;
-    }
-
-    export interface _MetricBucketDecomposition {
-      /** Metric that was decomposed. */
-      metric_name: string;
-      /** OTel metric type observed in the bucket. */
-      metric_type: string;
-      /** OTel aggregation temporality observed in the bucket ('cumulative', 'delta', or empty for gauges). */
-      temporality: string;
-      /** Aggregation that was explained. */
-      aggregation: string;
-      /** Start of the explained bucket, ISO 8601. */
-      bucket_start: string;
-      /** Bucket size the point was plotted at. */
-      interval: string;
-      /** How each series' samples were collapsed to one value: 'last' for an instant gauge reading, 'avg_over_time' for an average, 'sum_over_time' for delta counters, 'increase' for cumulative counters, and 'pooled_samples' for percentiles, which skip the per-series step entirely.
-       *
-       * * `none` - none
-       * * `last` - last
-       * * `avg_over_time` - avg_over_time
-       * * `sum_over_time` - sum_over_time
-       * * `increase` - increase
-       * * `pooled_samples` - pooled_samples */
-      temporal_reducer: TemporalReducerEnum;
-      /** How the per-series values were combined into the bucket's number.
-       *
-       * * `sum` - sum
-       * * `avg` - avg
-       * * `min` - min
-       * * `max` - max
-       * * `quantile` - quantile
-       * * `count_series` - count_series */
-      spatial_reducer: SpatialReducerEnum;
-      /** The series behind the point, largest contributors first, trimmed for display. */
-      series: _MetricSeriesBreakdown[];
-      /** How many series reported in the bucket. */
-      series_count: number;
-      /** How many raw samples the bucket held across all series. */
-      sample_count: number;
-      /** Whether 'series' lists fewer series than reported. */
-      series_truncated: boolean;
-      /** Whether the bucket held more raw rows than the decomposition reads. Totals are computed only over the rows that were read. */
-      rows_truncated: boolean;
-      /**
-         * The bucket's value recomputed from the raw samples, independently of the query builders. Null when no series reported.
-         * @nullable
-         */
-      reference_value: number | null;
-      /**
-         * The value the product would plot for this point. Null when the query returned no row.
-         * @nullable
-         */
-      actual_value: number | null;
-      /**
-         * Whether the two values match. False means one of the reductions is wrong, and the series breakdown shows where they parted. Null when the raw read was truncated, so the two are not comparable.
-         * @nullable
-         */
-      agrees: boolean | null;
-    }
-
     export interface _MetricCatalogValuesParams {
       /**
          * Substring filter (case-insensitive) applied to metric names.
@@ -112235,68 +112100,6 @@ export namespace Schemas {
       attributes: _MetricEventSampleAttributes;
       /** Attributes of the resource (host, pod, service version) that emitted the metric. */
       resource_attributes: _MetricEventSampleResourceAttributes;
-    }
-
-    export interface _MetricExplainBody {
-      /**
-         * Exact metric name whose bucket should be taken apart.
-         * @maxLength 255
-         */
-      metricName: string;
-      /** Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.
-       *
-       * * `gauge` - gauge
-       * * `sum` - sum
-       * * `histogram` - histogram
-       * * `exponential_histogram` - exponential_histogram
-       * * `summary` - summary */
-      metricType?: OtelMetricTypeEnum | null;
-      /** The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.
-       *
-       * * `sum` - sum
-       * * `avg` - avg
-       * * `count` - count
-       * * `min` - min
-       * * `max` - max
-       * * `p95` - p95
-       * * `rate` - rate
-       * * `increase` - increase
-       * * `histogram_quantile` - histogram_quantile */
-      aggregation?: AggregationEnum;
-      /**
-         * Quantile in (0, 1) applied across series. Defaults to 0.95 for the 'p95' aggregation.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      quantile?: number | null;
-      /** Label predicates ANDed together, matching the chart the point came from. */
-      filters?: _MetricFilter[];
-      /** Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601. */
-      bucketStart: string;
-      /** Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.
-       *
-       * * `second_15` - second_15
-       * * `second_30` - second_30
-       * * `minute` - minute
-       * * `minute_5` - minute_5
-       * * `minute_15` - minute_15
-       * * `minute_30` - minute_30
-       * * `hour` - hour
-       * * `hour_6` - hour_6
-       * * `day` - day
-       * * `week` - week */
-      interval: MetricQueryIntervalEnum;
-    }
-
-    export interface _MetricExplainRequest {
-      /** The chart point to take apart. */
-      query: _MetricExplainBody;
-    }
-
-    export interface _MetricExplainResponse {
-      /** The bucket taken apart. */
-      decomposition: _MetricBucketDecomposition;
     }
 
     export interface _MetricName {
