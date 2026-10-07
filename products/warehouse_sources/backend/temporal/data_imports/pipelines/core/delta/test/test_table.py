@@ -1,4 +1,5 @@
 import json
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -165,6 +166,181 @@ class TestGetDeltaTableCache:
         mock_delta_table.assert_not_called()
 
 
+def _no_table(path: Path) -> None:
+    pass
+
+
+def _data_file_only(path: Path) -> None:
+    path.mkdir(parents=True)
+    pq.write_table(pa.table({"id": [1]}), path / "part-0.parquet")
+
+
+def _stray_log_file(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "_commit_0.json.tmp").write_text("{}")
+
+
+def _checkpoint_hint_only(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "_last_checkpoint").write_text('{"version": 5, "size": 10}')
+
+
+def _commit_without_metadata(path: Path) -> None:
+    (path / "_delta_log").mkdir(parents=True)
+    (path / "_delta_log" / "00000000000000000000.json").write_text('{"commitInfo": {"timestamp": 1}}\n')
+
+
+def _files_under(path: Path) -> set[str]:
+    return {str(file.relative_to(path)) for file in path.rglob("*") if file.is_file()}
+
+
+class TestOpenWithoutExistenceCheck:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @parameterized.expand(
+        [
+            # (name, expect_missing, table_exists, existence_checks, opens)
+            ("existing_table_opens_with_no_check", False, True, 0, 1),
+            ("expected_missing_table_costs_one_check", True, False, 1, 0),
+            ("unexpected_missing_table_falls_back_to_the_check", False, False, 1, 1),
+            ("expected_missing_but_present_checks_then_opens", True, True, 1, 1),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_object_store_calls_for_one_open(
+        self, _name: str, expect_missing: bool, table_exists: bool, existence_checks: int, opens: int
+    ) -> None:
+        ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+        handle = MagicMock()
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+        ):
+            mock_delta_table.is_deltatable.return_value = table_exists
+            if table_exists:
+                mock_delta_table.return_value = handle
+            else:
+                mock_delta_table.side_effect = deltalake.exceptions.TableNotFoundError(
+                    "Generic delta kernel error: No files in log segment"
+                )
+
+            table = await ref.get_delta_table()
+
+        assert table is (handle if table_exists else None)
+        assert ref.is_first_sync is not table_exists
+        assert mock_delta_table.is_deltatable.call_count == existence_checks
+        assert mock_delta_table.call_count == opens
+
+    @parameterized.expand(
+        [
+            (f"{layout.__name__.strip('_')}_{'expected' if expect_missing else 'unexpected'}", layout, expect_missing)
+            for layout in (_no_table, _data_file_only, _stray_log_file, _checkpoint_hint_only)
+            for expect_missing in (False, True)
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_prefix_that_holds_no_table_reads_as_no_table_and_keeps_its_files(
+        self, _name: str, layout: Callable[[Path], None], expect_missing: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            layout(path)
+            before = _files_under(path)
+            ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+
+            with (
+                patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=str(path))),
+                patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+                patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()) as purge,
+            ):
+                assert await ref.get_delta_table() is None
+                assert await ref.is_table_corrupted() is False
+
+            assert ref.is_first_sync is True
+            purge.assert_not_awaited()
+            assert _files_under(path) == before
+
+    @parameterized.expand([("unexpected", False), ("expected", True)])
+    @pytest.mark.asyncio
+    async def test_a_log_with_no_metadata_is_still_corrupt_and_still_healed(
+        self, _name: str, expect_missing: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "table"
+            _commit_without_metadata(path)
+            ref = DeltaTableRef("t", MagicMock(), make_logger(), expect_missing=expect_missing)
+            s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+            with (
+                patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=str(path))),
+                patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+                patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+                patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()) as purge,
+                patch(f"{self._MODULE}.capture_exception"),
+            ):
+                assert await ref.is_table_corrupted() is True
+                assert await ref.get_delta_table() is None
+
+            purge.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reset_makes_the_next_open_start_with_the_existence_check(self) -> None:
+        ref = DeltaTableRef("t", MagicMock(), make_logger())
+        s3_cm = MagicMock(__aenter__=AsyncMock(return_value=MagicMock()), __aexit__=AsyncMock(return_value=False))
+
+        with (
+            patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value="s3://bucket/team/job/t")),
+            patch.object(ref, "_get_credentials", MagicMock(return_value={})),
+            patch(f"{self._MODULE}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{self._MODULE}._purge_s3_prefix", AsyncMock()),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+        ):
+            mock_delta_table.is_deltatable.return_value = False
+            await ref.reset_table()
+
+            assert await ref.get_delta_table() is None
+
+        mock_delta_table.assert_not_called()
+        mock_delta_table.is_deltatable.assert_called_once()
+
+
+class TestKnownMissingTable:
+    @parameterized.expand(
+        [
+            # (name, allow_known_missing, step between the two reads, probes, second read finds a table)
+            ("default_read_looks_again", False, "nothing", 2, False),
+            ("allowed_read_reuses_the_answer", True, "nothing", 1, False),
+            ("default_read_finds_a_table_another_writer_created", False, "created_elsewhere", 2, True),
+            ("adopted_table_is_returned_with_no_probe", True, "adopted", 1, True),
+            ("invalidate_forgets_the_answer", True, "invalidated", 2, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_second_read_of_a_missing_table(
+        self, _name: str, allow_known_missing: bool, step: str, probes: int, finds_table: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            uri = str(Path(tmp) / "table")
+            ref = make_local_table_ref(uri)
+
+            with patch.object(ref, "_open_delta_table", AsyncMock(side_effect=ref._open_delta_table)) as probe:
+                assert await ref.get_delta_table() is None
+
+                if step == "created_elsewhere":
+                    deltalake.write_deltalake(uri, pa.table({"id": [1]}))
+                elif step == "adopted":
+                    ref.adopt_created_table(deltalake.DeltaTable.create(uri, schema=pa.schema([("id", pa.int64())])))
+                elif step == "invalidated":
+                    ref.invalidate_cached_table()
+
+                table = await ref.get_delta_table(allow_known_missing=allow_known_missing)
+
+            assert (table is not None) is finds_table
+            assert probe.await_count == probes
+
+
 class TestStorageOptionsCommitSafety:
     # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
     # the legacy rename backend, which has no commit-conflict detection.
@@ -319,6 +495,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = OSError("unexpected end of stream while reading response")
             mock_delta_table.is_deltatable.side_effect = OSError("unexpected end of stream while reading response")
 
             with pytest.raises(OSError, match="unexpected end of stream"):
@@ -349,6 +526,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = original_error
             mock_delta_table.is_deltatable.side_effect = original_error
 
             with pytest.raises(TransientObjectStoreError, match="operation timed out") as exc_info:
@@ -381,6 +559,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
+            mock_delta_table.side_effect = original_error
             mock_delta_table.is_deltatable.side_effect = original_error
 
             with pytest.raises(ObjectStorePermissionDeniedError) as exc_info:
