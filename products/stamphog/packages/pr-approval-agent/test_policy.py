@@ -84,6 +84,7 @@ OLD_DENY_PATTERN_DEFS = {
             "dockerfile",
             "docker-compose",
             "\\.github/workflows",
+            "\\.depot/workflows",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -136,7 +137,7 @@ OLD_DENY_PATTERN_DEFS = {
             "^docs/published/handbook/engineering/type-system\\.md$",
             "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
             "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
-            "^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
     "workflows_delivery": {

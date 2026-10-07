@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
@@ -1152,6 +1153,7 @@ class TestWebhookEventMapping:
 
     @parameterized.expand(
         [
+            (BALANCE_TRANSACTION_RESOURCE_NAME,),
             (SUBSCRIPTION_ITEM_RESOURCE_NAME,),
             (SETUP_ATTEMPT_RESOURCE_NAME,),
             (SHIPPING_RATE_RESOURCE_NAME,),
@@ -1683,6 +1685,9 @@ class TestSchemaWebhookCapability:
         for name, schema in self.by_name.items():
             expected = name in RESOURCE_TO_STRIPE_WEBHOOK_EVENT or schema.webhook_only
             assert schema.supports_webhooks is expected, name
+
+    def test_balance_transaction_does_not_offer_webhook_sync(self):
+        assert self.by_name[BALANCE_TRANSACTION_RESOURCE_NAME].supports_webhooks is False
 
 
 class TestCreateWebhookPermissionErrorCopy:

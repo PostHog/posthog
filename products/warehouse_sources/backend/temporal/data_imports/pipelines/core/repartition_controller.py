@@ -9,6 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -120,6 +121,73 @@ def needs_pre_extraction_detection(schema: ExternalDataSchema) -> bool:
     metadata-only Delta-log read per sync.
     """
     return schema.sync_type != ExternalDataSchema.SyncType.CDC
+
+
+MeasurementPhase = Literal["pre_extraction", "post_load"]
+
+# How many earlier jobs the gate below reads to connect a run to the measurement it relies on. A
+# longer run of jobs with no rows costs one measurement and then starts a new chain.
+MEASUREMENT_CHAIN_LIMIT = 20
+
+
+def partition_measurement_holds(
+    measurement: dict[str, Any] | None, earlier_jobs: Sequence[tuple[str, str, int | None]]
+) -> bool:
+    """Whether the recorded measurement still describes the table that is on disk now.
+
+    `earlier_jobs` are the schema's jobs before the current one, newest first, as (id, status, rows
+    synced). The measurement holds when the job that took it completed, every job after it completed
+    with no rows, and the job itself wrote nothing after the measurement: a post-load measurement is
+    after its job's last write, and a pre-extraction one needs that job to have synced no rows.
+
+    Only a healthy measurement counts: one where detection had nothing to act on and nothing that
+    time alone can change (see `maybe_flag_for_repartition`). A failed or running job anywhere in the
+    chain breaks it. That keeps the on-disk read for a table whose merge runs out of memory, because
+    such a job never completes.
+    """
+    if not measurement or measurement.get("healthy") is not True:
+        return False
+    measured_job_id = measurement.get("job_id")
+    for job_id, status, rows_synced in earlier_jobs:
+        if status != ExternalDataJob.Status.COMPLETED:
+            return False
+        if job_id == measured_job_id:
+            return measurement.get("phase") == "post_load" or rows_synced == 0
+        if rows_synced != 0:
+            return False
+    return False
+
+
+def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
+    """Whether the pre-extraction activity can skip its read of the Delta log for this run.
+
+    True only when a new read would give the verdict that the last one gave, which was to do
+    nothing. No data reached the table since that measurement (see `partition_measurement_holds`),
+    so the partition sizes are the same. The inputs that can change with no write are checked here:
+    the budget, an operator nomination, and the count of recent OOM kills. The measurement itself is
+    healthy only for a table that the coarsening path cannot pick up as time passes.
+    """
+    if schema.coarsen_requested is not None:
+        return False
+    measurement = schema.partition_measurement
+    if not measurement or measurement.get("healthy") is not True:
+        return False
+    if measurement.get("budget") != target_partition_bytes():
+        return False
+    if (
+        ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        >= repartition_oom_threshold()
+    ):
+        return False
+    earlier_jobs = [
+        (str(job_id), status, rows_synced)
+        for job_id, status, rows_synced in ExternalDataJob.objects.filter(
+            pipeline_id=schema.source_id, schema_id=schema.id, created_at__lt=job.created_at
+        )
+        .order_by("-created_at")
+        .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
+    ]
+    return partition_measurement_holds(measurement, earlier_jobs)
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
@@ -361,11 +429,16 @@ async def maybe_flag_for_repartition(
     job: ExternalDataJob,
     delta_table: deltalake.DeltaTable,
     logger: FilteringBoundLogger,
+    *,
+    phase: MeasurementPhase = "pre_extraction",
 ) -> None:
     """Measure partition sizes and, if over budget, record a `repartition_pending` target.
 
     Always records `max_partition_bytes` for observability (even when the table is in cooldown). The
     rewrite itself happens on the next run. Never raises — detection must not break post-load.
+
+    The measurement is recorded with the job, the `phase` and the verdict, so the next run can tell
+    whether it still describes the table (see `partition_measurement_holds`).
     """
     try:
         # A table pending a corruption revive must heal before it's rewritten — flagging it here would
@@ -387,7 +460,6 @@ async def maybe_flag_for_repartition(
             return
 
         max_bytes = max(partition_bytes.values())
-        await asyncio.to_thread(schema.record_partition_measurement, max_bytes)
 
         budget = target_partition_bytes()
         over_budget = max_bytes > budget
@@ -406,6 +478,23 @@ async def maybe_flag_for_repartition(
                 ExternalDataSchemaOOMEvent.recent_count, schema, days=repartition_oom_window_days()
             )
             oom_triggered = oom_count >= repartition_oom_threshold()
+
+        # A table with this shape is one that the coarsening path evaluates on each run, and its
+        # gates open with time (layout age, days without an OOM). Such a table is never healthy, so
+        # the next run measures it again.
+        coarsen_candidate = (
+            len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= budget
+        )
+        await asyncio.to_thread(
+            schema.record_partition_measurement,
+            max_bytes,
+            {
+                "job_id": str(job.id),
+                "phase": phase,
+                "budget": budget,
+                "healthy": not over_budget and not oom_triggered and not coarsen_candidate,
+            },
+        )
 
         if not over_budget and not oom_triggered:
             await logger.adebug(

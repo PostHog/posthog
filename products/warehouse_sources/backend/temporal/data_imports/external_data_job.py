@@ -48,6 +48,8 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
     DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR,
     ExternalDataSchema,
     update_should_sync,
 )
@@ -59,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
+    get_import_handoffs_per_run_metric,
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
@@ -66,6 +69,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
@@ -144,6 +148,20 @@ MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 # deploys often therefore needs the same room as a resumable import.
 MAX_REPARTITION_ACTIVITY_ATTEMPTS = MAX_RESUMABLE_SOURCE_RETRIES
 
+# The import activity returns a hand-off result when its worker shuts down, and the workflow runs
+# it again. The bound stops a run that no worker keeps long enough to finish. It is far above the
+# retry caps because a hand-off loses at most the batch in progress, where a failure can lose more.
+MAX_IMPORT_HANDOFFS = 200
+# A worker that got the shutdown signal takes no new activity, so each wait lets the rollout move
+# on and lowers the chance that the next worker also stops. The wait doubles while executions
+# keep ending early, and goes back to the first value after one that ran for a time.
+IMPORT_HANDOFF_FIRST_DELAY = dt.timedelta(seconds=5)
+IMPORT_HANDOFF_MAX_DELAY = dt.timedelta(seconds=60)
+IMPORT_HANDOFF_SETTLED_AFTER = dt.timedelta(minutes=5)
+FREE_IMPORT_HANDOFFS_PATCH_ID = "data-imports-free-handoffs-2026-10"
+
+IMPORT_NON_RETRYABLE_ERROR_TYPES = ["NonRetryableException", "BillingLimitsWillBeReachedException"]
+
 MISSING_INTEGRATION_MESSAGE = (
     "The connected account for this source is no longer available — it may have been disconnected. "
     "Please reconnect the source's account."
@@ -173,6 +191,7 @@ Any_Source_Errors: dict[str, str | None] = {
         "configuration, then re-enable the sync."
     ),
     MISSING_PRIMARY_KEYS_ERROR: MISSING_PRIMARY_KEY_DISABLED_MESSAGE,
+    UNSUPPORTED_SYNC_TYPE_ERROR: UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
@@ -786,6 +805,85 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         loaded = json.loads(inputs[0])
         return ExternalDataWorkflowInputs(**loaded)
 
+    async def _run_import_across_handoffs(
+        self,
+        job_inputs: ImportDataActivityInputs,
+        *,
+        start_to_close_timeout: dt.timedelta,
+        max_attempts: int,
+        source_type: str | None,
+    ) -> PipelineResult | None:
+        """Run the import activity again after each worker hand-off. Returns None at the hand-off bound.
+
+        A hand-off completes the activity execution, so it uses none of `max_attempts`. Attempts
+        that failed before a hand-off still count: the next execution gets what is left, so the
+        budget for failures covers the workflow run and not each execution.
+        """
+        handoffs = 0
+        early_handoffs = 0
+        prior_attempts = 0
+        failed_attempts = 0
+        try:
+            while True:
+                started_at = workflow.now()
+                pipeline_result: PipelineResult = await workflow.execute_activity(
+                    import_data_activity_sync,
+                    dataclasses.replace(
+                        job_inputs, handoffs_are_free=True, handoff_count=handoffs, prior_attempts=prior_attempts
+                    ),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    start_to_close_timeout=start_to_close_timeout,
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=max(1, max_attempts - failed_attempts),
+                        non_retryable_error_types=IMPORT_NON_RETRYABLE_ERROR_TYPES,
+                    ),
+                )
+                if not pipeline_result.get("handed_off", False):
+                    return pipeline_result
+
+                handoffs += 1
+                attempts_used = max(1, pipeline_result.get("handoff_attempts_used", 1))
+                prior_attempts += attempts_used
+                failed_attempts += attempts_used - 1
+                if handoffs >= MAX_IMPORT_HANDOFFS:
+                    return None
+
+                ended_early = workflow.now() - started_at < IMPORT_HANDOFF_SETTLED_AFTER
+                early_handoffs = early_handoffs + 1 if ended_early else 0
+                delay = min(IMPORT_HANDOFF_FIRST_DELAY * 2 ** min(early_handoffs, 10), IMPORT_HANDOFF_MAX_DELAY)
+                workflow.logger.info(
+                    "Import handed off by a worker that is shutting down, running it again",
+                    extra={"handoffs": handoffs, "delay_seconds": delay.total_seconds()},
+                )
+                await workflow.sleep(delay)
+        finally:
+            get_import_handoffs_per_run_metric(source_type).record(handoffs)
+
+    async def _fail_for_worker_restarts(
+        self,
+        inputs: ExternalDataWorkflowInputs,
+        update_inputs: UpdateExternalDataJobStatusInputs,
+        *,
+        is_v3: bool,
+        internal_error: str,
+    ) -> None:
+        if is_v3:
+            # No final batch reached the queue, so the loader can never complete this job.
+            # A COMPLETED write would release the pipeline lock and let the buffered run
+            # extract the same table again on top of this run's still-queued batches.
+            # Set before the buffer-one activity so a failure there cannot skip it.
+            update_inputs.status = ExternalDataJob.Status.FAILED
+            update_inputs.internal_error = internal_error
+            update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
+        # Ask the schedule for one more run of this schema, buffered behind the current one.
+        schedule_id = str(inputs.external_data_schema_id)
+        await workflow.execute_activity(
+            trigger_schedule_buffer_one_activity,
+            schedule_id,
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
     @workflow.run
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
@@ -908,6 +1006,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billing_limit_checked = False
                 hit_billing_limit = False
                 source_templates_needed = True
+                import_handoffs_are_free = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -924,6 +1023,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billing_limit_checked = create_job_result.billing_limit_checked
                 hit_billing_limit = create_job_result.hit_billing_limit
                 source_templates_needed = create_job_result.source_templates_needed
+                import_handoffs_are_free = create_job_result.import_handoffs_are_free
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # The job-creation activity answers the billing question in the same round trip. The
@@ -1007,36 +1107,47 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
 
             if is_resumable_source:
-                timeout_params = {
-                    "start_to_close_timeout": dt.timedelta(weeks=1),
-                    "retry_policy": RetryPolicy(
-                        maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
-                    ),
-                }
+                import_start_to_close_timeout = dt.timedelta(weeks=1)
+                import_max_attempts = max_resumable_attempts
             elif incremental_or_append:
-                timeout_params = {
-                    "start_to_close_timeout": dt.timedelta(weeks=1),
-                    "retry_policy": RetryPolicy(
-                        maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
-                    ),
-                }
+                import_start_to_close_timeout = dt.timedelta(weeks=1)
+                import_max_attempts = max_incremental_attempts
             else:
-                timeout_params = {
-                    "start_to_close_timeout": dt.timedelta(hours=24),
-                    "retry_policy": RetryPolicy(
-                        maximum_attempts=3,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
-                    ),
-                }
+                import_start_to_close_timeout = dt.timedelta(hours=24)
+                import_max_attempts = 3
 
-            pipeline_result = await workflow.execute_activity(
-                import_data_activity_sync,
-                job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                **timeout_params,
-            )  # type: ignore
+            # A hand-off loop schedules the import activity more than once, which a history recorded
+            # without it cannot replay. Two things keep replay on the recorded branch. The flag is
+            # the output of the job-creation activity, so replay reads the value the first execution
+            # saw, and a payload that predates the flag reads False. patched() then marks the
+            # histories that took the loop.
+            if import_handoffs_are_free and workflow.patched(FREE_IMPORT_HANDOFFS_PATCH_ID):
+                handoff_result = await self._run_import_across_handoffs(
+                    job_inputs,
+                    start_to_close_timeout=import_start_to_close_timeout,
+                    max_attempts=import_max_attempts,
+                    source_type=source_type,
+                )
+                if handoff_result is None:
+                    await self._fail_for_worker_restarts(
+                        inputs,
+                        update_inputs,
+                        is_v3=is_v3,
+                        internal_error=f"The import was handed off {MAX_IMPORT_HANDOFFS} times by workers that were shutting down",
+                    )
+                    return
+                pipeline_result = handoff_result
+            else:
+                pipeline_result = await workflow.execute_activity(
+                    import_data_activity_sync,
+                    job_inputs,
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    start_to_close_timeout=import_start_to_close_timeout,
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=import_max_attempts,
+                        non_retryable_error_types=IMPORT_NON_RETRYABLE_ERROR_TYPES,
+                    ),
+                )
 
             # Run-finalization ownership (terminal status write, v3 lock release, post-import
             # start) — the full contract lives on the PipelineResult docstring. False on every
@@ -1270,22 +1381,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
-                if is_v3:
-                    # No final batch reached the queue, so the loader can never complete this job.
-                    # A COMPLETED write would release the pipeline lock and let the buffered run
-                    # extract the same table again on top of this run's still-queued batches.
-                    # Set before the buffer-one activity so a failure there cannot skip it.
-                    update_inputs.status = ExternalDataJob.Status.FAILED
-                    update_inputs.internal_error = str(e.cause)
-                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
-                # Check if this is a WorkerShuttingDownError - implement Buffer One retry
-                schedule_id = str(inputs.external_data_schema_id)
-                await workflow.execute_activity(
-                    trigger_schedule_buffer_one_activity,
-                    schedule_id,
-                    start_to_close_timeout=dt.timedelta(minutes=10),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                await self._fail_for_worker_restarts(inputs, update_inputs, is_v3=is_v3, internal_error=str(e.cause))
             elif (
                 isinstance(e.cause, exceptions.ApplicationError)
                 and e.cause.type == "BillingLimitsWillBeReachedException"

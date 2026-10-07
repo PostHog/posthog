@@ -57,6 +57,7 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
     ExperimentMetric,
     build_metric,
     find_metric_dict,
@@ -104,8 +105,9 @@ MIN_CORRECTNESS_SUM_DELTA = 100.0
 MIN_EXPOSURES_PER_VARIANT = 100
 
 # Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
-# mean, and retention also read precomputed metric events when eligible.
-ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio", "retention")
+# mean, and retention also read precomputed metric events when eligible. Derived from the runner's
+# builder registry so a new buildable type is sampled automatically instead of silently uncovered.
+ELIGIBLE_METRIC_TYPES = frozenset(METRIC_BUILDERS)
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.

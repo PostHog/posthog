@@ -227,7 +227,6 @@ class TestCodyTransport:
         response = cody_source("token", "example.com", endpoint, mock.Mock(), _manager())
 
         assert response.name == endpoint
-        assert response.primary_keys is None
         assert response.sort_mode == "asc"
 
     @parameterized.expand(
@@ -251,17 +250,31 @@ class TestCodyTransport:
         assert params == {"instanceURL": ["example.com"], "granularity": [granularity]}
         manager.save_state.assert_not_called()
 
-    def test_credits_requests_without_granularity(self):
+    @parameterized.expand(
+        [
+            ("credits", "/api/credits", "id,amount\nb1,10\n", {"id": "b1", "amount": "10"}),
+            (
+                "user_registry",
+                "/api/reports/user-registry",
+                "Instance user ID,Service Account,Site Admin\n42,false,true\n",
+                {"instance_user_id": "42", "service_account": "false", "site_admin": "true"},
+            ),
+        ]
+    )
+    def test_non_report_endpoints_request_without_granularity(self, endpoint, path, body, expected_row):
         session = mock.Mock()
-        session.get.return_value = _response(200, text="id,amount\nb1,10\n")
+        session.get.return_value = _response(200, text=body)
 
         with mock.patch.object(cody, "make_tracked_session", return_value=session):
-            batches = list(_batches(cody_source("token", "example.com", "credits", mock.Mock(), _manager())))
+            response = cody_source("token", "example.com", endpoint, mock.Mock(), _manager())
+            batches = list(_batches(response))
 
-        assert batches == [[{"id": "b1", "amount": "10"}]]
+        assert batches == [[expected_row]]
+        # A primary key the normalized CSV headers never produce would fail every merge.
+        assert set(response.primary_keys or []) <= expected_row.keys()
         url = session.get.call_args.args[0]
-        assert url.startswith(f"{cody.CODY_BASE_URL}/api/credits?")
-        assert "granularity" not in url
+        assert url.startswith(f"{cody.CODY_BASE_URL}{path}?")
+        assert parse_qs(urlparse(url).query) == {"instanceURL": ["example.com"]}
         # Reports must stay streamed — buffering the whole body lets a huge report OOM the worker.
         assert session.get.call_args.kwargs["stream"] is True
 
