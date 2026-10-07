@@ -175,7 +175,6 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
                     }
                     try {
                         return await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                            kind: 'email',
                             config: { ...senderConfig, setup_method: method },
                         })
                     } catch {
@@ -278,7 +277,6 @@ export const emailDomainSenderLogic = kea<emailDomainSenderLogicType>([
             }
             try {
                 const saved = await integrationsEmailPartialUpdate(String(currentTeamId), integrationId, {
-                    kind: 'email',
                     config: { ...senderConfig, name: values.senderName },
                 })
                 actions.senderSaved(saved)
