@@ -72,7 +72,15 @@ class Action(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, m
     last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
+        indexes = [
+            models.Index(fields=["team_id", "-updated_at"]),
+            # The legacy webhook ActionManager on each pod reloads the Slack actions on a schedule.
+            models.Index(
+                fields=["id"],
+                name="posthog_action_slack_idx",
+                condition=models.Q(post_to_slack=True, deleted=False),
+            ),
+        ]
         db_table = "posthog_action"
 
     def __str__(self) -> str:
