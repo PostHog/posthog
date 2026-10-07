@@ -79,6 +79,10 @@ PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REG
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+# Hogtower - URL and internal secret for the managed warehouse management plane. When
+# HOGTOWER_API_URL is set, control-plane calls go to hogtower's /api/v2 instead of duckgres.
+HOGTOWER_API_URL: str | None = get_from_env("HOGTOWER_API_URL", optional=True)
+HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", optional=True)
 MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
     "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
 )

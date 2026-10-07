@@ -1538,6 +1538,31 @@ class TestEmitObservationEventActivity:
         assert properties["$group_2"] == "proj-9"
         assert properties["$groups"] == {"organization": "acme-inc", "project": "proj-9"}
 
+    @pytest.mark.parametrize(
+        "session_geoip",
+        [{"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}, None],
+    )
+    def test_event_carries_the_session_location_with_geoip_disabled(self, session_geoip) -> None:
+        # Without `$geoip_disable` the GeoIP transformation geolocates the worker, not the recorded user.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_geoip=session_geoip)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$geoip_disable"] is True
+        for key, value in (session_geoip or {}).items():
+            assert properties[key] == value
+        if not session_geoip:
+            assert not any(key.startswith("$geoip_") for key in properties if key != "$geoip_disable")
+
     def test_event_omits_group_properties_when_the_session_carried_none(self) -> None:
         # Observations scanned before group keys were resolved leave the column null; they must still emit.
         scanner = _make_scanner()
@@ -1886,7 +1911,13 @@ class TestFetchSessionEventsActivity:
             ),
             patch(
                 "products.replay_vision.backend.temporal.activities.fetch_session_events.fetch_session_person_properties",
-                return_value={"email": "rene@customer.example", "name": "Rene Diaz", "org__name": "Customer Co"},
+                return_value={
+                    "email": "rene@customer.example",
+                    "name": "Rene Diaz",
+                    "org__name": "Customer Co",
+                    "$geoip_country_code": "US",
+                    "$geoip_subdivision_1_code": "CA",
+                },
             ),
         ):
             await fetch_session_events_activity(
@@ -1900,9 +1931,11 @@ class TestFetchSessionEventsActivity:
         assert stored.identity.person_email == "rene@customer.example"
         assert stored.identity.person_name == "Rene Diaz"
         assert stored.identity.person_organization == "Customer Co"
+        assert stored.session_geoip == {"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}
 
         await sync_to_async(observation.refresh_from_db)()
         assert observation.recording_subject_email == "rene@customer.example"
+        assert observation.session_geoip == {"$geoip_country_code": "US", "$geoip_subdivision_1_code": "CA"}
 
     @pytest.mark.asyncio
     async def test_fetches_a_single_page_with_the_configured_limit(self) -> None:

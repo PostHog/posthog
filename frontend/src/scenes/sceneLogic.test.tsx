@@ -6,6 +6,7 @@ import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -480,6 +481,16 @@ describe('sceneLogic', () => {
             router.actions.push(urls.projectHomepage())
             await expectLogic(logic).delay(1)
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+        })
+
+        it('stays on /home with the rail nav even when a homepage is configured', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
         it('stays on the launchpad at /home when no homepage is configured', async () => {
