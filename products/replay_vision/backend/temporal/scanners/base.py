@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
-from products.replay_vision.backend.temporal.conversation import DEFAULT_MAX_TOOL_ITERATIONS
+from products.replay_vision.backend.temporal.lookups import DEFAULT_LOOKUP_WINDOW_S, MAX_LOOKUP_WINDOW_S, MAX_LOOKUPS
 from products.replay_vision.backend.temporal.scanners.prompt_env import render_prompt
 
 if TYPE_CHECKING:
@@ -51,6 +51,8 @@ SIGNAL_HEADLINE_MAX_LENGTH = 80
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
+# The lookup round's plan turn. It has no output of its own, but LLM analytics keys its span on this name.
+STEP_LOOKUPS = "lookups"
 
 # Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
 # Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
@@ -149,6 +151,7 @@ class MissionStep:
     `required` steps abort the scan when they can't be satisfied; non-required steps (signals) are
     best-effort and simply contribute nothing on failure. `validate` runs an extra semantic check on the parsed
     response and, when it returns an error string, triggers the same re-prompt path as a schema failure.
+    `plan_lookups` gives the step the scan's one lookup round before it answers.
     """
 
     name: str
@@ -156,6 +159,7 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
+    plan_lookups: bool = False
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -275,7 +279,7 @@ class BaseScanner(BaseModel, frozen=True):
     project_rules: list[str] = Field(default_factory=list, exclude=True)
     scanner_rules: list[str] = Field(default_factory=list, exclude=True)
 
-    # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
+    # Shared opening turn (footer, lookups, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
     # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
@@ -306,11 +310,10 @@ class BaseScanner(BaseModel, frozen=True):
         events_truncated: bool = False,
         product_context: str = "",
         event_descriptions: dict[str, str] | None = None,
-        tool_budget: int = DEFAULT_MAX_TOOL_ITERATIONS,
         network_state: Literal["available", "clean", "none"] = "none",
         touch: bool = False,
     ) -> str:
-        """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
+        """The conversation's shared opening: framing, footer, lookups, calibration, navigation timeline, and
         session metadata and identity. `navigation` and `session_identity` take dumped model dicts (plain dicts keep
         this module free of a `types.py` import, which would close an import cycle)."""
         return render_prompt(
@@ -324,8 +327,6 @@ class BaseScanner(BaseModel, frozen=True):
             events_truncated=events_truncated,
             product_context=product_context,
             event_descriptions=event_descriptions or {},
-            tool_budget=tool_budget,
-            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
             network_state=network_state,
             touch=touch,
         )
@@ -343,8 +344,19 @@ class BaseScanner(BaseModel, frozen=True):
                 instruction=instruction,
                 response_model=self.llm_response_schema,
                 validate=self._validate_core,
+                plan_lookups=True,
             )
         ]
+
+    def lookups_instruction(self, *, network_available: bool) -> str:
+        """The plan turn's instruction, which follows the step's own task so the model plans against what it must answer."""
+        return render_prompt(
+            "lookups_step.jinja",
+            network_available=network_available,
+            max_lookups=MAX_LOOKUPS,
+            default_window_s=DEFAULT_LOOKUP_WINDOW_S,
+            max_window_s=MAX_LOOKUP_WINDOW_S,
+        )
 
     def mission_steps(self) -> list[MissionStep]:
         """The full ordered turn list: the core task, then the signals side mission when enabled."""

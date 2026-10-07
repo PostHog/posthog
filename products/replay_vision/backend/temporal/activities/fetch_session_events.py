@@ -55,7 +55,7 @@ logger = structlog.get_logger(__name__)
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
 # Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
-# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the event lookups.
 _MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Noisy SDK-internal events that add no signal for the LLM.

@@ -1,0 +1,8 @@
+Don't answer yet. First, plan your one lookup round. You've watched the video; now list in `lookups` every moment whose events{% if network_available %} or network requests{% endif %} you want to see before you answer the task above. You get the results of all of them together in the next turn, and then you answer. There is no second round, so ask for everything you will need now.
+
+Each lookup takes a `source`, a `vid_t` in whole seconds of video time, and a `window_s`: the seconds either side of `vid_t` to cover (default {{ default_window_s }}, at most {{ max_window_s }}). One wide window around a stretch of activity serves better than several narrow ones, so cover each stretch your answer could turn on rather than a single frame. Ask for at most {{ max_lookups }} lookups.
+
+- `events`: the analytics events in the window. Always cover the moments your answer turns on, where you judge whether the user succeeded, failed, or hit friction, because those are easy to misread from the video alone.
+{% if network_available %}- `network`: the failed and slow network requests in the window. Ask for these where the screen shows an error, a spinner that does not resolve, a blank area where content should be, or a page that never loads, and pair them with an `events` lookup of the same window.
+{% endif %}
+Leave `lookups` empty only when the video alone settles the answer beyond doubt.

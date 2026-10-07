@@ -58,28 +58,21 @@ REPLAY_VISION_MISSION_PASSES = Counter(
     ["model", "path"],
 )
 
-# LLM analytics cannot answer this: the scanner runs with privacy mode on, so `$ai_tools_called` is
-# derived from an output the provider events never carry.
+# LLM analytics cannot answer this: the scanner runs with privacy mode on, so the lookup plan the model
+# writes never reaches the provider events.
 REPLAY_VISION_EVENTS_TOOL_CALLS = Counter(
     "replay_vision_events_tool_calls_total",
-    "Calls the scanner model made to the analytics events lookup",
+    "Analytics events lookups the scanner model asked for",
     ["scanner_type", "model"],
 )
 
 REPLAY_VISION_NETWORK_TOOL_CALLS = Counter(
     "replay_vision_network_tool_calls_total",
-    "Calls the scanner model made to the network request lookup",
+    "Network request lookups the scanner model asked for",
     ["scanner_type", "model"],
 )
 
-REPLAY_VISION_UNKNOWN_TOOL_CALLS = Counter(
-    "replay_vision_unknown_tool_calls_total",
-    "Calls the scanner model made to a name no tool answers, which means it invented one",
-    ["scanner_type", "model"],
-)
-
-# A round is one provider turn that asked for at least one lookup, which is what the tool budget spends.
-# The histogram separates a model that asks for several moments at once from one that spends a round on each.
+# A scan has one lookup round, so this is the size of the model's lookup plan when the plan asks for anything.
 _TOOL_CALLS_PER_ROUND_BUCKETS = (1, 2, 3, 4, 5, 6, 8, 10, 15)
 
 REPLAY_VISION_TOOL_ROUNDS = Histogram(
@@ -257,12 +250,6 @@ def record_network_tool_call(scanner_type: str, model: str) -> None:
     labels = {"scanner_type": scanner_type, "model": model}
     REPLAY_VISION_NETWORK_TOOL_CALLS.labels(**labels).inc()
     _otel.record_counter_twin(REPLAY_VISION_NETWORK_TOOL_CALLS, 1, labels)
-
-
-def record_unknown_tool_call(scanner_type: str, model: str) -> None:
-    labels = {"scanner_type": scanner_type, "model": model}
-    REPLAY_VISION_UNKNOWN_TOOL_CALLS.labels(**labels).inc()
-    _otel.record_counter_twin(REPLAY_VISION_UNKNOWN_TOOL_CALLS, 1, labels)
 
 
 def record_tool_round(scanner_type: str, model: str, calls: int) -> None:

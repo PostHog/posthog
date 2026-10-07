@@ -1,14 +1,7 @@
 import datetime as dt
 from typing import Any
 
-from parameterized import parameterized
-
-from products.replay_vision.backend.temporal.events_tool import (
-    EventsIndex,
-    build_events_index,
-    dispatch_events_tool,
-    get_events_around,
-)
+from products.replay_vision.backend.temporal.events_tool import EventsIndex, build_events_index, get_events_around
 from products.replay_vision.backend.temporal.types import EventTable, ScannerLlmInputs, SessionMetadata
 from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
@@ -117,59 +110,6 @@ class TestGetEventsAround:
         ]
         out = get_events_around(_index(rows, {"u1": 0}), vid_t=0, window_s=5)
         assert [e["event"] for e in out] == ["$pageview"]
-
-
-class _Call:
-    def __init__(self, name: str, args: dict[str, Any]) -> None:
-        self.name = name
-        self.args = args
-
-
-class TestDispatchEventsTool:
-    def test_dispatches_to_get_events_around(self) -> None:
-        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        index = _index(rows, {"u1": 30_000})
-        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30, "window_s": 5}), index)
-        assert [e["vid_t"] for e in result["events"]] == [30]
-
-    def test_defaults_window_when_omitted(self) -> None:
-        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30}), _index(rows, {"u1": 30_000}))
-        assert len(result["events"]) == 1
-
-    def test_rejects_unknown_tool(self) -> None:
-        result = dispatch_events_tool(_Call("something_else", {}), _index([], {}))
-        assert "error" in result
-
-    @parameterized.expand(
-        [
-            ("float_string", "30.7"),
-            ("float", 30.0),
-            ("int_string", "30"),
-        ]
-    )
-    def test_coerces_numeric_vid_t_variants(self, _label: str, vid_t: Any) -> None:
-        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": vid_t}), _index(rows, {"u1": 30_000}))
-        assert [e["vid_t"] for e in result["events"]] == [30]
-
-    @parameterized.expand(
-        [
-            ("null", None),
-            ("prose", "about 30"),
-            ("boolean", True),
-            ("nan", "nan"),
-        ]
-    )
-    def test_malformed_vid_t_returns_error_to_model_instead_of_raising(self, _label: str, vid_t: Any) -> None:
-        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": vid_t}), _index([], {}))
-        assert "vid_t" in result["error"]
-
-    def test_malformed_window_falls_back_to_default(self) -> None:
-        rows = [_row("u1", "$rageclick", None, "url_1", None, "click", [])]
-        index = _index(rows, {"u1": 30_000})
-        result = dispatch_events_tool(_Call("get_events_around", {"vid_t": 30, "window_s": "wide"}), index)
-        assert len(result["events"]) == 1
 
 
 class TestEventsLandOnTheVideoClock:
