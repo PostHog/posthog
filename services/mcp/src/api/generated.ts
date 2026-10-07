@@ -10672,6 +10672,25 @@ export namespace Schemas {
       Year: 'year',
     } as const;
 
+    export interface BICategoryGroup {
+      name: string;
+      values: string[];
+    }
+
+    export interface BILocalFieldDefinition1 {
+      expression: string;
+      groups: BICategoryGroup[];
+      kind?: 'groups';
+      other: string;
+    }
+
+    export interface BILocalFieldDefinition2 {
+      expression: string;
+      kind?: 'bins';
+      origin: number;
+      width: number;
+    }
+
     export interface BIDataSource {
       connectionId?: string | null;
       table: string;
@@ -10703,10 +10722,18 @@ export namespace Schemas {
       dateBucket?: BIDateBucket | null;
       expression: string;
       id: string;
+      localDefinition?: BILocalFieldDefinition1 | BILocalFieldDefinition2 | null;
       name: string;
       source: BIDataSource;
       type: DatabaseSerializedFieldType;
     }
+
+    export type ComparisonPeriod = typeof ComparisonPeriod[keyof typeof ComparisonPeriod];
+
+
+    export const ComparisonPeriod = {
+      Previous: 'previous',
+    } as const;
 
     export type BIFilterOperator = typeof BIFilterOperator[keyof typeof BIFilterOperator];
 
@@ -10870,11 +10897,15 @@ export namespace Schemas {
       chartType: ChartDisplayType;
       columns: BIField[];
       compareFilter?: CompareFilter | null;
+      /** Explore only the comparison window, using dateRange as its reference window. */
+      comparisonPeriod?: ComparisonPeriod | null;
       /** Column that receives the worksheet and dashboard date range. */
       dateField?: BIField | null;
       dateRange?: DateRange | null;
       filters: BIFilter[];
       limit: BIQueryLimit;
+      /** Reusable expressions owned by this worksheet only. */
+      localFields?: BIField[] | null;
       /** Fill missing date buckets before table calculations. Unset preserves observed points only. */
       missingDates?: MissingDates | null;
       resultFilterGroup?: BIConditionGroup | null;

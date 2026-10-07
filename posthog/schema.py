@@ -75,6 +75,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ComparisonPeriod as ComparisonPeriod,
     ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
@@ -948,6 +949,14 @@ class AssistantUpdateEvent(BaseModel):
     tool_call_id: str
 
 
+class BICategoryGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    values: list[str]
+
+
 class BIConditionGroup(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -963,6 +972,26 @@ class BIDataSource(BaseModel):
     )
     connectionId: str | None = None
     table: str
+
+
+class BILocalFieldDefinition1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    groups: list[BICategoryGroup]
+    kind: Literal["groups"] = "groups"
+    other: str
+
+
+class BILocalFieldDefinition2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expression: str
+    kind: Literal["bins"] = "bins"
+    origin: float
+    width: float
 
 
 class BITotals(BaseModel):
@@ -5006,6 +5035,7 @@ class BIField(BaseModel):
     dateBucket: BIDateBucket | None = None
     expression: str
     id: str
+    localDefinition: BILocalFieldDefinition1 | BILocalFieldDefinition2 | None = None
     name: str
     source: BIDataSource
     type: DatabaseSerializedFieldType
@@ -11141,6 +11171,10 @@ class BIConfig(BaseModel):
     chartType: ChartDisplayType
     columns: list[BIField]
     compareFilter: CompareFilter | None = None
+    comparisonPeriod: ComparisonPeriod | None = Field(
+        default=None,
+        description=("Explore only the comparison window, using dateRange as its reference window."),
+    )
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -11148,6 +11182,9 @@ class BIConfig(BaseModel):
     dateRange: DateRange | None = None
     filters: list[BIFilter]
     limit: BIQueryLimit
+    localFields: list[BIField] | None = Field(
+        default=None, description="Reusable expressions owned by this worksheet only."
+    )
     missingDates: MissingDates | None = Field(
         default=None,
         description=("Fill missing date buckets before table calculations. Unset preserves observed points only."),
