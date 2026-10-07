@@ -173,6 +173,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         return () => {
             unregisterShortcut(name)
         }
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [
         isRefReady,
         name,
@@ -185,7 +186,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         priority,
         registerShortcut,
         unregisterShortcut,
-    ]) // oxlint-disable-line react-hooks/exhaustive-deps
+    ])
 
     return { ref, callbackRef }
 }
