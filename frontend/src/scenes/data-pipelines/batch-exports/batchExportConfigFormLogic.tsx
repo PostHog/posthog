@@ -456,10 +456,10 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
             hogql_value: 'exit_pathname',
             schema_valid: true,
         },
-        vital_lcp: {
-            name: 'vital_lcp',
+        vitals_lcp: {
+            name: 'vitals_lcp',
             type: 'float',
-            hogql_value: 'vital_lcp',
+            hogql_value: 'vitals_lcp',
             schema_valid: true,
         },
         entry_gclsrc: {

@@ -59,9 +59,11 @@ import {
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
+import { MessageToolCallsEditor } from './MessageToolCallsEditor'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
 import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
 import { TemplateVariableTextArea } from './TemplateVariableTextArea'
+import { ToolCallDisplay } from './ToolCallDisplay'
 
 // Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
@@ -370,13 +372,14 @@ function hasUsage(usage: UsageSummary | undefined): boolean {
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
     const { addResultToConversation } = useActions(llmPlaygroundPromptsLogic)
-    const canAddToConversation = !!item?.response && !item.error && !isStreaming
+    const hasToolCalls = !!item?.toolCalls?.length
+    const canAddToConversation = (!!item?.response || hasToolCalls) && !item?.error && !isStreaming
 
     const handleAddToConversation = (): void => {
-        if (!item?.response) {
+        if (!item || (!item.response && !item.toolCalls?.length)) {
             return
         }
-        addResultToConversation(item.response, item.promptId)
+        addResultToConversation(item.response, item.toolCalls, item.promptId)
     }
 
     return (
@@ -400,7 +403,11 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                                     ? 'Only successful responses can be added'
                                     : 'No response to add'
                         }
-                        tooltip="Adds this result as an assistant message and starts a blank user message for the next turn."
+                        tooltip={
+                            hasToolCalls
+                                ? 'Adds this result as an assistant message and starts an empty tool result for each call. Fill the results in, then run again.'
+                                : 'Adds this result as an assistant message and starts a blank user message for the next turn.'
+                        }
                         data-attr="llma-playground-add-result-to-conversation"
                     >
                         Add to conversation
@@ -424,18 +431,25 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                             <LemonMarkdown className="whitespace-pre-wrap break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded [&_img]:my-2">
                                 {item.response}
                             </LemonMarkdown>
-                        ) : isStreaming ? (
+                        ) : isStreaming && !hasToolCalls ? (
                             <div className="h-full flex items-center justify-center text-xs text-muted">
                                 <div className="inline-flex items-center gap-2">
                                     <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                                     <span>Generating response...</span>
                                 </div>
                             </div>
-                        ) : (
+                        ) : !hasToolCalls ? (
                             <span className="text-muted italic">No response</span>
+                        ) : null}
+                        {hasToolCalls && (
+                            <div className={`space-y-2 ${item.response ? 'mt-2' : ''}`}>
+                                {item.toolCalls?.map((toolCall) => (
+                                    <ToolCallDisplay key={toolCall.id} toolCall={toolCall} />
+                                ))}
+                            </div>
                         )}
                     </div>
-                    {(!!item.response || hasUsage(item.usage)) && (
+                    {(!!item.response || hasToolCalls || hasUsage(item.usage)) && (
                         <MetadataHeader
                             className="mt-2 pt-2"
                             isError={item.error}
@@ -859,6 +873,8 @@ function getRoleDotClass(role: string): string {
             return 'bg-[var(--color-green-500)]'
         case 'system':
             return 'bg-[var(--color-purple-500)]'
+        case 'tool':
+            return 'bg-[var(--color-orange-500)]'
         default:
             return 'bg-muted'
     }
@@ -1030,7 +1046,15 @@ function MessageDisplay({
 
     const handleRoleChange = (newRole: MessageRole): void => {
         posthog.capture('llma playground message role changed', { from: message.role, to: newRole })
-        updateMessage(index, { role: newRole }, promptId)
+        updateMessage(
+            index,
+            {
+                role: newRole,
+                ...(newRole !== 'assistant' ? { toolCalls: undefined } : {}),
+                ...(newRole !== 'tool' ? { toolCallId: undefined, toolName: undefined } : {}),
+            },
+            promptId
+        )
     }
 
     const handleContentChange = (newContent: string | undefined): void => {
@@ -1040,6 +1064,7 @@ function MessageDisplay({
     const roleOptions: { label: string; value: MessageRole }[] = [
         { label: 'User', value: 'user' },
         { label: 'Assistant', value: 'assistant' },
+        { label: 'Tool', value: 'tool' },
     ]
 
     const trimmedContent = message.content.trim()
@@ -1058,7 +1083,7 @@ function MessageDisplay({
                         noPadding
                         onClick={() => {
                             posthog.capture('llma playground response copied', {
-                                content_type: message.role === 'assistant' ? 'assistant_message' : 'user_message',
+                                content_type: `${message.role}_message`,
                             })
                             void copyToClipboard(message.content, `${message.role} message`)
                         }}
@@ -1108,31 +1133,71 @@ function MessageDisplay({
                         <span className="text-xs text-muted truncate flex-1">
                             {message.content
                                 ? message.content.slice(0, 80) + (message.content.length > 80 ? '…' : '')
-                                : `Empty ${message.role} message`}
+                                : message.toolCalls?.length
+                                  ? `${message.toolCalls.length} tool call${message.toolCalls.length === 1 ? '' : 's'}`
+                                  : `Empty ${message.role} message`}
                         </span>
                     )}
                 </div>
 
                 <AnimatedCollapsible collapsed={collapsed}>
-                    {useJsonEditor ? (
-                        <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
-                            <JSONEditor
+                    <div>
+                        {message.role === 'tool' && (
+                            <div className="flex gap-2 mb-2">
+                                <LemonInput
+                                    size="small"
+                                    className="flex-1"
+                                    placeholder="Tool name"
+                                    value={message.toolName ?? ''}
+                                    onChange={(value) => updateMessage(index, { toolName: value }, promptId)}
+                                    data-attr="llma-playground-tool-result-name"
+                                />
+                                <LemonInput
+                                    size="small"
+                                    className="flex-1 font-mono"
+                                    placeholder="Tool call id"
+                                    value={message.toolCallId ?? ''}
+                                    onChange={(value) => updateMessage(index, { toolCallId: value }, promptId)}
+                                    data-attr="llma-playground-tool-result-call-id"
+                                />
+                            </div>
+                        )}
+                        {useJsonEditor ? (
+                            <div className={`border rounded ${INLINE_JSON_MAX_HEIGHT_CLASS}`}>
+                                <JSONEditor
+                                    value={message.content}
+                                    onChange={handleContentChange}
+                                    defaultNumberOfLines={2}
+                                    maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                                />
+                            </div>
+                        ) : (
+                            <TemplateVariableTextArea
+                                placeholder={
+                                    message.role === 'tool'
+                                        ? 'Enter the tool result here...'
+                                        : `Enter ${message.role} message here...`
+                                }
                                 value={message.content}
                                 onChange={handleContentChange}
-                                defaultNumberOfLines={2}
-                                maxNumberOfLines={INLINE_JSON_MAX_LINES}
+                                unfilledVariables={unfilledVariables}
+                                minRows={2}
+                                onPressCmdEnter={() => submitPrompt()}
                             />
-                        </div>
-                    ) : (
-                        <TemplateVariableTextArea
-                            placeholder={`Enter ${message.role} message here...`}
-                            value={message.content}
-                            onChange={handleContentChange}
-                            unfilledVariables={unfilledVariables}
-                            minRows={2}
-                            onPressCmdEnter={() => submitPrompt()}
-                        />
-                    )}
+                        )}
+                        {message.role === 'assistant' && (
+                            <MessageToolCallsEditor
+                                toolCalls={message.toolCalls ?? []}
+                                onChange={(toolCalls) =>
+                                    updateMessage(
+                                        index,
+                                        { toolCalls: toolCalls.length > 0 ? toolCalls : undefined },
+                                        promptId
+                                    )
+                                }
+                            />
+                        )}
+                    </div>
                 </AnimatedCollapsible>
             </div>
 

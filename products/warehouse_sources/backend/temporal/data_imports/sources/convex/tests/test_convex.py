@@ -152,6 +152,28 @@ class TestValidateDeployUrl:
         assert "convex.cloud" not in err
         assert "400" in err
 
+    @parameterized.expand(
+        [
+            ("same_deployment", "prod:swift-lemur-123|abc", "Convex rejected your deploy key."),
+            ("unnamed_key", "abc123", "Convex rejected your deploy key."),
+            ("dev_key_for_prod_url", "dev:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+            ("key_for_other_project", "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected, mock_get):
+        response = Mock()
+        response.raise_for_status.side_effect = HTTPError(response=Mock(status_code=401))
+        mock_get.return_value.get.return_value = response
+
+        ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
+
+        assert not ok
+        assert err is not None
+        assert expected in err
+        assert "swift-lemur-123" not in err
+        assert "quiet-otter-456" not in err
+
 
 class TestValidateDeployKey:
     @parameterized.expand(
@@ -530,6 +552,7 @@ def test_catches_up_and_stages_the_cursor(
     assert [body["cursor"] for body in requests[1:]] == ["snapshot", "stale"]
     assert inputs.source_cursor is not None
     assert inputs.source_cursor.staged == ConvexDataSyncCursor(cursor="end")
+    manager.confirm()
     manager.commit()
     assert manager.with_namespace("data_sync").load_state() == ConvexResumeConfig(
         cursor="end", started_from_cursor=stored is not None
@@ -698,6 +721,14 @@ def test_truncates_and_expiry_reset_only_when_required(
             reset.assert_not_called()
 
 
+def _pipeline_safe_point(manager: Any) -> Any:
+    def hook() -> None:
+        manager.confirm()
+        manager.commit()
+
+    return hook
+
+
 @pytest.mark.parametrize("rows", [[], [{"value": {"_id": "a"}, "ts": 100, "deleted": False}]])
 def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     rows: list[dict[str, Any]], redis_boundary: Mock, http_boundary: Mock
@@ -706,7 +737,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     manager = ConvexSource().get_resumable_source_manager(inputs)
     scoped = manager.with_namespace("data_sync")
     http_boundary.post.side_effect = [_page("checkpoint", status="stale", values=rows), RuntimeError("interrupted")]
-    with activate_safe_point(manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(manager), covers_framework_checkpoints=False):
         iterator = iter(_items(_resource(inputs, manager)))
         if rows:
             assert next(iterator) == [{"_id": "a", "_ts": 100, "_deleted": False}]
@@ -717,7 +748,7 @@ def test_each_page_saves_resume_state_after_rows_and_continues_on_retry(
     http_boundary.post.side_effect = None
     http_boundary.post.return_value = _page("end")
     retry_manager = ConvexSource().get_resumable_source_manager(inputs)
-    with activate_safe_point(retry_manager.commit, covers_framework_checkpoints=False):
+    with activate_safe_point(_pipeline_safe_point(retry_manager), covers_framework_checkpoints=False):
         list(_items(_resource(inputs, retry_manager)))
     assert http_boundary.post.call_args.kwargs["json"]["cursor"] == "checkpoint"
     assert scoped.load_state() == ConvexResumeConfig(cursor="end", started_from_cursor=True)

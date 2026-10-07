@@ -9,13 +9,10 @@ Storybook. Classes already present in the codebase hot-reload fine.
 
 ## Storybook visual regression tests
 
-In CI we use playwright to load our storybooks scenes and take snapshots of them
+In CI, Playwright loads each story and takes a light and a dark snapshot by default. A story can skip either theme with `testOptions.skipLightMode` or `testOptions.skipDarkMode`.
+Visual review compares them with the baselines in `frontend/snapshots.yml`. A changed picture is approved in the visual review run, and finalizing the run commits the new baselines to the PR.
 
-If they have changed we commit those snapshots back to the PR
-
-This lets you check if you have broken the UI unexpectedly or changed it in the way you expected
-
-You can check `test-runner.ts` to see how this is done
+`test-runner.ts` holds the capture logic and the `testOptions` story parameters. To keep a story from flaking, see [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) in the frontend coding conventions.
 
 Uses `"@storybook/test-runner"` see: https://storybook.js.org/docs/writing-tests/test-runner
 

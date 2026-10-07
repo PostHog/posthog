@@ -121,6 +121,7 @@ class TestHatchetSource:
             "event_keys",
             "workflows",
             "workers",
+            "scheduled_runs",
             "task_events",
             "task_timings",
         }

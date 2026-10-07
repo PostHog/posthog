@@ -127,6 +127,14 @@ Four registries in `activity_log.py` tune it per scope:
 Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
 Reading their fail-closed managers can require team context that background writes do not have.
 
+Destination activity logs record changes to `mappings` without their values.
+For `inputs` they keep each key and record only whether its value changed, so the history can name the changed input.
+Rows written before a field joined `field_with_masked_contents` still store its values.
+Code that returns a row's `detail` to a user must read `ActivityLog.safe_detail`, which masks those fields in old rows too.
+The activity log API, the advanced activity logs API and its exports, the notifications feed, and the PostHog AI context all do.
+The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
+These protections do not revoke exposed credentials.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.

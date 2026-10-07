@@ -73,6 +73,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
+from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
@@ -360,7 +361,7 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     user = request.user
     if not isinstance(user, User):
         return False
-    return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("task", "viewer")
+    return may_read_reports(user=user, team=canonical_team)
 
 
 class Conflict(exceptions.APIException):
@@ -1369,6 +1370,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "report that was missing a qualifying reviewer or a repository can open a draft PR. The response "
             "carries the repository the report holds after the edit, and the call fails when a repository it "
             "named did not land. "
+            "Set `actionability` and/or `priority` (each with its explanation) when new evidence changed "
+            "your judgment: each replaces the report's decision and re-runs autostart, without changing "
+            "the report's inbox status. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
             "predecessor PRs close only after the replacement completes with verified open PRs."
@@ -1390,7 +1394,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
                 team=run.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 report_id=data["report_id"],
                 title=data.get("title"),
                 summary=data.get("summary"),
@@ -1404,6 +1408,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 links=_to_report_links(data.get("links")),
                 supersedes_implementation=bool(data.get("supersedes_implementation")),
                 corroboration_only=bool(data.get("corroboration_only")),
+                actionability=data.get("actionability"),
+                actionability_explanation=data.get("actionability_explanation"),
+                already_addressed=data.get("already_addressed"),
+                priority=data.get("priority"),
+                priority_explanation=data.get("priority_explanation"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1425,6 +1434,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,
                     "corroboration_collapsed": result.corroboration_collapsed,
+                    "decision_fields_set": list(result.decision_fields_set),
+                    "warnings": [{"field": w.field, "message": w.message} for w in result.warnings],
                 }
             ).data,
             status=status.HTTP_200_OK,
