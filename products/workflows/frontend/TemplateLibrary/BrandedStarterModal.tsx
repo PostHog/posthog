@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { IconGithub } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonFileInput, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonColorGlyph } from 'lib/lemon-ui/LemonColor/LemonColorGlyph'
@@ -10,11 +11,18 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
-import { brandedStarterLogic } from './brandedStarterLogic'
+import { BrandPrefill, brandedStarterLogic } from './brandedStarterLogic'
 import type { brandedStarterLogicValues } from './brandedStarterLogic'
+import { GitHubBrandDetection } from './GitHubBrandDetection'
 import type { MessageTemplateLogicProps } from './messageTemplateLogic'
 import { messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { savedBrandLogic } from './savedBrandLogic'
+
+const HOSTED_LOGO_LABELS: Record<BrandPrefill, string> = {
+    saved: 'Your saved logo',
+    website: 'Logo from your website',
+    github: 'Logo from your GitHub repo',
+}
 
 export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Element {
     const logic = brandedStarterLogic(props)
@@ -28,14 +36,17 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
         prefilledFrom,
         prefilledFromHost,
         detectedBrandLoading,
+        generateBlockReason,
+        hostedLogoFrom,
         savedBrandBlockReason,
         savedBrandLoadError,
         savedBrandLoading,
     } = useValues(logic)
+    const [showGitHubDetection, setShowGitHubDetection] = useState(false)
     const { setBrandValue } = useActions(logic)
     const { loadSavedBrand } = useActions(savedBrandLogic)
-    const busyReason = (isBrandSubmitting ? 'Generating your starter' : savedBrandBlockReason) ?? undefined
-    const hostedLogoLabel = prefilledFrom === 'saved' ? 'Your saved logo' : 'Logo from your website'
+    const busyReason = (isBrandSubmitting ? 'Generating your starter' : generateBlockReason) ?? undefined
+    const hostedLogoLabel = HOSTED_LOGO_LABELS[hostedLogoFrom ?? 'website']
     const chooseLogoRef = useRef<HTMLButtonElement>(null)
     const generateRef = useRef<HTMLButtonElement>(null)
     const nameRef = useRef<HTMLInputElement>(null)
@@ -73,7 +84,7 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         form="branded-starter"
                         loading={isBrandSubmitting}
                         disabledReason={
-                            !isEmailEditorReady ? 'Loading email editor' : (savedBrandBlockReason ?? undefined)
+                            !isEmailEditorReady ? 'Loading email editor' : (generateBlockReason ?? undefined)
                         }
                     >
                         Generate starter
@@ -105,6 +116,20 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                     >
                         {savedBrandLoadError.message}
                     </LemonBanner>
+                )}
+                {showGitHubDetection ? (
+                    <GitHubBrandDetection logicProps={props} busyReason={busyReason} />
+                ) : (
+                    <LemonButton
+                        data-attr="email-branded-starter-github-open"
+                        type="tertiary"
+                        size="small"
+                        icon={<IconGithub />}
+                        disabledReason={busyReason}
+                        onClick={() => setShowGitHubDetection(true)}
+                    >
+                        Detect from your GitHub repo
+                    </LemonButton>
                 )}
                 <p
                     className="text-secondary empty:hidden"
@@ -203,7 +228,8 @@ function prefillNotice({
         return 'This is your saved brand. Generating the starter saves any changes.'
     }
     if (prefilledFromHost) {
-        return `We filled this in from ${prefilledFromHost}. You can change any field.`
+        const where = prefilledFrom === 'github' ? `${prefilledFromHost} on GitHub` : prefilledFromHost
+        return `We filled this in from ${where}. You can change any field.`
     }
     return detectedBrandLoading && !savedBrandBlockReason ? 'Checking your website for your brand.' : null
 }

@@ -11,16 +11,20 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { uploadedMediaCreate } from '~/generated/core/api'
 
-import { emailBrandCurrentPartialUpdate } from 'products/messaging/frontend/generated/api'
+import {
+    emailBrandCurrentPartialUpdate,
+    emailBrandDetectFromGithubCreate,
+} from 'products/messaging/frontend/generated/api'
 import type {
     DetectedBrandApi,
     EmailBrandApi,
     EmailBrandSourceEnumApi,
+    GitHubBrandApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
 import type { EditorRef } from '../../../../frontend/src/scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { brandDisplayName, buildBrandedStarter } from './brandedStarter'
-import { BrandDetectionOutcome, detectedBrandLogic } from './detectedBrandLogic'
+import { BrandDetectionOutcome, detectedBrandLogic, foundFieldsOutcome } from './detectedBrandLogic'
 import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTemplateLogic'
 import { SavedBrand, savedBrandLogic } from './savedBrandLogic'
 import type { SavedBrandLoadError } from './savedBrandLogic'
@@ -44,15 +48,15 @@ export interface BrandedStarterForm {
     logo: File | HostedLogoUrl | null
 }
 
-export type BrandPrefill = 'saved' | 'website'
+export type BrandPrefill = 'saved' | 'website' | 'github'
 
 const DEFAULT_BRAND: BrandedStarterForm = { name: '', primaryColor: '#1d4aff', logo: null }
 
 function logoSource(
     logo: BrandedStarterForm['logo'],
-    prefilledFrom: BrandPrefill | null
+    hostedLogoFrom: BrandPrefill | null
 ): 'upload' | BrandPrefill | 'none' {
-    return logo instanceof File ? 'upload' : logo ? (prefilledFrom ?? 'website') : 'none'
+    return logo instanceof File ? 'upload' : logo ? (hostedLogoFrom ?? 'website') : 'none'
 }
 
 type BrandField = keyof BrandedStarterForm
@@ -89,6 +93,10 @@ export interface brandedStarterLogicValues {
     brandHasErrors: boolean
     brandManualErrors: Record<string, any>
     brandSource: EmailBrandSourceEnumApi
+    generateBlockReason: string | null
+    githubDetectionError: string | null
+    hostedLogoFrom: BrandPrefill | null
+    isDetectingFromGitHub: boolean
     brandTouched: boolean
     brandTouches: Record<string, boolean>
     brandValidationErrors: DeepPartialMap<BrandedStarterForm, ValidationErrorType>
@@ -157,6 +165,19 @@ export interface brandedStarterLogicActions {
     applyBrandPrefill: () => {
         value: true
     }
+    detectBrandFromGitHub: (
+        integrationId: number,
+        repository: string
+    ) => {
+        integrationId: number
+        repository: string
+    }
+    detectBrandFromGitHubFailure: (error: string) => {
+        error: string
+    }
+    detectBrandFromGitHubSuccess: (detected: GitHubBrandApi) => {
+        detected: GitHubBrandApi
+    }
     brandPrefilled: (
         prefilledFrom: BrandPrefill,
         fields: BrandField[],
@@ -213,6 +234,7 @@ export interface brandedStarterLogicMeta {
             brandedStarterEnabled: boolean
         ) => string | null
         brandSource: (prefilledFrom: BrandPrefill | null, savedBrand: SavedBrand) => EmailBrandSourceEnumApi
+        generateBlockReason: (savedBrandBlockReason: string | null, isDetectingFromGitHub: boolean) => string | null
     }
 }
 
@@ -255,6 +277,9 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             fields,
             host,
         }),
+        detectBrandFromGitHub: (integrationId: number, repository: string) => ({ integrationId, repository }),
+        detectBrandFromGitHubSuccess: (detected: GitHubBrandApi) => ({ detected }),
+        detectBrandFromGitHubFailure: (error: string) => ({ error }),
     }),
     reducers({
         prefilledFrom: [
@@ -273,6 +298,27 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             [] as BrandField[],
             {
                 brandPrefilled: (_, { fields }) => fields,
+            },
+        ],
+        isDetectingFromGitHub: [
+            false,
+            {
+                detectBrandFromGitHub: () => true,
+                detectBrandFromGitHubSuccess: () => false,
+                detectBrandFromGitHubFailure: () => false,
+            },
+        ],
+        hostedLogoFrom: [
+            null as BrandPrefill | null,
+            {
+                brandPrefilled: (state, { prefilledFrom, fields }) => (fields.includes('logo') ? prefilledFrom : state),
+            },
+        ],
+        githubDetectionError: [
+            null as string | null,
+            {
+                detectBrandFromGitHub: () => null,
+                detectBrandFromGitHubFailure: (_, { error }) => error,
             },
         ],
         editedBrandFields: [
@@ -301,11 +347,12 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
         brandSource: [
             (s) => [s.prefilledFrom, s.savedBrand],
             (prefilledFrom: BrandPrefill | null, savedBrand: SavedBrand): EmailBrandSourceEnumApi =>
-                prefilledFrom === 'saved'
-                    ? (savedBrand?.source ?? 'manual')
-                    : prefilledFrom === 'website'
-                      ? 'website'
-                      : 'manual',
+                prefilledFrom === 'saved' ? (savedBrand?.source ?? 'manual') : (prefilledFrom ?? 'manual'),
+        ],
+        generateBlockReason: [
+            (s) => [s.savedBrandBlockReason, s.isDetectingFromGitHub],
+            (savedBrandBlockReason: string | null, isDetectingFromGitHub: boolean): string | null =>
+                savedBrandBlockReason ?? (isDetectingFromGitHub ? 'Reading your GitHub repository' : null),
         ],
     }),
     forms(({ actions, values, cache }) => {
@@ -406,8 +453,8 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                     if (!editor || !values.isEmailEditorReady) {
                         throw new Error('The email editor is loading. Try again in a moment.')
                     }
-                    if (values.savedBrandBlockReason) {
-                        throw new Error(values.savedBrandBlockReason)
+                    if (values.generateBlockReason) {
+                        throw new Error(values.generateBlockReason)
                     }
                     const logoUrl =
                         logo instanceof File
@@ -443,7 +490,7 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
                 values.isBrandSubmitting ||
                 !values.isSavedBrandKnown ||
                 values.savedBrandBlockReason ||
-                values.prefilledFrom === 'saved'
+                (values.prefilledFrom !== null && values.prefilledFrom !== 'website')
             ) {
                 return
             }
@@ -470,6 +517,30 @@ export const brandedStarterLogic = kea<brandedStarterLogicType>([
             }
             applyFill(fill)
             actions.brandPrefilled('website', fields, new URL(detectedBrand.website).hostname)
+        },
+        detectBrandFromGitHub: async ({ integrationId, repository }, breakpoint) => {
+            let detected: GitHubBrandApi
+            try {
+                detected = await emailBrandDetectFromGithubCreate(String(values.currentTeamIdStrict), {
+                    integration_id: integrationId,
+                    repository,
+                })
+            } catch (error) {
+                breakpoint()
+                actions.detectBrandFromGitHubFailure(githubDetectionFailureMessage(error))
+                return
+            }
+            breakpoint()
+            actions.detectBrandFromGitHubSuccess(detected)
+        },
+        detectBrandFromGitHubSuccess: ({ detected }) => {
+            const fill = brandFill(detected, {})
+            actions.setBrandValues(fill)
+            actions.brandPrefilled('github', Object.keys(fill) as BrandField[], detected.repository)
+            posthog.capture('email brand github detection', { outcome: foundFieldsOutcome(detected) })
+        },
+        detectBrandFromGitHubFailure: () => {
+            posthog.capture('email brand github detection', { outcome: 'failed' })
         },
         submitBrandSuccess: ({ brand }) => {
             posthog.capture('email branded starter generated', starterProperties({ ...values, brand }))
@@ -501,12 +572,13 @@ function starterProperties({
     brand,
     brandDetectionOutcome,
     prefilledFrom,
+    hostedLogoFrom,
     prefilledFields,
     editedBrandFields,
 }: brandedStarterLogicValues): StarterProperties {
     return {
         has_logo: !!brand.logo,
-        logo_source: logoSource(brand.logo, prefilledFrom),
+        logo_source: logoSource(brand.logo, hostedLogoFrom),
         brand_detection: brandDetectionOutcome,
         prefilled_from: prefilledFrom ?? 'none',
         prefilled: prefilledFields.length > 0,
@@ -517,4 +589,9 @@ function starterProperties({
 function saveFailureMessage(error: unknown): string {
     const isClientError = error instanceof ApiError && !!error.status && error.status < 500
     return isClientError && error.detail ? error.detail : 'Could not save your brand. Try again.'
+}
+
+function githubDetectionFailureMessage(error: unknown): string {
+    const isClientError = error instanceof ApiError && !!error.status && error.status < 500
+    return isClientError && error.detail ? error.detail : 'Could not read your GitHub repository. Try again.'
 }

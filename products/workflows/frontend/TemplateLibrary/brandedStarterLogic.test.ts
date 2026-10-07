@@ -481,4 +481,96 @@ describe('branded starter editor handoff', () => {
             expect.objectContaining({ prefilled: true, edited_prefill: true })
         )
     })
+    describe('detecting from a GitHub repository', () => {
+        const GITHUB_DETECTION_URL = '/api/projects/:team_id/email_brand/detect_from_github/'
+        const githubJuniper = {
+            repository: 'juniper/studio',
+            name: 'Juniper Cloud',
+            primary_color: '#2e7d32',
+            logo_url: 'https://app.example.com/uploaded_media/juniper-logo',
+        }
+
+        function answeringGitHub(status: number, body: Record<string, unknown>): Parameters<typeof useMocks>[0] {
+            return { post: { [GITHUB_DETECTION_URL]: () => [status, body] } }
+        }
+
+        it('fills the form from the repository and saves it as a GitHub brand', async () => {
+            useMocks(answeringGitHub(200, githubJuniper))
+
+            await expectLogic(starter, () =>
+                starter.actions.detectBrandFromGitHub(7, 'juniper/studio')
+            ).toDispatchActions(['detectBrandFromGitHubSuccess'])
+            expect(starter.values.brand).toEqual({
+                name: 'Juniper Cloud',
+                primaryColor: '#2e7d32',
+                logo: 'https://app.example.com/uploaded_media/juniper-logo',
+            })
+            expect(starter.values.prefilledFromHost).toBe('juniper/studio')
+            expect(posthog.capture).toHaveBeenCalledWith('email brand github detection', { outcome: 'found' })
+
+            await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+            expect(savedBrands.at(-1)).toEqual({
+                name: 'Juniper Cloud',
+                primary_color: '#2e7d32',
+                logo_url: 'https://app.example.com/uploaded_media/juniper-logo',
+                source: 'github',
+            })
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'email branded starter generated',
+                expect.objectContaining({ prefilled_from: 'github', logo_source: 'github' })
+            )
+        })
+
+        it('keeps the fields the repository had no value for', async () => {
+            useMocks(answeringGitHub(200, { ...githubJuniper, primary_color: null, logo_url: null }))
+
+            await expectLogic(starter, () =>
+                starter.actions.detectBrandFromGitHub(7, 'juniper/studio')
+            ).toDispatchActions(['detectBrandFromGitHubSuccess'])
+
+            expect(starter.values.brand).toEqual({ name: 'Juniper Cloud', primaryColor: '#ffd400', logo: null })
+            expect(posthog.capture).toHaveBeenCalledWith('email brand github detection', { outcome: 'partial' })
+        })
+
+        it('keeps crediting a kept logo to the website it came from', async () => {
+            starter.actions.resetBrand()
+            useMocks(answeringDetection(detectedJuniper))
+            await loadDetection()
+            useMocks(answeringGitHub(200, { ...githubJuniper, logo_url: null }))
+
+            await expectLogic(starter, () =>
+                starter.actions.detectBrandFromGitHub(7, 'juniper/studio')
+            ).toDispatchActions(['detectBrandFromGitHubSuccess'])
+            await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandSuccess'])
+
+            expect(starter.values.hostedLogoFrom).toBe('website')
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'email branded starter generated',
+                expect.objectContaining({ prefilled_from: 'github', logo_source: 'website' })
+            )
+        })
+
+        it('does not build the starter while a detection is still running', async () => {
+            useMocks({ post: { [GITHUB_DETECTION_URL]: () => new Promise(() => {}) } })
+            starter.actions.detectBrandFromGitHub(7, 'juniper/studio')
+
+            await expectLogic(starter, () => starter.actions.submitBrand()).toDispatchActions(['submitBrandFailure'])
+
+            expect(savedBrands).toEqual([])
+            expect(lemonToast.error).toHaveBeenCalledWith('Reading your GitHub repository')
+        })
+
+        it('shows why detection failed and leaves the form as it was', async () => {
+            useMocks(answeringGitHub(429, { detail: 'GitHub is busy or unavailable, try again.' }))
+
+            await expectLogic(starter, () =>
+                starter.actions.detectBrandFromGitHub(7, 'juniper/studio')
+            ).toDispatchActions(['detectBrandFromGitHubFailure'])
+
+            expect(starter.values.githubDetectionError).toBe('GitHub is busy or unavailable, try again.')
+            expect(starter.values.brand).toEqual({ name: 'Juniper Studio', primaryColor: '#ffd400', logo: null })
+            expect(starter.values.prefilledFrom).toBeNull()
+            expect(posthog.capture).toHaveBeenCalledWith('email brand github detection', { outcome: 'failed' })
+        })
+    })
 })
