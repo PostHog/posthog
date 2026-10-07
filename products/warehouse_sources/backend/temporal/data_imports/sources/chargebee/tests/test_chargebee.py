@@ -418,3 +418,9 @@ class TestChargebeeIncrementalFilter:
         sent_params = self._drive(endpoint, incremental=False, last_value=1750000000)
 
         assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Meters"])
+    def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params == [{"limit": 100}]
