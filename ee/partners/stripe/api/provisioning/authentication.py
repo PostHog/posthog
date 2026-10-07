@@ -22,8 +22,6 @@ from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
 
-from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
-
 from ee.partners.stripe.api.provisioning.core import is_stripe_oauth_app
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
 
@@ -74,7 +72,9 @@ class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
             call_site="stripe_provisioning_token",
             impersonated=access_token.impersonated_by_id is not None,
         ):
-            raise SpecError(SECURITY_REFUSAL_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
+            # Stripe's provisioning spec defines the error codes, so the refusal uses its `forbidden`.
+            # The message still quotes access_blocked, which lets support trace it to an access rule.
+            raise SpecError("forbidden", ACCOUNT_BLOCKED_DETAIL, status=403)
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
