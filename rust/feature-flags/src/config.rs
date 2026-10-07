@@ -435,6 +435,15 @@ pub struct Config {
     #[envconfig(from = "REALTIME_COHORT_LOOKUP_TIMEOUT_MS", default = "1000")]
     pub realtime_cohort_lookup_timeout_ms: u64,
 
+    // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
+    // check, write, and read, and the properties fetch.
+    // statement_timeout cannot cancel a query on a database that has stopped answering.
+    // Only this timer bounds the request then. On expiry, the flags that need persons data
+    // return an error and the other flags evaluate normally. The default leaves 2s of the
+    // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
+    #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
+    pub persons_db_deadline_ms: u64,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -1151,6 +1160,7 @@ impl Config {
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
+            persons_db_deadline_ms: 30_000,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,
@@ -1321,6 +1331,12 @@ impl Config {
             ),
             jitter_override: None,
         }
+    }
+
+    /// The budget for all persons DB work in one flag evaluation, or `None` when disabled.
+    pub fn persons_db_deadline(&self) -> Option<std::time::Duration> {
+        (self.persons_db_deadline_ms > 0)
+            .then(|| std::time::Duration::from_millis(self.persons_db_deadline_ms))
     }
 
     /// Check if persons database routing is enabled

@@ -107,6 +107,7 @@ pub enum FlagError {
     /// - `"io_timeout"` - Network/socket timeout
     /// - `"protocol_timeout"` - PostgreSQL protocol timeout
     /// - `"client_timeout"` - Client-side tokio::timeout wrapper
+    /// - `"persons_db_deadline"` - Deadline shared by all persons DB work in one flag evaluation
     /// - `"redis_timeout"` - Redis operation timeout
     /// - `"cache_timeout"` - Cache operation timeout
     /// - `"database_timeout"` - Generic database timeout (fallback when SQLSTATE unavailable)
@@ -138,6 +139,8 @@ pub enum FlagError {
 pub(crate) const CODE_FLAG_DATA_PARSING: &str = "flag_data_parsing_error";
 pub(crate) const CODE_PERSON_NOT_FOUND: &str = "person_not_found";
 pub(crate) const CODE_DEPENDENCY_FAILED: &str = "dependency_failed";
+
+const TIMEOUT_PERSONS_DB_DEADLINE: &str = "persons_db_deadline";
 
 impl FlagError {
     /// The `Internal error: ` prefix reaches customers as the `$feature_flag_reason`
@@ -199,6 +202,14 @@ impl FlagError {
             code: CODE_PERSON_NOT_FOUND,
             cause: anyhow::anyhow!("Person not found"),
         }
+    }
+
+    pub fn persons_db_deadline() -> Self {
+        FlagError::TimeoutError(Some(TIMEOUT_PERSONS_DB_DEADLINE.to_string()))
+    }
+
+    pub fn is_persons_db_deadline(&self) -> bool {
+        matches!(self, FlagError::TimeoutError(Some(t)) if t == TIMEOUT_PERSONS_DB_DEADLINE)
     }
 
     /// Returns (error_code, status_code) for this error.

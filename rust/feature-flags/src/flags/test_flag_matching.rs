@@ -7,6 +7,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
     use uuid::Uuid;
 
     use crate::{
@@ -31,17 +32,20 @@ mod tests {
                 Holdout, MultivariateFlagOptions, MultivariateFlagVariant,
             },
         },
+        handler::canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
+        metrics::consts::FLAG_DATABASE_ERROR_COUNTER,
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::{
             graph_utils::PrecomputedDependencyGraph,
             mock::MockInto,
             test_utils::{
-                failing_group_type_cache, flag_list_with_metadata, mock_group_type_cache,
-                setup_invalid_pg_client, TestContext,
+                counter_total, failing_group_type_cache, flag_list_with_metadata,
+                mock_group_type_cache, setup_invalid_pg_client, StalledPgClient, TestContext,
             },
         },
     };
+    use metrics_util::debugging::DebuggingRecorder;
 
     fn empty_group_type_cache() -> Arc<GroupTypeCacheManager> {
         mock_group_type_cache(HashMap::new())
@@ -8163,6 +8167,118 @@ mod tests {
             Some(1),
             "Should match second condition (index 1)"
         );
+    }
+
+    // Paused time makes the elapsed assertion exact: the runtime jumps straight to each timer.
+    #[rstest::rstest]
+    #[case::hash_key_read(None, "get_hash_key_overrides")]
+    #[case::hash_key_check(Some("anon_distinct_id"), "should_write_hash_key_override")]
+    #[tokio::test(start_paused = true)]
+    async fn test_stalled_persons_db_degrades_within_one_deadline(
+        #[case] anon_distinct_id: Option<&str>,
+        #[case] first_stopped_call: &str,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let deadline = Duration::from_millis(500);
+        let mut matcher = FeatureFlagMatcher::new(
+            "stalled_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            None,
+        )
+        .with_persons_db_deadline(Some(deadline));
+
+        let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
+        let person_flag = mock!(FeatureFlag,
+            id: 2,
+            key: "person_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!("user@example.com")),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+        let continuity_flag = mock!(FeatureFlag,
+            id: 3,
+            key: "continuity_flag".mock_into(),
+            ensure_experience_continuity: Some(true)
+        );
+        let mut flags = flag_list_with_metadata(vec![rollout_flag, person_flag, continuity_flag]);
+        // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let start = tokio::time::Instant::now();
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                matcher.evaluate_all_feature_flags(
+                    flags,
+                    None,
+                    None,
+                    anon_distinct_id.map(str::to_string),
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                ),
+            ),
+        )
+        .await;
+        let response = response
+            .expect("a stalled persons DB must not stall flag evaluation")
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(response.errors_while_computing_flags);
+        assert_eq!(
+            response.flags["rollout_flag"].to_value(),
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            response.flags["person_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert_eq!(
+            response.flags["continuity_flag"].reason.code,
+            "hash_key_override_error"
+        );
+        assert!(
+            elapsed < deadline * 2,
+            "the hash key lookup and the properties fetch share one deadline, took {elapsed:?}"
+        );
+        assert_eq!(
+            stalled_db.connection_requests.load(Ordering::SeqCst),
+            1,
+            "a persons call that starts after the deadline must not take a connection"
+        );
+        assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        for operation in [first_stopped_call, "fetch_properties"] {
+            assert_eq!(
+                counter_total(
+                    &snapshotter,
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[
+                        ("timeout_type", "persons_db_deadline"),
+                        ("operation", operation)
+                    ],
+                ),
+                1,
+                "{operation} stop counted once"
+            );
+        }
     }
 
     #[tokio::test]

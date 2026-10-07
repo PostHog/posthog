@@ -16,10 +16,10 @@ use crate::flags::flag_group_type_mapping::{
 };
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
-    calculate_hash, fetch_and_locally_cache_all_relevant_properties,
+    calculate_hash, db_operations, fetch_and_locally_cache_all_relevant_properties,
     get_feature_flag_hash_key_overrides, match_flag_value_to_flag_filter,
     populate_missing_initial_properties, populate_os_aliases, set_feature_flag_hash_key_overrides,
-    should_write_hash_key_override,
+    should_write_hash_key_override, track_unretried_db_error,
 };
 use crate::flags::flag_models::{
     default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
@@ -42,6 +42,7 @@ use crate::metrics::consts::{
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
 use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
+use crate::utils::deadline::before_deadline;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -52,7 +53,10 @@ use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
 
@@ -489,6 +493,9 @@ pub struct FeatureFlagMatcher {
     timezone: Tz,
     /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
     now: DateTime<Utc>,
+    /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
+    /// each call bounded only by the pool acquire timeout and statement_timeout.
+    persons_db_deadline: Option<Instant>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -537,6 +544,36 @@ fn ids_of_failed_flags<'a>(
         .map(|details| details.metadata.id)
 }
 
+// This is a plain fn rather than an `async fn` so that it boxes `call` before any async state
+// captures it. An `async fn` would store `call` in its own state. The `before_deadline` and
+// `timeout_at` futures store it again. In debug builds those copies grow the /flags handler
+// future enough to overflow a 2 MiB thread stack.
+fn before_persons_db_deadline<T>(
+    deadline: Option<Instant>,
+    operation: &'static str,
+    call: impl Future<Output = Result<T, FlagError>>,
+) -> impl Future<Output = Result<T, FlagError>> {
+    let call = Box::pin(call);
+    async move {
+        let result = before_deadline(deadline, call, FlagError::persons_db_deadline).await;
+        record_persons_db_deadline_exceeded(operation, &result);
+        result
+    }
+}
+
+fn record_persons_db_deadline_exceeded<T>(operation: &'static str, result: &Result<T, FlagError>) {
+    let Err(e) = result else {
+        return;
+    };
+    if !e.is_persons_db_deadline() {
+        return;
+    }
+    track_unretried_db_error(e, operation);
+    with_canonical_log(|log| {
+        log.persons_db_deadline_exceeded.get_or_insert(operation);
+    });
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -572,6 +609,7 @@ impl FeatureFlagMatcher {
             only_use_override_person_properties: false,
             timezone: Tz::UTC,
             now: Utc::now(),
+            persons_db_deadline: None,
         }
     }
 
@@ -638,6 +676,12 @@ impl FeatureFlagMatcher {
 
     pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
         self.only_use_override_person_properties = only_use_override;
+        self
+    }
+
+    /// Gives all persons DB work in this evaluation one shared budget, which starts now.
+    pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
+        self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
         self
     }
 
@@ -812,11 +856,15 @@ impl FeatureFlagMatcher {
         hash_key: String,
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
-        let should_write = match should_write_hash_key_override(
-            &self.router,
-            self.team_id,
-            self.distinct_id.clone(),
-            hash_key.clone(),
+        let should_write = match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
+            should_write_hash_key_override(
+                &self.router,
+                self.team_id,
+                self.distinct_id.clone(),
+                hash_key.clone(),
+            ),
         )
         .await
         {
@@ -845,12 +893,16 @@ impl FeatureFlagMatcher {
                     "SKIP_WRITES: skipping hash key override write to PostgreSQL"
                 );
             } else {
-                if let Err(e) = set_feature_flag_hash_key_overrides(
-                    // NB: this is the only method that writes to the database
-                    &self.router,
-                    self.team_id,
-                    target_distinct_ids.clone(),
-                    hash_key.clone(),
+                // NB: this is the only method that writes to the database
+                if let Err(e) = before_persons_db_deadline(
+                    self.persons_db_deadline,
+                    db_operations::SET_HASH_KEY_OVERRIDES,
+                    set_feature_flag_hash_key_overrides(
+                        &self.router,
+                        self.team_id,
+                        target_distinct_ids.clone(),
+                        hash_key.clone(),
+                    ),
                 )
                 .await
                 {
@@ -890,12 +942,16 @@ impl FeatureFlagMatcher {
             )
         };
 
-        match get_feature_flag_hash_key_overrides(
-            database_for_reading,
-            pool_name,
-            self.router.get_persons_writer().clone(),
-            self.team_id,
-            target_distinct_ids,
+        match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::GET_HASH_KEY_OVERRIDES,
+            get_feature_flag_hash_key_overrides(
+                database_for_reading,
+                pool_name,
+                self.router.get_persons_writer().clone(),
+                self.team_id,
+                target_distinct_ids,
+            ),
         )
         .await
         {
@@ -2756,13 +2812,17 @@ impl FeatureFlagMatcher {
 
         // Single DB operation for properties and cohorts
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-        match fetch_and_locally_cache_all_relevant_properties(
-            &mut self.flag_evaluation_state,
-            self.router.get_persons_reader().clone(),
-            self.distinct_id.clone(),
-            self.team_id,
-            &group_data,
-            static_cohort_ids,
+        match before_persons_db_deadline(
+            self.persons_db_deadline,
+            db_operations::FETCH_PROPERTIES,
+            fetch_and_locally_cache_all_relevant_properties(
+                &mut self.flag_evaluation_state,
+                self.router.get_persons_reader().clone(),
+                self.distinct_id.clone(),
+                self.team_id,
+                &group_data,
+                static_cohort_ids,
+            ),
         )
         .await
         {
@@ -3007,12 +3067,16 @@ impl FeatureFlagMatcher {
                     // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
                     // In addition, this behavior is consistent with /decide.
                     None => {
-                        match get_feature_flag_hash_key_overrides(
-                            self.router.get_persons_reader().clone(),
-                            pool_names::PERSONS_READER,
-                            self.router.get_persons_writer().clone(),
-                            self.team_id,
-                            vec![self.distinct_id.clone()],
+                        match before_persons_db_deadline(
+                            self.persons_db_deadline,
+                            db_operations::GET_HASH_KEY_OVERRIDES,
+                            get_feature_flag_hash_key_overrides(
+                                self.router.get_persons_reader().clone(),
+                                pool_names::PERSONS_READER,
+                                self.router.get_persons_writer().clone(),
+                                self.team_id,
+                                vec![self.distinct_id.clone()],
+                            ),
                         )
                         .await
                         {
