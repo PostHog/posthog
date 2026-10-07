@@ -9,8 +9,10 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
@@ -179,13 +181,16 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
 
 class TestScanTeamRanges(SimpleTestCase):
-    def test_a_team_that_runs_out_of_memory_alone_is_skipped_and_every_other_team_is_scanned(self) -> None:
+    @parameterized.expand([("out_of_memory", ClickHouseQueryMemoryLimitExceeded), ("timeout", ClickHouseQueryTimeOut)])
+    def test_a_team_that_fails_alone_is_skipped_and_every_other_team_is_scanned(
+        self, _name: str, error: type[Exception]
+    ) -> None:
         scanned: list[int] = []
 
         def query(_sql: str, args: dict[str, Any], **_kwargs: Any) -> list[Any]:
             teams = range(args["min_team_id"], args["max_team_id"])
             if 7 in teams:
-                raise ClickHouseQueryMemoryLimitExceeded()
+                raise error()
             scanned.extend(teams)
             return []
 
