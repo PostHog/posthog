@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import F, Func, JSONField, Q, Value
 from django.dispatch import receiver
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
@@ -122,6 +123,44 @@ class EmailIntegration:
 
         return self.integration
 
+    def _apply_verification(self, verification_result: "EmailDomainVerification") -> "EmailDomainVerification":
+        if verification_result.get("status") == "success":
+            mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
+            matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
+            if mail_from_subdomain == "feedback":
+                matching_mail_from |= Q(config__mail_from_subdomain__isnull=True)
+            all_integrations_for_domain = model.Integration.objects.filter(
+                matching_mail_from,
+                team_id=self.integration.team_id,
+                kind="email",
+                config__domain=self.integration.config.get("domain"),
+                config__provider=self.integration.config.get("provider", "ses"),
+            )
+            integration_ids = list(all_integrations_for_domain.values_list("id", flat=True))
+            updated = all_integrations_for_domain.update(
+                config=Func(
+                    F("config"),
+                    Value(["verified"]),
+                    Value(True, output_field=JSONField()),
+                    function="jsonb_set",
+                    output_field=JSONField(),
+                )
+            )
+            if updated:
+                reload_integrations_on_workers(self.integration.team_id, integration_ids)
+
+        return verification_result
+
+    def refresh_verification(self) -> "EmailDomainVerification":
+        from products.workflows.backend.facade.email import get_ses_email_domain_verification
+
+        verification_result = get_ses_email_domain_verification(
+            self.integration.config["domain"],
+            mail_from_subdomain=self.integration.config.get("mail_from_subdomain", "feedback"),
+            team_id=self.integration.team_id,
+        )
+        return self._apply_verification(verification_result)
+
     def verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
@@ -149,23 +188,7 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
-        if verification_result.get("status") == "success":
-            # We can validate all other integrations with the same domain and provider
-            all_integrations_for_domain = model.Integration.objects.filter(
-                team_id=self.integration.team_id,
-                kind="email",
-                config__domain=domain,
-                config__provider=provider,
-            )
-            for integration in all_integrations_for_domain:
-                integration.config["verified"] = True
-                integration.save()
-
-            reload_integrations_on_workers(
-                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
-            )
-
-        return verification_result
+        return self._apply_verification(verification_result)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)

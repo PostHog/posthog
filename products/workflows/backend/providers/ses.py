@@ -516,8 +516,6 @@ class SESProvider:
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
-        dns_records: list[EmailDomainDnsRecord] = []
-
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
         verification_token: str | None = None
         try:
@@ -528,6 +526,40 @@ class SESProvider:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
+        #  Start/ensure DKIM (three CNAMEs) ---
+        dkim_tokens: list[str] = []
+        try:
+            dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
+            dkim_tokens = dkim_resp["DkimTokens"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                raise
+
+        # Start/ensure MAIL FROM setup (MX + TXT) ---
+        try:
+            self.ses_client.set_identity_mail_from_domain(
+                Identity=domain,
+                MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                BehaviorOnMXFailure="UseDefaultValue",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                raise
+
+        return self.get_email_domain_verification(
+            domain, mail_from_subdomain, team_id, verification_token=verification_token, dkim_tokens=dkim_tokens
+        )
+
+    def get_email_domain_verification(
+        self,
+        domain: str,
+        mail_from_subdomain: str,
+        team_id: int,
+        *,
+        verification_token: str | None = None,
+        dkim_tokens: Sequence[str] = (),
+    ) -> EmailDomainVerification:
+        dns_records: list[EmailDomainDnsRecord] = []
         if verification_token:
             dns_records.append(
                 {
@@ -538,15 +570,6 @@ class SESProvider:
                     "status": "pending",
                 }
             )
-
-        #  Start/ensure DKIM (three CNAMEs) ---
-        dkim_tokens: list[str] = []
-        try:
-            dkim_resp = self.ses_client.verify_domain_dkim(Domain=domain)
-            dkim_tokens = dkim_resp["DkimTokens"]
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
 
         for t in dkim_tokens:
             dns_records.append(
@@ -568,17 +591,6 @@ class SESProvider:
                 "status": "pending",
             }
         )
-
-        # Start/ensure MAIL FROM setup (MX + TXT) ---
-        try:
-            self.ses_client.set_identity_mail_from_domain(
-                Identity=domain,
-                MailFromDomain=f"{mail_from_subdomain}.{domain}",
-                BehaviorOnMXFailure="UseDefaultValue",
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
 
         ses_region = getattr(settings, "SES_REGION", "us-east-1")
 
@@ -639,6 +651,8 @@ class SESProvider:
             mail_from_for_domain = mail_from_attrs["MailFromDomainAttributes"].get(domain)
             if mail_from_for_domain is not None:
                 mail_from_status = mail_from_for_domain["MailFromDomainStatus"]
+                if mail_from_for_domain.get("MailFromDomain") != f"{mail_from_subdomain}.{domain}":
+                    mail_from_status = "Pending"
         except ClientError:
             pass
 
