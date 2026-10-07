@@ -132,6 +132,17 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
                     read_trial_evaluation(2, uuid4())
         assert "private fixture value" not in str(error.exception)
 
+    def test_legacy_judge_input_is_rejected_as_obsolete_before_schema_validation(self) -> None:
+        snapshot = _snapshot()
+        legacy = {
+            **snapshot.model_dump(mode="json"),
+            "judge_prompt_version": "sandbox-1",
+            "rubric_reference_context": {"removed": "field"},
+        }
+        with patch(f"{MODULE}.object_storage.read", return_value=json.dumps(legacy)):
+            with self.assertRaisesMessage(TrialEvaluationError, "obsolete judge"):
+                _read_trial_judge_input(2, snapshot.evaluation_id, snapshot.runs[0].launch_id)
+
     @parameterized.expand(["team", "evaluation", "request", "launch", "variant", "multiple_runs"])
     def test_rejects_judge_input_bound_to_another_trial(self, mismatch: str) -> None:
         snapshot = _snapshot()
@@ -643,9 +654,6 @@ class TestScoutTrialEvaluation(BaseTest):
         elif mismatch == "operator_revoked":
             self.user.is_staff = False
             self.user.save(update_fields=["is_staff"])
-            with self.assertRaises(TrialEvaluationError):
-                is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker)
-            return
         assert is_scout_trial_judge_context(team_id=team_id, user_id=user_id, marker=marker) is (mismatch == "valid")
         if mismatch == "valid":
             judge_task = Task.objects.create(

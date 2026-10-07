@@ -126,6 +126,7 @@ def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uu
 
 def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) -> bool:
     from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoids loading evaluation storage for ordinary tasks
+        TrialEvaluationError,
         _assert_worker_access,
         _read_trial_judge_input,
     )
@@ -152,10 +153,13 @@ def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) 
             return False
         if str(identifiers[key]) != value:
             return False
-    snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
-    if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
+    try:
+        snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
+        if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
+            return False
+        _assert_worker_access(snapshot)
+    except TrialEvaluationError:
         return False
-    _assert_worker_access(snapshot)
     evidence = next((run for run in snapshot.runs if run.launch_id == identifiers["launch_id"]), None)
     if evidence is None or (
         evidence.task_id != identifiers["source_task_id"]

@@ -161,12 +161,19 @@ def _key(team_id: int, evaluation_id: UUID, filename: str) -> str:
     return f"signals/scout-trials/{team_id}/evaluations/{evaluation_id}/{filename}.json"
 
 
-def _read_document(key: str, document_type: type[_Document]) -> _Document | None:
+def _read_content(key: str) -> str | None:
     content = object_storage.read(key, missing_ok=True)
-    if content is None:
-        return None
-    if len(content.encode()) > MAX_EVALUATION_BYTES:
+    if content is not None and len(content.encode()) > MAX_EVALUATION_BYTES:
         raise TrialEvaluationError("The saved evaluation exceeds its storage limit.")
+    return content
+
+
+def _read_document(key: str, document_type: type[_Document]) -> _Document | None:
+    content = _read_content(key)
+    return None if content is None else _parse_document(content, document_type)
+
+
+def _parse_document(content: str, document_type: type[_Document]) -> _Document:
     try:
         return document_type.model_validate_json(content)
     except ValidationError:
@@ -210,11 +217,17 @@ def _save_trial_judge_inputs(snapshot: TrialEvaluationSnapshot) -> None:
 
 
 def _read_trial_judge_input(team_id: int, evaluation_id: UUID, launch_id: UUID) -> TrialEvaluationSnapshot | None:
-    snapshot = _read_document(_key(team_id, evaluation_id, f"judge-inputs/{launch_id}"), TrialEvaluationSnapshot)
-    if snapshot is None:
+    content = _read_content(_key(team_id, evaluation_id, f"judge-inputs/{launch_id}"))
+    if content is None:
         return None
-    if snapshot.judge_prompt_version != JUDGE_PROMPT_VERSION:
+    # Check the version before strict validation, because inputs from an older judge can have a different schema.
+    try:
+        saved_version = json.loads(content).get("judge_prompt_version")
+    except (ValueError, AttributeError):
+        saved_version = None
+    if isinstance(saved_version, str) and saved_version != JUDGE_PROMPT_VERSION:
         raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
+    snapshot = _parse_document(content, TrialEvaluationSnapshot)
     if (
         snapshot.team_id != team_id
         or snapshot.evaluation_id != evaluation_id
