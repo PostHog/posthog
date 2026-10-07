@@ -1614,7 +1614,12 @@ class Database(BaseModel):
 
             fields_dict = {}
             if include_fields:
-                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                try:
+                    fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                except (QueryError, ResolutionError) as e:
+                    logger.warning(f"Failed to serialize view '{view_name}': {str(e)}", exc_info=True)
+                    self._serialization_errors[view_name] = str(e)
+                    continue
                 fields_dict = {field.name: field for field in fields}
 
             if isinstance(view, RevenueAnalyticsBaseView):
