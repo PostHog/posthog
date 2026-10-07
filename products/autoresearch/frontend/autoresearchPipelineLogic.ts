@@ -32,7 +32,6 @@ import {
     autoresearchTrainCreate,
 } from './generated/api'
 import {
-    AutoresearchModelRoleEnumApi,
     type AutoresearchModelApi,
     AutoresearchModelRoleEnumApi,
     type AutoresearchPipelineApi,
