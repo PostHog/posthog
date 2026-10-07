@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterable
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -7,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from requests import HTTPError, PreparedRequest, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vimeo import VimeoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import AUTH_ERROR, PERMISSION_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.source import VimeoSource
@@ -31,6 +33,12 @@ def inputs(endpoint: str, incremental: bool = False) -> MagicMock:
     result.should_use_incremental_field = incremental
     result.db_incremental_field_last_value = "2025-01-01T00:00:00Z" if incremental else None
     return result
+
+
+def sync_items(result: SourceResponse) -> Iterable[Any]:
+    items = result.items()
+    assert isinstance(items, Iterable)
+    return items
 
 
 @pytest.mark.parametrize(
@@ -60,7 +68,7 @@ def test_pagination_and_full_refresh_params(endpoint: str, path: str, incrementa
         result = VimeoSource().source_for_pipeline(
             VimeoSourceConfig(access_token="test-token"), manager, inputs(endpoint, incremental)
         )
-        rows = [row for page in result.items() for row in page]
+        rows = [row for page in sync_items(result) for row in page]
 
     assert rows == [{"uri": "/resource/1"}, {"uri": "/resource/2"}]
     assert len(requests) == 2
@@ -89,7 +97,7 @@ def test_resume_and_empty_terminal_page(resume: str | None) -> None:
         result = VimeoSource().source_for_pipeline(
             VimeoSourceConfig(access_token="test-token"), manager, inputs("videos")
         )
-        assert [row for page in result.items() for row in page] == []
+        assert [row for page in sync_items(result) for row in page] == []
     request = send.call_args.args[0]
     assert parse_qs(urlsplit(request.url).query)["page"] == (["4"] if resume else ["1"])
     send.assert_called_once()
@@ -104,7 +112,7 @@ def test_sync_error_mapping(status: int, message: str) -> None:
     with patch("requests.Session.send", return_value=response({"error": "Access denied"}, status)) as send:
         result = source.source_for_pipeline(VimeoSourceConfig(access_token="test-token"), manager, inputs("videos"))
         with pytest.raises(HTTPError) as error:
-            list(result.items())
+            list(sync_items(result))
     assert any(key in str(error.value) and value == message for key, value in source.get_non_retryable_errors().items())
     send.assert_called_once()
 
@@ -119,5 +127,5 @@ def test_resume_cannot_send_token_to_another_origin(resume_url: str) -> None:
             VimeoSourceConfig(access_token="test-token"), manager, inputs("videos")
         )
         with pytest.raises(ValueError, match="Refusing to send request"):
-            list(result.items())
+            list(sync_items(result))
     send.assert_not_called()
