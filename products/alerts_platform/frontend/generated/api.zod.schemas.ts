@@ -10,8 +10,8 @@
 import { z as zod } from 'zod'
 
 export const PlatformAlertConfigurationSourceKindEnumApi = zod
-    .enum(['logs', 'insight'])
-    .describe('\* `logs` - Logs\n\* `insight` - Insight')
+    .enum(['logs', 'insight', 'billing'])
+    .describe('\* `logs` - Logs\n\* `insight` - Insight\n\* `billing` - Billing')
 
 export type PlatformAlertConfigurationSourceKindEnumApi = zod.input<typeof PlatformAlertConfigurationSourceKindEnumApi>
 export type PlatformAlertConfigurationSourceKindEnumApiOutput = zod.output<
@@ -109,9 +109,11 @@ export const PlatformAlertConfigurationApi = zod.object({
     name: zod.string().describe('Human-readable name of the alert.'),
     enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
     source_kind: zod
-        .enum(['logs', 'insight'])
-        .describe('\* `logs` - Logs\n\* `insight` - Insight')
-        .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight'),
+        .enum(['logs', 'insight', 'billing'])
+        .describe('\* `logs` - Logs\n\* `insight` - Insight\n\* `billing` - Billing')
+        .describe(
+            'Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `billing` - Billing'
+        ),
     source_config: zod
         .record(zod.string(), zod.unknown())
         .describe(
@@ -226,9 +228,11 @@ export const PaginatedPlatformAlertConfigurationListApi = zod.object({
             name: zod.string().describe('Human-readable name of the alert.'),
             enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
             source_kind: zod
-                .enum(['logs', 'insight'])
-                .describe('\* `logs` - Logs\n\* `insight` - Insight')
-                .describe('Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight'),
+                .enum(['logs', 'insight', 'billing'])
+                .describe('\* `logs` - Logs\n\* `insight` - Insight\n\* `billing` - Billing')
+                .describe(
+                    'Product whose data the alert evaluates.\n\n\* `logs` - Logs\n\* `insight` - Insight\n\* `billing` - Billing'
+                ),
             source_config: zod
                 .record(zod.string(), zod.unknown())
                 .describe(

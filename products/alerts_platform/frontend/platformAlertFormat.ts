@@ -24,6 +24,9 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Insight',
         alertUrl: (legacyConfigurationId) => urls.alert(legacyConfigurationId),
     },
+    [PlatformAlertConfigurationSourceKindEnumApi.Billing]: {
+        label: 'Billing',
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
