@@ -821,13 +821,18 @@ class TestVersionSourceAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_edit_source_creates_active_version_and_keeps_untouched_files(self):
-        self._add_version(1, {"app.py": "st.title('Old')", "utils.py": "x = 1", "data/x.bin": b"\x00\xff"})
+        self._add_version(
+            1, {"app.py": "st.title('Old')", "utils.py": "x = 1", "empty.py": "", "data/x.bin": b"\x00\xff"}
+        )
 
         response = self.client.post(
             self._url("edit_source/"),
             data={
                 "base_version": 1,
-                "file_edits": [{"path": "app.py", "edits": [{"old": "Old", "new": "New"}]}],
+                "file_edits": [
+                    {"path": "app.py", "edits": [{"old": "Old", "new": "New"}]},
+                    {"path": "empty.py", "edits": [{"old": "", "new": "z = 3"}]},
+                ],
                 "create_files": {"helpers.py": "y = 2"},
             },
             format="json",
@@ -840,6 +845,7 @@ class TestVersionSourceAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert self._stored_files(2) == {
             "app.py": b"st.title('New')",
             "utils.py": b"x = 1",
+            "empty.py": b"z = 3",
             "data/x.bin": b"\x00\xff",
             "helpers.py": b"y = 2",
         }

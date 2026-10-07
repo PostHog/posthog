@@ -249,7 +249,9 @@ class VersionSourceQuerySerializer(serializers.Serializer):
 
 class SourceTextEditSerializer(DataclassSerializer):
     old = serializers.CharField(
-        trim_whitespace=False, help_text="Exact text to find in the file. Must match exactly once."
+        trim_whitespace=False,
+        allow_blank=True,
+        help_text="Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file.",
     )
     new = serializers.CharField(trim_whitespace=False, allow_blank=True, help_text="Replacement text.")
 

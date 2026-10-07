@@ -99,7 +99,11 @@ export const StreamlitAppsEditSourceCreateBody = /* @__PURE__ */ zod.object({
                 edits: zod
                     .array(
                         zod.object({
-                            old: zod.string().describe('Exact text to find in the file. Must match exactly once.'),
+                            old: zod
+                                .string()
+                                .describe(
+                                    'Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file.'
+                                ),
                             new: zod.string().describe('Replacement text.'),
                         })
                     )

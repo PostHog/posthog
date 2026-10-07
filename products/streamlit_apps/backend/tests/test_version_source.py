@@ -86,6 +86,7 @@ class TestApplySourceEdits:
         [
             ("old_not_found", [_edit("app.py", ("missing", "x"))], {}, [], "app.py", 0),
             ("old_matches_twice", [_edit("app.py", ("Old", "Mid"), ("st", "x"))], {}, [], "app.py", 1),
+            ("empty_old_on_nonempty_file", [_edit("app.py", ("", "x"))], {}, [], "app.py", 0),
             ("edit_missing_file", [_edit("gone.py", ("a", "b"))], {}, [], "gone.py", None),
             ("edit_binary_file", [_edit("data/events.parquet", ("PAR1", "x"))], {}, [], "data/events.parquet", None),
             ("create_existing_file", [], {"utils.py": "x"}, [], "utils.py", None),

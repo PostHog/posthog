@@ -170,7 +170,7 @@ export interface CreateVersionFromSourceInputApi {
 export type EditVersionSourceInputApiCreateFiles = { [key: string]: string }
 
 export interface SourceTextEditApi {
-    /** Exact text to find in the file. Must match exactly once. */
+    /** Exact text to find in the file. Must match exactly once. Use an empty string only to fill an empty file. */
     old: string
     /** Replacement text. */
     new: string

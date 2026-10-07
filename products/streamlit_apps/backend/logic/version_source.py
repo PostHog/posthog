@@ -68,6 +68,10 @@ def read_source_files(zip_bytes: bytes, paths: Sequence[str] | None = None) -> l
 
 def _apply_edits(text: str, edits: Sequence[SourceTextEdit], path: str) -> str:
     for index, edit in enumerate(edits):
+        if not edit.old and text:
+            raise SourceEditError(
+                f"Edit {index} for '{path}': an empty old text only fills an empty file.", path, index
+            )
         count = text.count(edit.old)
         if count == 0:
             raise SourceEditError(f"Edit {index} for '{path}': the old text was not found.", path, index)
