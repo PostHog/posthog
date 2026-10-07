@@ -1,4 +1,5 @@
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core'
+import { getEventCoordinates } from '@dnd-kit/utilities'
 import { CSSProperties, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
@@ -144,6 +145,7 @@ export const TreeNodeDisplayIcon = ({
 
 type DragAndDropProps = {
     id: string
+    scope?: string
     children: React.ReactNode
 }
 type DraggableProps = DragAndDropProps & {
@@ -157,7 +159,8 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         listeners: originalListeners,
         setNodeRef,
     } = useDraggable({
-        id: props.id,
+        id: props.scope ? `${props.scope}::${props.id}` : props.id,
+        data: { treeId: props.id, treeScope: props.scope },
     })
 
     // Filter out the Enter key from drag listeners
@@ -205,21 +208,26 @@ type DroppableProps = DragAndDropProps & {
     style?: CSSProperties
     // When 'reorder', render an insertion line above/below the row based on pointer position
     // and report which side was targeted. Defaults to 'onto' (ring highlight on the whole row).
-    dropMode?: 'onto' | 'reorder'
+    dropMode?: 'onto' | 'reorder' | 'onto-or-reorder'
     onPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
-    const { setNodeRef, isOver } = useDroppable({ id: props.id })
     const nodeRef = useRef<HTMLDivElement | null>(null)
-    const [reorderSide, setReorderSide] = useState<'before' | 'after' | null>(null)
+    const { active, activatorEvent } = useDndContext()
+    const [dropPosition, setDropPosition] = useState<TreeDropPosition | null>(null)
+    const { setNodeRef, isOver } = useDroppable({
+        id: props.scope ? `${props.scope}::${props.id}` : props.id,
+        disabled: !props.isDroppable,
+        data: { treeId: props.id, treeScope: props.scope, dropMode: props.dropMode, position: dropPosition },
+    })
 
     const setRefs = (el: HTMLDivElement | null): void => {
         nodeRef.current = el
         setNodeRef(el)
     }
 
-    const isReorder = props.dropMode === 'reorder' && props.isDroppable
+    const isReorder = (props.dropMode === 'reorder' || props.dropMode === 'onto-or-reorder') && props.isDroppable
     const onPositionChange = props.onPositionChange
     const propsId = props.id
 
@@ -229,7 +237,7 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
     // drag preview briefly covers the row.
     useEffect(() => {
         if (!isReorder || !isOver) {
-            setReorderSide(null)
+            setDropPosition(null)
             return
         }
         // 2px deadband around the midpoint so hovering exactly on the line doesn't
@@ -241,11 +249,18 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
             }
             const rect = nodeRef.current.getBoundingClientRect()
             const midY = rect.top + rect.height / 2
-            if (Math.abs(clientY - midY) < DEADBAND) {
+            if (props.dropMode === 'reorder' && Math.abs(clientY - midY) < DEADBAND) {
                 return
             }
-            const side: 'before' | 'after' = clientY < midY ? 'before' : 'after'
-            setReorderSide((prev) => {
+            const side: TreeDropPosition =
+                props.dropMode === 'onto-or-reorder' &&
+                clientY > rect.top + rect.height / 4 &&
+                clientY < rect.bottom - rect.height / 4
+                    ? 'onto'
+                    : clientY < midY
+                      ? 'before'
+                      : 'after'
+            setDropPosition((prev) => {
                 if (prev !== side) {
                     onPositionChange?.(propsId, side)
                     return side
@@ -253,14 +268,23 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
                 return prev
             })
         }
+        const start = activatorEvent ? getEventCoordinates(activatorEvent) : null
+        const initial = active?.rect.current.initial
+        const translated = active?.rect.current.translated
+        if (start && initial && translated) {
+            updateFromClientY(start.y + translated.top - initial.top)
+        }
         const handleMove = (e: PointerEvent): void => updateFromClientY(e.clientY)
         document.addEventListener('pointermove', handleMove)
         return () => document.removeEventListener('pointermove', handleMove)
-    }, [isReorder, isOver, onPositionChange, propsId])
+    }, [isReorder, isOver, onPositionChange, propsId, props.dropMode, active, activatorEvent])
 
-    const showRing = props.isDroppable && isOver && !isReorder
-    const showLineBefore = isReorder && isOver && reorderSide === 'before'
-    const showLineAfter = isReorder && isOver && reorderSide === 'after'
+    const showRing =
+        props.isDroppable &&
+        isOver &&
+        (!isReorder || (props.dropMode === 'onto-or-reorder' && (!dropPosition || dropPosition === 'onto')))
+    const showLineBefore = isReorder && isOver && dropPosition === 'before'
+    const showLineAfter = isReorder && isOver && dropPosition === 'after'
 
     return (
         <div

@@ -140,13 +140,20 @@ def _chain_attribute_order(key: str) -> str:
 # A semicolon separates elements only outside a quoted attribute value — an inline
 # style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
 # as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
-# not close the span. split_chain_regex draws the boundary the same way.
-_QUOTED_VALUE = r'"(?:\\.|[^"])*"'
+# not close the span. split_chain_regex draws the boundary the same way. A backslash
+# is consumed only together with the character after it, so a long run of backslashes
+# has one way to match and cannot cause catastrophic backtracking.
+_QUOTED_VALUE = r'"(?:\\.|[^"\\])*"'
 _WITHIN_ELEMENT = r'(?:[^;"]|' + _QUOTED_VALUE + r")*?"
 _WHOLE_ELEMENTS = r'(?:(?:[^;"]|' + _QUOTED_VALUE + r")*;)*"
+# ClickHouse runs these through RE2, which has no negative lookahead. A class that
+# excludes both whitespace and non-whitespace matches no character at all.
+_MATCHES_NOTHING = r"[^\s\S]"
 
 
 def build_selector_regex(selector: Selector) -> str:
+    if selector.is_unsatisfiable():
+        return _MATCHES_NOTHING
     regex = r""
     for index, tag in enumerate(selector.parts):
         if index > 0 and not tag.direct_descendant:
@@ -167,7 +174,9 @@ def build_selector_regex(selector: Selector) -> str:
         if tag.ch_attributes:
             regex += _WITHIN_ELEMENT
             for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
-                regex += rf'{re.escape(key)}="{re.escape(_chain_escaped_value(str(value)))}"' + _WITHIN_ELEMENT
+                # The full chain key stops [foo="1"] from matching inside attr__data-foo="1".
+                name = _chain_attribute_order(key) if tag.strict_attributes else key
+                regex += rf'{re.escape(name)}="{re.escape(_chain_escaped_value(str(value)))}"' + _WITHIN_ELEMENT
         # The rest of the element can carry characters no allowlist anticipates
         # (classes like w-1/2 or !mt-0), so skip anything within the element.
         regex += _WITHIN_ELEMENT + r"($|;|:([^;^\s]*(;|$|\s)))"

@@ -1,6 +1,8 @@
 import os
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -19,6 +21,7 @@ from rest_framework import status
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -249,13 +252,31 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_update(self):
         issue = self.create_issue(["fingerprint"])
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
-            data={"status": "resolved", "severity": "high"},
-        )
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved", "severity": "high"},
+                headers={"X-Posthog-Client": "mcp"},
+            )
         issue.refresh_from_db()
 
         assert response.status_code == 200
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        assert changed_events == [
+            {
+                **changed_events[0],
+                "action": "update",
+                "source": "mcp",
+                "issue_id": str(issue.id),
+                "updated_fields": ["severity", "status"],
+                "status": "resolved",
+                "severity": "high",
+            }
+        ]
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
@@ -305,6 +326,77 @@ class TestErrorTracking(APIBaseTest):
                 }
             ],
         )
+
+    def _issue_noop_update(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}", {"status": "active"}
+
+    def _issue_noop_unassign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": None}
+
+    def _issue_assign(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/assign", {"assignee": {"id": self.user.id, "type": "user"}}
+
+    def _issue_bulk_resolve_skips_resolved(self) -> tuple[str, str, dict]:
+        active = self.create_issue(["fingerprint_active"])
+        resolved = self.create_issue(["fingerprint_resolved"])
+        resolved.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved.save()
+        return (
+            "post",
+            "issues/bulk",
+            {"ids": [str(active.id), str(resolved.id)], "action": "set_status", "status": "resolved"},
+        )
+
+    def _issue_merge_drops_missing_source(self) -> tuple[str, str, dict]:
+        target = self.create_issue(["fingerprint_target"])
+        source = self.create_issue(["fingerprint_source"])
+        return "post", f"issues/{target.id}/merge", {"ids": [str(source.id), str(uuid7())]}
+
+    def _issue_split(self) -> tuple[str, str, dict]:
+        issue = self.create_issue(["fingerprint_one", "fingerprint_two"])
+        return "post", f"issues/{issue.id}/split", {"fingerprints": [{"fingerprint": "fingerprint_two"}]}
+
+    @parameterized.expand(
+        [
+            ("update_without_change", _issue_noop_update, None),
+            ("unassign_when_unassigned", _issue_noop_unassign, None),
+            ("assign", _issue_assign, {"action": "assign", "assignee_type": "user"}),
+            (
+                "bulk_skips_unchanged",
+                _issue_bulk_resolve_skips_resolved,
+                {"action": "bulk_set_status", "issue_count": 1},
+            ),
+            (
+                "merge_skips_missing_source",
+                _issue_merge_drops_missing_source,
+                {"action": "merge", "merged_issue_count": 1},
+            ),
+            ("split", _issue_split, {"action": "split", "fingerprint_count": 1, "new_issue_count": 1}),
+        ]
+    )
+    def test_issue_changed_event_counts_actual_changes(
+        self, _name: str, build_request: Callable[["TestErrorTracking"], tuple[str, str, dict]], expected: dict | None
+    ) -> None:
+        method, path, data = build_request(self)
+
+        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
+            response = getattr(self.client, method)(
+                f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json"
+            )
+
+        assert response.status_code == 200, response.json()
+        changed_events = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_changed"
+        ]
+        if expected is None:
+            assert changed_events == []
+        else:
+            assert changed_events == [{**changed_events[0], "source": "web", **expected}]
 
     @parameterized.expand(
         [
@@ -773,8 +865,15 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == "Resolved"
         assert event.properties["previous_status"] == "Active"
 
-    def test_issue_assign_produces_lifecycle_internal_event(self):
+    @parameterized.expand([("user", "Jane"), ("user_without_name", ""), ("role", "Jane")])
+    def test_issue_assign_produces_lifecycle_internal_event(self, case, first_name):
+        assignee_type = "role" if case == "role" else "user"
         issue = self.create_issue()
+        self.user.first_name = first_name
+        self.user.last_name = "Doe" if first_name else ""
+        self.user.save()
+        role = Role.objects.create(name="Backend", organization=self.organization)
+        assignee_id = self.user.id if assignee_type == "user" else str(role.id)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -782,7 +881,7 @@ class TestErrorTracking(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-                data={"assignee": {"id": self.user.id, "type": "user"}},
+                data={"assignee": {"id": assignee_id, "type": assignee_type}},
             )
 
         assert response.status_code == 200, response.json()
@@ -791,8 +890,44 @@ class TestErrorTracking(APIBaseTest):
         assert event.event == "$error_tracking_issue_assigned"
         assert event.distinct_id == str(issue.id)
         # Byte-identical to cymbal's compact serde output so exact-match filters work.
-        assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
-        assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
+        user_assignee = f'{{"type":"user","id":{self.user.id}}}'
+        expected_properties = {
+            "user": {"assignee": user_assignee, "assignee_name": "Jane Doe", "assignee_email": self.user.email},
+            "user_without_name": {
+                "assignee": user_assignee,
+                "assignee_name": self.user.email,
+                "assignee_email": self.user.email,
+            },
+            "role": {"assignee": f'{{"type":"role","id":"{role.id}"}}', "assignee_name": "Backend"},
+        }[case]
+        assert {key: value for key, value in event.properties.items() if key.startswith("assignee")} == (
+            expected_properties
+        )
+        assert json.loads(event.properties["assignee"]) == {"type": assignee_type, "id": assignee_id}
+
+    def test_issue_lifecycle_event_omits_former_member_assignee_details(self):
+        issue = self.create_issue()
+        former_member = User.objects.create_and_join(self.organization, "former@example.com", "password", "Former")
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": former_member.id, "type": "user"}},
+        )
+        OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert properties["assignee"] == f'{{"type":"user","id":{former_member.id}}}'
+        assert "assignee_name" not in properties
+        assert "assignee_email" not in properties
 
     def test_issue_unassign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()
@@ -1422,6 +1557,64 @@ class TestErrorTracking(APIBaseTest):
         assert "s3-accelerate" not in entry["fallback_presigned_url"]["url"]
         assert entry["fallback_presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
 
+    def test_bulk_start_upload_omits_presigned_put_without_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash"}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "presigned_put_url" not in entry
+        assert entry["presigned_url"]["fields"]["key"] is not None
+
+    def test_bulk_start_upload_signs_presigned_put_for_declared_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 1234}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        put_url = entry["presigned_put_url"]
+        # The PUT addresses the object itself, unlike the POST, which addresses the bucket root.
+        assert symbol_set.storage_ptr in put_url
+        # Only a signed content-length stops an oversized body, so it must reach the signature.
+        assert "content-length" in unquote(put_url)
+        assert "fallback_presigned_put_url" not in entry
+        # The POST form stays for clients that predate the PUT.
+        assert entry["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    def test_bulk_start_upload_includes_fallback_presigned_put_when_accelerated(self) -> None:
+        chunk_id = str(uuid7())
+        with (
+            self.settings(OBJECT_STORAGE_TRANSFER_ACCELERATION=True),
+            patch("posthog.storage.object_storage._accelerated_presigned_client", None),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 10}]},
+            )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "s3-accelerate" in entry["presigned_put_url"]
+        assert "s3-accelerate" not in entry["fallback_presigned_put_url"]
+
+    def test_bulk_start_upload_rejects_oversized_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 100 * 1024 * 1024 + 1}]
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+        # The row must not exist: a rejected upload leaves nothing for retention to clean up.
+        assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
+
     @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
         release = ErrorTrackingRelease.objects.create(
@@ -1478,6 +1671,8 @@ class TestErrorTracking(APIBaseTest):
 
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "team_id": self.team.id,
             "endpoint": "bulk_start_upload",
             "force": False,
@@ -2014,6 +2209,8 @@ class TestErrorTracking(APIBaseTest):
         assert response.json()["code"] == "symbol_set_not_found"
         assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_uploaded"
         assert patched_capture.call_args.kwargs["properties"] == {
+            **patched_capture.call_args.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,
@@ -2042,6 +2239,8 @@ class TestErrorTracking(APIBaseTest):
         failure_call = patched_capture.call_args_list[0]
         assert failure_call.args[0] == "error_tracking_symbol_set_uploaded"
         assert failure_call.kwargs["properties"] == {
+            **failure_call.kwargs["properties"],
+            "source": "web",
             "file_size": 0,
             "success": False,
             "file_count": 1,

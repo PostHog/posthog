@@ -95,7 +95,7 @@ const getSeriesLabel = (series: SqlLineYSeries): string =>
     series.settings?.display?.label || ('name' in series ? series.name : series.column.name)
 
 const getSeriesKey = (series: SqlLineYSeries, index: number): string =>
-    'breakdownValue' in series ? series.breakdownValue : `${series.column.name}-${index}`
+    'breakdownValue' in series ? JSON.stringify([series.name, series.breakdownValue]) : `${series.column.name}-${index}`
 
 /** Shares {@link getSeriesKey} with {@link buildSeries} so each trend line's `seriesKey` matches its source series. */
 export function buildTrendLineConfigs(ySeriesData: SqlLineYSeries[] | null | undefined): TrendLineConfig[] {
@@ -247,9 +247,8 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
 export function formatSqlSeriesValue(value: number, settings?: AxisSeriesSettings): string {
     const formatting = settings?.formatting
     // Styled values round inside formatDataWithSettings. Unstyled values are capped here — at the
-    // column's explicit decimalPlaces when set (formatDataWithSettings skips a falsy 0, so a
-    // zero-decimal column would otherwise keep its fraction digits), else at 3. Prefix/suffix
-    // don't round, so they don't opt out.
+    // column's explicit decimalPlaces when set, else at 3. Prefix/suffix don't round, so they
+    // don't opt out.
     const hasStyle = !!formatting && (formatting.style ?? 'none') !== 'none'
     const display = hasStyle || !Number.isFinite(value) ? value : Number(value.toFixed(formatting?.decimalPlaces ?? 3))
     return String(formatDataWithSettings(display, settings) ?? display)

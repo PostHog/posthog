@@ -18,6 +18,7 @@ from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, 
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -36,12 +37,13 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
 )
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -66,6 +68,10 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.legacy_migration import (
+    LegacyMigrationError,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -90,7 +96,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentFlagCleanupTaskSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
-    ExperimentMetricsRecalculationSerializer,
+    ExperimentMetricsRecalculationJobSerializer,
+    ExperimentMetricsRecalculationLatestSerializer,
+    ExperimentMetricsRecalculationRunSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
     ExperimentSessionBucketResponseSerializer,
@@ -115,6 +123,7 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    start_metrics_recalculation_workflow,
 )
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
@@ -142,9 +151,6 @@ from products.experiments.backend.setup_context import (
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     SetupContextInputs,
     build_setup_context,
-)
-from products.experiments.backend.temporal.models import (
-    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -603,6 +609,30 @@ class EnterpriseExperimentsViewSet(
         if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
 
+    def _check_copy_target_access(self, request: Request, target_team: Team) -> None:
+        """Authorize the target project of a cross-project copy.
+
+        Every class in the permission stack resolves against `view.team`, which is the source
+        project in the URL, so the target project is not checked at all by the time the action
+        body runs. This applies the same gates the target project's own `POST /experiments/`
+        would apply: the credential's project scope, project membership, and experiment editor
+        access in the target.
+        """
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {target_team.id}.")
+
+        user = cast(User, request.user)
+        effective_level = UserPermissions(user=user).team(target_team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("You do not have write access to the target project.")
+
+        target_access_control = UserAccessControl(user=user, team=target_team)
+        if not target_access_control.check_access_level_for_object(
+            target_team, required_level="member"
+        ) or not target_access_control.check_access_level_for_resource("experiment", required_level="editor"):
+            raise PermissionDenied("You do not have permission to create experiments in the target project.")
+
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
 
@@ -1038,6 +1068,43 @@ class EnterpriseExperimentsViewSet(
         )
 
     @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def migrate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Move a legacy experiment onto the new experiments engine.
+
+        Creates a new experiment with the same configuration and its metrics converted
+        to the new format, and returns it. The legacy experiment is left untouched and
+        keeps its results, so the project ends up with two experiments. Both point at
+        the same feature flag, so no new rollout is needed and users keep the variant
+        they already have.
+
+        Legacy shared metrics used by the experiment are converted as part of the same
+        call. Each one gets a new shared metric, and the new experiment links to that.
+
+        Calling this again returns the experiment created the first time instead of
+        making another copy.
+
+        Returns 400 if the experiment already uses the new engine.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not experiment_has_legacy_metrics(experiment):
+            raise ValidationError(
+                "This experiment already uses the new experiments engine, so there is nothing to migrate."
+            )
+
+        try:
+            migration = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
+        except (LegacyMigrationError, ValueError) as e:
+            raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
+
+        return Response(ExperimentSerializer(migration.experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
         request=CreateFromPromptInputSerializer,
         responses=ExperimentSerializer,
     )
@@ -1172,11 +1239,7 @@ class EnterpriseExperimentsViewSet(
         if target_team is None:
             return Response({"detail": "Target team not found."}, status=404)
 
-        user_permissions = UserPermissions(user=cast(User, request.user))
-        target_team_permissions = user_permissions.team(target_team)
-        effective_level = target_team_permissions.effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
-            return Response({"detail": "You do not have write access to the target project."}, status=403)
+        self._check_copy_target_access(request, target_team)
 
         feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
         name = request_serializer.validated_data.get("name")
@@ -1298,8 +1361,8 @@ class EnterpriseExperimentsViewSet(
     @extend_schema(
         request=RecalculateMetricsRequestSerializer,
         responses={
-            200: ExperimentMetricsRecalculationSerializer,
-            201: ExperimentMetricsRecalculationSerializer,
+            200: ExperimentMetricsRecalculationJobSerializer,
+            201: ExperimentMetricsRecalculationJobSerializer,
         },
     )
     @action(
@@ -1335,43 +1398,18 @@ class EnterpriseExperimentsViewSet(
         is_existing = result.get("is_existing", False)
 
         if not is_existing:
-            recalculation_id = str(result["id"])
-            try:
-                temporal = sync_connect()
-                asyncio.run(
-                    temporal.start_workflow(
-                        "experiment-metrics-recalculation-workflow",
-                        MetricsRecalcInputs(
-                            recalculation_id=recalculation_id,
-                            fairness_key=str(experiment.team.organization_id),
-                        ),
-                        id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-                    )
-                )
-            except Exception:
-                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
-                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
-                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
-                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
-                # where only discovery ran, the rollback wins deliberately: the mark_started and
-                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
-                # failed POST starts the replacement.
-                ExperimentMetricsRecalculation.objects.filter(
-                    team=self.team,
-                    id=recalculation_id,
-                    status=ExperimentMetricsRecalculation.Status.PENDING,
-                    query_to__isnull=True,
-                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
-                raise
+            start_metrics_recalculation_workflow(
+                str(result["id"]),
+                team_id=experiment.team_id,
+                organization_id=str(experiment.team.organization_id),
+            )
 
         return Response(
-            ExperimentMetricsRecalculationSerializer(result).data,
+            ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if is_existing else 201,
         )
 
-    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @extend_schema(responses={200: ExperimentMetricsRecalculationLatestSerializer, 404: None})
     @action(
         methods=["GET"],
         detail=True,
@@ -1386,7 +1424,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_latest_recalculation(experiment)
 
         if recalc is not None:
-            return Response(_serialize_recalculation(recalc, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(recalc), active_run))
 
         # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
         # placeholder so the user sees results immediately, even while a first run is active (its pending
@@ -1394,12 +1432,10 @@ class EnterpriseExperimentsViewSet(
         # workflow start.
         fallback = build_timeseries_cold_start_payload(experiment)
         if fallback is not None:
-            if active_run is not None:
-                fallback["active_run"] = active_run
-            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+            return Response(_serialize_latest(fallback, active_run))
 
         if active is not None:
-            return Response(_serialize_recalculation(active, active_run=active_run))
+            return Response(_serialize_latest(_build_run_payload(active), active_run))
 
         return Response({"detail": "No completed recalculation found"}, status=404)
 
@@ -1418,7 +1454,7 @@ class EnterpriseExperimentsViewSet(
                 ),
             )
         ],
-        responses={200: ExperimentMetricsRecalculationSerializer, 404: None},
+        responses={200: ExperimentMetricsRecalculationRunSerializer, 404: None},
     )
     @action(
         methods=["GET"],
@@ -1434,7 +1470,7 @@ class EnterpriseExperimentsViewSet(
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        return Response(ExperimentMetricsRecalculationRunSerializer(_build_run_payload(recalc)).data)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
@@ -1555,10 +1591,14 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSetupContextResponseSerializer(context).data)
 
     def _setup_context_enabled(self) -> bool:
+        # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff
+        # user, so support can read a customer's setup context without the flag being on for that customer.
+        # OAuth impersonation (MCP) has no session, so it keeps the customer's flag, which also gates the tool.
+        flag_user = get_original_user_from_session(self.request) if is_impersonated_session(self.request) else None
         try:
             return posthog_feature_flag_enabled(
                 EXPERIMENT_SETUP_CONTEXT_FLAG,
-                str(cast(User, self.request.user).distinct_id),
+                str((flag_user or cast(User, self.request.user)).distinct_id),
                 organization_id=self.organization_id,
                 team_id=self.team.id,
             )
@@ -1819,10 +1859,14 @@ class EnterpriseExperimentsViewSet(
             return False
 
 
-def _serialize_recalculation(recalc: ExperimentMetricsRecalculation, active_run: dict | None = None) -> dict:
+def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:
     results = get_run_results(recalc)
     payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
+    return payload
+
+
+def _serialize_latest(payload: dict, active_run: dict | None) -> dict:
     if active_run is not None:
         payload["active_run"] = active_run
-    return ExperimentMetricsRecalculationSerializer(payload).data
+    return ExperimentMetricsRecalculationLatestSerializer(payload).data

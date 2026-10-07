@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    UNREADABLE_JOB_INPUTS_MESSAGE,
     _get_redis,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
+    should_check_shutdown,
     trim_source_job_inputs,
     validate_incremental_sync,
 )
@@ -36,6 +38,44 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+class TestShouldCheckShutdown:
+    @parameterized.expand(
+        [
+            ("young_first_attempt", False, "asc", True, False, True, 1, 2, True),
+            ("old_first_attempt", False, "asc", True, False, True, 1, 20, False),
+            ("young_second_attempt", False, "asc", True, False, True, 2, 1, False),
+            ("outside_activity", False, "asc", True, False, False, 1, 2, False),
+            ("resumable_source", False, "asc", True, True, True, 2, 20, True),
+            ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
+            ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
+        ]
+    )
+    def test_should_check_shutdown(
+        self,
+        _name: str,
+        is_incremental: bool,
+        sort_mode: str,
+        reset_pipeline: bool,
+        source_is_resumable: bool,
+        in_activity: bool,
+        attempt: int,
+        age_minutes: int,
+        expected: bool,
+    ) -> None:
+        schema = MagicMock(should_use_incremental_field=is_incremental)
+        resource = MagicMock(sort_mode=sort_mode)
+        info = MagicMock(attempt=attempt, started_time=datetime.now(UTC) - timedelta(minutes=age_minutes))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.in_activity", return_value=in_activity),
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=info) as activity_info,
+        ):
+            assert should_check_shutdown(schema, resource, reset_pipeline, source_is_resumable) is expected
+
+        if not in_activity:
+            activity_info.assert_not_called()
 
 
 class TestResolvePrimaryKeys:
@@ -149,9 +189,6 @@ class TestPersistPrimaryKeys:
 class TestTrimSourceJobInputs:
     @parameterized.expand(
         [
-            # A non-empty string decoded out of the EncryptedJSONField used to reach `.items()` and
-            # raise AttributeError — it must be skipped, not crash the whole import activity.
-            ("bare_string_is_skipped", "not-a-dict"),
             ("list_is_skipped", ["a", "b"]),
             ("none_is_skipped", None),
             ("empty_dict_is_skipped", {}),
@@ -163,6 +200,52 @@ class TestTrimSourceJobInputs:
         with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
             await trim_source_job_inputs(source)
         pool.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A config stored as a JSON string decodes back to that string on every read, so it used
+            # to reach `.items()` and raise AttributeError. It must decode to the mapping, and the
+            # row must be rewritten as a mapping even when no value needs trimming, so the next run
+            # reads a mapping.
+            (
+                "padded_value_is_trimmed",
+                '{"host": " db.example.com ", "port": "5432"}',
+                {"host": "db.example.com", "port": "5432"},
+            ),
+            (
+                "unpadded_values_are_still_normalized",
+                '{"host": "db.example.com", "port": "5432"}',
+                {"host": "db.example.com", "port": "5432"},
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_string_job_inputs_is_decoded_and_saved(self, _name: str, job_inputs, expected) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        saved = AsyncMock()
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+            await trim_source_job_inputs(source)
+        assert source.job_inputs == expected
+        saved.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            # Nothing recovers a mapping from these, and every run fails the same way, so the sync
+            # gives up with an error the customer can act on instead of an AttributeError.
+            ("not_json", "not-a-dict"),
+            ("json_scalar", '"db.example.com"'),
+            ("json_list", "[1, 2]"),
+            ("blank", ""),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_unreadable_string_job_inputs_fails_non_retryably(self, _name: str, job_inputs) -> None:
+        source = MagicMock(job_inputs=job_inputs, save=MagicMock())
+        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+            with pytest.raises(NonRetryableException) as caught:
+                await trim_source_job_inputs(source)
+        pool.assert_not_called()
+        assert str(caught.value.cause) == UNREADABLE_JOB_INPUTS_MESSAGE
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
@@ -525,39 +608,26 @@ class TestResetRowsSyncedIfNeeded:
         )
 
     @pytest.mark.parametrize(
-        "_name,is_incremental,reset_pipeline,should_resume,incremental_cursor_staged,expect_reset",
+        "_name,should_resume,expect_reset",
         [
-            # Staged-cursor (v3) incremental retry re-extracts the whole window from batch 0, so a
-            # leftover count from the previous attempt would double-count every re-read row — and
-            # rows_synced feeds billed usage. This is the regression case.
-            ("staged_cursor_incremental_retry_resets", True, False, False, True, True),
+            # A retry re-extracts the whole window from batch 0, so a leftover count from the
+            # previous attempt would double-count every re-read row — and rows_synced feeds
+            # billed usage. This is the regression case.
+            ("retry_resets", False, True),
             # A resumable source picks up the previous attempt's staged batches, so its rows stay counted.
-            ("resumable_source_keeps_count", True, False, True, True, False),
-            # Durable-cursor (v2) incremental retry resumes past the rows already counted.
-            ("durable_cursor_incremental_retry_keeps_count", True, False, False, False, False),
-            ("full_refresh_restart_resets", False, False, False, False, True),
-            ("reset_pipeline_resets", True, True, False, False, True),
+            ("resumable_source_keeps_count", True, False),
         ],
     )
     def test_reset_conditions(
         self,
         _name: str,
-        is_incremental: bool,
-        reset_pipeline: bool,
         should_resume: bool,
-        incremental_cursor_staged: bool,
         expect_reset: bool,
         team,
     ) -> None:
         job = self._job_with_leftover_count(team)
 
-        async_to_sync(reset_rows_synced_if_needed)(
-            job,
-            is_incremental,
-            reset_pipeline,
-            should_resume,
-            incremental_cursor_staged=incremental_cursor_staged,
-        )
+        async_to_sync(reset_rows_synced_if_needed)(job, should_resume)
 
         job.refresh_from_db()
         assert job.rows_synced == (0 if expect_reset else 1234)

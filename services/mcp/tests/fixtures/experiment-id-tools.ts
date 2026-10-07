@@ -21,6 +21,7 @@ export const EXPERIMENT_ID_TOOLS = [
     ['experiment-metrics-recalculation-create', {}],
     ['experiment-metrics-recalculation-latest-retrieve', {}],
     ['experiment-metrics-recalculation-retrieve', { recalculation_id: '0199a1c0-0000-7000-8000-000000000000' }],
+    ['experiment-migrate', {}],
     ['experiment-pause', {}],
     ['experiment-reset', {}],
     ['experiment-resume', {}],

@@ -12,7 +12,7 @@ use personhog_proto::personhog::types::v1::{
     DeletePersonsBatchForTeamRequest, DeletePersonsRequest, DeleteTombstonedPersonsRequest,
     GetGroupRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
     InsertCohortMembersRequest, ListCohortMemberIdsRequest, UpdateGroupRequest,
-    UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingRequest, UpsertHashKeyOverridesRequest,
 };
 use rstest::rstest;
 use tonic::Request;
@@ -130,6 +130,7 @@ async fn test_delete_persons_storage_error(
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids: vec!["00000000-0000-0000-0000-000000000001".to_string()],
+            mode: 0,
         }))
         .await;
 
@@ -153,6 +154,7 @@ async fn test_delete_persons_invalid_input(
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids,
+            mode: 0,
         }))
         .await
         .unwrap_err();
@@ -169,6 +171,7 @@ async fn test_delete_persons_empty_uuids_returns_zero() {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids: vec![],
+            mode: 0,
         }))
         .await;
 
@@ -186,6 +189,7 @@ async fn test_delete_persons_success(#[case] person_uuids: Vec<String>) {
         .delete_persons(Request::new(DeletePersonsRequest {
             team_id: 1,
             person_uuids,
+            mode: 0,
         }))
         .await;
 
@@ -1054,4 +1058,26 @@ async fn test_delete_group_type_mappings_batch_for_team_success() {
         .await;
 
     assert!(result.is_ok());
+}
+
+// ============================================================
+// UpsertHashKeyOverrides tests
+// ============================================================
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_rejects_the_cookieless_sentinel() {
+    let service = PersonHogReplicaService::new(Arc::new(mocks::SuccessStorage));
+
+    let status = service
+        .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
+            team_id: 1,
+            distinct_ids: vec!["user".to_string()],
+            hash_key: "$posthog_cookieless".to_string(),
+            feature_flag_keys: vec!["flag".to_string()],
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("hash_key"));
 }

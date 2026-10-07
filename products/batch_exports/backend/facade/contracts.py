@@ -3,7 +3,8 @@ Contract types for batch_exports.
 
 Stable, framework-free dataclasses defining what this product hands to the rest of the
 codebase. No Django or DRF imports, and enums are flattened to their ``str`` value, so a
-consumer never needs a model class to read a batch export.
+consumer never needs a model class to read a batch export. A consumer that writes one of
+those values imports the enum from ``facade/enums.py``.
 
 The fields are the ones consumers read today and nothing more. An encrypted model field
 never crosses whole, because reading one decrypts it; ``BatchExportDetail`` documents the
@@ -26,6 +27,10 @@ from pydantic.dataclasses import dataclass
 
 # The Django model label of BatchExport, for consumers that report on models by name.
 BATCH_EXPORT_MODEL_LABEL = "batch_exports.BatchExport"
+
+
+class InvalidBatchExportFilters(ValueError):
+    """Raised when event filters are not a list of filters a batch export can apply."""
 
 
 @dataclass(frozen=True)
@@ -77,7 +82,7 @@ class BatchExportRunSummary:
     status: str
     latest_error: str | None
     data_interval_start: dt.datetime | None
-    data_interval_end: dt.datetime
+    data_interval_end: dt.datetime | None
     finished_at: dt.datetime | None
     created_at: dt.datetime
     last_updated_at: dt.datetime

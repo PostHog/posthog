@@ -1,6 +1,7 @@
+import json
 import uuid
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -13,16 +14,62 @@ import temporalio
 import posthoganalytics
 from temporalio.common import WorkflowIDReusePolicy
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.artefact_schemas import (
+    # Re-exported so the Slack mention handler can label the task it starts from a report's
+    # notification thread without naming the relationship vocabulary itself.
+    TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+)
+from products.signals.backend.briefing_reports import (
+    IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
+    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
+    BriefingReport as BriefingReport,
+    BriefingReportDetails as BriefingReportDetails,
+    BriefingReportRelation as BriefingReportRelation,
+    OpenReportCounts as OpenReportCounts,
+    open_report_counts as open_report_counts,
+    report_details as report_details,
+    reports_for_briefing as reports_for_briefing,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.report_access import may_read_reports as may_read_reports
+from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.report_metric_access import (
+    # Re-exported so the Today briefing reads report metrics with the viewer's access, as the Inbox does.
+    ReportMetricAccessPolicy as ReportMetricAccessPolicy,
+)
+from products.signals.backend.report_metrics import (
+    # Re-exported so the Today briefing can serialize metric snapshots with the inbox's vocabulary.
+    REPORT_METRIC_KINDS as REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES as REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
+    ReportMetricSnapshot as ReportMetricSnapshot,
+)
+from products.signals.backend.report_page_source import (
+    ReportArtefactText as ReportArtefactText,
+    ReportPageSource as ReportPageSource,
+    ReportSignal as ReportSignal,
+    report_agent_texts as report_agent_texts,
+    report_page_source as report_page_source,
+)
+from products.signals.backend.report_sections import (
+    ReportSections as ReportSections,
+    report_sections as report_sections,
+)
+from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -48,6 +95,135 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+
+def is_scout_trial_task(*, team_id: int, task_id: uuid.UUID) -> bool:
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .exists()
+    )
+
+
+def is_scout_trial_task_run(*, team_id: int, task_id: uuid.UUID, task_run_id: uuid.UUID) -> bool:
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return False
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    return (
+        isinstance(launch_id, str)
+        and run.task_run.task.origin_product == "signals_scout"
+        and run.task_run.task.origin_key == f"scout-trial:{launch_id}"
+        and (run.task_run.state or {}).get("scout_trial") == marker
+    )
+
+
+def is_scout_trial_judge_context(*, team_id: int, user_id: int, marker: object) -> bool:
+    from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415 -- avoids loading evaluation storage for ordinary tasks
+        _assert_worker_access,
+        _read_trial_judge_input,
+    )
+
+    if not isinstance(marker, dict) or type(marker.get("version")) is not int or marker["version"] != 1:
+        return False
+    if type(marker.get("user_id")) is not int or marker["user_id"] != user_id:
+        return False
+    identifiers: dict[str, uuid.UUID] = {}
+    for key in (
+        "evaluation_id",
+        "launch_id",
+        "context_id",
+        "source_task_id",
+        "source_task_run_id",
+        "source_scout_run_id",
+    ):
+        value = marker.get(key)
+        if not isinstance(value, str):
+            return False
+        try:
+            identifiers[key] = uuid.UUID(value)
+        except ValueError:
+            return False
+        if str(identifiers[key]) != value:
+            return False
+    snapshot = _read_trial_judge_input(team_id, identifiers["evaluation_id"], identifiers["launch_id"])
+    if snapshot is None or snapshot.user_id != user_id or snapshot.context_id != identifiers["context_id"]:
+        return False
+    _assert_worker_access(snapshot)
+    evidence = next((run for run in snapshot.runs if run.launch_id == identifiers["launch_id"]), None)
+    if evidence is None or (
+        evidence.task_id != identifiers["source_task_id"]
+        or evidence.task_run_id != identifiers["source_task_run_id"]
+        or evidence.run_id != identifiers["source_scout_run_id"]
+        or evidence.execution_status != "completed"
+        or evidence.exclusion_reason is not None
+    ):
+        return False
+    source = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(
+            id=identifiers["source_scout_run_id"],
+            task_run_id=identifiers["source_task_run_id"],
+            task_run__task_id=identifiers["source_task_id"],
+            task_run__team_id=team_id,
+            task_run__task__team_id=team_id,
+            task_run__task__created_by_id=user_id,
+            task_run__task__deleted=False,
+            task_run__task__origin_product="signals_scout",
+            task_run__task__origin_key=f"scout-trial:{marker['launch_id']}",
+            task_run__status="completed",
+            metadata__scout_trial__version=1,
+            metadata__scout_trial__launch_id=marker["launch_id"],
+            metadata__scout_trial__context_id=marker["context_id"],
+        )
+        .first()
+    )
+    if source is None or (source.task_run.state or {}).get("scout_trial") != (source.metadata or {}).get("scout_trial"):
+        return False
+    private_state = (source.task_run.state or {}).get("scout_trial_private")
+    return not isinstance(private_state, dict) or not private_state.get("invalid_reason")
+
+
+@frozen
+class ScoutTrialSkill:
+    name: str
+    version: int
+    body: str = dataclasses.field(repr=False)
+
+
+def get_scout_trial_skill_override(*, team_id: int, task_id: uuid.UUID) -> ScoutTrialSkill | None:
+    from products.signals.backend.scout_harness.trial_launch import (
+        read_trial_launch,  # noqa: PLC0415 -- trial tools import the shared Signals facade
+    )
+
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run__task")
+        .filter(task_run__task_id=task_id, metadata__scout_trial__version=1)
+        .first()
+    )
+    if run is None:
+        return None
+    marker = (run.metadata or {})["scout_trial"]
+    launch_id = marker.get("launch_id")
+    if (
+        not isinstance(launch_id, str)
+        or run.task_run.task.origin_product != "signals_scout"
+        or run.task_run.task.origin_key != f"scout-trial:{launch_id}"
+        or (run.task_run.state or {}).get("scout_trial") != marker
+    ):
+        return None
+    launch = read_trial_launch(team_id, launch_id)
+    if launch.skill_name != run.skill_name or launch.skill_version != run.skill_version:
+        return None
+    return ScoutTrialSkill(name=launch.skill_name, version=launch.skill_version, body=launch.skill_body)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,6 +337,44 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
+    """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
+    from products.signals.backend.slack_report_threads import (
+        report_id_for_slack_thread as report_id_for_slack_thread_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return report_id_for_slack_thread_impl(
+        team_id=team_id, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def report_team_id_for_slack_thread(
+    *, team_ids: Sequence[int], slack_workspace_id: str, channel: str, thread_ts: str
+) -> int | None:
+    from products.signals.backend.slack_report_threads import (  # noqa: PLC0415 — avoids importing model layer at facade import time
+        report_team_id_for_slack_thread as report_team_id_for_slack_thread_impl,
+    )
+
+    return report_team_id_for_slack_thread_impl(
+        team_ids=team_ids, slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    )
+
+
+def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+    from products.signals.backend.models import SignalReport, SignalReportAction
+    from products.signals.backend.task_run_artefacts import record_report_task
+
+    SignalReport.objects.get(team_id=team_id, id=report_id)
+    record_report_task(team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_DISCUSSION)
+    SignalReportAction.record(
+        team_id=team_id,
+        report_id=report_id,
+        user_id=user_id,
+        action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+    )
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
@@ -753,10 +967,9 @@ def forward_report_discussion_note(
     relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
     returns the note id, or None when nothing was forwarded.
     """
-    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
-        TASK_RUN_TYPE_DISCUSSION,
+    from products.signals.backend.discussion_notes import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        forward_discussion_note,
     )
-    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
 
     if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
         return None
@@ -780,6 +993,17 @@ class SignalSourceSliceOutcomes:
     report_count: int
     pr_count: int
     merged_pr_count: int
+    # Newest first, so a caller can link to what the counts are counting.
+    reports: "list[SignalSourceSliceReport]"
+    pull_requests: "list[SignalSourceSlicePullRequest]"
+
+
+@frozen
+class SignalSourceSlicePullRequest:
+    """One implementation PR opened on a report the slice's signals were grouped into."""
+
+    url: str
+    merged: bool
 
 
 @frozen
@@ -843,13 +1067,21 @@ def get_outcomes_for_signal_source_slice(
     )
     report_ids = [report.id for report in reports]
     prs = fetch_implementation_prs_for_reports(report_ids, team_id=team.id)
-    pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs}
-    merged_pr_urls = {pr.url for report_prs in prs.values() for pr in report_prs if pr.merged}
+    # Reports arrive newest first, so the first sighting of a URL keeps that order; several reports can share a PR.
+    pull_requests: dict[str, SignalSourceSlicePullRequest] = {}
+    for report_id in report_ids:
+        for pr in prs.get(report_id, []):
+            known = pull_requests.get(pr.url)
+            pull_requests[pr.url] = SignalSourceSlicePullRequest(
+                url=pr.url, merged=pr.merged or bool(known and known.merged)
+            )
     return SignalSourceSliceOutcomes(
         signal_count=stats.signal_count,
         report_count=len(report_ids),
-        pr_count=len(pr_urls),
-        merged_pr_count=len(merged_pr_urls),
+        pr_count=len(pull_requests),
+        merged_pr_count=sum(1 for pr in pull_requests.values() if pr.merged),
+        reports=reports,
+        pull_requests=list(pull_requests.values()),
     )
 
 
@@ -881,7 +1113,8 @@ def create_scout_for_source(
     *,
     team: "Team",
     user: Any,
-    name: str,
+    name: str | None = None,
+    display_name: str = "",
     description: str,
     body: str,
     files: list[Any],
@@ -898,26 +1131,45 @@ def create_scout_for_source(
     the pair is not settable through the public scout API precisely because Signals cannot make that
     check for an object it knows nothing about. Imported here rather than defined here because the
     creation flow lives with the private helpers it shares with the scout create endpoint.
+
+    With no `name`, the slug is derived from `display_name` the way the public endpoint derives it.
     """
     # Imported inside the call to keep the view module (and the whole API surface it imports) off the
     # facade's import path, which Celery workers and management commands also load.
     from products.signals.backend.scout_harness.views import (  # noqa: PLC0415 — keeps the API surface off the import path
         create_scout_for_source as _create,
+        create_scout_with_generated_slug,
     )
 
-    outcome = _create(
-        team=team,
-        user=user,
-        name=name,
-        description=description,
-        body=body,
-        files=files,
-        config_options=config_options,
-        request=request,
-        serializer_context=serializer_context,
-        source_product=source_product,
-        source_id=source_id,
-    )
+    if name:
+        outcome = _create(
+            team=team,
+            user=user,
+            name=name,
+            display_name=display_name,
+            description=description,
+            body=body,
+            files=files,
+            config_options=config_options,
+            request=request,
+            serializer_context=serializer_context,
+            source_product=source_product,
+            source_id=source_id,
+        )
+    else:
+        outcome = create_scout_with_generated_slug(
+            team=team,
+            user=user,
+            display_name=display_name,
+            description=description,
+            body=body,
+            files=files,
+            config_options=config_options,
+            request=request,
+            serializer_context=serializer_context,
+            source_product=source_product,
+            source_id=source_id,
+        )
     return ScoutCreated(skill=outcome.skill, config=outcome.config, created=outcome.created)
 
 
@@ -1078,3 +1330,158 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
     return True
+
+
+@frozen
+class SourceScout:
+    """A scout another product created for one of its objects."""
+
+    config_id: str
+    skill_name: str
+    enabled: bool
+    created_at: datetime
+
+
+@frozen
+class ScoutStructuredRecord:
+    """One record a scout submitted through its structured output channel."""
+
+    payload: dict[str, Any]
+    # The run's start, which is the event's timestamp: Signals stamps every record of a run with it.
+    recorded_at: datetime
+    skill_name: str
+    run_id: str
+
+
+# The structured output channel writes this event (see `scout_harness/tools/structured_output.py`).
+_STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
+# How many of the scouts' latest runs to look through, so a run that recorded nothing falls back
+# to an earlier one.
+_STRUCTURED_OUTPUT_RUN_LOOKBACK = 50
+_STRUCTURED_OUTPUT_READ_LIMIT = 500
+# Covers the precision the timestamp loses on its way through the events table.
+_RUN_START_TOLERANCE = timedelta(seconds=1)
+
+
+def scouts_for_source(
+    team_id: int, source_product: str, source_id: str, *, tag: str | None = None
+) -> list[SourceScout]:
+    """The scouts recorded as belonging to one source object, oldest first, optionally narrowed to a tag."""
+    configs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product, source_id=source_id)
+    if tag is not None:
+        configs = configs.filter(tags__contains=[tag])
+    return [
+        SourceScout(config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at)
+        for config_id, skill_name, enabled, created_at in configs.order_by("created_at").values_list(
+            "id", "skill_name", "enabled", "created_at"
+        )
+    ]
+
+
+def latest_structured_output_for_source(
+    team_id: int, source_product: str, source_id: str, *, tag: str
+) -> ScoutStructuredRecord | None:
+    """The newest structured record any of a source object's scouts with `tag` submitted, or None.
+
+    Records exist only as events, and anyone with the project's capture token can send an event
+    with any name and properties. So a record counts only when its `run_id` is a run of one of
+    those scouts and its timestamp is that run's start, which is how the structured output channel
+    stamps every record. Run ids come from Postgres and are not public.
+    """
+    config_ids = list(
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(source_product=source_product, source_id=source_id, tags__contains=[tag])
+        .values_list("id", flat=True)
+    )
+    if not config_ids:
+        return None
+    runs = {
+        str(run_id): (run_team_id, skill_name, created_at)
+        for run_id, run_team_id, skill_name, created_at in SignalScoutRun.objects.for_team(team_id)
+        .filter(scout_config_id__in=config_ids)
+        .order_by("-created_at")
+        .values_list("id", "team_id", "skill_name", "created_at")[:_STRUCTURED_OUTPUT_RUN_LOOKBACK]
+    }
+    if not runs:
+        return None
+    # Scout configs and their runs live on the canonical team, so the events do too.
+    team = Team.objects.get(pk=next(iter(runs.values()))[0])
+    starts = [created_at for _, _, created_at in runs.values()]
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsLatestStructuredOutputForSource",
+        query="""
+            SELECT properties.output, timestamp, properties.run_id
+            FROM events
+            WHERE event = {event}
+              AND properties.run_id IN {run_ids}
+              AND timestamp >= {since}
+              AND timestamp <= {until}
+            ORDER BY timestamp DESC
+            LIMIT {limit}
+        """,
+        team=team,
+        placeholders={
+            "event": ast.Constant(value=_STRUCTURED_OUTPUT_EVENT),
+            "run_ids": ast.Tuple(exprs=[ast.Constant(value=run_id) for run_id in runs]),
+            "since": ast.Constant(value=min(starts) - _RUN_START_TOLERANCE),
+            "until": ast.Constant(value=max(starts) + _RUN_START_TOLERANCE),
+            "limit": ast.Constant(value=_STRUCTURED_OUTPUT_READ_LIMIT),
+        },
+    )
+    for output, timestamp, run_id in result.results:
+        _, skill_name, run_start = runs[str(run_id)]
+        if not isinstance(timestamp, datetime) or abs(_as_utc(timestamp) - _as_utc(run_start)) > _RUN_START_TOLERANCE:
+            # A real run id with a timestamp the channel never writes was sent by something else.
+            continue
+        try:
+            payload = json.loads(output) if isinstance(output, str) else output
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return ScoutStructuredRecord(
+                payload=payload, recorded_at=run_start, skill_name=skill_name, run_id=str(run_id)
+            )
+    return None
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def repair_report_actionability_cache(
+    *, team_id: int | None, batch_size: int, after: str | None = None
+) -> Iterator[RepairedBatch]:
+    """Recompute the cached actionability of every report from its artefact log, in batches.
+
+    For the `backfill_report_actionability` command. Receivers keep the cache current on every
+    artefact write, so this only repairs rows that drifted.
+    """
+    return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
+
+
+def scout_creation_available(*, team_id: int, user_id: int) -> bool:
+    """Whether to offer the user scout creation on the team's project.
+
+    The create endpoint's permission checks run on the requested team: project access and editor
+    access to skills. Two more checks run on the canonical project: it runs scouts (enrollment in the
+    `signals-scout` flag payload), and the user passes the endpoint's own check (editor access to skills).
+    """
+    from products.signals.backend.scout_harness.team_limits import (
+        team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
+    )
+
+    team = Team.objects.select_related("parent_team").filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return False
+    requested_team_access = UserAccessControl(user=user, team=team)
+    if not requested_team_access.has_project_access:
+        return False
+    if not requested_team_access.check_access_level_for_resource("llm_skill", "editor"):
+        return False
+    canonical_team = team.parent_team or team
+    if not team_is_enrolled(canonical_team.id):
+        return False
+    return can_create_scout(user, canonical_team)

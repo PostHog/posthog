@@ -4,8 +4,8 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
@@ -1423,6 +1423,65 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
         ctx.distinct_id_row_count(big.id).await.unwrap(),
         20 - expected_trimmed
     );
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::unspecified(DeletePersonsMode::Unspecified as i32)]
+#[case::tombstone(DeletePersonsMode::Tombstone as i32)]
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_reports_versions(#[case] mode: i32) {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_tomb_mode", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode,
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(response.deleted_count, 1);
+    assert!(response.tombstoned);
+    assert_eq!(response.tombstones.len(), 1);
+    assert_eq!(response.tombstones[0].person_uuid, person.uuid.to_string());
+    assert_eq!(response.tombstones[0].version, 1);
+    assert_eq!(response.tombstones[0].distinct_ids.len(), 1);
+    assert_eq!(
+        response.tombstones[0].distinct_ids[0].distinct_id,
+        "svc_tomb_mode"
+    );
+    assert_eq!(response.tombstones[0].distinct_ids[0].version, 1);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::hard(DeletePersonsMode::Hard as i32)]
+#[case::unknown(99)]
+#[tokio::test]
+async fn test_delete_persons_rejects_unsupported_modes(#[case] mode: i32) {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_rejected_mode", None).await.unwrap();
+
+    let status = ctx
+        .service
+        .delete_persons(Request::new(DeletePersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![person.uuid.to_string()],
+            mode,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(ctx.person_row_exists(person.id).await.unwrap());
+    assert_eq!(ctx.distinct_id_row_count(person.id).await.unwrap(), 1);
 
     ctx.cleanup().await.ok();
 }

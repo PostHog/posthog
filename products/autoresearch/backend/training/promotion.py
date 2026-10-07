@@ -24,9 +24,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clear_locations
 
 from posthog.models.scoping import team_scope
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.autoresearch.backend.dataset.labeling import ANCHOR_ALIGNMENT
+from products.autoresearch.backend.inference.failures import find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import (
     SandboxInferenceError,
+    check_scorability,
     fit_champion_model,
     validate_runnable_feature_sql,
 )
@@ -37,18 +41,21 @@ from products.autoresearch.backend.models import (
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import QueryCost
 from products.autoresearch.backend.training import artifacts
-from products.autoresearch.backend.training.recipe_validation import (
-    RecipeValidationError,
-    validate_feature_sql,
-    validate_model_class,
-)
+from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
+from products.autoresearch.backend.training.shadow_set import FITTED_METRIC_KEY, shadow_set
+from products.notebooks.backend.facade import api as notebooks_facade
 
 logger = structlog.get_logger(__name__)
 
 # A challenger must beat the current champion's holdout score by at least this margin
 # before it is promoted — guards against thrashing on noise-level differences.
 CHAMPION_PROMOTION_MARGIN = 0.005
+
+# Scoring runs the same queries under the batch query limit. A champion that needs half of that
+# limit today has little room left before population growth makes every cadence fail.
+SCORABILITY_TIME_BUDGET_S = HOGQL_INCREASED_MAX_EXECUTION_TIME / 2
 
 
 class PromotionError(ValueError):
@@ -170,6 +177,7 @@ def _build_run_summary(
     champion_model_class: str,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     """Tier-1 cross-run memory: backend derives the structural facts; the agent supplies the two
     judgment fields (recommended_next, distillation). Read back by a new run before it iterates."""
@@ -190,6 +198,7 @@ def _build_run_summary(
         "dead_ends": [_summary_item(it) for it in dead_ends],
         "recommended_next": recommended_next or "",
         "distillation": distillation or "",
+        "report_notebook_short_id": report_notebook_short_id,
     }
 
 
@@ -293,10 +302,11 @@ def _read_uploaded_bundle(training_run: AutoresearchTrainingRun) -> artifacts.Ar
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
         raise
     # The uploaded features.sql is what fitting and scoring actually execute, and the agent
-    # can upload SQL that never went through iteration recording — validate the real file.
+    # can upload SQL that never went through iteration recording — validate the real file,
+    # with the rule inference adds, so a champion is never committed with SQL its fit refuses.
     try:
-        validate_feature_sql(bundle.features_sql)
-    except RecipeValidationError as exc:
+        validate_runnable_feature_sql(bundle.features_sql, source="features.sql")
+    except SandboxInferenceError as exc:
         raise PromotionError(f"Uploaded bundle's features.sql failed validation: {exc}") from exc
     return bundle
 
@@ -308,6 +318,7 @@ def complete_training_run(
     model_explanation: dict[str, Any] | None = None,
     recommended_next: str = "",
     distillation: str = "",
+    report_notebook_short_id: str = "",
 ) -> dict[str, Any]:
     """Finalize a run: pick the best iteration, decide champion vs challenger, persist the model."""
     # The TaskRun safety net calls this from a worker thread, where no request has set a
@@ -320,17 +331,32 @@ def complete_training_run(
         current = AutoresearchTrainingRun.objects.select_related("pipeline").get(pk=training_run.pk)
         if current.status not in _FINALIZABLE_STATUSES:
             return _already_finalized(current)
-        # Reading the bundle is three object-storage calls. It happens before the transaction
-        # so a slow or unavailable store cannot hold the training run and its pipeline locked.
-        bundle = _read_uploaded_bundle(current)
         return _finalize_under_lock(
             current,
-            bundle=bundle,
             best_iteration_id=best_iteration_id,
             model_explanation=model_explanation,
             recommended_next=recommended_next,
             distillation=distillation,
+            report_notebook_short_id=_verified_report_notebook(current, report_notebook_short_id),
         )
+
+
+def _verified_report_notebook(training_run: AutoresearchTrainingRun, short_id: str) -> str:
+    """
+    The agent's notebook short id if that notebook exists in the run's team, else "".
+    The model result matters more than the report, so a bad id or a failed check never fails completion.
+    """
+    short_id = (short_id or "").strip()
+    if not short_id:
+        return ""
+    try:
+        if notebooks_facade.notebook_exists(training_run.team_id, short_id, include_deleted=False):
+            return short_id
+    except Exception:
+        logger.exception("autoresearch_report_notebook_check_failed", training_run_id=str(training_run.pk))
+        return ""
+    logger.warning("autoresearch_report_notebook_not_found", training_run_id=str(training_run.pk))
+    return ""
 
 
 def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
@@ -344,34 +370,192 @@ def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
     pipeline.save(update_fields=["status", "updated_at"])
 
 
-def _schedule_champion_fit(*, pipeline: AutoresearchPipeline, prefix: str, training_run_id: str) -> None:
-    """The train run produces the serving artifact: fit the champion and persist model.pkl so
+def _schedule_model_fit(
+    *,
+    pipeline: AutoresearchPipeline,
+    bundle: artifacts.ArtifactBundle,
+    prefix: str,
+    training_run: AutoresearchTrainingRun,
+    model_id: str,
+    promoted: bool,
+    previous_champion_id: str | None,
+    previous_status: str | None,
+) -> None:
+    """The train run produces the serving artifact: fit the model and persist model.pkl so
     predict runs are pure inference. Deferred to on_commit, because the sandbox and the
     object-storage write are side effects that must not run inside the atomic block, and the
-    fit only makes sense once the row is durably committed. A failure leaves the champion
-    without a model.pkl, and every scoring run then fails until a later promotion fits one."""
+    fit only makes sense once the row is durably committed. A failed challenger fit keeps the
+    challenger out of the shadow set. The fit labels at the run's anchor instant, so it sees
+    the anchor set the agent scored.
+
+    After a champion fit, the bundle's features.sql runs against today's inference anchors under
+    the scoring limits. A failed fit, a failed check, or a check over ``SCORABILITY_TIME_BUDGET_S``
+    rolls the promotion back, because a champion that cannot score fails every cadence and no
+    other path replaces it."""
+    training_run_id = str(training_run.id)
+    anchor_ts = training_run.anchor_ts
+
+    def roll_back(reason: str, cost: QueryCost | None = None) -> None:
+        _roll_back_promotion(
+            pipeline=pipeline,
+            training_run_id=training_run_id,
+            model_id=model_id,
+            previous_champion_id=previous_champion_id,
+            previous_status=previous_status,
+            reason=reason,
+            cost=cost,
+        )
 
     def _fit_after_commit() -> None:
         # Every failure is caught, not only SandboxInferenceError: the run is already
         # committed, so raising here would report a failed completion for a finished run
         # that a retry can only answer with its no-op.
         try:
-            fit_champion_model(team=pipeline.team, pipeline=pipeline, prefix=prefix)
+            try:
+                fit_champion_model(
+                    team=pipeline.team,
+                    pipeline=pipeline,
+                    prefix=prefix,
+                    bundle=bundle,
+                    anchor_ts=anchor_ts,
+                    model_id=model_id,
+                )
+            except Exception as exc:
+                logger.exception("autoresearch_model_fit_failed", training_run_id=training_run_id, prefix=prefix)
+                if promoted:
+                    roll_back(f"The champion fit failed: {exc}")
+                return
+            if not promoted:
+                _mark_fitted(team_id=pipeline.team_id, model_id=model_id)
+                return
+            try:
+                cost = check_scorability(team=pipeline.team, pipeline=pipeline, feature_sql=bundle.features_sql)
+            except Exception as exc:
+                logger.exception("autoresearch_champion_unscorable", training_run_id=training_run_id, prefix=prefix)
+                roll_back(f"features.sql failed against today's inference anchors: {exc}")
+                return
+            if cost.elapsed_s > SCORABILITY_TIME_BUDGET_S:
+                roll_back(
+                    f"features.sql took {cost.elapsed_s:.0f}s against today's inference anchors, "
+                    f"above the {SCORABILITY_TIME_BUDGET_S:.0f}s budget for a scoring run",
+                    cost,
+                )
+                return
+            _mark_fitted(team_id=pipeline.team_id, model_id=model_id, cost=cost)
         except Exception:
-            logger.exception("autoresearch_champion_fit_failed", training_run_id=training_run_id, prefix=prefix)
+            logger.exception("autoresearch_model_fit_failed", training_run_id=training_run_id, prefix=prefix)
 
     transaction.on_commit(_fit_after_commit)
+
+
+def _scorability_metrics(cost: QueryCost) -> dict[str, Any]:
+    return {
+        "scorability_elapsed_s": cost.elapsed_s,
+        "scorability_rows_read": cost.rows_read,
+    }
+
+
+def _mark_fitted(*, team_id: int, model_id: str, cost: QueryCost | None = None) -> None:
+    """A rolled-back champion is never marked, so it stays out of the shadow set."""
+    with team_scope(team_id), transaction.atomic():
+        model = AutoresearchModel.objects.for_team(team_id).select_for_update().filter(pk=model_id).first()
+        if model is None:
+            return
+        model.metrics = {
+            **(model.metrics or {}),
+            **(_scorability_metrics(cost) if cost else {}),
+            FITTED_METRIC_KEY: True,
+        }
+        model.save(update_fields=["metrics", "updated_at"])
+    if cost is not None:
+        logger.info("autoresearch_champion_scorable", model_id=model_id, **_scorability_metrics(cost))
+
+
+def _roll_back_promotion(
+    *,
+    pipeline: AutoresearchPipeline,
+    training_run_id: str,
+    model_id: str,
+    previous_champion_id: str | None,
+    previous_status: str | None,
+    reason: str,
+    cost: QueryCost | None,
+) -> None:
+    """
+    Demote the candidate to a challenger and bring back the champion it replaced.
+
+    The pipeline row lock serializes this with a promotion of a later run. A candidate that is
+    no longer the champion was already replaced, so nothing changes. A scoring run that started
+    with the candidate fails in ``_require_still_champion()`` before it emits.
+    """
+    team_id = pipeline.team_id
+    with team_scope(team_id), transaction.atomic():
+        locked = AutoresearchPipeline.objects.for_team(team_id).select_for_update(no_key=True).get(pk=pipeline.pk)
+        candidate = (
+            AutoresearchModel.objects.for_team(team_id)
+            .select_for_update()
+            .filter(pk=model_id, pipeline=locked, role=AutoresearchModel.Role.CHAMPION)
+            .first()
+        )
+        if candidate is None:
+            logger.warning("autoresearch_champion_rollback_superseded", pipeline_id=str(pipeline.pk), model_id=model_id)
+            return
+        candidate.role = AutoresearchModel.Role.CHALLENGER
+        candidate.promoted_at = None
+        candidate.metrics = {
+            **(candidate.metrics or {}),
+            **(_scorability_metrics(cost) if cost else {}),
+            "not_promoted_reason": reason,
+        }
+        candidate.save(update_fields=["role", "promoted_at", "metrics"])
+
+        restored = None
+        if previous_champion_id is not None:
+            restored = (
+                AutoresearchModel.objects.for_team(team_id)
+                .select_for_update()
+                .filter(pk=previous_champion_id, pipeline=locked, role=AutoresearchModel.Role.ARCHIVED)
+                .first()
+            )
+        if restored is not None:
+            restored.role = AutoresearchModel.Role.CHAMPION
+            restored.archived_at = None
+            restored.save(update_fields=["role", "archived_at"])
+        elif previous_status is not None and locked.status == AutoresearchPipeline.Status.RUNNING:
+            # The candidate was the first champion and made the pipeline live. With no champion
+            # the daily sweep fails every cadence, so the pipeline goes back to waiting for one.
+            locked.status = previous_status
+            locked.save(update_fields=["status", "updated_at"])
+
+        training_run = (
+            AutoresearchTrainingRun.objects.for_team(team_id).select_for_update().filter(pk=training_run_id).first()
+        )
+        if training_run is not None and training_run.summary:
+            # The next run reads this summary as the champion it has to beat.
+            training_run.summary = {
+                **training_run.summary,
+                "champion_promoted": False,
+                "champion_model_class": str((restored.model_recipe or {}).get("model_class", "")) if restored else "",
+            }
+            training_run.save(update_fields=["summary"])
+    logger.warning(
+        "autoresearch_champion_rolled_back",
+        pipeline_id=str(pipeline.pk),
+        model_id=model_id,
+        restored_model_id=str(restored.pk) if restored else None,
+        reason=reason,
+    )
 
 
 @transaction.atomic
 def _finalize_under_lock(
     training_run: AutoresearchTrainingRun,
     *,
-    bundle: artifacts.ArtifactBundle | None,
     best_iteration_id: UUID | None,
     model_explanation: dict[str, Any] | None,
     recommended_next: str,
     distillation: str,
+    report_notebook_short_id: str,
 ) -> dict[str, Any]:
     # Re-fetch under lock and re-check status inside the transaction. Both callers (the
     # complete API action and the TaskRun post_save safety net) guard on status outside
@@ -382,6 +566,11 @@ def _finalize_under_lock(
     )
     if training_run.status not in _FINALIZABLE_STATUSES:
         return _already_finalized(training_run)
+    # The artifact endpoints write the bundle under this same row lock, so a bundle read here
+    # is the bundle the champion will point at. Read before the lock, an upload landing in
+    # between would be fitted without ever being validated. The cost is three object-storage
+    # reads of agent-authored text while the row is locked.
+    bundle = _read_uploaded_bundle(training_run)
 
     pipeline = training_run.pipeline
     now = django_timezone.now()
@@ -413,13 +602,35 @@ def _finalize_under_lock(
 
     best_score = best.holdout_score
     candidate_score = best.holdout_score or 0.0
+    # The pipeline lock serializes this promotion with the rollback of an unscorable champion.
+    AutoresearchPipeline.objects.select_for_update(no_key=True).get(pk=pipeline.pk)
     current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
     is_cold_start = current is None
+    # A stub champion's score is a fixed placeholder, not a measurement, so any trained candidate replaces it.
+    replaces_stub = current is not None and bool((current.metrics or {}).get("stub"))
+    # A champion that cannot score serves nothing, so its holdout score is no bar either. The
+    # fit and the scorability check still run, and roll the candidate back if it cannot score.
+    unscorable = find_unscorable_champion(current)
+    # A champion trained on T0s at any second has a holdout score from part-day features that
+    # scoring never sees, so the score is inflated and no bar for a model trained on UTC days.
+    anchor_changed = current is not None and (current.metrics or {}).get("anchor_alignment") != ANCHOR_ALIGNMENT
     beats_champion = current is not None and _beats_incumbent(candidate_score, current.holdout_score or 0.0)
+
+    promotion_reason = ""
+    if is_cold_start:
+        promotion_reason = "cold_start"
+    elif replaces_stub:
+        promotion_reason = "replaced_stub"
+    elif unscorable is not None:
+        promotion_reason = "replaced_unscorable"
+    elif anchor_changed:
+        promotion_reason = "replaced_anchor_change"
+    elif beats_champion:
+        promotion_reason = "beat_champion"
 
     promoted = False
     role: str
-    if is_cold_start or beats_champion:
+    if promotion_reason:
         if current is not None:
             AutoresearchModel.objects.filter(pk=current.pk).update(
                 role=AutoresearchModel.Role.ARCHIVED, archived_at=now
@@ -441,6 +652,8 @@ def _finalize_under_lock(
             "holdout_auc": candidate_score,
             "source": "agent_recorded",
             "artifact_bundle": bool(artifact_prefix),
+            "anchor_alignment": ANCHOR_ALIGNMENT,
+            **({"promotion_reason": promotion_reason} if promotion_reason else {}),
         },
         source_training_run=training_run,
         agent_description=best.agent_description,
@@ -462,15 +675,28 @@ def _finalize_under_lock(
         champion_model_class=_serving_model_class(promoted=promoted, model=model, incumbent=current),
         recommended_next=recommended_next,
         distillation=distillation,
+        report_notebook_short_id=report_notebook_short_id,
     )
     training_run.save(update_fields=["status", "iteration_count", "best_holdout_score", "summary", "completed_at"])
 
+    status_before = pipeline.status
     if promoted:
         _activate_pipeline(pipeline)
-        # A rejected challenger is not fitted: inference reads the champion only, and no path
-        # promotes a challenger row later, so its fit would cost a sandbox run for nothing.
-        if artifact_prefix:
-            _schedule_champion_fit(pipeline=pipeline, prefix=artifact_prefix, training_run_id=str(training_run.id))
+    # A challenger is fitted only when it enters the shadow set, because nothing else loads
+    # its model.pkl.
+    if bundle is not None and (
+        promoted or any(member.pk == model.pk for member in shadow_set(pipeline, now=now, pending_fit=model.pk))
+    ):
+        _schedule_model_fit(
+            pipeline=pipeline,
+            bundle=bundle,
+            prefix=artifact_prefix,
+            training_run=training_run,
+            model_id=str(model.pk),
+            promoted=promoted,
+            previous_champion_id=str(current.pk) if promoted and current is not None else None,
+            previous_status=status_before if status_before != pipeline.status else None,
+        )
 
     return {
         "promoted": promoted,

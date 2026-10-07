@@ -26,17 +26,21 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
+    ci_engine_field,
 )
 
 
 class WorkflowRunDetailSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions run id."},
-            "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer run id; unique only together with ci_engine."},
+            "workflow_name": {"help_text": "CI workflow name."},
             "head_sha": {"help_text": "Commit SHA the run was triggered on."},
             "head_branch": {"help_text": "Git branch the run was triggered on."},
             "status": {"help_text": "Raw run status: 'queued', 'in_progress', 'completed', etc."},
@@ -77,10 +81,12 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
 
 
 class WorkflowRunActivityPointSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id."},
+            "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
                 "or null while still in progress.",
@@ -117,10 +123,16 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
 
 
 class WorkflowJobSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions job id."},
+            "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
+            "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer job id; unique only together with ci_engine."},
             "run_id": {"help_text": "The workflow run id this job belongs to."},
             "name": {"help_text": "Job name."},
             "status": {"help_text": "Raw job status: 'queued', 'in_progress', 'completed', etc."},
@@ -182,6 +194,7 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
 
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
+    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -204,14 +217,17 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
-                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
+                "help_text": "Median duration in seconds over successful runs only: cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are "
+                "excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if "
+                "no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
-                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
-                "in the window.",
+                "help_text": "95th-percentile duration in seconds over successful runs only: cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did "
+                "no work are excluded when longer successful runs exist. An all-fast workflow uses every successful "
+                "run. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -250,7 +266,8 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "percentile_run_count": {
-                "help_text": "Successful runs that did real CI work. This is the p50/p95 sample count."
+                "help_text": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to "
+                "shorter successful runs."
             },
             "merge_queue_run_count": {
                 "help_text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless "
@@ -431,7 +448,7 @@ class RepoOverviewSerializer(DataclassSerializer):
         extra_kwargs = {
             "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
             "run_count_prev": {
-                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+                "help_text": "Same count over the equal-length window immediately before date_from: the delta baseline."
             },
             "success_rate": {
                 "help_text": "Fraction of conclusive runs that succeeded (0-1) in the window. Skipped, cancelled, "
@@ -445,8 +462,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
             "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
             "merged_pr_count": {
-                "help_text": "PRs merged in the window, all authors and bots included — the merge population "
-                "that triggered the CI spend, so it divides cleanly into billable_minutes and estimated_cost_usd."
+                "help_text": "PRs merged in the window, all authors and bots included. billable_minutes and "
+                "estimated_cost_usd cover every run in the window, including default-branch and unmerged PR runs, "
+                "so dividing them by this count spreads all CI spend over the merges."
             },
             "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
             "median_open_to_merge_seconds": {
@@ -488,7 +506,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "cost_per_merge_usd": {
-                "help_text": "estimated_cost_usd divided by merged_pr_count — the window's CI cost per merged "
+                "help_text": "estimated_cost_usd divided by merged_pr_count: the window's CI cost per merged "
                 "PR. Null when the job-level source isn't synced or nothing merged.",
                 "allow_null": True,
             },
@@ -508,7 +526,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "merge_queue_merged_pr_count": {
-                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run — "
+                "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run: "
                 "the population behind every merge_queue_* landing stat. All authors, bots included."
             },
             "merge_queue_merged_pr_count_prev": {"help_text": "Queue-landed merges over the previous window."},
@@ -523,7 +541,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "merge_queue_p90_first_gate_to_merge_seconds": {
-                "help_text": "p90 of the same first-gate-run-to-merge measure — the tail, where queue pain "
+                "help_text": "p90 of the same first-gate-run-to-merge measure: the tail, where queue pain "
                 "concentrates. Null when no queue-landed merges.",
                 "allow_null": True,
             },
@@ -602,7 +620,7 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "median_time_to_green_seconds": {
-                "help_text": "Median wall clock for a PR push round to settle fully green over the window — the "
+                "help_text": "Median wall clock for a PR push round to settle fully green over the window: the "
                 "window-level twin of time_to_green_series, same population and exclusions. Null when no fully "
                 "green rounds.",
                 "allow_null": True,
@@ -650,6 +668,7 @@ class CurrentBranchHealthSerializer(DataclassSerializer):
 
 
 class MasterFailureGroupSerializer(DataclassSerializer):
+    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
@@ -657,18 +676,19 @@ class MasterFailureGroupSerializer(DataclassSerializer):
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
             "failed_job": {
-                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped): the group's failure "
                 "signature together with the workflow. '' when the job-level source isn't synced and the group "
                 "degrades to workflow level."
             },
             "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
             "first_seen": {"help_text": "When the oldest failing run in the group started."},
             "last_seen": {"help_text": "When the newest failing run in the group started."},
-            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run: the drill-down anchor."},
         }
 
 
 class RunFailureLogsSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )
@@ -678,7 +698,7 @@ class RunFailureLogsSerializer(DataclassSerializer):
         extra_kwargs = {
             "run_id": {"help_text": "Workflow run id the failure logs are for."},
             "logs_available": {
-                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "help_text": "False when no failure logs were found: the run didn't fail, or its logs aged out of "
                 "the short Logs retention.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
@@ -707,12 +727,12 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "help_text": "Median duration of successful job instances, in seconds: cancelled and failed "
                 "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "help_text": "95th-percentile duration of successful job instances, in seconds: cancelled and "
                 "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },

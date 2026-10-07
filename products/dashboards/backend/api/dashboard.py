@@ -29,7 +29,7 @@ from django.db.models import (
     UUIDField,
     Value,
 )
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.http.response import HttpResponseBase
 from django.shortcuts import get_object_or_404
 from django.utils.functional import SimpleLazyObject
@@ -121,6 +121,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
     MAX_WIDGETS_BATCH_SIZE,
     RUN_INSIGHTS_DEFAULT_MAX_RESULT_CHARS,
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
@@ -152,11 +153,8 @@ from products.dashboards.backend.widget_access import (
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
-from products.dashboards.backend.widget_create import prepare_widget_tile_create
-from products.dashboards.backend.widget_layouts import (
-    collect_dashboard_sm_layouts_for_dashboard,
-    stack_widget_layout_at_bottom,
-)
+from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
+from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
@@ -187,6 +185,14 @@ from products.product_analytics.backend.presentation.insight import (
 )
 
 from ee.hogai.utils.aio import async_to_sync
+
+AGENT_CONTEXT_HELP_TEXT = (
+    "Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, "
+    "data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the "
+    "semantic layer. Store canonical metric definitions there, not in this field. "
+    "An empty string or null means there is no agent context. Shared and exported dashboards, and organizations "
+    "without AI data processing approval, omit this field. Max 10000 characters."
+)
 
 
 def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
@@ -643,6 +649,14 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
             "max_length": "Tile body cannot exceed 4000 characters",
         },
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     layouts = TileLayoutsSerializer(
         required=False,
         help_text=(
@@ -676,6 +690,14 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
             "min_length": "Text body cannot be empty",
             "max_length": "Text body cannot exceed 4000 characters",
         },
+    )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
         required=False,
@@ -871,6 +893,14 @@ class TextSerializer(serializers.ModelSerializer):
         allow_null=True,
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
+    agent_context = serializers.CharField(
+        max_length=MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text=AGENT_CONTEXT_HELP_TEXT,
+        error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
+    )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
@@ -880,6 +910,13 @@ class TextSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Text) -> dict[str, Any]:
         representation = super().to_representation(instance)
+        if self.context.get("is_shared"):
+            representation.pop("agent_context", None)
+        else:
+            get_team = self.context.get("get_team")
+            team = get_team() if callable(get_team) else instance.team
+            if not team.organization.is_ai_data_processing_approved:
+                representation.pop("agent_context", None)
         _hide_extra_details(self.context, representation)
         return representation
 
@@ -1053,7 +1090,7 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
 
 
 class InsightResultSerializer(InsightSerializer):
-    """InsightSerializer restricted to identifiers + result only."""
+    """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
     class Meta:
         model = Insight
@@ -1063,6 +1100,7 @@ class InsightResultSerializer(InsightSerializer):
             "name",
             "derived_name",
             "result",
+            "warnings",
         ]
         read_only_fields = fields
 
@@ -1199,14 +1237,21 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {"help_text": "Description of the dashboard."},
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
-            "restriction_level": {"help_text": "Controls who can edit the dashboard."},
+            "restriction_level": {
+                "help_text": (
+                    "Only restriction level 21 is accepted on create and update. "
+                    "Legacy value 37 is deprecated and rejected."
+                )
+            },
         }
 
+    @extend_schema_field(serializers.ChoiceField(choices=RestrictionLevel.choices))
     def get_effective_restriction_level(self, dashboard: Dashboard) -> RestrictionLevel:
         if self.context.get("is_shared"):
             return RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
+    @extend_schema_field(serializers.ChoiceField(choices=PrivilegeLevel.choices))
     def get_effective_privilege_level(self, dashboard: Dashboard) -> PrivilegeLevel:
         if self.context.get("is_shared"):
             return PrivilegeLevel.CAN_VIEW
@@ -1291,6 +1336,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
+    restriction_level = serializers.ChoiceField(
+        choices=RestrictionLevel.choices,
+        required=False,
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
+    )
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
     breakdown_colors = BreakdownColorsField(
         child=BreakdownColorConfigSerializer(),
@@ -1332,7 +1384,20 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+        ]
+
+    def validate_restriction_level(self, value: int) -> int:
+        if value == RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+            raise serializers.ValidationError(
+                "Collaborator-only dashboard access is no longer supported. Set the restriction level to 21."
+            )
+        return value
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -1581,7 +1646,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+        ]
 
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
@@ -1683,42 +1754,43 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "layout_compaction": layout_compaction,
             }
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+        with transaction.atomic():
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        if use_template:
-            try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
+            if use_template:
+                try:
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
+                except (AttributeError, ValueError) as error:
+                    logger.error(
+                        "dashboard_create.create_from_template_failed",
+                        team_id=team_id,
+                        template=use_template,
+                        error=error,
+                        exc_info=True,
+                    )
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+
+            elif existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
                 )
-            except AttributeError as error:
-                logger.error(
-                    "dashboard_create.create_from_template_failed",
-                    team_id=team_id,
-                    template=use_template,
-                    error=error,
-                    exc_info=True,
-                )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
-
-        # Manual tag creation since this create method doesn't call super()
-        self._attempt_set_tags(tags, dashboard)
+            # Manual tag creation since this create method doesn't call super()
+            self._attempt_set_tags(tags, dashboard)
 
         report_user_action(
             request.user,
@@ -2498,6 +2570,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+class DashboardWriteOpenApiSerializer(DashboardSerializer):
+    # Existing dashboards may return 37, but write requests must not accept it.
+    restriction_level = serializers.IntegerField(  # type: ignore[assignment]
+        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
+        required=False,
+        help_text=(
+            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
+        ),
+    )
+
+
 class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
     created = serializers.BooleanField(
         help_text="Whether a nudge notification was created. False when one was already sent recently "
@@ -2543,13 +2627,29 @@ class DashboardSubscribeNudgeResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Exclude dashboards that PostHog generated.",
             ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=["-last_viewed_at"],
+                description=(
+                    "Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard "
+                    "you never viewed sorts by its creation time. This order replaces the search relevance order."
+                ),
+            ),
         ],
     ),
     # Dashboards nest insight payloads via `tiles[].insight`, so the deprecated-`dashboards`-field
     # opt-in applies here too — on every action whose response uses DashboardSerializer.
-    create=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    create=extend_schema(
+        request=DashboardWriteOpenApiSerializer,
+        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
+    ),
     retrieve=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
-    update=extend_schema(parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
+    update=extend_schema(
+        request=DashboardWriteOpenApiSerializer,
+        parameters=[INCLUDE_DASHBOARDS_PARAMETER],
+    ),
     partial_update=extend_schema(request=PatchedDashboardOpenApiSerializer, parameters=[INCLUDE_DASHBOARDS_PARAMETER]),
 )
 class DashboardsViewSet(
@@ -2562,7 +2662,7 @@ class DashboardsViewSet(
     scope_object = "dashboard"
     # Record a tags change per dashboard when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Dashboard"
-    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
+    queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name", "id")
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
@@ -2607,7 +2707,10 @@ class DashboardsViewSet(
         if folder is not None:
             queryset = self._apply_folder_filter(queryset, folder)
 
-        return drop_similar_when_exact_exists(queryset)
+        queryset = drop_similar_when_exact_exists(queryset)
+        if self.action == "list" and self.request.query_params.get("ordering") == "-last_viewed_at":
+            queryset = queryset.order_by(Coalesce("last_viewed_at", "created_at").desc(), "-id")
+        return queryset
 
     @staticmethod
     def _apply_folder_filter(queryset: QuerySet, folder: str) -> QuerySet:
@@ -2648,7 +2751,7 @@ class DashboardsViewSet(
             span_prefix="dashboard.search",
             fields=(NAME_FIELD, DESCRIPTION_FIELD),
             include_tag_search=True,
-            tiebreakers=("-pinned", "name"),
+            tiebreakers=("-pinned", "name", "id"),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
@@ -2746,7 +2849,7 @@ class DashboardsViewSet(
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
         if self.action == "list" and self.request.query_params.get("pinned") == "true":
-            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name")
+            queryset = queryset.filter(pinned=True).order_by(F("last_viewed_at").desc(nulls_last=True), "name", "id")
 
         # Allow filtering by creation_mode query param
         creation_mode = self.request.query_params.get("creation_mode")
@@ -3129,6 +3232,7 @@ class DashboardsViewSet(
         with transaction.atomic():
             text = Text.objects.create(
                 body=validated["body"],
+                agent_context=validated.get("agent_context"),
                 team=dashboard.team,
                 created_by=user,
                 last_modified_at=now(),
@@ -3176,6 +3280,8 @@ class DashboardsViewSet(
             text = tile.text
             if "body" in validated:
                 text.body = validated["body"]
+            if "agent_context" in validated:
+                text.agent_context = validated["agent_context"]
             text.last_modified_by = user
             text.last_modified_at = now()
             text.save()
@@ -3574,43 +3680,13 @@ class DashboardsViewSet(
         existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
         pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
     ) -> DashboardTile:
-        widget_type = payload["widget_type"]
-        config = payload["config"]
-        normalized_widget_type, validated_config = prepare_widget_tile_create(
-            team=self.team,
-            widget_type=widget_type,
-            config=config,
+        return create_widget_tile(
+            dashboard=dashboard,
             user=user,
             user_access_control=user_access_control,
-        )
-        _check_dashboard_widget_count_limit(dashboard=dashboard, user=user)
-        layouts = payload.get("layouts")
-        if layouts is None:
-            layouts = stack_widget_layout_at_bottom(
-                widget_type=normalized_widget_type,
-                existing_sm_layouts=existing_sm_layouts or [],
-                pending_sm_layouts=pending_sm_layouts,
-            )
-        tile_defaults: dict[str, Any] = {
-            "layouts": layouts,
-        }
-        if "show_description" in payload:
-            tile_defaults["show_description"] = payload["show_description"]
-
-        widget = DashboardWidget.objects.create(
-            team_id=self.team_id,
-            widget_type=normalized_widget_type,
-            name=payload.get("name") or None,
-            description=payload.get("description", ""),
-            config=validated_config,
-            created_by=user,
-            last_modified_by=user,
-        )
-        return DashboardTile.objects.create(
-            dashboard=dashboard,
-            team_id=dashboard.team_id,
-            widget=widget,
-            **tile_defaults,
+            payload=payload,
+            existing_sm_layouts=existing_sm_layouts,
+            pending_sm_layouts=pending_sm_layouts,
         )
 
     @extend_schema(

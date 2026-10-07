@@ -9,6 +9,7 @@ from posthog.hogql.database.lazy_join_tags import TICKET_ASSIGNMENT, TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
+    DateDatabaseField,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
@@ -254,7 +255,7 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
         ),
         "data_interval_end": DateTimeDatabaseField(
             name="data_interval_end",
-            nullable=False,
+            nullable=True,
             description="End of the time range covered by the run",
         ),
         "status": StringDatabaseField(
@@ -1064,6 +1065,159 @@ autoresearch_pipelines: PostgresTable = PostgresTable(
     },
 )
 
+autoresearch_training_runs: PostgresTable = PostgresTable(
+    name="autoresearch_training_runs",
+    postgres_table_name="autoresearch_autoresearchtrainingrun",
+    access_scope="autoresearch",
+    description="Autoresearch training runs; one row per bounded agent session that searches for a better model for a pipeline.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Training run UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", description="Team the training run belongs to."),
+        "pipeline_id": UUIDDatabaseField(
+            name="pipeline_id", description="Pipeline the run trains for; joins to autoresearch_pipelines.id."
+        ),
+        "task_id": UUIDDatabaseField(
+            name="task_id", nullable=True, description="Task that runs the agent sandbox; joins to tasks.id."
+        ),
+        "task_run_id": UUIDDatabaseField(
+            name="task_run_id", nullable=True, description="Task run of the agent sandbox; joins to task_runs.id."
+        ),
+        "status": StringDatabaseField(name="status", description="One of pending, running, completed, failed."),
+        "iteration_budget": IntegerDatabaseField(
+            name="iteration_budget", description="Maximum iterations the run may record."
+        ),
+        "iteration_count": IntegerDatabaseField(name="iteration_count", description="Iterations the run recorded."),
+        "best_holdout_score": FloatDatabaseField(
+            name="best_holdout_score",
+            nullable=True,
+            description="Best holdout AUC (0 to 1) of the run's iterations (NULL before the first scored iteration).",
+        ),
+        "error": StringDatabaseField(name="error", description="Failure message; blank when the run did not fail."),
+        "summary": StringJSONDatabaseField(
+            name="summary",
+            description="JSON summary written on completion: champion, kept iterations, dead ends, and next steps.",
+        ),
+        "started_at": DateTimeDatabaseField(
+            name="started_at", nullable=True, description="When the run started (NULL while pending)."
+        ),
+        "completed_at": DateTimeDatabaseField(
+            name="completed_at", nullable=True, description="When the run finished (NULL while it is not finished)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the run was created."),
+    },
+)
+
+autoresearch_iterations: PostgresTable = PostgresTable(
+    name="autoresearch_iterations",
+    postgres_table_name="autoresearch_autoresearchiteration",
+    access_scope="autoresearch",
+    description="Autoresearch iterations; one row per model attempt inside a training run.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Iteration UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", description="Team the iteration belongs to."),
+        "pipeline_id": UUIDDatabaseField(
+            name="pipeline_id", description="Pipeline of the iteration; joins to autoresearch_pipelines.id."
+        ),
+        "training_run_id": UUIDDatabaseField(
+            name="training_run_id",
+            description="Training run that recorded the iteration; joins to autoresearch_training_runs.id.",
+        ),
+        "iteration_number": IntegerDatabaseField(
+            name="iteration_number", description="Position of the iteration in its training run."
+        ),
+        "recipe_hash": StringDatabaseField(
+            name="recipe_hash", description="SHA-256 of the recipe the iteration tried."
+        ),
+        "model_spec": StringJSONDatabaseField(
+            name="model_spec", description="JSON of the model class and hyperparameters the iteration tried."
+        ),
+        "train_score": FloatDatabaseField(
+            name="train_score", nullable=True, description="Training AUC (0 to 1); NULL when not measured."
+        ),
+        "holdout_score": FloatDatabaseField(
+            name="holdout_score", nullable=True, description="Holdout AUC (0 to 1); NULL when not measured."
+        ),
+        "status": StringDatabaseField(name="status", description="One of kept, discarded, crashed."),
+        "agent_description": StringDatabaseField(
+            name="agent_description", description="What the agent changed and why; blank when unset."
+        ),
+        "agent_confidence": FloatDatabaseField(
+            name="agent_confidence",
+            nullable=True,
+            description="Confidence (0 to 1) the agent gave for the iteration; NULL when unset.",
+        ),
+        "parent_suggestion_id": UUIDDatabaseField(
+            name="parent_suggestion_id",
+            nullable=True,
+            description="Suggestion that started the iteration (NULL when none).",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the iteration was recorded."),
+    },
+)
+
+autoresearch_models: PostgresTable = PostgresTable(
+    name="autoresearch_models",
+    postgres_table_name="autoresearch_autoresearchmodel",
+    access_scope="autoresearch",
+    description="Autoresearch models; one row per trained model of a pipeline, with role champion, challenger, or archived.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Model UUID."),
+        "team_id": IntegerDatabaseField(name="team_id", description="Team the model belongs to."),
+        "pipeline_id": UUIDDatabaseField(
+            name="pipeline_id", description="Pipeline of the model; joins to autoresearch_pipelines.id."
+        ),
+        "role": StringDatabaseField(name="role", description="One of champion, challenger, archived."),
+        "recipe_hash": StringDatabaseField(name="recipe_hash", description="SHA-256 of the model's recipe."),
+        "holdout_score": FloatDatabaseField(
+            name="holdout_score", nullable=True, description="Offline holdout AUC (0 to 1); NULL when not measured."
+        ),
+        "realized_score": FloatDatabaseField(
+            name="realized_score",
+            nullable=True,
+            description="AUC (0 to 1) against real outcomes once labels mature; NULL until then.",
+        ),
+        "calibration_error": FloatDatabaseField(
+            name="calibration_error", nullable=True, description="Calibration error; NULL when not measured."
+        ),
+        "metrics": StringJSONDatabaseField(
+            name="metrics", description="JSON bundle of train, holdout, and realized metrics."
+        ),
+        "model_explanation": StringJSONDatabaseField(
+            name="model_explanation",
+            description="JSON of feature importance, direction, stability, and leakage warnings.",
+        ),
+        "negative_sample_rate": FloatDatabaseField(
+            name="negative_sample_rate",
+            description="Fraction of negative training rows the fit kept; 1.0 means no sampling.",
+        ),
+        "source_training_run_id": UUIDDatabaseField(
+            name="source_training_run_id",
+            nullable=True,
+            description="Training run that produced the model; joins to autoresearch_training_runs.id.",
+        ),
+        "agent_description": StringDatabaseField(
+            name="agent_description", description="Agent description of the model; blank when unset."
+        ),
+        "trained_on_start": DateDatabaseField(
+            name="trained_on_start", nullable=True, description="First day of the training data (NULL when unset)."
+        ),
+        "trained_on_end": DateDatabaseField(
+            name="trained_on_end", nullable=True, description="Last day of the training data (NULL when unset)."
+        ),
+        "is_preliminary": BooleanDatabaseField(
+            name="is_preliminary", description="True until at least one realized validation cycle completes."
+        ),
+        "promoted_at": DateTimeDatabaseField(
+            name="promoted_at", nullable=True, description="When the model became champion (NULL when never)."
+        ),
+        "archived_at": DateTimeDatabaseField(
+            name="archived_at", nullable=True, description="When the model was archived (NULL when not archived)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the model was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the model was last modified."),
+    },
+)
+
 group_type_mappings: PostgresTable = PostgresTable(
     name="group_type_mappings",
     postgres_table_name="posthog_grouptypemapping",
@@ -1254,6 +1408,75 @@ session_recordings: PostgresTable = PostgresTable(
         "retention_period_days": IntegerDatabaseField(
             name="retention_period_days", description="How long the recording is retained, in days."
         ),
+    },
+)
+
+replay_scanners: PostgresTable = PostgresTable(
+    name="replay_scanners",
+    postgres_table_name="replay_vision_replayscanner",
+    access_scope="replay_scanner",
+    access_control_creator_id_field="created_by_id",
+    # Inline scanners are throwaway rows behind one-off scans; REST never lists them either.
+    predicates=[parse_expr("origin = 'configured'")],
+    description="Replay Vision scanners: standing LLM probes over session recordings; one row per saved scanner.",
+    fields={
+        "id": UUIDDatabaseField(
+            name="id",
+            description="Scanner UUID. Cast with toString(id) to join on a string property such as scanner_id.",
+        ),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "origin": StringDatabaseField(name="origin", hidden=True),
+        "name": StringDatabaseField(name="name", description="Scanner name, unique within the project."),
+        "description": StringDatabaseField(name="description", description="Free-text description; blank when unset."),
+        "scanner_type": StringDatabaseField(
+            name="scanner_type", description="One of monitor, classifier, scorer, summarizer."
+        ),
+        "scanner_config": StringJSONDatabaseField(
+            name="scanner_config", description="Type-specific JSON config; always includes the prompt."
+        ),
+        "query": StringJSONDatabaseField(
+            name="query", description="JSON RecordingsQuery selecting the sessions the scanner watches."
+        ),
+        "sampling_rate": FloatDatabaseField(
+            name="sampling_rate", description="Random share of matching sessions scanned, 0 to 1."
+        ),
+        "sampling_mode": StringDatabaseField(
+            name="sampling_mode", description="Quality pre-filter: focused, balanced or comprehensive."
+        ),
+        "model": StringDatabaseField(name="model", description="LLM model that scans each session; sets the price."),
+        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
+        "enabled": ExpressionField(
+            name="enabled",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
+            description="1 when the scanner sweeps new recordings on schedule, 0 otherwise.",
+        ),
+        "_emits_signals": BooleanDatabaseField(name="emits_signals", hidden=True),
+        "emits_signals": ExpressionField(
+            name="emits_signals",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_emits_signals"])]),
+            description="1 when findings are also pushed into the Signals inbox, 0 otherwise.",
+        ),
+        "scanner_version": IntegerDatabaseField(
+            name="scanner_version", description="Config version, bumped on every config edit."
+        ),
+        "credit_limit": IntegerDatabaseField(
+            name="credit_limit",
+            nullable=True,
+            description="Per-period credit cap for this scanner (NULL when uncapped).",
+        ),
+        "estimated_monthly_observations": IntegerDatabaseField(
+            name="estimated_monthly_observations",
+            nullable=True,
+            description="Last projection of observations per month (NULL before the first estimate).",
+        ),
+        "last_swept_at": DateTimeDatabaseField(
+            name="last_swept_at", nullable=True, description="When the scheduled sweep last ran (NULL before it has)."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the scanner (NULL when deleted)."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the scanner was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the scanner was last modified."),
     },
 )
 
@@ -3072,6 +3295,7 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
+        "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
@@ -3086,6 +3310,9 @@ class SystemTables(TableNode):
         "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
         "autoresearch_pipelines": TableNode(name="autoresearch_pipelines", table=autoresearch_pipelines),
+        "autoresearch_training_runs": TableNode(name="autoresearch_training_runs", table=autoresearch_training_runs),
+        "autoresearch_iterations": TableNode(name="autoresearch_iterations", table=autoresearch_iterations),
+        "autoresearch_models": TableNode(name="autoresearch_models", table=autoresearch_models),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),

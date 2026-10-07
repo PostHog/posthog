@@ -1,10 +1,11 @@
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlencode
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -23,7 +24,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import OAuthApplication
+from posthog.models import OAuthApplication, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -40,22 +41,37 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.artefact_schemas import ChannelAssignment
+from products.signals.backend.artefact_schemas import (
+    ChannelAssignment,
+    Dismissal,
+    NoteArtefact,
+    PriorityAssessment,
+    PullRequestLink,
+    RankingModelResult,
+    RankingScore,
+    ReportLink,
+)
+from products.signals.backend.enums import ReportLinkKind, ReportPriority
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
+    implementation_pr_needed_by_another_report,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReportPullRequest,
     SignalReportTask,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.signal_metadata import ReportSignalMeta
+from products.signals.backend.report_assignments import create_claim
+from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_RESEARCH,
@@ -697,6 +713,7 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._priority_artefact(report, priority="P1")
         self._actionability_artefact(report, actionability="immediately_actionable")
+        self._ranking_score_artefact(report)
 
         list_response = self.client.get(self._list_url())
         assert list_response.status_code == status.HTTP_200_OK
@@ -706,6 +723,186 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["artefact_count"] == 2
+
+    def _ranking_score_artefact(
+        self,
+        report: SignalReport,
+        content: str | None = None,
+        scores: dict[str, float] | None = None,
+        heads: list[dict] | None = None,
+        lifts: dict[str, float] | None = None,
+        embedding_inserted_at: datetime | None = None,
+    ) -> SignalReportArtefact:
+        served = RankingModelResult(
+            model_name="report_embeddings",
+            model_version="2026-09-01",
+            model_kind="xgboost",
+            roles=["served"],
+            feature_schema_version=1,
+            status="scored",
+            scores=scores or {"open": 0.5, "merged": 0.2},
+            lifts=lifts or {},
+            metadata={"heads": heads or [{"head": "open", "readable": True}, {"head": "merged", "readable": False}]},
+        )
+        challenger = RankingModelResult(
+            model_name="report_tabular",
+            model_version="2026-09-10",
+            model_kind="xgboost",
+            roles=["challenger"],
+            feature_schema_version=1,
+            status="scored",
+            scores={"open": 0.9},
+        )
+        if content is None:
+            content = RankingScore(
+                scored_at=datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+                embedding_inserted_at=embedding_inserted_at,
+                manifest_version="manifest",
+                served_key=served.key,
+                results={served.key: served, challenger.key: challenger},
+            ).model_dump_json()
+        return SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE, content=content
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "staff_sees_the_served_result",
+                True,
+                None,
+                None,
+                {"open": 2.5},
+                {
+                    "served_key": "report_embeddings@2026-09-01",
+                    "model_name": "report_embeddings",
+                    "model_version": "2026-09-01",
+                    "manifest_version": "manifest",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.5},
+                    "readable_heads": ["open"],
+                    "stale": False,
+                },
+            ),
+            (
+                "legacy_score_without_lifts_computes_them_from_the_metadata",
+                True,
+                None,
+                [
+                    {"head": "open", "readable": True, "refit_classification_threshold": 0.25},
+                    {"head": "merged", "readable": False, "refit_classification_threshold": 0.0},
+                ],
+                None,
+                {
+                    "served_key": "report_embeddings@2026-09-01",
+                    "model_name": "report_embeddings",
+                    "model_version": "2026-09-01",
+                    "manifest_version": "manifest",
+                    "scored_at": "2026-09-20T12:00:00Z",
+                    "scores": {"open": 0.5, "merged": 0.2},
+                    "lifts": {"open": 2.0},
+                    "readable_heads": ["open"],
+                    "stale": False,
+                },
+            ),
+            ("non_staff_sees_nothing", False, None, None, None, None),
+            ("invalid_content_reads_as_none", True, '{"served_key": "missing"}', None, None, None),
+            ("null_readable_head_reads_as_none", True, None, [{"head": None, "readable": True}], None, None),
+        ]
+    )
+    def test_ranking_field_in_the_list_and_the_detail(self, _name, is_staff, content, heads, lifts, expected):
+        self.user.is_staff = is_staff
+        self.user.save()
+        report = self._create_report()
+        stale = self._ranking_score_artefact(report, scores={"open": 0.9})
+        SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self._ranking_score_artefact(report, content=content, heads=heads, lifts=lifts)
+        unscored = self._create_report(title="Unscored")
+
+        list_response = self.client.get(self._list_url())
+        assert list_response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row for row in list_response.json()["results"]}
+        assert rows[str(report.id)]["ranking"] == expected
+        assert rows[str(unscored.id)]["ranking"] is None
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"] == expected
+
+    @parameterized.expand(
+        [
+            ("edit_before_the_scored_vector", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 10, False),
+            ("edit_after_the_vector_before_scored_at", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 11, True),
+            ("edit_after_scored_at_without_a_vector_time", None, 13, True),
+            ("edit_before_scored_at_without_a_vector_time", None, 11, False),
+            ("naive_vector_time_reads_as_not_stale", datetime(2026, 9, 20, 11, 0), 13, False),
+        ]
+    )
+    def test_ranking_score_is_stale_after_a_newer_edit(self, _name, embedding_inserted_at, edit_hour, expected_stale):
+        self.user.is_staff = True
+        self.user.save()
+        edited = self._create_report(title="Edited")
+        other = self._create_report(title="Other")
+        self._ranking_score_artefact(edited, scores={"open": 0.9}, embedding_inserted_at=embedding_inserted_at)
+        self._ranking_score_artefact(other, scores={"open": 0.1})
+        older_edit = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=edited,
+            type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+            content=json.dumps({"old_summary": "a", "new_summary": "b"}),
+        )
+        latest_edit = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=edited,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "Edited"}),
+        )
+        SignalReportArtefact.objects.filter(pk=older_edit.pk).update(created_at=datetime(2026, 9, 20, 9, 0, tzinfo=UTC))
+        SignalReportArtefact.objects.filter(pk=latest_edit.pk).update(
+            created_at=datetime(2026, 9, 20, edit_hour, 30, tzinfo=UTC)
+        )
+
+        list_response = self.client.get(self._list_url(status="ready", ordering="-ranking_open,status,-updated_at"))
+        assert list_response.status_code == status.HTTP_200_OK
+        rows = list_response.json()["results"]
+        by_id = {row["id"]: row for row in rows}
+        assert by_id[str(edited.id)]["ranking"]["stale"] is expected_stale
+        assert by_id[str(other.id)]["ranking"]["stale"] is False
+        ids = [row["id"] for row in rows]
+        expected_order = [str(other.id), str(edited.id)] if expected_stale else [str(edited.id), str(other.id)]
+        assert ids == expected_order
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["stale"] is expected_stale
+
+    def test_patch_response_marks_the_score_stale(self):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, embedding_inserted_at=datetime(2026, 9, 20, 11, 0, tzinfo=UTC))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/", data={"title": "New title"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["stale"] is True
+
+    @parameterized.expand([("staff", True, ["ranking_score"]), ("non_staff", False, [])])
+    def test_artefact_routes_show_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
+        self.user.is_staff = is_staff
+        self.user.save()
+        report = self._create_report()
+        artefact = self._ranking_score_artefact(report)
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["type"] for row in response.json()["results"]] == expected_types
+
+        detail = self.client.get(f"{url}{artefact.id}/")
+        assert detail.status_code == (status.HTTP_200_OK if is_staff else status.HTTP_404_NOT_FOUND)
 
     def test_filter_by_channel_id_narrows_to_that_space(self):
         channel = Channel.objects.create(team=self.team, name="Reports")
@@ -948,6 +1145,65 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
+    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+        self.user.is_staff = True
+        self.user.save()
+        low = self._create_report(title="Low")
+        high = self._create_report(title="High")
+        unscored = self._create_report(title="Unscored")
+        no_head = self._create_report(title="No head")
+        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
+        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
+        self._ranking_score_artefact(no_head, scores={"open": 0.5})
+        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        impossible_time = self._create_report(title="Impossible time")
+        impossible_score = self._ranking_score_artefact(impossible_time, scores={"pr_merged": 0.4})
+        SignalReportArtefact.objects.filter(pk=impossible_score.pk).update(
+            content=impossible_score.content.replace("2026-09-20T12:00:00Z", "2026-02-31T12:00:00Z")
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=impossible_time,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "Impossible time"}),
+        )
+        bad_latest = self._create_report(title="Bad latest")
+        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self._ranking_score_artefact(bad_latest, content="not json")
+
+        response = self.client.get(self._list_url(status="ready", ordering=f"{ordering},status,-updated_at"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        scored = [str(high.id), str(impossible_time.id), str(low.id)]
+        assert ids[:3] == (scored if ordering.startswith("-") else scored[::-1])
+        assert set(ids[3:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
+
+    @parameterized.expand(
+        [
+            ("ordering", {"ordering": "-ranking_open,status"}, "ordering"),
+            ("created_after", {"created_after": "last week"}, "created_after"),
+        ]
+    )
+    def test_list_rejects_invalid_params_with_400(self, _name, query, attr):
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get(self._list_url(**query))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+
+    def test_created_after_keeps_reports_created_since(self):
+        recent = self._create_report(title="Recent")
+        old = self._create_report(title="Old")
+        SignalReport.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=5))
+        cutoff = (timezone.now() - timedelta(days=3)).isoformat()
+
+        response = self.client.get(self._list_url(created_after=cutoff, sort="newest"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(recent.id)]
+
     @parameterized.expand(
         [
             ("immediately_actionable_before_not_actionable", "immediately_actionable", "not_actionable"),
@@ -1043,6 +1299,51 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
+
+    def test_for_you_ranks_the_reports_naming_the_user_and_counts_only_theirs(self):
+        def report_naming_me(title: str, report_status: str) -> SignalReport:
+            report = self._create_report(title=title, status=report_status)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            return report
+
+        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
+        self._create_report(title="Someone else's report")
+
+        response = self.client.get(f"{self._list_url()}for_you/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        # Neither report has a score or a priority, so the newest comes first.
+        assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
+        assert body["count"] == 2
+
+    def test_for_you_excludes_unowned_p0_reports_when_asked(self):
+        mine = self._create_report(title="Names me as reviewer")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=mine,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+        )
+        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
+        self._priority_artefact(unowned, priority="P0")
+
+        with_unowned = self.client.get(f"{self._list_url()}for_you/")
+        without_unowned = self.client.get(f"{self._list_url()}for_you/?include_unowned=false")
+
+        assert with_unowned.status_code == status.HTTP_200_OK
+        assert without_unowned.status_code == status.HTTP_200_OK
+        # The P0 leads by default, because priority is the first ranking key.
+        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
+        assert with_unowned.json()["count"] == 2
+        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
+        assert without_unowned.json()["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
@@ -1461,8 +1762,11 @@ class TestSignalReportListAPI(APIBaseTest):
         ]
         assert filter_sql
         for sql in filter_sql:
-            # Django aliases the task, legacy artefact, and assignment association tables as V0.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 3
+            # Django aliases the PR artefact, task-run artefact, legacy task, and assignment task tables as V0.
+            assert sql.count(f'V0."team_id" = {self.team.id}') == 4
+            # A join to the assignment or pull request table lets the planner scan every team's rows first.
+            assert "JOIN" not in sql
+            assert '"pull_request_id" = ANY((ARRAY(SELECT' in sql
 
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
@@ -1577,6 +1881,21 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url())
         ids = {r["id"] for r in response.json()["results"]}
         assert {str(a.id), str(b.id)} <= ids
+
+    def test_filter_already_addressed_false_excludes_reports_nobody_judged(self):
+        addressed = self._create_report(title="Addressed")
+        self._actionability_artefact(addressed, actionability="immediately_actionable", already_addressed=True)
+        open_report = self._create_report(title="Still open")
+        self._actionability_artefact(open_report, actionability="immediately_actionable", already_addressed=False)
+        self._create_report(title="No judgment")
+
+        response = self.client.get(self._list_url(already_addressed="false", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(open_report.id)]
+
+        response = self.client.get(self._list_url(already_addressed="true", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(addressed.id)]
 
     def test_filter_actionability_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(actionability="maybe_later"))
@@ -1698,6 +2017,63 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["source_products"] == ["zendesk", "github"]
         # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
         assert response.json()["scout_name"] == "signals-scout-error-tracking"
+
+    @parameterized.expand(
+        [
+            ("default", {}, True),
+            ("opted_out", {"include_source_metadata": "false"}, False),
+        ]
+    )
+    def test_list_source_metadata_opt_out(self, _name, query, expect_lookup):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={
+                str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
+            },
+        ) as fetch_source_products:
+            response = self.client.get(self._list_url(**query))
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert fetch_source_products.called is expect_lookup
+        assert row["source_products"] == (["zendesk"] if expect_lookup else [])
+        assert row["scout_name"] == ("signals-scout-support" if expect_lookup else None)
+
+    def test_source_metadata_returns_one_entry_per_requested_id(self):
+        known, unknown = str(uuid.uuid4()), str(uuid.uuid4())
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={known: ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")},
+        ) as fetch_source_products:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/source_metadata/",
+                {"report_ids": [unknown, known, unknown]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "reports": [
+                {"id": unknown, "source_products": [], "scout_name": None},
+                {"id": known, "source_products": ["zendesk"], "scout_name": "signals-scout-support"},
+            ]
+        }
+        fetch_source_products.assert_called_once_with(self.team, [unknown, known])
+
+    @parameterized.expand([("empty", 0), ("over_cap", 101)])
+    def test_source_metadata_rejects_out_of_range_id_lists(self, _name, id_count):
+        with patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/source_metadata/",
+                {"report_ids": [str(uuid.uuid4()) for _ in range(id_count)]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        fetch_source_products.assert_not_called()
 
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()
@@ -2771,6 +3147,233 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.status == SignalReport.Status.READY
         assert report.title == "Original title"
         assert report.summary == "Original summary"
+
+
+class TestSignalReportMergeAPI(APIBaseTest):
+    def _merge_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/merge/"
+
+    def _state_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    def _report(self, *, team=None, report_status=SignalReport.Status.READY, **kwargs) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title=kwargs.pop("title", "A report"),
+            summary=kwargs.pop("summary", "A summary"),
+            **kwargs,
+        )
+
+    def _merge(self, survivor: SignalReport, *sources: SignalReport, reason: str | None = None):
+        body: dict = {"source_report_ids": [str(source.id) for source in sources]}
+        if reason is not None:
+            body["reason"] = reason
+        with self.captureOnCommitCallbacks(execute=False):
+            return self.client.post(
+                self._merge_url(str(survivor.id)), data=json.dumps(body), content_type="application/json"
+            )
+
+    def test_merge_moves_the_work_log_and_archives_the_source(self):
+        survivor = self._report(signal_count=3, total_weight=1.5, corroboration_count=1)
+        source = self._report(signal_count=2, total_weight=0.5, title="The twin", corroboration_count=4)
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=NoteArtefact(note="research found the root cause"),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=PriorityAssessment(priority=ReportPriority.P0, explanation="the source thought it urgent"),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        response = self._merge(survivor, source, reason="same support ticket")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        payload = response.json()
+        assert payload["sources"] == [
+            {"id": str(source.id), "artefacts_moved": 1, "signals_moved": 2, "released_claim": False}
+        ]
+        # The response renders the survivor as it stands after the merge, counters included.
+        assert (payload["report"]["id"], payload["report"]["signal_count"]) == (str(survivor.id), 5)
+
+        survivor.refresh_from_db()
+        source.refresh_from_db()
+        assert survivor.signal_count == 5
+        assert survivor.total_weight == pytest.approx(2.0)
+        # Corroborations past the per-report note cap have no artefact rows, only this counter.
+        assert survivor.corroboration_count == 5
+        # The source keeps its counters as the record of what it collected.
+        assert (source.signal_count, source.status) == (2, SignalReport.Status.SUPPRESSED)
+
+        moved = SignalReportArtefact.objects.filter(report_id=survivor.id, type="note").values_list(
+            "content", flat=True
+        )
+        assert any("root cause" in content for content in moved)
+        # A status artefact is latest-wins, so moving it would override the survivor's own verdict.
+        assert SignalReportArtefact.objects.filter(report_id=survivor.id, type="priority_judgment").count() == 0
+        assert SignalReportArtefact.objects.filter(report_id=source.id, type="priority_judgment").count() == 1
+
+        link = SignalReportArtefact.objects.get(report_id=source.id, type="report_link")
+        parsed = ReportLink.model_validate_json(link.content)
+        assert (parsed.kind, parsed.report_id, parsed.reason) == (
+            ReportLinkKind.DUPLICATE_OF,
+            str(survivor.id),
+            "same support ticket",
+        )
+        dismissal = SignalReportArtefact.objects.get(report_id=source.id, type="dismissal")
+        assert Dismissal.model_validate_json(dismissal.content).reason == MERGE_DISMISSAL_REASON
+
+    def test_merge_moves_the_pull_request_so_the_dismissal_leaves_it_open(self):
+        survivor = self._report()
+        source = self._report()
+        pr = SignalReportPullRequest.objects.create(
+            team=self.team,
+            repository="posthog/posthog",
+            number=4242,
+            url="https://github.com/PostHog/posthog/pull/4242",
+        )
+        artefact = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=PullRequestLink(url=pr.url),
+            attribution=ArtefactAttribution.system(),
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(pull_request=pr)
+
+        assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+
+        assert SignalReportArtefact.objects.get(id=artefact.id).report_id == survivor.id
+        assert implementation_pr_needed_by_another_report(team_id=self.team.id, report_id=str(source.id), pr_url=pr.url)
+
+    @parameterized.expand([("another_actor", False), ("the_caller", True)])
+    def test_merge_releases_the_sources_claim_whoever_holds_it(self, _name, caller_owns):
+        # Claim history stays on the source, so a claim left active there would make the survivor
+        # look unclaimed while the work is still owned, and another actor could take it.
+        survivor = self._report()
+        source = self._report()
+        if caller_owns:
+            owner = self.user
+        else:
+            owner = User.objects.create_and_join(self.organization, "someone-else@posthog.com", None)
+        create_claim(source, ArtefactAttribution.from_user(owner.id))
+
+        response = self._merge(survivor, source)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert response.json()["sources"][0]["released_claim"] is True
+        assert get_active_claim(team_id=self.team.id, report_id=str(source.id)) is None
+        assert get_active_claim(team_id=self.team.id, report_id=str(survivor.id)) is None
+
+    @parameterized.expand(
+        [
+            # A resolved report is terminal for new signals, so the sources' signals would land
+            # somewhere the pipeline never looks again while the sources archive for good. A
+            # suppressed one is not visible to this action at all.
+            ("resolved", SignalReport.Status.RESOLVED, status.HTTP_409_CONFLICT),
+            ("suppressed", SignalReport.Status.SUPPRESSED, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_merge_refuses_a_survivor_that_is_not_live(self, _name, survivor_status, expected_code):
+        survivor = self._report(report_status=survivor_status, signal_count=3)
+        source = self._report(signal_count=2)
+
+        assert self._merge(survivor, source).status_code == expected_code
+
+        source.refresh_from_db()
+        survivor.refresh_from_db()
+        assert source.status == SignalReport.Status.READY
+        assert survivor.signal_count == 3
+
+    @parameterized.expand(
+        [
+            ("self_merge", "self", "cannot be merged into itself"),
+            ("resolved_source", SignalReport.Status.RESOLVED, "cannot be merged"),
+            ("suppressed_source", SignalReport.Status.SUPPRESSED, "cannot be merged"),
+            # A research run is writing to an in-progress report, and `SUPPRESSED -> READY` is
+            # legal, so the run would resurrect it after the merge moved its work away.
+            ("in_progress_source", SignalReport.Status.IN_PROGRESS, "cannot be merged"),
+            ("oversized_source", "oversized", "too large to merge"),
+            ("other_team_source", "other_team", "was not found"),
+        ]
+    )
+    def test_merge_refuses_a_source_it_cannot_fold_in(self, _name, source_spec, expected_error):
+        survivor = self._report(signal_count=3)
+        if source_spec == "self":
+            source = survivor
+        elif source_spec == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            source = self._report(team=other_team)
+        elif source_spec == "oversized":
+            source = self._report(signal_count=REASSIGN_SIGNAL_ROW_CAP + 1)
+        else:
+            source = self._report(report_status=source_spec)
+
+        response = self._merge(survivor, source)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert expected_error in response.json()["error"]
+        survivor.refresh_from_db()
+        assert survivor.signal_count == 3
+
+    def test_one_bad_source_leaves_the_whole_merge_unapplied(self):
+        survivor = self._report(signal_count=1)
+        good = self._report(signal_count=2)
+        bad = self._report(signal_count=4, report_status=SignalReport.Status.RESOLVED)
+
+        assert self._merge(survivor, good, bad).status_code == status.HTTP_409_CONFLICT
+
+        survivor.refresh_from_db()
+        good.refresh_from_db()
+        assert survivor.signal_count == 1
+        assert good.status == SignalReport.Status.READY
+
+    @parameterized.expand([("straight_after_the_merge", False), ("after_a_later_dismissal", True)])
+    def test_a_merged_report_cannot_be_restored(self, _name, dismiss_again):
+        survivor = self._report()
+        source = self._report()
+        assert self._merge(survivor, source).status_code == status.HTTP_200_OK
+        if dismiss_again:
+            # A merge is structural, not a verdict: the signals and work log are on the survivor
+            # either way, so a newer dismissal must not make the source restorable.
+            assert (
+                self.client.post(
+                    self._state_url(str(source.id)),
+                    data=json.dumps({"state": "suppressed", "dismissal_reason": "wontfix_irrelevant"}),
+                    content_type="application/json",
+                ).status_code
+                == status.HTTP_200_OK
+            )
+
+        response = self.client.post(
+            self._state_url(str(source.id)), data=json.dumps({"state": "potential"}), content_type="application/json"
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        source.refresh_from_db()
+        assert source.status == SignalReport.Status.SUPPRESSED
+
+    def test_merge_schedules_the_signal_move_once_committed(self):
+        survivor = self._report()
+        source = self._report()
+
+        with patch("products.signals.backend.tasks.move_merged_report_signals.delay") as move:
+            with self.captureOnCommitCallbacks(execute=True):
+                assert (
+                    self.client.post(
+                        self._merge_url(str(survivor.id)),
+                        data=json.dumps({"source_report_ids": [str(source.id)]}),
+                        content_type="application/json",
+                    ).status_code
+                    == status.HTTP_200_OK
+                )
+
+        move.assert_called_once_with(
+            team_id=self.team.id, survivor_report_id=str(survivor.id), source_report_ids=[str(source.id)]
+        )
 
 
 class TestAvailableReviewersAPI(APIBaseTest):

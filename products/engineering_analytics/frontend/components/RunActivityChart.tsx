@@ -7,6 +7,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import type { WorkflowRunActivityPointApi } from '../generated/api.schemas'
 import { TimeRange, clampFocus, defaultFocus, panFocus, pxToTime, resizeFocus, timeToFrac } from '../lib/brush'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { percentileSorted } from '../lib/runHealth'
@@ -15,6 +16,7 @@ import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
 // can drop the chart in over its own run list; the optional branch/PR fields enrich the hover card.
 export interface ActivityRun {
+    ciEngine?: WorkflowRunActivityPointApi['ci_engine']
     runId: number | null
     conclusion: string | null
     startedAt: string | null
@@ -307,7 +309,7 @@ export function RunActivityChart({
         const tag = verdictTag(run.conclusion)
         presentTypeSet.add(tag.type)
         return {
-            key: `${run.runId ?? 'run'}-${i}`,
+            key: `${run.ciEngine ?? ''}:${run.runId ?? 'run'}-${i}`,
             leftPct: xPct(dayjs(run.startedAt).valueOf()),
             topPx: Math.max(3, Math.min(SCATTER_HEIGHT - 3, yPx(run.durationSeconds / 60))),
             color: DOT_COLOR[tag.type] ?? DOT_COLOR.muted,

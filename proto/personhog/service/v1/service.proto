@@ -74,8 +74,8 @@ service PersonHogService {
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 
   // Person deletes
-  // DeletePersons removes the persons in any state. A caller working from an advisory
-  // list of tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
+  // DeletePersons tombstones the persons and reports the versions written. A caller that
+  // hard-deletes tombstoned persons must use DeleteTombstonedPersons instead, which re-checks
   // the tombstone under the row lock.
   // WARNING: This is a write operation on person data. It should route to the leader
   // once personhog-leader supports deletes. Currently routed through the replica
@@ -88,6 +88,9 @@ service PersonHogService {
   // number of rows per call; pending uuids are sent again by the caller.
   // WARNING: Same routing caveat as DeletePersons above.
   rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
+  rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
+  rpc AckPersonTombstones(personhog.types.v1.AckPersonTombstonesRequest) returns (personhog.types.v1.AckPersonTombstonesResponse);
+  rpc ListPersonTombstoneQueue(personhog.types.v1.ListPersonTombstoneQueueRequest) returns (personhog.types.v1.ListPersonTombstoneQueueResponse);
 
   // Person split
   // WARNING: Same routing caveat as DeletePersons above — write operation on person data

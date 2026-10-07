@@ -3,8 +3,6 @@ from typing import Union
 
 from posthog.scopes import APIScopeObject
 
-from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
-
 
 class NotificationType(str, Enum):
     COMMENT_MENTION = "comment_mention"
@@ -68,5 +66,3 @@ class NotificationOnlyResourceType(str, Enum):
 # Derived from APIScopeObject (used by ACCESS_CONTROL_RESOURCES) — keep in sync
 # if ACCESS_CONTROL_RESOURCES changes its element type
 type NotificationResourceType = Union[APIScopeObject, NotificationOnlyResourceType]
-
-AC_RESOURCE_TYPES: set[str] = set(ACCESS_CONTROL_RESOURCES)

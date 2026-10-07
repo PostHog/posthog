@@ -99,6 +99,8 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         run = AutoresearchTrainingRun.objects.get(pk=data["id"], team_id=self.team.pk)
         assert run.pipeline.pk == self.pipeline.pk
         assert run.started_at is not None
+        second = self.client.post(f"{self.runs_url}/", {}, format="json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_record_iteration_creates_row(self):
         run_id = self._open_run()
@@ -154,12 +156,19 @@ class TestAgentRecordedTraining(TeamScopedTestMixin, APIBaseTest):
         iteration.refresh_from_db()
         assert iteration.parent_suggestion_id is None
 
-    def test_record_iteration_rejects_foreign_parent_suggestion(self):
-        other_pipeline = AutoresearchPipeline.objects.create(
-            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
-        )
+    @parameterized.expand([("foreign",), ("dismissed",)])
+    def test_record_iteration_rejects_an_unusable_parent_suggestion(self, case: str):
+        pipeline = self.pipeline
+        if case == "foreign":
+            pipeline = AutoresearchPipeline.objects.create(
+                team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+            )
         foreign = AutoresearchSuggestion.objects.create(
-            pipeline=other_pipeline, created_by=self.user, prompt="foreign", source=AutoresearchSuggestion.Source.USER
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="foreign",
+            source=AutoresearchSuggestion.Source.USER,
+            status="dismissed" if case == "dismissed" else "queued",
         )
         run_id = self._open_run()
         resp = self.client.post(
@@ -632,10 +641,50 @@ class TestAgentWriteSerializers(SimpleTestCase):
         assert not serializer.is_valid()
         assert error_key in serializer.errors, serializer.errors
 
-    def test_complete_rejects_a_non_object_explanation(self) -> None:
-        serializer = CompleteTrainingRunSerializer(data={"model_explanation": ["top_features"]})
+    @parameterized.expand(
+        [
+            ("list_shaped", ["top_features"]),
+            ("legacy_features_list", {"features": [{"name": "a", "importance": 0.1, "direction": "positive"}]}),
+            (
+                "legacy_feature_importances_list",
+                {"feature_importances": [{"name": "a", "importance": 0.1, "direction": "positive"}]},
+            ),
+            ("legacy_feature_key", {"top_features": [{"feature": "a", "importance": 0.1, "direction": "positive"}]}),
+            ("prose_direction", {"top_features": [{"name": "a", "importance": 0.1, "direction": "up"}]}),
+            ("negative_importance", {"top_features": [{"name": "a", "importance": -0.1, "direction": "negative"}]}),
+            ("nan_importance", {"top_features": [{"name": "a", "importance": "NaN", "direction": "positive"}]}),
+            (
+                "too_many_features",
+                {"top_features": [{"name": f"f{i}", "importance": 0.1, "direction": "positive"} for i in range(31)]},
+            ),
+        ]
+    )
+    def test_complete_rejects_explanation(self, _name: str, explanation: Any) -> None:
+        serializer = CompleteTrainingRunSerializer(data={"model_explanation": explanation})
         assert not serializer.is_valid()
         assert "model_explanation" in serializer.errors
+
+    def test_complete_orders_explanation_features_strongest_first(self) -> None:
+        serializer = CompleteTrainingRunSerializer(
+            data={
+                "model_explanation": {
+                    "method": "permutation importance",
+                    "top_features": [
+                        {"name": "weak", "importance": 0.1, "direction": "negative"},
+                        {"name": "strong", "importance": 0.4, "direction": "positive"},
+                    ],
+                    "extra": "dropped",
+                }
+            }
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["model_explanation"] == {
+            "method": "permutation importance",
+            "top_features": [
+                {"name": "strong", "importance": 0.4, "direction": "positive"},
+                {"name": "weak", "importance": 0.1, "direction": "negative"},
+            ],
+        }
 
 
 class _InMemoryStorage:

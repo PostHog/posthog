@@ -53,8 +53,58 @@ export interface AnthropicErrorResponse {
     type: string;
     code?: string;
   };
+  /** The Go gateway's flat envelope. */
+  code?: unknown;
+  message?: unknown;
   detail?: unknown;
 }
+
+export const gatewayTokenMintedSchema = z.object({
+  enabled: z.literal(true),
+  token: z.string().startsWith("phe_"),
+  expires_at: z.string(),
+  cap_usd: z.string(),
+  gateway_url: z.string(),
+  product: z.string(),
+  team_id: z.number(),
+  plan: z.enum(["paid", "free"]),
+  allowed_models: z.array(z.string()),
+  product_models: z.array(z.string()),
+});
+export type GatewayTokenMinted = z.infer<typeof gatewayTokenMintedSchema>;
+
+export const gatewayTokenRefusalSchema = z.object({
+  enabled: z.literal(false).optional(),
+  reason: z.string().optional(),
+  /** DRF permission refusals carry the reason here instead. */
+  code: z.string().optional(),
+  detail: z.string().optional(),
+  access: z.unknown().optional(),
+});
+
+export type GatewayRoute =
+  | { mode: "legacy"; reason: string }
+  | {
+      mode: "blocked";
+      reason: "credit_bucket_exhausted";
+      detail: string;
+    }
+  | {
+      mode: "go";
+      gatewayUrl: string;
+      token: string;
+      /** Epoch ms. */
+      expiresAt: number;
+      capUsd: string;
+      allowedModels: string[] | null;
+      productModels: string[];
+      plan: "paid" | "free";
+      projectId: number;
+      teamId: number;
+      source: "mint" | "override";
+    };
+
+export type GatewayRemintReason = "unauthorized" | "token_cap_exceeded";
 
 export type { UsageOutput } from "../usage/schemas";
 export { usageOutput } from "../usage/schemas";

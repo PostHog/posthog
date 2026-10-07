@@ -2349,8 +2349,9 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.json()["id"] != second.json()["id"]
         assert Ticket.objects.filter(team=self.team).count() == 2
 
-    def test_compose_same_content_with_different_tags_is_not_deduplicated(self, mock_on_commit):
-        # A different tag set must open its own ticket, not silently drop the tags of a replay.
+    def test_compose_same_content_with_different_tags_is_deduplicated(self, mock_on_commit):
+        # Tags are not part of the dedupe identity, so the same content to the same recipient
+        # replays the first ticket. A replay does not re-tag, so the first ticket's tags stand.
         base = {
             "recipient_email": "pitch@test.com",
             "email_config_id": str(self.email_config.id),
@@ -2361,14 +2362,35 @@ class TestComposeTicketAPI(APIBaseTest):
         second = self._compose({**base, "tags": ["bug_report"]})
 
         assert first.status_code == status.HTTP_201_CREATED
-        assert second.status_code == status.HTTP_201_CREATED
-        assert first.json()["id"] != second.json()["id"]
-        assert Ticket.objects.filter(team=self.team).count() == 2
+        assert second.status_code == status.HTTP_200_OK
+        assert first.json()["id"] == second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 1
 
-        first_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{first.json()['id']}/")
-        second_detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{second.json()['id']}/")
-        assert first_detail.json()["tags"] == ["roadmap_pitch"]
-        assert second_detail.json()["tags"] == ["bug_report"]
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{first.json()['id']}/")
+        assert detail.json()["tags"] == ["roadmap_pitch"]
+
+    def test_compose_replays_after_the_ticket_gains_a_system_tag(self, mock_on_commit):
+        # The system tags a composed ticket after it is created (plan tier at creation, then
+        # triage). A retry must still replay the original ticket, not open a duplicate.
+        payload = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Great idea, we logged it.",
+            "tags": ["roadmap_pitch"],
+        }
+
+        first = self._compose(payload)
+        assert first.status_code == status.HTTP_201_CREATED
+
+        ticket = Ticket.objects.get(pk=first.json()["id"])
+        plan_tag, _ = Tag.objects.get_or_create(name="plan_free", team_id=self.team.id)
+        ticket.tagged_items.create(tag=plan_tag)
+
+        second = self._compose(payload)
+
+        assert second.status_code == status.HTTP_200_OK
+        assert second.json()["id"] == first.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 1
 
     def test_compose_recovers_the_existing_ticket_past_newer_unrelated_tickets(self, mock_on_commit):
         # A burst of newer, unrelated tickets to the same channel must not crowd out the real match.
@@ -2383,29 +2405,40 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.status_code == status.HTTP_201_CREATED
         get_client().flushall()
 
-        # Created straight through the model, not the throttled compose endpoint: the burst here
-        # is deliberately larger than the endpoint's per-minute rate limit.
-        for i in range(20):
-            noise_ticket = Ticket.objects.create_with_number(
-                team=self.team,
-                channel_source=Channel.EMAIL,
-                distinct_id="pitch@test.com",
-                status=Status.OPEN,
-                widget_session_id=f"noise-session-{i}",
-                email_config=self.email_config,
-                email_from="pitch@test.com",
-                email_subject=f"Unrelated subject {i}",
-                anonymous_traits={"email": "pitch@test.com"},
-                identity_verified=None,
-            )
-            Comment.objects.create(
-                team=self.team,
-                created_by=self.user,
-                scope="conversations_ticket",
-                item_id=str(noise_ticket.id),
-                content="Unrelated content",
-                item_context={"author_type": "human", "is_private": False},
-            )
+        # The burst exceeds the compose endpoint's rate limit; unrelated rows need no
+        # ticket-number allocation or comment side effects.
+        first_ticket_number = first.json()["ticket_number"]
+        noise_tickets = Ticket.objects.bulk_create(
+            [
+                Ticket(
+                    team=self.team,
+                    ticket_number=first_ticket_number + i + 1,
+                    channel_source=Channel.EMAIL,
+                    distinct_id="pitch@test.com",
+                    status=Status.OPEN,
+                    widget_session_id=f"noise-session-{i}",
+                    email_config=self.email_config,
+                    email_from="pitch@test.com",
+                    email_subject=f"Unrelated subject {i}",
+                    anonymous_traits={"email": "pitch@test.com"},
+                    identity_verified=None,
+                )
+                for i in range(20)
+            ]
+        )
+        Comment.objects.bulk_create(
+            [
+                Comment(
+                    team=self.team,
+                    created_by=self.user,
+                    scope="conversations_ticket",
+                    item_id=str(noise_ticket.id),
+                    content="Unrelated content",
+                    item_context={"author_type": "human", "is_private": False},
+                )
+                for noise_ticket in noise_tickets
+            ]
+        )
         get_client().flushall()
 
         second = self._compose(payload)
@@ -2559,6 +2592,8 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
             ("delete_note_with_read_only", "delete", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("delete_note_wrong_scope", "delete", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("create_note_with_write", "post", ["ticket:write"], status.HTTP_201_CREATED),
+            ("create_note_with_read_only", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_note_scopes(self, _name, method, scopes, expected_status):
@@ -2572,7 +2607,15 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         )
         self._auth_with_pak(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
-        if method == "patch":
+        if method == "post":
+            self.team.conversations_enabled = True
+            self.team.save(update_fields=["conversations_enabled"])
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/",
+                {"message": "New note"},
+                format="json",
+            )
+        elif method == "patch":
             response = self.client.patch(url, {"message": "Updated note"}, format="json")
         else:
             response = self.client.delete(url)
@@ -2621,11 +2664,14 @@ class TestTicketMessagesAPI(APIBaseTest):
         assert body[0]["author_type"] == "customer"
         assert body[0]["author_name"] == "Alice"
         assert body[0]["is_private"] is False
+        assert body[0]["message_type"] == "customer_message"
         assert body[1]["content"] == "Hi there!"
         assert body[1]["author_type"] == "support"
         assert body[1]["is_private"] is False
+        assert body[1]["message_type"] == "sent_reply"
         assert body[2]["content"] == "Internal note"
         assert body[2]["is_private"] is True
+        assert body[2]["message_type"] == "internal_note"
 
     def test_messages_includes_private_notes(self, mock_on_commit):
         Comment.objects.create(
@@ -2681,6 +2727,7 @@ class TestTicketMessagesAPI(APIBaseTest):
         msg = response.json()["results"][0]
         assert set(msg.keys()) == {
             "id",
+            "message_type",
             "content",
             "rich_content",
             "author_type",
@@ -3031,13 +3078,14 @@ class TestTicketReplyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("public_reply_is_emailed", False, True),
-            ("private_note_is_not_emailed", True, False),
+            ("public_reply_is_emailed", "reply", {"is_private": False}, True),
+            ("private_note_is_not_emailed", "reply", {"is_private": True}, False),
+            ("note_endpoint_ignores_is_private", "notes", {"is_private": False}, False),
         ]
     )
     @patch("products.conversations.backend.signals.send_email_reply")
     def test_reply_fans_out_to_customer_only_when_public(
-        self, _name, is_private, expect_delivery, mock_send_email_reply, mock_on_commit
+        self, _name, path, extra, expect_delivery, mock_send_email_reply, mock_on_commit
     ):
         # The post_save signal only delivers over email when the ticket is an
         # email channel with email enabled and a sender address.
@@ -3046,8 +3094,10 @@ class TestTicketReplyAPI(APIBaseTest):
         self.team.conversations_settings = {"email_enabled": True}
         self.team.save(update_fields=["conversations_settings"])
 
-        response = self.client.post(self.url, {"message": "Reply body", "is_private": is_private}, format="json")
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/{path}/"
+        response = self.client.post(url, {"message": "Reply body", **extra}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["is_private"] is not expect_delivery
 
         if expect_delivery:
             mock_send_email_reply.delay.assert_called_once()

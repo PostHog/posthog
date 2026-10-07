@@ -1,13 +1,20 @@
 import { ArrowRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
+  type FeedQueryToken,
   feedQueryTypeScope,
+  type ParsedFeedQuery,
   parseFeedQuery,
   type TypeValue,
 } from "@posthog/core/tasks/feedQuery";
 import { singleLineTitle } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
+import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { useFeedQuerySuggestions } from "@posthog/ui/features/canvas/components/feedQuerySuggestions";
 import { applyFeedQuerySuggestion } from "@posthog/ui/features/canvas/components/feedQuerySuggestionUtils";
+import { useCanvasQueryResults } from "@posthog/ui/features/canvas/hooks/useCanvasQueryResults";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
@@ -15,12 +22,19 @@ import type {
   Command,
   CommandSection,
 } from "@posthog/ui/features/command/commandRow";
-import { taskRowParts } from "@posthog/ui/features/command/commandRowFacts";
+import {
+  canvasRowParts,
+  taskRowParts,
+} from "@posthog/ui/features/command/commandRowFacts";
+import { canvasHref } from "@posthog/ui/features/command/commandRowHref";
 import { commandRowMeta } from "@posthog/ui/features/command/commandRowMeta";
 import { TaskCommandIcon } from "@posthog/ui/features/command/TaskCommandIcon";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
-import { navigateToFeed } from "@posthog/ui/router/navigationBridge";
+import {
+  navigateToChannelDashboard,
+  navigateToFeed,
+} from "@posthog/ui/router/navigationBridge";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useMemo } from "react";
 
@@ -32,21 +46,30 @@ export type PaletteMode =
   | "completingValue"
   | "querying";
 
+export type MatchNoun = "task" | "canvas";
+
+const MATCH_NOUN_PLURALS: Record<MatchNoun, string> = {
+  task: "tasks",
+  canvas: "canvases",
+};
+
 export function matchSummary(
   matchCount: number | null,
   shownCount: number,
   hasRepairs = false,
+  noun: MatchNoun = "task",
 ): string {
+  const plural = MATCH_NOUN_PLURALS[noun];
   if (matchCount == null) return "Searching…";
   if (matchCount === 0) {
     return hasRepairs
-      ? "No tasks match this query."
-      : "No tasks match this query. Remove a filter to see more tasks.";
+      ? `No ${plural} match this query.`
+      : `No ${plural} match this query. Remove a filter to see more ${plural}.`;
   }
   if (matchCount > shownCount) {
-    return `Showing ${shownCount} of ${matchCount} matching tasks.`;
+    return `Showing ${shownCount} of ${matchCount} matching ${plural}.`;
   }
-  return `${matchCount} ${matchCount === 1 ? "matching task" : "matching tasks"}`;
+  return `${matchCount} matching ${matchCount === 1 ? noun : plural}`;
 }
 
 export interface FeedQueryKeyChip {
@@ -61,11 +84,72 @@ export interface FeedQueryPalette {
   mode: PaletteMode;
   scope: TypeValue | null;
   hasFilterTokens: boolean;
+  matchNoun: MatchNoun;
   matchCount: number | null;
   partialResults: boolean;
   shownCount: number;
   hasRepairs: boolean;
   searchText: string;
+}
+
+function isQueryFilter(token: FeedQueryToken): boolean {
+  return token.key !== "type" && token.key !== "saved";
+}
+
+/** What a query lists: canvases for `type:canvas`, tasks for a task filter, or nothing. */
+function queryResultKind(parsed: ParsedFeedQuery): MatchNoun | null {
+  const scope = feedQueryTypeScope(parsed);
+  if (scope === "canvas") return "canvas";
+  // The planner ignores `type:` and `saved:`, so neither can activate task-query mode.
+  return scope === "task" || parsed.tokens.some(isQueryFilter) ? "task" : null;
+}
+
+function taskCommand(
+  task: Task,
+  spaceName: string | undefined,
+  keywords: string,
+): Command {
+  return {
+    id: `feed-query-task-${task.id}`,
+    label: singleLineTitle(task.title),
+    subtitle: commandRowMeta(taskRowParts(task)),
+    detail: spaceName ? channelDisplayLabel(spaceName) : undefined,
+    detailPrefix: "",
+    keywords,
+    icon: <TaskCommandIcon task={task} />,
+    action: "open-task",
+    channelId: task.channel ?? undefined,
+    onRun: () => {
+      closeSettings();
+      void openTask(
+        task,
+        task.channel ? { channelId: task.channel } : undefined,
+      );
+    },
+  };
+}
+
+function canvasCommand(
+  canvas: DashboardRecord,
+  spaceName: string | undefined,
+  keywords: string,
+): Command {
+  return {
+    id: `feed-query-canvas-${canvas.id}`,
+    label: singleLineTitle(canvas.name) || UNTITLED_CANVAS_NAME,
+    subtitle: commandRowMeta(canvasRowParts(canvas)),
+    detail: spaceName ? channelDisplayLabel(spaceName) : undefined,
+    detailPrefix: "",
+    keywords,
+    icon: iconForTemplate(canvas.templateId, { size: 12 }),
+    href: canvasHref(canvas.channelId, canvas.id),
+    action: "open-canvas",
+    channelId: canvas.channelId,
+    onRun: () => {
+      closeSettings();
+      navigateToChannelDashboard(canvas.channelId, canvas.id);
+    },
+  };
 }
 
 export function useFeedQueryCommands({
@@ -86,32 +170,48 @@ export function useFeedQueryCommands({
   const trimmed = query.trim();
   const parsed = useMemo(() => parseFeedQuery(trimmed), [trimmed]);
   const scope = enabled ? feedQueryTypeScope(parsed) : null;
-  // The planner ignores `type:` and `saved:`, so neither can activate task-query mode.
+  const resultKind = enabled ? queryResultKind(parsed) : null;
+  const runsQuery = resultKind !== null;
+  // Saved searches are task feeds, so only a task query has filters to save.
   const hasFilterTokens =
-    enabled && parsed.tokens.some((t) => t.key !== "type" && t.key !== "saved");
+    resultKind === "task" && parsed.tokens.some(isQueryFilter);
   const searchText = enabled ? parsed.text : query;
 
   const { group, context } = useFeedQuerySuggestions(query, caret, {
     includeType: true,
   });
 
-  const runsQuery = hasFilterTokens || scope === "task";
   const { debounced: previewQuery, isPending } = useDebouncedValue(
-    enabled && runsQuery ? trimmed : "",
+    runsQuery ? trimmed : "",
     FEED_QUERY_DEBOUNCE_MS,
   );
-  const results = useTaskFeedResults(previewQuery);
-  const counting = isPending || results.isLoading;
-  const feeds = useProjectTaskFeeds();
-  const { channels } = useChannels();
-
   const previewParsed = useMemo(
     () => parseFeedQuery(previewQuery),
     [previewQuery],
   );
-  const partialResults = runsQuery && !counting && !results.isComplete;
+  // Route on the debounced text, so each list only ever receives its own kind
+  // of query. `isPending` covers the gap while the two kinds disagree.
+  const previewKind = queryResultKind(previewParsed);
+  const results = useTaskFeedResults(
+    previewKind === "task" ? previewQuery : "",
+  );
+  const canvasResults = useCanvasQueryResults(
+    previewKind === "canvas" ? previewQuery : "",
+  );
+  const counting =
+    isPending ||
+    (previewKind === "canvas" ? canvasResults.isLoading : results.isLoading);
+  // The canvas list loads in one request, so it is never partial.
+  const resultsComplete = previewKind === "canvas" || results.isComplete;
+  const feeds = useProjectTaskFeeds();
+  const { channels } = useChannels();
+
+  const partialResults = runsQuery && !counting && !resultsComplete;
   const noMatches =
-    runsQuery && !counting && results.isComplete && results.tasks.length === 0;
+    resultKind === "task" &&
+    !counting &&
+    results.isComplete &&
+    results.tasks.length === 0;
   const splittable =
     noMatches && previewParsed.text !== "" && previewParsed.tokens.length > 0;
   const filtersOnlyQuery = splittable
@@ -156,6 +256,31 @@ export function useFeedQueryCommands({
     [channels],
   );
 
+  const matchNoun = previewKind ?? resultKind ?? "task";
+  const resultRows = useMemo(() => {
+    if (!runsQuery) return [];
+    const keywords = `${query} ${searchText}`;
+    return previewKind === "canvas"
+      ? canvasResults.canvases.map((canvas) =>
+          canvasCommand(canvas, channelNames.get(canvas.channelId), keywords),
+        )
+      : results.tasks.map((task) =>
+          taskCommand(
+            task,
+            task.channel ? channelNames.get(task.channel) : undefined,
+            keywords,
+          ),
+        );
+  }, [
+    runsQuery,
+    query,
+    searchText,
+    previewKind,
+    canvasResults.canvases,
+    results.tasks,
+    channelNames,
+  ]);
+
   return useMemo(() => {
     if (!enabled) {
       return {
@@ -164,6 +289,7 @@ export function useFeedQueryCommands({
         mode,
         scope: null,
         hasFilterTokens: false,
+        matchNoun,
         matchCount: null,
         partialResults: false,
         shownCount: 0,
@@ -231,32 +357,10 @@ export function useFeedQueryCommands({
     }
 
     const matchCount =
-      runsQuery && !counting && results.isComplete
-        ? results.tasks.length
-        : null;
-    const shown = runsQuery ? results.tasks.slice(0, limit) : [];
+      runsQuery && !counting && resultsComplete ? resultRows.length : null;
+    const shown = resultRows.slice(0, limit);
     if (shown.length > 0) {
-      const items = shown.map((task): Command => {
-        const space = task.channel ? channelNames.get(task.channel) : undefined;
-        return {
-          id: `feed-query-task-${task.id}`,
-          label: singleLineTitle(task.title),
-          subtitle: commandRowMeta(taskRowParts(task)),
-          detail: space ? channelDisplayLabel(space) : undefined,
-          detailPrefix: "",
-          keywords: `${query} ${searchText}`,
-          icon: <TaskCommandIcon task={task} />,
-          action: "open-task",
-          channelId: task.channel ?? undefined,
-          onRun: () => {
-            closeSettings();
-            void openTask(
-              task,
-              task.channel ? { channelId: task.channel } : undefined,
-            );
-          },
-        };
-      });
+      const items = [...shown];
       if (matchCount != null && matchCount > shown.length) {
         items.push({
           id: "feed-query-show-all",
@@ -269,7 +373,10 @@ export function useFeedQueryCommands({
           onRun: onShowAll,
         });
       }
-      sections.push({ label: "Matching tasks", items });
+      sections.push({
+        label: `Matching ${MATCH_NOUN_PLURALS[matchNoun]}`,
+        items,
+      });
     }
 
     let hasRepairs = false;
@@ -319,6 +426,7 @@ export function useFeedQueryCommands({
       mode,
       scope,
       hasFilterTokens,
+      matchNoun,
       matchCount,
       partialResults,
       shownCount: shown.length,
@@ -335,14 +443,14 @@ export function useFeedQueryCommands({
     searchText,
     scope,
     hasFilterTokens,
+    matchNoun,
     runsQuery,
     counting,
-    results.isComplete,
-    results.tasks,
+    resultsComplete,
+    resultRows,
     partialResults,
     savedHits,
     limit,
-    channelNames,
     splittable,
     previewParsed.text,
     filtersOnly.tasks.length,

@@ -6,6 +6,7 @@ import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -19,6 +20,7 @@ import { SampleAttributes } from './SampleAttributes'
 function SamplesTab(): JSX.Element {
     const { samples, samplesLoading } = useValues(metricsSamplesLogic)
     const { hasMetricName } = useValues(metricsViewerLogic)
+    const { timezone } = useValues(teamLogic)
     const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
     const tracingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Tracing,
@@ -44,7 +46,14 @@ function SamplesTab(): JSX.Element {
                 {
                     title: 'Timestamp',
                     key: 'timestamp',
-                    render: (_, sample) => <TZLabel time={sample.timestamp} formatDate="MMM D" formatTime="HH:mm:ss" />,
+                    render: (_, sample) => (
+                        <TZLabel
+                            time={sample.timestamp}
+                            formatDate="MMM D"
+                            formatTime="HH:mm:ss"
+                            displayTimezone={timezone}
+                        />
+                    ),
                 },
                 {
                     title: 'Value',

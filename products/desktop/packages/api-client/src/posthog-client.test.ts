@@ -52,6 +52,75 @@ describe("PostHogAPIClient", () => {
     },
   );
 
+  it("shows the setup dependency error returned by the server", async () => {
+    const detail =
+      "The workflow action is unavailable. Sync templates and retry setup.";
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 503 }),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "goal",
+        goal: {
+          statement: "Improve activation",
+          direction: "at_least",
+          period: "week",
+        },
+      }),
+    ).rejects.toThrow(new Error(detail));
+  });
+  it.each([{}, { task_id: 123 }, { task_id: "invalid" }])(
+    "rejects an invalid setup response: %j",
+    async (body) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+      await expect(
+        client.setupTaskChannel("channel-1", {
+          kind: "feature",
+          feature: { name: "Search" },
+        }),
+      ).rejects.toThrow();
+    },
+  );
+
+  it("returns the validated setup task", async () => {
+    const body = { task_id: "0198cf5c-67dd-7000-8000-000000000001" };
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(body), { status: 201 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+    await expect(
+      client.setupTaskChannel("channel-1", {
+        kind: "feature",
+        feature: { name: "Search" },
+      }),
+    ).resolves.toEqual(body);
+  });
+
   describe("Desktop beta terms", () => {
     it.each([
       [
@@ -1830,6 +1899,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1851,6 +1921,7 @@ describe("PostHogAPIClient", () => {
         runtime_adapter: "codex",
         model: "gpt-5.5",
         reasoning_effort: "high",
+        initial_permission_mode: "auto",
       });
 
       expect(fetch).toHaveBeenCalledWith(
@@ -1863,6 +1934,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: "codex",
               model: "gpt-5.5",
               reasoning_effort: "high",
+              initial_permission_mode: "auto",
             }),
           },
         }),
@@ -1894,6 +1966,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
               sandbox_environment_id: "environment-123",
               custom_image_id: "image-123",
             }),
@@ -1925,6 +1998,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -1951,6 +2025,7 @@ describe("PostHogAPIClient", () => {
               runtime_adapter: null,
               model: null,
               reasoning_effort: null,
+              initial_permission_mode: null,
             }),
           },
         }),
@@ -2594,6 +2669,61 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "work_claim",
+        content: { display_name: "Ada" },
+        created_at: "2026-06-01T00:00:14Z",
+      },
+      {
+        id: "a16",
+        type: "work_release",
+        content: { reason: "taken_over" },
+        created_at: "2026-06-01T00:00:15Z",
+      },
+      {
+        id: "a17",
+        type: "ranking_score",
+        content: {
+          scored_at: "2026-06-01T00:00:16Z",
+          manifest_version: "12",
+          served_key: "report_embeddings@2026-05-31",
+          results: {
+            "signal_counts@2026-05-31": {
+              status: "skipped",
+              roles: ["challenger"],
+              skip_reason: "missing report vector",
+              scores: {},
+            },
+            "report_embeddings@2026-05-31": {
+              status: "scored",
+              roles: ["served"],
+              scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+              lifts: { action: 1.3 },
+              metadata: {
+                heads: [
+                  {
+                    head: "action",
+                    readable: true,
+                    refit_classification_threshold: 0.6,
+                  },
+                  {
+                    head: "pr_merged",
+                    readable: true,
+                    refit_classification_threshold: 0.2,
+                  },
+                  {
+                    head: "refund",
+                    readable: false,
+                    refit_classification_threshold: 0,
+                  },
+                ],
+              },
+            },
+          },
+        },
+        created_at: "2026-06-01T00:00:16Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {
@@ -2610,6 +2740,32 @@ describe("PostHogAPIClient", () => {
       expect(results.map((a) => a.id)).toEqual(ROWS.map((r) => r.id));
       expect(results.map((a) => a.type)).toEqual(ROWS.map((r) => r.type));
       expect(results.every((a) => !a.degraded)).toBe(true);
+      expect(results.at(-1)?.content).toEqual({
+        scored_at: "2026-06-01T00:00:16Z",
+        manifest_version: "12",
+        served: {
+          key: "report_embeddings@2026-05-31",
+          roles: ["served"],
+          status: "scored",
+          skip_reason: null,
+          // Stored lifts win, older rows derive lift from a positive base rate,
+          // and a head without one sorts last.
+          heads: [
+            { name: "pr_merged", probability: 0.52, lift: 2.6, readable: true },
+            { name: "action", probability: 0.78, lift: 1.3, readable: true },
+            { name: "refund", probability: 0.04, lift: null, readable: false },
+          ],
+        },
+        challengers: [
+          {
+            key: "signal_counts@2026-05-31",
+            roles: ["challenger"],
+            status: "skipped",
+            skip_reason: "missing report vector",
+            heads: [],
+          },
+        ],
+      });
     });
 
     it("keeps rows whose content does not match the type's shape as degraded previews", async () => {
@@ -2636,6 +2792,13 @@ describe("PostHogAPIClient", () => {
           content: {},
           created_at: "2026-06-01T00:00:02Z",
         },
+        // served model missing from the results
+        {
+          id: "bad4",
+          type: "ranking_score",
+          content: { served_key: "gone@1", results: {} },
+          created_at: "2026-06-01T00:00:03Z",
+        },
       ];
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -2645,7 +2808,12 @@ describe("PostHogAPIClient", () => {
 
       const { results } = await client.getSignalReportArtefacts("r1");
 
-      expect(results.map((a) => a.id)).toEqual(["bad1", "bad2", "bad3"]);
+      expect(results.map((a) => a.id)).toEqual([
+        "bad1",
+        "bad2",
+        "bad3",
+        "bad4",
+      ]);
       expect(results.every((a) => a.degraded)).toBe(true);
       expect(results[0].type).toBe("commit");
       expect((results[1].content as { content: string }).content).toBe(
@@ -3411,4 +3579,56 @@ describe("manual scout run refusals", () => {
       expect(error).toMatchObject({ status });
     },
   );
+});
+
+describe("report read sync", () => {
+  it("batches simultaneous report reads and resolves duplicate callers", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ states: { first: true, second: false } }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    expect(
+      await Promise.all([
+        client.getReportReadState("first"),
+        client.getReportReadState("second"),
+        client.getReportReadState("first"),
+      ]),
+    ).toEqual([true, false, true]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      report_ids: ["first", "second"],
+    });
+  });
+
+  it("rejects every waiting caller when read sync fails", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("Unavailable", { status: 503 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    const outcomes = await Promise.allSettled([
+      client.getReportReadState("first"),
+      client.getReportReadState("second"),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+  });
 });

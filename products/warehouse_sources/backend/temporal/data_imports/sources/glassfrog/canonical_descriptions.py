@@ -5,6 +5,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 _DOCS_URL = "https://app.glassfrog.com/api/v3/docs"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "actions": {
+        "description": "A next-action: a single step of work owned by a person, optionally in a role or tied to a project.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the action.",
+            "description": "Text describing the action.",
+            "type": "Type of the action.",
+            "status": "Current status of the action.",
+            "created_at": "When the action was created.",
+            "completed_at": "When the action was completed, if it has been.",
+            "note": "Free-text note attached to the action.",
+            "position": "Sort position of the action in its owner's list.",
+            "private_to_circle": "Whether the action is only visible inside its circle.",
+            "trigger": "Trigger that created the action, if any.",
+            "trigger_event": "Event that fired the trigger, if any.",
+            "links": "Identifiers of the related person, circle, role, and project.",
+        },
+    },
     "assignments": {
         "description": "An assignment of a person to a role, optionally with a focus.",
         "docs_url": _DOCS_URL,
@@ -48,6 +66,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "field_name": "Name of the custom field.",
             "field_value": "Value of the custom field.",
             "links": "Identifier of the role the custom field is attached to.",
+        },
+    },
+    "governance_meetings": {
+        "description": "A governance meeting held by a circle to process changes to its structure.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the governance meeting.",
+            "started_at": "When the meeting started.",
+            "ended_at": "When the meeting ended.",
+            "scratch_pad": "Shared notes taken during the meeting.",
+            "links": "Identifiers of the circle, the person who started the meeting, agenda items, and meeting hosts.",
         },
     },
     "metrics": {
@@ -96,6 +125,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "links": "Identifiers of the related role, person, and circle.",
         },
     },
+    "proposals": {
+        "description": "A governance proposal to change a circle's roles, policies, or other structure.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the proposal.",
+            "status": "Current status of the proposal.",
+            "proposed_at": "When the proposal was made.",
+            "escalated_at": "When the proposal was escalated, if it was.",
+            "accepted_at": "When the proposal was accepted, if it was.",
+            "response_deadline": "Deadline for responders to respond to the proposal.",
+            "received_response_count": "Number of responses received.",
+            "expected_response_count": "Number of responses expected.",
+            "current_responders": "Identifiers of the people who have responded.",
+            "possible_responders": "Identifiers of the people who can respond.",
+            "instructions": "The governance changes the proposal makes.",
+            "links": "Identifiers of the related circle, tension, and proposer.",
+        },
+    },
     "roles": {
         "description": "A role defined in the organization's governance structure.",
         "docs_url": _DOCS_URL,
@@ -108,6 +155,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "organization_id": "Identifier of the organization the role belongs to.",
             "tag_names": "Tags applied to the role.",
             "links": "Identifiers of related resources: circle, supporting circle, domains, accountabilities, and people filling the role.",
+        },
+    },
+    "tensions": {
+        "description": "A tension: a gap between what is and what could be, raised by a person for a circle to process.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the tension.",
+            "body": "Text of the tension.",
+            "plain_body": "Text of the tension without formatting.",
+            "label": "Short label for the tension.",
+            "agenda_label": "Label shown when the tension is on a meeting agenda.",
+            "type": "Type of the tension.",
+            "created_at": "When the tension was created.",
+            "impacted_role_id": "Identifier of the role the tension impacts, if any.",
+            "meeting_type": "Type of meeting the tension is raised for (governance or tactical).",
+            "proposal_status": "Status of the proposal made for the tension, if any.",
+            "is_triaged": "Whether the tension has been triaged.",
+            "is_agenda_item": "Whether the tension is on a meeting agenda.",
+            "is_resolved": "Whether the tension is resolved.",
+            "processed": "Whether the tension has been processed.",
+            "links": "Identifiers of the related person, circle, impacted role, and proposal.",
         },
     },
 }

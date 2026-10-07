@@ -20,28 +20,6 @@ CREATE TABLE posthog.kafka_logs_avro (
   pattern Nullable(String),
   pattern_version Nullable(Int32)
 ) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 4, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
-CREATE TABLE posthog.kafka_metrics_avro (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Nullable(Int32),
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  service_name Nullable(String),
-  metric_name Nullable(String),
-  metric_type Nullable(String),
-  value Nullable(Float64),
-  count Nullable(Int64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(Int64),
-  unit Nullable(String),
-  aggregation_temporality Nullable(String),
-  is_monotonic Nullable(UInt8),
-  resource_attributes Map(String, String),
-  instrumentation_scope Nullable(String),
-  attributes Map(String, String),
-  series_fingerprint Nullable(Int64)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 4, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_metrics_avro4 (
   uuid String,
   trace_id String,
@@ -87,8 +65,9 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   dropped_events_count Int32,
   links Array(String),
   dropped_links_count Int32,
-  status_code Int32
-) ENGINE = Kafka(warpstream_traces) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 4, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
+  status_code Int32,
+  retention_days Nullable(Int32)
+) ENGINE = Kafka(warpstream_traces) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.metrics4_input (
   uuid String,
   team_id Int32,
@@ -223,7 +202,8 @@ CREATE TABLE posthog.writable_metrics4_names (
   metric_name LowCardinality(String),
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
+  service_name LowCardinality(String)
 ) ENGINE = Distributed('logs', 'posthog', 'metrics4_names');
 CREATE TABLE posthog.writable_metrics4_samples (
   team_id Int32,
@@ -364,7 +344,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
     if(
       (retention_days IS NOT NULL) AND (retention_days > 0),
@@ -431,19 +411,20 @@ WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_kafka_metrics_mv TO posthog.writable_metrics_kafka_metrics (_partition UInt64, _topic LowCardinality(String), max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime), max_lag SimpleAggregateFunction(max, Decimal(18, 6))) AS SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
-  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-  maxSimpleState(timestamp) AS max_timestamp,
-  maxSimpleState(now()) AS max_created_at,
-  maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.kafka_metrics_avro
-GROUP BY
-  _partition, _topic;
 CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.writable_trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(String, String), instrumentation_scope String, attributes_map_str Map(String, String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64)) AS SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -453,9 +434,13 @@ CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.writable_t
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  observed_timestamp
+  timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
@@ -493,16 +478,17 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_names TO posthog.writable_metrics4_names (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)), service_name LowCardinality(String)) AS SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
   toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+  service_name
 FROM posthog.metrics4_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket;
+  team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_resource_attributes TO posthog.writable_metrics4_attributes (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   metric_name,

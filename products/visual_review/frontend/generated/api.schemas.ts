@@ -287,12 +287,17 @@ export interface QuarantineInputApi {
      */
     reason: string
     /**
+     * When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
      * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
      * @nullable
      */
     source_run_id?: string | null
-    /** @nullable */
-    expires_at?: string | null
+    /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
+    notify_owners?: boolean
 }
 
 export interface UnquarantineQueryApi {
@@ -302,6 +307,57 @@ export interface UnquarantineQueryApi {
      */
     identifier: string
 }
+
+export interface ErrorDetailApi {
+    /** What went wrong and what to do next. */
+    detail: string
+    /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+    code?: string
+}
+
+export interface TolerationPileupEntryApi {
+    /** Snapshot identifier, for example a Storybook story id plus theme. */
+    identifier: string
+    /** Run type the snapshot belongs to, for example `storybook`. */
+    run_type: string
+    /** Tolerations a person or agent recorded for this snapshot in the window, across every baseline. Each one accepted a different exact rendering, so a high count means the snapshot renders differently from run to run. */
+    intentional_count: number
+    /** Automatic tolerations in the window: renderings that came in under both diff thresholds. */
+    automatic_count: number
+    /** Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests. */
+    is_quarantined: boolean
+}
+
+export interface TolerationPileupsApi {
+    /** Matching snapshots, most manual tolerations first. */
+    entries: TolerationPileupEntryApi[]
+    /** Length of the counting window in days that was applied. */
+    window_days: number
+    /** Manual toleration threshold that was applied. */
+    min_tolerations: number
+    /**
+     * Automatic toleration threshold that was applied, or null when none was.
+     * @nullable
+     */
+    min_automatic_tolerations: number | null
+    /** How many snapshots matched before `limit` was applied. */
+    total: number
+    /** True when `limit` cut the list short. */
+    truncated: boolean
+    /** When the list was computed. */
+    generated_at: string
+}
+
+/**
+ * * `review` - review
+ * * `observe` - observe
+ */
+export type PurposeEnumApi = (typeof PurposeEnumApi)[keyof typeof PurposeEnumApi]
+
+export const PurposeEnumApi = {
+    Review: 'review',
+    Observe: 'observe',
+} as const
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
@@ -324,6 +380,11 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+     *
+     * * `review` - review
+     * * `observe` - observe */
+    readonly purpose: PurposeEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
      *
      * * `exact` - exact
@@ -517,6 +578,15 @@ export interface ApproveRunRequestInputApi {
     snapshots: ApproveSnapshotInputApi[]
 }
 
+export interface CompleteRunInputApi {
+    /**
+     * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+     * @maxLength 32
+     * @pattern ^\d+$
+     */
+    check_run_id?: string
+}
+
 export interface FinalizeRunRequestInputApi {
     /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
@@ -529,6 +599,81 @@ export interface FinalizeRunRequestInputApi {
 export interface FinalizeResultApi {
     run: RunApi
     baseline_content: string
+}
+
+export interface LiftOnMergeInputApi {
+    /**
+     * Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.
+     * @maxLength 512
+     */
+    identifier: string
+}
+
+/**
+ * * `pending` - pending
+ * * `applied` - applied
+ * * `cancelled` - cancelled
+ * * `superseded` - superseded
+ */
+export type QuarantineLiftStateEnumApi = (typeof QuarantineLiftStateEnumApi)[keyof typeof QuarantineLiftStateEnumApi]
+
+export const QuarantineLiftStateEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Cancelled: 'cancelled',
+    Superseded: 'superseded',
+} as const
+
+export interface QuarantineLiftEntryApi {
+    /** UUID of the lift request. */
+    id: string
+    /** UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event. */
+    quarantine_id: string
+    /** Snapshot identifier under quarantine. */
+    identifier: string
+    /** Run type of the quarantine, for example storybook. */
+    run_type: string
+    /** Pull request whose merge the lift waits for. */
+    pr_number: number
+    /** Content hash a default-branch run must render, against a baseline entry with the same hash, for the lift to apply. */
+    expected_hash: string
+    /** `pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. `cancelled` was withdrawn, or the pull request closed without merging into the run's branch. `superseded` means the quarantine ended some other way, or another request lifted it.
+     *
+     * * `pending` - pending
+     * * `applied` - applied
+     * * `cancelled` - cancelled
+     * * `superseded` - superseded */
+    state: QuarantineLiftStateEnumApi
+    /** The latest verification outcome, in plain words. */
+    detail: string
+    /** When the lift was requested. */
+    created_at: string
+    /** When the request last changed. */
+    updated_at: string
+    /**
+     * When the request left `pending`. Null while it waits.
+     * @nullable
+     */
+    resolved_at?: string | null
+    /**
+     * Run the lift was requested from. Null after that run is deleted.
+     * @nullable
+     */
+    source_run_id?: string | null
+    /** User who requested the lift, or on whose behalf an agent did. */
+    requested_by?: UserBasicInfoApi | null
+    /**
+     * Merge commit of the pull request. Set when the lift applies.
+     * @nullable
+     */
+    merge_commit_sha?: string | null
+    /**
+     * Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that does not contain it still treats the snapshot as quarantined.
+     * @nullable
+     */
+    lifted_at_sha?: string | null
+    /** Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP. */
+    source: string
 }
 
 export interface RecomputeResultApi {
@@ -595,7 +740,7 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
-    /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+    /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
     quarantined_count?: number
 }
 
@@ -660,6 +805,43 @@ export type VisualReviewReposThumbnailsRetrieveParams = {
      * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
      */
     run_type?: string
+}
+
+export type VisualReviewReposTolerationPileupsRetrieveParams = {
+    /**
+     * Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. Set to false to see only piles nobody has acted on yet.
+     */
+    include_quarantined?: boolean
+    /**
+     * Maximum number of snapshots to return. `total` and `truncated` say whether more matched.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Also list a snapshot when it collected at least this many automatic tolerations in the window. An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; many of them still mean the story is unstable. Omit to ignore automatic tolerations when deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion.
+     * @minimum 1
+     * @maximum 10000
+     */
+    min_automatic_tolerations?: number
+    /**
+     * List a snapshot when a person or agent tolerated it at least this many times in the window. The default, 3, is the weekly debt digest's rule. Lower it to see snapshots that are starting to pile up, raise it to see only the worst ones.
+     * @minimum 1
+     * @maximum 100
+     */
+    min_tolerations?: number
+    /**
+     * Only list snapshots of this run type, for example `storybook` or `playwright`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    run_type?: string
+    /**
+     * How many days back to count tolerations. Defaults to 30.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
 }
 
 export type VisualReviewReposRunsListParams = {
@@ -740,6 +922,10 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 
 export type VisualReviewRunsSnapshotsListParams = {
     /**
+     * Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.
+     */
+    exclude_unchanged?: boolean
+    /**
      * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
      */
     include_quarantined?: boolean
@@ -751,6 +937,14 @@ export type VisualReviewRunsSnapshotsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     */
+    quarantined_only?: boolean
+    /**
+     * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
+     */
+    snapshot_id?: string
 }
 
 export type VisualReviewRunsToleratedHashesListParams = {

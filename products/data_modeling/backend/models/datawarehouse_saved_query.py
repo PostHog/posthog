@@ -17,7 +17,13 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 from posthog.hogql import ast
-from posthog.hogql.database.database import Database, is_reserved_system_name
+from posthog.hogql.database.database import (
+    MODELS_NAMESPACE_QUERY_ERROR,
+    MODELS_NAMESPACE_ROOT_ERROR,
+    Database,
+    is_reserved_models_name,
+    is_reserved_system_name,
+)
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -51,6 +57,8 @@ TEST_VIEW_EXPIRY_INTERVAL = timedelta(days=7)
 
 
 def validate_saved_query_name(value: str) -> None:
+    if value == "models":
+        raise ValidationError(MODELS_NAMESPACE_ROOT_ERROR, params={"value": value})
     if is_reserved_system_name(value):
         raise ValidationError(
             "The system namespace is reserved for built-in tables. Choose a different view name.",
@@ -192,7 +200,28 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
     )
 
+    def _validate_models_namespace(self) -> None:
+        if self.name == "models":
+            message = MODELS_NAMESPACE_ROOT_ERROR
+        elif is_reserved_models_name(self.name) and self.origin in {self.Origin.ENDPOINT, self.Origin.MANAGED_VIEWSET}:
+            message = MODELS_NAMESPACE_QUERY_ERROR
+        else:
+            return
+        # A query saved with this name before the reservation existed must stay editable. Materialization
+        # and other system writes call save() on it without changing the name.
+        if (
+            not self._state.adding
+            and type(self).objects.filter(pk=self.pk, team_id=self.team_id, name=self.name).exists()
+        ):
+            return
+        raise ValidationError({"name": message})
+
+    def clean(self) -> None:
+        super().clean()
+        self._validate_models_namespace()
+
     def save(self, *args, **kwargs):
+        self._validate_models_namespace()
         if self.is_test and not self.expires_at:
             from django.utils import timezone
 
@@ -224,6 +253,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             models.Index(
                 fields=["team_id", "is_materialized"],
                 name="dwsavedquery_team_live_matvw",
+                condition=~models.Q(deleted=True),
+            ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwsavedquery_team_live_created",
                 condition=~models.Q(deleted=True),
             ),
         ]
@@ -281,6 +315,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
+                .order_by("created_at")
                 .first()
             )
             dag_to_bootstrap = None

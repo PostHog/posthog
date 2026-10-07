@@ -52,6 +52,9 @@ class _FakeManager:
     def save_state(self, data: HarveyResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _response(body: Any, status_code: int = 200) -> Response:
     resp = Response()
@@ -74,6 +77,19 @@ def _requested_urls(session: mock.MagicMock) -> list[str]:
 
 def _query_params(url: str) -> dict[str, str]:
     return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
+
+
+def _vault_page(project_ids: list[str], page: int = 1, total_pages: int = 1) -> Response:
+    return _response(
+        {
+            "response": {
+                "content": {
+                    "projects": [{"id": project_id, "name": project_id} for project_id in project_ids],
+                    "pagination": {"page": page, "per_page": 100, "total": 0, "total_pages": total_pages},
+                }
+            }
+        }
+    )
 
 
 def _audit_log(log_id: str, timestamp: str = "2026-06-01T10:00:00+00:00") -> dict[str, Any]:
@@ -218,6 +234,33 @@ class TestCheckEndpointAccess:
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             assert check_endpoint_access("token", "us", "audit_logs") is None
 
+    @parameterized.expand(
+        [
+            ("vault_project_users", "vault_project_users", "/api/v1/vault/projects/proj-1/users"),
+            ("vault_project_files", "vault_project_files", "/api/v1/vault/projects/proj-1/files"),
+            ("review_tables", "review_tables", "/api/v1/vault/get_metadata/proj-1"),
+            ("review_table_rows", "review_table_rows", "/api/v1/vault/get_metadata/proj-1"),
+        ]
+    )
+    def test_fan_out_probes_child_endpoint_of_first_project(
+        self, _name: str, endpoint: str, expected_path: str
+    ) -> None:
+        session = _session_with([_vault_page(["proj-1"]), _response({}, status_code=403)])
+        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+            reason = check_endpoint_access("token", "us", endpoint)
+
+        assert reason is not None
+        urls = _requested_urls(session)
+        assert "/api/v1/vault/workspace/projects" in urls[0]
+        assert expected_path in urls[1]
+
+    def test_fan_out_probe_without_projects_is_reachable(self) -> None:
+        session = _session_with([_vault_page([])])
+        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+            assert check_endpoint_access("token", "us", "vault_project_users") is None
+
+        assert len(_requested_urls(session)) == 1
+
 
 class TestSessionRedaction:
     # A dropped `redact_values` would copy the bearer token into captured request samples and logged
@@ -266,6 +309,13 @@ class TestHttpSampleCapture:
             (
                 "vault_projects",
                 "vault_projects",
+                HarveyResumeConfig(next_page=1),
+                [_response({"response": {"content": {"projects": []}}})],
+                False,
+            ),
+            (
+                "review_table_rows",
+                "review_table_rows",
                 HarveyResumeConfig(next_page=1),
                 [_response({"response": {"content": {"projects": []}}})],
                 False,
@@ -594,18 +644,6 @@ class TestClientMatterRows:
 
 
 class TestVaultProjectRows:
-    def _vault_page(self, project_ids: list[str], page: int, total_pages: int) -> Response:
-        return _response(
-            {
-                "response": {
-                    "content": {
-                        "projects": [{"id": project_id, "name": project_id} for project_id in project_ids],
-                        "pagination": {"page": page, "per_page": 100, "total": 0, "total_pages": total_pages},
-                    }
-                }
-            }
-        )
-
     def _get_batches(
         self, responses: list[Response], manager: _FakeManager
     ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
@@ -624,7 +662,7 @@ class TestVaultProjectRows:
 
     def test_single_page(self) -> None:
         manager = _FakeManager()
-        batches, session = self._get_batches([self._vault_page(["proj-1", "proj-2"], page=1, total_pages=1)], manager)
+        batches, session = self._get_batches([_vault_page(["proj-1", "proj-2"], page=1, total_pages=1)], manager)
 
         assert [[p["id"] for p in batch] for batch in batches] == [["proj-1", "proj-2"]]
         params = _query_params(_requested_urls(session)[0])
@@ -637,8 +675,8 @@ class TestVaultProjectRows:
         manager = _FakeManager()
         batches, session = self._get_batches(
             [
-                self._vault_page(["proj-1"], page=1, total_pages=2),
-                self._vault_page(["proj-2"], page=2, total_pages=2),
+                _vault_page(["proj-1"], page=1, total_pages=2),
+                _vault_page(["proj-2"], page=2, total_pages=2),
             ],
             manager,
         )
@@ -649,14 +687,209 @@ class TestVaultProjectRows:
 
     def test_resume_starts_at_saved_page(self) -> None:
         manager = _FakeManager(resume=HarveyResumeConfig(next_page=3))
-        _, session = self._get_batches([self._vault_page([], page=3, total_pages=5)], manager)
+        _, session = self._get_batches([_vault_page([], page=3, total_pages=5)], manager)
 
         assert _query_params(_requested_urls(session)[0])["page"] == "3"
 
     def test_empty_page_stops(self) -> None:
         manager = _FakeManager()
-        batches, _ = self._get_batches([self._vault_page([], page=1, total_pages=0)], manager)
+        batches, _ = self._get_batches([_vault_page([], page=1, total_pages=0)], manager)
         assert batches == []
+
+
+class TestProjectFanOutRows:
+    def _get_batches(
+        self, endpoint: str, responses: list[Response], manager: _FakeManager | None = None
+    ) -> tuple[  # nosemgrep: tuple-return-prefer-dataclass -- test helper returns heterogeneous batches and session
+        list[list[dict[str, Any]]], mock.MagicMock
+    ]:
+        session = _session_with(responses)
+        with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
+            batches = list(
+                get_rows(
+                    api_key="token",
+                    region="us",
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager or _FakeManager(),  # type: ignore[arg-type]
+                )
+            )
+        return batches, session
+
+    def _users(self, project_id: str, user_ids: list[str]) -> Response:
+        return _response(
+            {
+                "status": "COMPLETED",
+                "data": {
+                    "project_id": project_id,
+                    "users": [{"user_id": user_id, "access_level": "READ"} for user_id in user_ids],
+                },
+            }
+        )
+
+    def test_project_users_are_tagged_with_project_and_deleted_projects_skipped(self) -> None:
+        batches, session = self._get_batches(
+            "vault_project_users",
+            [
+                _vault_page(["proj-1", "proj-2", "proj-3"]),
+                self._users("proj-1", ["user-1", "user-2"]),
+                _response({}, status_code=404),
+                self._users("proj-3", ["user-1"]),
+            ],
+        )
+
+        assert [(row["project_id"], row["user_id"]) for batch in batches for row in batch] == [
+            ("proj-1", "user-1"),
+            ("proj-1", "user-2"),
+            ("proj-3", "user-1"),
+        ]
+        assert urlparse(_requested_urls(session)[1]).path == "/api/v1/vault/projects/proj-1/users"
+
+    def test_forbidden_project_users_raise(self) -> None:
+        with pytest.raises(HTTPError):
+            self._get_batches("vault_project_users", [_vault_page(["proj-1"]), _response({}, status_code=403)])
+
+    def test_fan_out_saves_projects_page_after_its_children(self) -> None:
+        manager = _FakeManager()
+        batches, session = self._get_batches(
+            "vault_project_users",
+            [
+                _vault_page(["proj-1"], page=1, total_pages=2),
+                self._users("proj-1", ["user-1"]),
+                _vault_page(["proj-2"], page=2, total_pages=2),
+                self._users("proj-2", ["user-2"]),
+            ],
+            manager,
+        )
+
+        assert len(batches) == 2
+        assert _query_params(_requested_urls(session)[2])["page"] == "2"
+        assert [state.next_page for state in manager.saved] == [2]
+
+    def test_fan_out_resumes_at_saved_projects_page(self) -> None:
+        manager = _FakeManager(resume=HarveyResumeConfig(next_page=4))
+        _, session = self._get_batches("vault_project_files", [_vault_page([], page=4, total_pages=4)], manager)
+
+        assert _query_params(_requested_urls(session)[0])["page"] == "4"
+
+    def _files_page(self, file_ids: list[str], next_cursor: str | None) -> Response:
+        return _response(
+            {
+                "response": {
+                    "content": {
+                        "files": [
+                            {"id": file_id, "name": f"{file_id}.pdf", "size": 10, "uploaded_at": 1767225600}
+                            for file_id in file_ids
+                        ],
+                        "pagination": {
+                            "page_size": len(file_ids),
+                            "has_more": next_cursor is not None,
+                            "next_cursor": next_cursor,
+                            "total_count": 3,
+                        },
+                    }
+                }
+            }
+        )
+
+    def test_project_files_follow_cursor_until_has_more_is_false(self) -> None:
+        batches, session = self._get_batches(
+            "vault_project_files",
+            [
+                _vault_page(["proj-1"]),
+                self._files_page(["file-1", "file-2"], next_cursor="cursor-abc"),
+                self._files_page(["file-3"], next_cursor=None),
+            ],
+        )
+
+        rows = [row for batch in batches for row in batch]
+        assert [(row["project_id"], row["id"]) for row in rows] == [
+            ("proj-1", "file-1"),
+            ("proj-1", "file-2"),
+            ("proj-1", "file-3"),
+        ]
+        assert rows[0]["uploaded_at"] == datetime(2026, 1, 1, tzinfo=UTC)
+
+        first, second = (_query_params(url) for url in _requested_urls(session)[1:])
+        assert "cursor" not in first
+        assert second["cursor"] == "cursor-abc"
+        assert first["sort_by"] == "uploaded_at"
+        assert first["sort_order"] == "asc"
+
+    @parameterized.expand(
+        [
+            ("consecutive_repeat", ["cursor-a", "cursor-a"]),
+            ("cycle", ["cursor-a", "cursor-b", "cursor-a"]),
+        ]
+    )
+    def test_project_files_reject_cursor_cycles(self, _name: str, cursors: list[str]) -> None:
+        with pytest.raises(HarveyRetryableError, match="repeated Vault project files cursor"):
+            self._get_batches(
+                "vault_project_files",
+                [
+                    _vault_page(["proj-1"]),
+                    *(self._files_page([f"file-{index}"], next_cursor=cursor) for index, cursor in enumerate(cursors)),
+                ],
+            )
+
+    @parameterized.expand(
+        [
+            # The spec documents an object but its example wraps the metadata in a list.
+            ("list_content", [{"project_id": "proj-1", "review_table_ids": [11, 12]}]),
+            ("object_content", {"project_id": "proj-1", "review_table_ids": [11, 12]}),
+        ]
+    )
+    def test_review_tables_are_enumerated_from_project_metadata(self, _name: str, metadata_content: Any) -> None:
+        batches, session = self._get_batches(
+            "review_tables",
+            [
+                _vault_page(["proj-1"]),
+                _response({"response": {"content": metadata_content}}, status_code=201),
+                _response({"response": {"content": {"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"]}}}),
+                _response({}, status_code=404),
+            ],
+        )
+
+        assert batches == [[{"review_table_id": 11, "title": "Leases", "file_ids": ["f-1"], "project_id": "proj-1"}]]
+        assert urlparse(_requested_urls(session)[2]).path == "/api/v1/vault/review_table/11"
+
+    def test_review_table_rows_fetch_one_row_per_file(self) -> None:
+        cells = {"cells": [{"column_name": "Start date", "summary": "February 7, 2011"}]}
+        batches, session = self._get_batches(
+            "review_table_rows",
+            [
+                _vault_page(["proj-1"]),
+                _response({"response": {"content": [{"review_table_ids": [11]}]}}, status_code=201),
+                _response({"response": {"content": {"review_table_id": 11, "file_ids": ["f-1", "f-2"]}}}),
+                _response(
+                    {
+                        "event_id": 11,
+                        "file_id": "f-1",
+                        "updated_at": "Wed, 10 Dec 2025 00:38:49 GMT",
+                        "response": cells,
+                    }
+                ),
+                # A file without a row of its own or a file group row.
+                _response({}, status_code=404),
+            ],
+        )
+
+        assert batches == [
+            [
+                {
+                    "event_id": 11,
+                    "file_id": "f-1",
+                    "updated_at": datetime(2025, 12, 10, 0, 38, 49, tzinfo=UTC),
+                    "response": cells,
+                    "review_table_id": 11,
+                    "project_id": "proj-1",
+                }
+            ]
+        ]
+        assert [urlparse(url).path for url in _requested_urls(session)[3:]] == [
+            "/api/v1/vault/get_row/11/f-1",
+            "/api/v1/vault/get_row/11/f-2",
+        ]
 
 
 class TestHarveySourceResponse:

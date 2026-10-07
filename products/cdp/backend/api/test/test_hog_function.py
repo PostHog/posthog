@@ -10,6 +10,7 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -20,6 +21,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    comparable_content,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -190,15 +192,16 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
 
-    def test_generic_api_cannot_subscribe_to_managed_alert_events(self):
+    @parameterized.expand([("$billing_alert_firing",), ("$logs_alert_incident_closed",)])
+    def test_generic_api_cannot_subscribe_to_managed_alert_events(self, event_id):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
-                "name": "Forged billing destination",
+                "name": "Forged alert destination",
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "enabled": True,
-                "filters": {"events": [{"id": "$billing_alert_firing", "type": "events"}]},
+                "filters": {"events": [{"id": event_id, "type": "events"}]},
             },
         )
 
@@ -591,6 +594,48 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected == status.HTTP_400_BAD_REQUEST:
             assert "static cohort" in response.json()["detail"]
 
+    def test_a_new_runtime_stamp_alone_is_not_a_content_change(self):
+        # A re-save against a newer runtime rewrites every stamp. That must not version the function.
+        stamped = {
+            "filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1], "bytecode_contract": "new"},
+            "inputs": {"url": {"value": "https://example.com", "bytecode": ["_H", 1], "bytecode_contract": "new"}},
+            "mappings": [
+                {"filters": {"bytecode_contract": "new"}, "inputs": {"k": {"value": 1, "bytecode_contract": "new"}}}
+            ],
+        }
+        unstamped = {
+            "filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1]},
+            "inputs": {"url": {"value": "https://example.com", "bytecode": ["_H", 1]}},
+            "mappings": [{"filters": {}, "inputs": {"k": {"value": 1}}}],
+        }
+        assert comparable_content(stamped) == comparable_content(unstamped)
+
+    def test_kept_bytecode_keeps_the_contract_it_was_compiled_against(self):
+        # When a save cannot recompile the filters, the model keeps the last working bytecode. The
+        # stamp has to stay with that bytecode, or the runtime would read old code as freshly compiled.
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Destination",
+            type="destination",
+            enabled=True,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={"filter_test_accounts": True},
+        )
+        HogFunction.objects.filter(pk=fn.pk).update(filters={**(fn.filters or {}), "bytecode_contract": "older"})
+        fn.refresh_from_db()
+        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        self.team.save()
+
+        fn.save()
+
+        fn.refresh_from_db()
+        filters = fn.filters or {}
+        assert filters["bytecode"] is not None
+        assert "$virt_is_bot" in filters["bytecode_error"]
+        assert filters["bytecode_contract"] == "older"
+
     def test_uncompilable_filters_disable_with_string_boolean_value(self):
         # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
         # value before field coercion, so it must coerce rather than rely on truthiness - otherwise
@@ -658,6 +703,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "filters": {
                 "source": "events",
                 "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
+                "bytecode_contract": RUNTIME_CONTRACT,
             },
             "icon_url": None,
             "template": None,
@@ -983,6 +1029,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "I AM SECRET",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "value": "I AM SECRET",
                 "order": 0,
             },
@@ -992,7 +1039,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert (
             raw_encrypted_inputs
-            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1Uvej4GHsYRbsTN_txcQHNnU7zvLee83DhHIrThEjceoq8i7hbfKrvqjEi7GCGc_k_Gi3V5KFxDOfLKnke4KM4s"
+            == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopwQKcL10Y5Yg8s8Gswibi1pCMfjwSnKwod91SMtLKgNfAU4EPZ6GxA77xCHIjaTLueR3qx-hy2Pu3W0r5Rh1hWy0bq01uIdulQ_LhxkQgpj"
         )
 
     def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
@@ -1191,6 +1238,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     32,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 0,
             },
             "payload": {
@@ -1223,6 +1271,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ],
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
             },
             "method": {"value": "POST", "order": 2},
             "headers": {
@@ -1246,6 +1295,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         2,
                     ]
                 },
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 3,
             },
         }
@@ -1331,6 +1381,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 3,
                 2,
             ],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }
 
     def test_saves_masking_config(self, *args):
@@ -2096,6 +2147,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "concat",
                             3,
                         ],
+                        "bytecode_contract": RUNTIME_CONTRACT,
                         "order": 0,
                     }
                 },
@@ -2129,6 +2181,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         3,
                         2,
                     ],
+                    "bytecode_contract": RUNTIME_CONTRACT,
                     "filter_test_accounts": True,
                 },
             }
@@ -2267,6 +2320,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     Operation.STRING,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
+                "bytecode_contract": RUNTIME_CONTRACT,
                 "order": 0,
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
@@ -2682,6 +2736,58 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "Transformations only have access to project, event, and inputs."
             ),
         }
+
+    def test_destination_rejects_inputs_referencing_unavailable_globals(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{distinct_id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "inputs__url"
+        assert response.json()["detail"] == (
+            "Invalid template: Variable not available in inputs: distinct_id. Inputs can read event, person, "
+            "groups, project, source and inputs, and in a workflow also variables."
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "inputs": {**EXAMPLE_FULL["inputs"], "url": {"value": "https://example.com/{event.distinct_id}"}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            # An input saved before this check must not trap the function: disabling or deleting it
+            # stays possible, while any save that leaves it enabled is still rejected.
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+            ("edit_while_disabled_allowed", False, {"name": "renamed"}, status.HTTP_200_OK),
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("edit_while_enabled_blocked", True, {"name": "renamed"}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_unavailable_input_global_only_blocks_saves_that_leave_function_enabled(
+        self, _name, initial_enabled, patch, expected
+    ):
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Saved before the check",
+            type="destination",
+            hog="fetch(inputs.url)",
+            inputs_schema=[{"key": "url", "type": "string", "required": True}],
+            inputs={"url": {"value": "https://example.com/{distinct_id}"}},
+            enabled=initial_enabled,
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}/", data=patch)
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "inputs__url"
 
     def test_limits_transformation_functions_per_team(self):
         """Test that we can create unlimited disabled transformations but only 20 enabled ones"""
@@ -3258,6 +3364,20 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["error"] == "Backfills are only supported for event-sourced destinations."
+
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=True)
+    def test_enable_backfills_rejects_filters_a_batch_export_cannot_apply(self, _mock_feature_enabled):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"error": "Each filter must have a 'type' of one of: 'event', 'hogql', 'person'"}
+        assert HogFunction.objects.get(id=function_id).batch_export_id is None
 
 
 class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

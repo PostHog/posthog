@@ -46,6 +46,9 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -191,7 +194,9 @@ class SignupSerializer(serializers.Serializer):
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
-                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                if EmailValidationHelper.user_exists_with_stripped_alias(
+                    value
+                ) or EmailValidationHelper.user_exists_with_gmail_canonical(value):
                     raise serializers.ValidationError(
                         "There is already an account with this email address.", code="unique"
                     )
@@ -231,6 +236,18 @@ class SignupSerializer(serializers.Serializer):
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
             )
+
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=validated_data["email"],
+                    ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                ),
+                SecuritySurface.SIGNUP,
+                call_site="signup",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="signup")
 
         is_instance_first_user: bool = not User.objects.exists()
 
@@ -404,7 +421,9 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
+                email
+            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
         if email_exists:
             return response.Response(
                 {
@@ -579,6 +598,21 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="verified_domain_required",
             )
 
+        # Runs for both branches below: an already signed-in user accepting an invite never hits
+        # the "not user" branch, so this must not live inside it.
+        try:
+            security_shadow_check(
+                SecuritySubject(
+                    email=(user.email if user else invite.target_email) or "",
+                    user_uuid=str(user.uuid) if user else None,
+                    ip=get_trusted_client_ip(getattr(self.context["request"], "_request", self.context["request"])),
+                ),
+                SecuritySurface.SIGNUP,
+                call_site="invite_signup",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="invite_signup")
+
         with transaction.atomic():
             if not user:
                 is_new_user = True
@@ -740,7 +774,9 @@ class SocialSignupSerializer(serializers.Serializer):
 
     organization_name: serializers.Field = serializers.CharField(max_length=64)
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
+    role_at_organization: serializers.Field = serializers.CharField(
+        max_length=123, required=False, allow_blank=True, default=""
+    )
     referral_source: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
@@ -832,7 +868,7 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     if config is None:
         return None
     return (
-        OrganizationInvite.objects.filter(target_email=email, organization_id=config.organization_id)
+        OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)
         .order_by("-created_at")
         .first()
     )
@@ -910,7 +946,7 @@ def process_social_domain_jit_provisioning_signup(
             if not user:
                 try:
                     invite: OrganizationInvite = OrganizationInvite.objects.get(
-                        target_email=email, organization=domain_instance.organization
+                        target_email__iexact=email, organization=domain_instance.organization
                     )
                     invite.validate(user=None, email=email)
                     # Capture before invite.use() deletes the invite row.

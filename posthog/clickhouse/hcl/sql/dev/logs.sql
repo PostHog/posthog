@@ -1,30 +1,6 @@
 -- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit.
 -- Full CREATE schema for the dev/logs node. Apply to a fresh ClickHouse to build it.
 
-CREATE TABLE posthog.kafka_metrics_avro2 (
-  uuid String,
-  trace_id String,
-  span_id String,
-  trace_flags Nullable(Int32),
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  service_name Nullable(String),
-  metric_name Nullable(String),
-  metric_type Nullable(String),
-  value Nullable(Float64),
-  count Nullable(Int64),
-  histogram_bounds Array(Float64),
-  histogram_counts Array(Int64),
-  unit Nullable(String),
-  aggregation_temporality Nullable(String),
-  is_monotonic Nullable(UInt8),
-  resource_attributes Map(String, String),
-  instrumentation_scope Nullable(String),
-  attributes Map(String, String),
-  series_fingerprint Nullable(Int64),
-  has_labels Nullable(UInt8),
-  retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_flush_interval_ms = 10000, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 4, kafka_poll_max_batch_size = 500, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.log_attributes2 (
   team_id Int32,
   time_bucket DateTime64(0),
@@ -219,8 +195,9 @@ CREATE TABLE posthog.logs_volume_buckets (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_volume_buckets', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_volume_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -228,6 +205,7 @@ CREATE TABLE posthog.logs_volume_buckets_distributed (
   namespace LowCardinality(String),
   environment LowCardinality(String),
   severity_text LowCardinality(String),
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('logs', 'posthog', 'logs_volume_buckets');
 CREATE TABLE posthog.metric_attributes (
@@ -471,35 +449,6 @@ CREATE TABLE posthog.metrics2 (
 GROUP BY
   team_id, service_name, metric_name, metric_type, resource_fingerprint, series_fingerprint, hour)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics2', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.metrics2_input (
-  uuid String,
-  team_id Int32,
-  metric_name LowCardinality(String),
-  series_fingerprint UInt64,
-  resource_fingerprint UInt64,
-  timestamp DateTime64(6),
-  observed_timestamp DateTime64(6),
-  original_expiry_timestamp DateTime64(6),
-  service_name LowCardinality(String),
-  metric_type LowCardinality(String),
-  value Float64,
-  count UInt64,
-  histogram_bounds Array(Float64),
-  histogram_counts Array(UInt64),
-  trace_id String,
-  span_id String,
-  trace_flags Int32,
-  has_labels Bool,
-  unit LowCardinality(String),
-  aggregation_temporality LowCardinality(String),
-  is_monotonic Bool,
-  instrumentation_scope String,
-  resource_attributes Map(LowCardinality(String), String),
-  attributes Map(LowCardinality(String), String),
-  _partition UInt32,
-  _topic String,
-  _offset UInt64
-) ENGINE = Null();
 CREATE TABLE posthog.metrics4_attributes (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -513,15 +462,17 @@ CREATE TABLE posthog.metrics4_attributes (
   INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_names (
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime64(0),
   original_expiry_time_bucket DateTime64(0),
-  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
+  original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6)),
+  service_name LowCardinality(String)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_names', '{replica}-{shard}') ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics4_samples (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -546,9 +497,13 @@ CREATE TABLE posthog.metrics4_samples (
   trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+  timestamp_min DateTime64(6) ALIAS arrayMin(timestamp_arr),
+  timestamp_max DateTime64(6) ALIAS arrayMax(timestamp_arr),
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
   INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
-  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
+  INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
@@ -571,8 +526,17 @@ CREATE TABLE posthog.metrics4_series (
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+  PROJECTION services_by_hour (SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  uniqExact(metric_name),
+  uniq(series_fingerprint),
+  max(timestamp)
+GROUP BY
+  team_id, time_bucket, service_name)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -703,7 +667,10 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
 CREATE TABLE posthog.trace_attributes (
   team_id Int32,
@@ -792,10 +759,12 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
   INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 16,
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
-  INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
-  INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
-  PROJECTION projection_index_span_id (SELECT _part_offset
+  INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+  INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+  PROJECTION projection_index_team_span_id (SELECT team_id, _part_offset
 ORDER BY span_id),
+  PROJECTION projection_index_team_trace_id (SELECT team_id, _part_offset
+ORDER BY trace_id),
   PROJECTION projection_aggregate_counts (SELECT
   team_id,
   time_bucket,
@@ -805,10 +774,8 @@ ORDER BY span_id),
   is_root_span,
   count() AS event_count
 GROUP BY
-  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span),
-  PROJECTION projection_index_trace_id (SELECT _part_offset
-ORDER BY trace_id)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', ttl_only_drop_parts = 1;
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span)
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans', '{replica}-{shard}') ORDER BY (team_id, time_bucket, service_name, resource_fingerprint, status_code, name, timestamp) PARTITION BY toDate(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS allow_part_offset_column_in_projections = 1, index_granularity = 8192, index_granularity_bytes = 104857600, map_serialization_version = 'with_buckets', storage_policy = 's3_tiered', ttl_only_drop_parts = 1;
 CREATE TABLE posthog.trace_spans_distributed (
   time_bucket DateTime MATERIALIZED toStartOfInterval(timestamp, toIntervalHour(4)),
   original_expiry_timestamp DateTime64(6),
@@ -915,56 +882,6 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro2_mv TO posthog.metrics2_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
-  uuid,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  timestamp
-  + toIntervalDay(
-    assumeNotNull(
-      if(
-        (retention_days IS NOT NULL) AND (retention_days > 0),
-        retention_days,
-        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
-      )
-    )
-  ) AS original_expiry_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  toBool(ifNull(has_labels, 1)) AS has_labels,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS resource_attributes,
-  if(
-    toBool(ifNull(has_labels, 1)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
-    CAST(map(), 'Map(String, String)')
-  ) AS attributes,
-  _partition,
-  _topic,
-  _offset
-FROM posthog.kafka_metrics_avro2
-WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0;
 CREATE MATERIALIZED VIEW posthog.logs34_to_log_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -1024,13 +941,14 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, resource_attributes
   );
-CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.logs34_to_volume_buckets TO posthog.logs_volume_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
   service_name,
   namespace,
   environment,
   severity_text,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -1052,191 +970,21 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
   team_id, time_bucket, service_name, namespace, environment, severity_text;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes3 TO posthog.metric_attributes3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_names3 TO posthog.metric_names3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), original_expiry_timestamp SimpleAggregateFunction(max, DateTime64(6))) AS SELECT
-  team_id,
-  metric_name,
-  toStartOfHour(timestamp) AS time_bucket,
-  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-FROM posthog.metrics2_input AS input
-WHERE has_labels
-GROUP BY
-  team_id, time_bucket, metric_name, original_expiry_time_bucket;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series TO posthog.metric_series2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series3 TO posthog.metric_series3 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, metric_type LowCardinality(String), unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, service_name LowCardinality(String), instrumentation_scope String, resource_attributes Map(LowCardinality(String), String), attributes Map(LowCardinality(String), String), last_seen DateTime64(6), original_expiry_timestamp DateTime64(6)) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  service_name,
-  instrumentation_scope,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen,
-  original_expiry_timestamp
-FROM posthog.metrics2_input
-WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope,
-  _partition,
-  _topic,
-  _offset
-FROM posthog.metrics2_input;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_resource_attributes3 TO posthog.metric_attributes3 (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      metric_name AS metric_name,
-      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_attributes AS filtered_attributes,
-      arrayJoin(filtered_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics2_input
-    WHERE has_labels
-    GROUP BY
-      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
-  );
 CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_query_log_archive (hostname LowCardinality(String), user LowCardinality(String), query_id String, initial_query_id String, is_initial_query UInt8, type Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4), event_date Date, event_time DateTime, event_time_microseconds DateTime64(6), query_start_time DateTime, query_start_time_microseconds DateTime64(6), query_duration_ms UInt64, read_rows UInt64, read_bytes UInt64, written_rows UInt64, written_bytes UInt64, result_rows UInt64, result_bytes UInt64, memory_usage UInt64, peak_threads_usage UInt64, current_database LowCardinality(String), query String, formatted_query String, normalized_query_hash UInt64, query_kind LowCardinality(String), exception_code Int32, exception String, stack_trace String, team_id Int64, log_comment String, ProfileEvents Map(LowCardinality(String), UInt64)) AS SELECT
   hostname,
   user,
@@ -1538,6 +1286,65 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
+CREATE VIEW posthog.metrics4_view AS SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope
+FROM posthog.metrics2
+WHERE
+  (time_bucket > toDateTime('2026-08-25 00:00:00'))
+AND
+  (time_bucket < toDateTime('2026-09-14 00:00:00'))
+AND
+  (timestamp > toDateTime('2026-08-25 00:00:00'))
+AND
+  (timestamp < toDateTime('2026-09-14 00:00:00'))
+UNION ALL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  point_observed_timestamp AS observed_timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE TABLE posthog.metric_samples (
   team_id Int32,
   metric_name LowCardinality(String),

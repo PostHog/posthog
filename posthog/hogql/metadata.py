@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
@@ -8,11 +9,13 @@ from pydantic import BaseModel
 from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
+    HogQLMetadataColumn,
     HogQLMetadataResponse,
     HogQLNotice,
     HogQLQuery,
     PredicateIndexUsage,
     PredicateIndexVerdict,
+    PredicateQuickfix,
     PredicateScope,
 )
 
@@ -24,9 +27,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+)
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.index_eligibility import build_index_eligibility_report
+from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.observability import (
@@ -36,8 +42,10 @@ from posthog.hogql.observability import (
 )
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
+from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -48,6 +56,32 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
+
+
+def _get_output_columns(node: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext) -> list[HogQLMetadataColumn]:
+    # Match query execution's HogQL column labels instead of exposing rewritten database expressions.
+    resolved = prepare_ast_for_printing(clone_expr(node, clear_types=True), context, "hogql")
+    if not isinstance(resolved, ast.SelectQuery | ast.SelectSetQuery):
+        return []
+    columns_query = next(extract_select_queries(resolved))
+    columns: list[HogQLMetadataColumn] = []
+    for expression in columns_query.select:
+        name = (
+            expression.alias
+            if isinstance(expression, ast.Alias)
+            else print_prepared_ast(
+                expression, context, "hogql", stack=[resolved] if isinstance(resolved, ast.SelectQuery) else None
+            )
+        )
+        try:
+            if isinstance(resolved, ast.SelectSetQuery) and resolved.type is not None:
+                constant_type = resolved.type.resolve_column_constant_type(name, context)
+            else:
+                constant_type = expression.type.resolve_constant_type(context) if expression.type else ast.UnknownType()
+        except HogQLNotImplementedError:
+            constant_type = ast.UnknownType()
+        columns.append(HogQLMetadataColumn(name=name, type=runtime_type_from_constant_type(constant_type).display()))
+    return columns
 
 
 def get_hogql_metadata(
@@ -212,6 +246,14 @@ def get_hogql_metadata(
                 response.errors = context.errors
             response.isValid = len(response.errors) == 0
 
+    if query.includeOutputTypes and response.isValid and hogql_ast is not None and context is not None:
+        try:
+            output_context = replace(context, errors=[], warnings=[], notices=[])
+            response.output_columns = _get_output_columns(hogql_ast, output_context)
+        except Exception:
+            # Optional inference must not turn a valid executable query into a metadata error.
+            logger.exception("hogql_output_type_inference_failed")
+
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
     if query.language == HogLanguage.HOG_TEMPLATE:
         for err in response.errors:
@@ -252,17 +294,26 @@ def _attach_index_usage(
     stored is not something the editor can change, so marking either would bury the predicates where
     a type mismatch is wasting an index that already exists.
     """
-    with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
-        try:
+    try:
+        with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
             report = build_index_eligibility_report(hogql_ast, context)
-        except Exception:
-            # Index eligibility is advisory. A query that compiles must not be reported as invalid
-            # because the analysis over it failed. The counter is the only user-visible trace of that:
-            # the response just comes back without a report.
-            INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
-            logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
-            return
+        _record_index_usage(response, report, context)
+    except Exception:
+        # Index eligibility is advisory. A query that compiles must not be reported as invalid
+        # because the analysis over it failed, so the whole of it is swallowed rather than only the
+        # analysis: converting a verdict to its schema enum raises if the two ever drift, and the
+        # caller turns any exception here into an invalid query. The counter is the only
+        # user-visible trace: the response just comes back without a report.
+        INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
+        logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
 
+
+def _record_index_usage(
+    response: HogQLMetadataResponse,
+    report: IndexEligibilityReport,
+    context: HogQLContext,
+) -> None:
+    """Turn a finished report into the response fields and the editor's warnings."""
     INDEX_ELIGIBILITY_TOTAL.labels(result="ok").inc()
     for predicate in report.predicates:
         INDEX_ELIGIBILITY_VERDICT_TOTAL.labels(
@@ -283,6 +334,15 @@ def _attach_index_usage(
             verdict=PredicateIndexVerdict(predicate.verdict.value),
             message=predicate.message,
             fix=predicate.fix,
+            fix_action=predicate.fix_action,
+            ai_fix_prompt=predicate.ai_fix_prompt,
+            quickfix=(
+                PredicateQuickfix(
+                    start=predicate.quickfix.start, end=predicate.quickfix.end, text=predicate.quickfix.text
+                )
+                if predicate.quickfix
+                else None
+            ),
             start=predicate.start,
             end=predicate.end,
         )
@@ -290,16 +350,25 @@ def _attach_index_usage(
     ]
 
     for predicate in report.predicates:
-        if predicate.editor_actionable:
-            # `HogQLNotice.fix` is literal replacement text for the marked range (see
-            # taxonomy_validation), so the prose advice must not go here. The `ai_prompt:` form is
-            # the editor's other contract: it becomes a "Fix with AI" action instead of an edit.
+        if not predicate.editor_actionable:
+            continue
+        # `HogQLNotice.fix` is literal replacement text for the marked range (see taxonomy_validation),
+        # so a quickfix marks exactly the literal it rewrites, and prose advice never goes here. The
+        # `ai_prompt:` form is the editor's other contract: a "Fix with AI" action instead of an edit.
+        if predicate.quickfix is not None:
             context.add_warning(
                 message=predicate.message,
-                start=predicate.start,
-                end=predicate.end,
-                fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
+                start=predicate.quickfix.start,
+                end=predicate.quickfix.end,
+                fix=predicate.quickfix.text,
             )
+            continue
+        context.add_warning(
+            message=predicate.message,
+            start=predicate.start,
+            end=predicate.end,
+            fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
+        )
 
 
 def enrich_hogql_validation_error(

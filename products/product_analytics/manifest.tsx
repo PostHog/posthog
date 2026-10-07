@@ -15,7 +15,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -42,6 +42,11 @@ export const manifest: ProductManifest = {
             query?: Node
             sceneSource?: InsightSceneSource
         } = {}): string => {
+            if (isBIVisualizationNode(query)) {
+                return combineUrl(urls.businessIntelligence(), dashboardId ? { dashboard: dashboardId } : {}, {
+                    q: JSON.stringify(query),
+                }).url
+            }
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
                 return urls.sqlEditor({ query: query.query })
@@ -101,6 +106,7 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
+            listHref: () => urls.savedInsights(),
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },
@@ -182,6 +188,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
+            searchKeywords: ['insights'],
             iconType: 'product_analytics',
             iconColor: ['var(--color-product-product-analytics-light)'],
             sceneKey: 'SavedInsights',
@@ -203,6 +210,7 @@ export const manifest: ProductManifest = {
             path: 'Event definitions',
             category: 'Schema',
             iconType: 'event_definition',
+            iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
             href: urls.eventDefinitions(),
             sceneKey: 'EventDefinitions',
             sceneKeys: ['EventDefinition', 'EventDefinitions'],
@@ -211,6 +219,10 @@ export const manifest: ProductManifest = {
             path: 'Property definitions',
             category: 'Schema',
             iconType: 'property_definition',
+            iconColor: [
+                'var(--color-product-property-definitions-light)',
+                'var(--color-product-property-definitions-dark)',
+            ],
             href: urls.propertyDefinitions(),
             sceneKey: 'PropertyDefinitions',
             sceneKeys: ['PropertyDefinition', 'PropertyDefinitions'],
@@ -218,20 +230,24 @@ export const manifest: ProductManifest = {
         {
             path: 'Property groups',
             category: 'Schema',
-            iconType: 'event_definition',
+            iconType: 'property_group',
+            iconColor: ['var(--color-product-property-groups-light)', 'var(--color-product-property-groups-dark)'],
             href: urls.schemaManagement(),
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
         },
         {
             path: 'SQL variables',
             category: 'Schema',
+            iconType: 'sql_variable',
+            iconColor: ['var(--color-product-sql-variables-light)', 'var(--color-product-sql-variables-dark)'],
             href: urls.variables(),
             sceneKeys: ['SqlVariableEdit'],
         },
         {
             path: 'Annotations',
-            category: 'Metadata',
+            category: 'Schema',
             iconType: 'annotation',
+            iconColor: ['var(--color-product-annotations-light)', 'var(--color-product-annotations-dark)'],
             href: urls.annotations(),
             sceneKey: 'Annotations',
             sceneKeys: ['Annotations'],

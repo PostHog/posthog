@@ -68,12 +68,26 @@ class SelectorPart:
         self.direct_descendant = direct_descendant
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
+        self.unsatisfiable = False
 
         attribute_matches = list(re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag))
+        # Saved actions count on the loose reading of a single attribute: its bare key
+        # also matches the end of a longer key (label inside aria-label), and its value
+        # keeps backslashes such as the hex escape in \31. Two or more attributes without
+        # an id never matched under the earlier parser, so no saved count depends on
+        # their reading, and they take the strict one: unescaped values, the full chain
+        # key, and no match when a key repeats with another value.
+        self.strict_attributes = len(attribute_matches) >= 2 and all(
+            match.group(1) != "id" for match in attribute_matches
+        )
         if attribute_matches:
             for match in attribute_matches:
                 key = match.group(1)
                 value = match.group(3)
+                if self.strict_attributes:
+                    value = re.sub(r"\\(.)", r"\1", value)
+                    if self.ch_attributes.get(key, value) != value:
+                        self.unsatisfiable = True
                 if key == "id":
                     self.data["attr_id"] = value
                     self.ch_attributes["attr_id"] = value
@@ -173,6 +187,10 @@ class Selector:
                 part.append(char)
 
         yield "".join(part)
+
+    def is_unsatisfiable(self) -> bool:
+        # For example [type="button"][type="submit"], which no element can satisfy.
+        return any(part.unsatisfiable for part in self.parts)
 
     def has_unsupported_syntax(self) -> bool:
         # A part keeps unsupported CSS (a pseudo-class, an unsupported combinator, ...)

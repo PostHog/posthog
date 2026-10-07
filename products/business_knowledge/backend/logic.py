@@ -6,10 +6,12 @@ All ORM access, chunking, quota enforcement, and search queries.
 
 import re
 import uuid
+import asyncio
 import datetime
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
+from itertools import batched
 from operator import or_
 from typing import Literal
 from urllib.parse import urlsplit
@@ -29,7 +31,7 @@ from django.utils import timezone
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from posthog.api.embedding_worker import generate_embedding
+from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
 from posthog.models.organization import OrganizationMembership
@@ -39,16 +41,18 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatAnthropic
 
-from . import crawl, discover, file_parse, html_parse, url_fetch
+from . import crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
 from .constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
@@ -61,6 +65,7 @@ from .constants import (
     CLASSIFY_MAX_ATTEMPTS,
     CLASSIFY_MAX_TOTAL_CHARS,
     CRAWL_HARD_MAX_DEPTH,
+    CRAWL_WRITE_BATCH_SIZE,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     EMBEDDING_STABLE_TS_MAX_AGE,
@@ -78,8 +83,10 @@ from .constants import (
     TRIAL_MAX_CHUNKS,
     TRIAL_QUIET_PERIOD,
 )
+from .llm_telemetry import RetrievalTrace
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
+    AddedBy,
     CrawlMode,
     GapStatus,
     KnowledgeChunk,
@@ -553,11 +560,16 @@ def list_for_team(
     *,
     search: str | None = None,
     source_type: str | None = None,
+    added_by: str | None = None,
 ) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
     queryset = KnowledgeSource.objects.filter(team_id=team_id)
     if source_type:
         queryset = queryset.filter(source_type=source_type)
+    if added_by == AddedBy.HUMAN:
+        queryset = queryset.filter(is_generated=False)
+    elif added_by == AddedBy.LEARNED:
+        queryset = queryset.filter(is_generated=True)
     if search:
         term = search.strip()
         if term:
@@ -572,6 +584,21 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
         return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+
+
+@with_team_scope(canonical=True)
+def list_live_documents_for_source(source_id: UUID, team_id: int) -> list[KnowledgeDocument] | None:
+    if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
+        return None
+    return list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .only("id", "url", "title", "safety_verdict")
+        .order_by("url", "id")
+    )
 
 
 @with_team_scope(canonical=True)
@@ -1804,7 +1831,8 @@ def create_crawl_source(
          for the same team are serialized.
       3. Discover candidate URLs via sitemap / same-origin BFS.
       4. Fetch all candidates in parallel with a per-host semaphore.
-      5. In a transaction, bulk-insert documents + chunks and mark READY.
+      5. Insert documents + chunks in batches of `CRAWL_WRITE_BATCH_SIZE` pages,
+         one transaction per batch, then mark READY.
 
     Failures at any stage update the claim row to ERROR so the user can
     see the failure, adjust globs, or retry.
@@ -1858,6 +1886,13 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
             )
         return get_for_team(source.id, team_id) or source
 
+    # A late or duplicate run must not wipe a source that another run already finished.
+    if source.status != SourceStatus.PROCESSING:
+        return source
+    # Batches commit one at a time and chunk ids are deterministic, so a retried
+    # activity first drops what the attempt before it wrote, even if it then fails early.
+    _delete_crawl_documents(source=source, team_id=team_id)
+
     try:
         # Re-validate the entry URL (DNS may have rebound between claim and ingest).
         normalized = _validate_url(source.source_url)
@@ -1884,54 +1919,70 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
-    ok_outcomes = [o for o in outcomes if o.status == "ok"]
-
-    if not ok_outcomes:
-        first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
-        return _mark_error(first_error)
-
-    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
-    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
-        return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
-
+    # Search reads only READY sources, so committed batches stay hidden until the last one lands.
+    first_error = ""
+    written_any = False
     try:
-        with transaction.atomic():
-            total_chunks_written = 0
-            for outcome in ok_outcomes:
-                written = _insert_document_and_chunks(
-                    source=source,
-                    team_id=team_id,
-                    title=outcome.title,
-                    text=outcome.text,
-                    url=outcome.url,
-                    etag=outcome.etag,
-                    content_hash=outcome.content_hash,
-                    existing_doc=None,
-                )
-                total_chunks_written += written
+        for batch in batched(
+            crawl.iter_fetch(safe_urls, prefetched=discovery.prefetched), CRAWL_WRITE_BATCH_SIZE, strict=False
+        ):
+            ok_outcomes = [o for o in batch if o.status == "ok"]
+            if not first_error:
+                first_error = next((o.error for o in batch if o.status == "error"), "")
+            if not ok_outcomes:
+                continue
 
-            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
-                raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+            estimated = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
+            if _count_chunks(team_id) + estimated > MAX_CHUNKS_PER_TEAM:
+                _delete_crawl_documents(source=source, team_id=team_id)
+                return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
 
-            source.status = SourceStatus.READY
-            source.last_refresh_at = timezone.now()
-            source.last_refresh_status = RefreshStatus.SUCCESS
-            source.last_refresh_error = ""
-            source.save(
-                update_fields=[
-                    "status",
-                    "last_refresh_at",
-                    "last_refresh_status",
-                    "last_refresh_error",
-                    "updated_at",
-                ]
-            )
+            with transaction.atomic():
+                for outcome in ok_outcomes:
+                    _insert_document_and_chunks(
+                        source=source,
+                        team_id=team_id,
+                        title=outcome.title,
+                        text=outcome.text,
+                        url=outcome.url,
+                        etag=outcome.etag,
+                        content_hash=outcome.content_hash,
+                        existing_doc=None,
+                    )
+                if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                    raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+            written_any = True
     except QuotaExceededError:
+        _delete_crawl_documents(source=source, team_id=team_id)
         _mark_error(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
         raise
+    except Exception:
+        _delete_crawl_documents(source=source, team_id=team_id)
+        raise
 
+    if not written_any:
+        return _mark_error(first_error or "All pages failed to fetch.")
+
+    source.status = SourceStatus.READY
+    source.last_refresh_at = timezone.now()
+    source.last_refresh_status = RefreshStatus.SUCCESS
+    source.last_refresh_error = ""
+    source.save(
+        update_fields=[
+            "status",
+            "last_refresh_at",
+            "last_refresh_status",
+            "last_refresh_error",
+            "updated_at",
+        ]
+    )
     return get_for_team(source.id, team_id) or source
+
+
+def _delete_crawl_documents(*, source: KnowledgeSource, team_id: int) -> None:
+    with transaction.atomic():
+        KnowledgeChunk.objects.filter(team_id=team_id, source_id=source.id).delete()
+        KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).delete()
 
 
 def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
@@ -1978,9 +2029,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
     # Load existing docs keyed by stable_id (== url). Pulling all of them up
     # front is cheap (we're capped at MAX_URLS_PER_SOURCE) and avoids a
-    # per-URL query inside the fetch loop.
+    # per-URL query inside the fetch loop. `content` stays deferred: loading
+    # it would hold the text of every page for the whole refresh.
     existing_by_url: dict[str, KnowledgeDocument] = {
-        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id)
+        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).defer("content")
     }
 
     # Pre-SSRF the discovered list and preserve ETags per URL for conditional GETs.
@@ -1990,12 +2042,13 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             safe_urls.append(_validate_url(u))
         except InvalidUrlError:
             continue
+    # Each URL is written once. A second outcome for a new URL would insert the same chunk ids again.
+    safe_urls = list(dict.fromkeys(safe_urls))
 
     def _etag_for(u: str) -> str | None:
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -2007,66 +2060,69 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             discovered_set.add(url_fetch.normalize_url(u))
         except url_fetch.UrlFetchError:
             pass
+    vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set]
 
-    with transaction.atomic():
-        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
-
-        # Upsert per-outcome.
-        any_changes = False
-        for outcome in outcomes:
-            existing = existing_by_url.get(outcome.url)
-            if outcome.status == "not_modified":
-                # Still touch the etag so a rotation stays fresh.
-                if existing and outcome.etag and existing.etag != outcome.etag:
-                    existing.etag = outcome.etag
-                    existing.save(update_fields=["etag", "updated_at"])
-                continue
-            if outcome.status == "error":
-                # Keep the old doc intact — partial failures shouldn't
-                # knock out a previously-working page.
-                logger.info(
-                    "business_knowledge.crawl.refresh_page_error",
-                    source_id=str(source.id),
-                    url=outcome.url,
-                    error=outcome.error,
-                )
-                continue
-            assert outcome.status == "ok"
-            if existing is not None and existing.content_hash == outcome.content_hash:
-                # No re-chunk needed. Still bump etag if we got a new one.
-                if outcome.etag and existing.etag != outcome.etag:
-                    existing.etag = outcome.etag
-                    existing.save(update_fields=["etag", "updated_at"])
-                continue
-            _insert_document_and_chunks(
-                source=fresh,
-                team_id=team_id,
-                title=outcome.title,
-                text=outcome.text,
-                url=outcome.url,
-                etag=outcome.etag,
-                content_hash=outcome.content_hash,
-                existing_doc=existing,
-            )
-            any_changes = True
-
-        # Tombstone docs whose URL vanished from discovery. Chunks go away
-        # now; the sweep hard-deletes the doc row after a grace
-        # period (preserves the id in case the page comes back soon).
-        vanished = [d for url, d in existing_by_url.items() if url not in discovered_set]
-        if vanished:
+    any_changes = False
+    # Tombstone docs whose URL vanished from discovery before any batch, so the
+    # chunk cap check below does not count their chunks. Chunks go away now; the
+    # sweep hard-deletes the doc row after a grace period (preserves the id in
+    # case the page comes back soon).
+    if vanished_ids:
+        with transaction.atomic():
             now = timezone.now()
-            vanished_ids = [d.id for d in vanished]
             KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
             KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
                 tombstoned_at=now, updated_at=now
             )
-            any_changes = True
+        any_changes = True
 
-        # Exact post-diff quota check.
-        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
-            raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+    # A refresh that fails part way keeps the batches it already committed. The cap is checked before every commit.
+    outcomes = crawl.iter_fetch(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
+    for batch in batched(outcomes, CRAWL_WRITE_BATCH_SIZE, strict=False):
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+            for outcome in batch:
+                existing = existing_by_url.pop(outcome.url, None)
+                if outcome.status == "not_modified":
+                    # Still touch the etag so a rotation stays fresh.
+                    if existing and outcome.etag and existing.etag != outcome.etag:
+                        existing.etag = outcome.etag
+                        existing.save(update_fields=["etag", "updated_at"])
+                    continue
+                if outcome.status == "error":
+                    # Keep the old doc intact — partial failures shouldn't
+                    # knock out a previously-working page.
+                    logger.info(
+                        "business_knowledge.crawl.refresh_page_error",
+                        source_id=str(source.id),
+                        url=outcome.url,
+                        error=outcome.error,
+                    )
+                    continue
+                assert outcome.status == "ok"
+                if existing is not None and existing.content_hash == outcome.content_hash:
+                    # No re-chunk needed. Still bump etag if we got a new one.
+                    if outcome.etag and existing.etag != outcome.etag:
+                        existing.etag = outcome.etag
+                        existing.save(update_fields=["etag", "updated_at"])
+                    continue
+                _insert_document_and_chunks(
+                    source=fresh,
+                    team_id=team_id,
+                    title=outcome.title,
+                    text=outcome.text,
+                    url=outcome.url,
+                    etag=outcome.etag,
+                    content_hash=outcome.content_hash,
+                    existing_doc=existing,
+                )
+                any_changes = True
 
+            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
         fresh.status = SourceStatus.READY
         fresh.last_refresh_at = timezone.now()
         fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED
@@ -2175,6 +2231,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("source_id", "document_id", "ordinal")
     )
@@ -2202,6 +2259,24 @@ def has_feature_flag(team: Team) -> bool:
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+DOCS_SHADOW_FLAG = "business-knowledge-docs-shadow"
+
+
+def has_docs_shadow_feature_flag(team: Team) -> bool:
+    """Org-keyed, same as `has_feature_flag`. Off in DEBUG so local docs search does not shadow."""
+    if settings.DEBUG:
+        return False
+    # Local evaluation only. A remote lookup would run on every docs search.
+    return feature_enabled_or_false(
+        DOCS_SHADOW_FLAG,
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
 
@@ -2380,6 +2455,7 @@ class KnowledgeSearchResult:
     ordinal: int
     content: str
     is_generated: bool = False
+    url: str = ""
 
 
 def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
@@ -2394,6 +2470,7 @@ def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
         ordinal=chunk.ordinal,
         content=chunk.content,
         is_generated=bool(chunk.source.is_generated),
+        url=chunk.document.url,
     )
 
 
@@ -2494,6 +2571,7 @@ def search_knowledge(
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
 
@@ -2502,26 +2580,66 @@ def search_knowledge(
     return [_result_from_chunk(c) for c in ordered]
 
 
+def _capture_query_embedding(team_id: int, response: EmbeddingResponse, trace: RetrievalTrace) -> None:
+    llm_telemetry.capture_embedding(
+        team_id=team_id,
+        input_tokens=response.tokens_used,
+        trace_id=trace.trace_id,
+        properties=llm_telemetry.retrieval_properties(
+            team_id=team_id, trace=trace, feature=llm_telemetry.RETRIEVAL_EMBEDDING_FEATURE
+        ),
+    )
+
+
 def search_knowledge_for_team(
     team: Team,
     query: str,
     *,
+    trace: RetrievalTrace,
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """
     Sync orchestration of hybrid BK search: embed the query, then call
     ``search_knowledge``. Falls back to FTS-only on any embedding failure.
 
-    Used by the DRF search endpoint (sync view). The async PHAI tool path
-    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
-    as the common layer, not this wrapper.
+    Used by the DRF search endpoint (sync view). The async path is
+    ``async_search_knowledge_for_team``. Both share ``search_knowledge``.
     """
     embedding: list[float] | None = None
     try:
-        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+        response = generate_embedding(team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT)
+        embedding = response.embedding
+        _capture_query_embedding(team.id, response, trace)
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
+async def async_search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    trace: RetrievalTrace,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """Async hybrid search. Embedding failure or timeout falls back to full-text search."""
+    embedding: list[float] | None = None
+    try:
+        response = await asyncio.wait_for(
+            async_generate_embedding(team, query, model=BK_EMBEDDING_MODEL),
+            timeout=BK_QUERY_EMBEDDING_TIMEOUT,
+        )
+        embedding = response.embedding
+        _capture_query_embedding(team.id, response, trace)
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return await database_sync_to_async(search_knowledge, thread_sensitive=False)(
+        team.id,
+        query,
+        limit=limit,
+        use_semantic=embedding is not None,
+        query_embedding=embedding,
+    )
 
 
 _RERANK_CHUNK_ID_PATTERN = re.compile(
@@ -2577,6 +2695,7 @@ def rerank_chunks(
     results: list[KnowledgeSearchResult],
     *,
     top_k: int,
+    trace: RetrievalTrace,
 ) -> list[KnowledgeSearchResult]:
     """
     Listwise LLM rerank over BK search candidates. On any model/parse failure,
@@ -2597,6 +2716,9 @@ def rerank_chunks(
     valid_ids = {result.chunk_id for result in results}
     id_to_result = {result.chunk_id: result for result in results}
 
+    properties = llm_telemetry.retrieval_properties(
+        team_id=team.id, trace=trace, feature=llm_telemetry.RETRIEVAL_RERANK_FEATURE
+    )
     try:
         user = _resolve_active_org_user(team)
         llm = MaxChatAnthropic(
@@ -2607,12 +2729,16 @@ def rerank_chunks(
             max_tokens=1024,
             billable=False,
             inject_context=False,
+            posthog_properties=properties,
         )
+        # MaxChatAnthropic captures no $ai_generation by itself. The cost reaches analytics only through this callback.
+        callback = llm_telemetry.trace_callback(team.id, trace_id=trace.trace_id, properties=properties)
         response = llm.invoke(
             [
                 SystemMessage(content=_RERANK_SYSTEM_PROMPT),
                 HumanMessage(content=_build_rerank_user_prompt(query, results)),
-            ]
+            ],
+            config={"callbacks": [callback]} if callback is not None else None,
         )
         content = response.content
         if isinstance(content, list):
@@ -2672,6 +2798,7 @@ def get_document_window(
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("ordinal")
     )
@@ -2709,6 +2836,7 @@ def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSear
             "source__source_type",
             "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
     by_id = {c.id: c for c in chunks}
@@ -2739,6 +2867,8 @@ class PendingDocument:
 
     team_id: int
     document_id: UUID
+    source_id: UUID
+    source_type: str
     content: str
     # Version token of `content` at the moment it was read for classification.
     # The verdict write is gated on this still matching, so a concurrent refresh
@@ -2815,11 +2945,18 @@ def list_documents_pending_classification(
             team__organization__is_ai_data_processing_approved=True,
         )
         .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
-        .values_list("team_id", "id", "content_capped", "content_hash")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
     )
     return [
-        PendingDocument(team_id=team_id, document_id=doc_id, content=content, content_hash=content_hash)
-        for team_id, doc_id, content, content_hash in rows
+        PendingDocument(
+            team_id=team_id,
+            document_id=doc_id,
+            source_id=source_id,
+            source_type=source_type,
+            content=content,
+            content_hash=content_hash,
+        )
+        for team_id, doc_id, source_id, source_type, content, content_hash in rows
     ]
 
 
@@ -2901,6 +3038,8 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
+    source_id: UUID
+    source_type: str
     # The embedding row `timestamp`. Young docs use the stable `created_at` so
     # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
     # partition instead of duplicating under a later `toDate(timestamp)`.
@@ -2995,17 +3134,19 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
-        .values_list("team_id", "id", "created_at")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type", "created_at")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, _created_at in rows])
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
     return [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
+            source_id=source_id,
+            source_type=source_type,
             timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id, created_at in rows
+        for team_id, document_id, source_id, source_type, created_at in rows
     ]
 
 
@@ -3069,17 +3210,19 @@ def list_documents_for_embedding_refresh(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
         .order_by("embeddings_emitted_at")
-        .values_list("team_id", "id")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
     return [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
+            source_id=source_id,
+            source_type=source_type,
             timestamp=now,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id in rows
+        for team_id, document_id, source_id, source_type in rows
     ]
 
 

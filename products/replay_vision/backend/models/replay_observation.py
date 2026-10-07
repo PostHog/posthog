@@ -29,6 +29,12 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 TERMINAL_STATUSES = tuple(status for status in ObservationStatus if status not in IN_FLIGHT_STATUSES)
 
 
+class ObservationVerdict(models.TextChoices):
+    YES = "yes", "Yes"
+    NO = "no", "No"
+    INCONCLUSIVE = "inconclusive", "Inconclusive"
+
+
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
@@ -214,7 +220,12 @@ def hydrate_for_serialization(
                 queryset=ReplayObservationMedia.objects.unscoped().select_related("asset").order_by("kind", "position"),
             )
         )
-        .annotate(scanner_origin=F("scanner__origin"), viewed=viewed)
+        .annotate(
+            scanner_origin=F("scanner__origin"),
+            scanner_prompt_question=F("scanner__prompt_question"),
+            scanner_prompt_question_source=F("scanner__prompt_question_source"),
+            viewed=viewed,
+        )
     )
 
 

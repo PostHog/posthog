@@ -15,6 +15,7 @@ import { AnyPropertyFilter, LiveEvent, PropertyFilterValue, PropertyOperator } f
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
+import { LIVE_EVENTS_QUERY_POLL_MS, loadRecentLiveEvents } from './liveEventsQuery'
 
 const ERROR_TOAST_ID = 'live-stream-error'
 
@@ -200,6 +201,35 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 return
             }
 
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                const teamId = values.currentTeam.id
+                const { eventType } = values.filters
+                cache.disposables.add(() => {
+                    let cancelled = false
+                    let timeoutId: ReturnType<typeof setTimeout> | undefined
+                    // Each poll waits for the previous one to settle, so slow queries never overlap.
+                    const poll = async (): Promise<void> => {
+                        try {
+                            const events = await loadRecentLiveEvents(teamId, eventType)
+                            if (!cancelled) {
+                                actions.addEvents(events)
+                            }
+                        } catch (error) {
+                            console.error('Failed to load recent events', error)
+                        }
+                        if (!cancelled) {
+                            timeoutId = setTimeout(() => void poll(), LIVE_EVENTS_QUERY_POLL_MS)
+                        }
+                    }
+                    void poll()
+                    return () => {
+                        cancelled = true
+                        clearTimeout(timeoutId)
+                    }
+                }, 'eventsConnection')
+                return
+            }
+
             const { eventType, properties } = values.filters
             const url = new URL(`${liveEventsHostOrigin()}/events`)
             if (eventType) {
@@ -256,6 +286,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.add(() => {
                 cache.batch = []
                 const controller = new AbortController()
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 void api.stream(url.toString(), {
                     headers: {
                         Authorization: `Bearer ${values.currentTeam?.live_events_token}`,

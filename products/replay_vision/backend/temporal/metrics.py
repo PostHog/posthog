@@ -95,12 +95,6 @@ REPLAY_VISION_NETWORK_STATE = Counter(
     ["scanner_type", "state"],
 )
 
-REPLAY_VISION_VERIFICATION_OUTCOMES = Counter(
-    "replay_vision_verification_outcomes_total",
-    "Verify-positives results per verified monitor `yes`: agreed, flipped, no_cache, no_budget, draw_failed",
-    ["scanner_type", "mode", "outcome"],
-)
-
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -123,7 +117,11 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
     "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
     "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
-    "watermark), no candidates, or candidates found",
+    "watermark), skipped because its experiment is paused, ended, or archived (experiment_over), disabled "
+    "because its experiment was deleted (experiment_deleted), kept on because the deleted experiment's "
+    "scout could not be paused (experiment_deleted_pause_failed), skipped because an experiment scanner has "
+    "no creator to authorize as (no_principal), no candidates, or "
+    "candidates found",
     ["outcome"],
 )
 
@@ -207,6 +205,19 @@ REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
 )
 
 
+REPLAY_VISION_SEARCH_RERANK = Counter(
+    "replay_vision_search_rerank_total",
+    "Observation searches by rerank outcome",
+    ["outcome"],
+)
+
+REPLAY_VISION_SEARCH_RERANK_LATENCY = Histogram(
+    "replay_vision_search_rerank_latency_seconds",
+    "Wall-clock time a search waited on the rerank model",
+    buckets=(0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5),
+)
+
+
 def record_observation(status: str, scanner_type: str) -> None:
     labels = {"status": status, "scanner_type": scanner_type}
     REPLAY_VISION_OBSERVATIONS.labels(**labels).inc()
@@ -270,12 +281,6 @@ def record_mission_pass(model: str, path: str) -> None:
     labels = {"model": model, "path": path}
     REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
     _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
-
-
-def record_verification_outcome(*, scanner_type: str, mode: str, outcome: str) -> None:
-    labels = {"scanner_type": scanner_type, "mode": mode, "outcome": outcome}
-    REPLAY_VISION_VERIFICATION_OUTCOMES.labels(**labels).inc()
-    _otel.record_counter_twin(REPLAY_VISION_VERIFICATION_OUTCOMES, 1, labels)
 
 
 def record_quota_exhausted_skip(scanner_type: str) -> None:
@@ -357,3 +362,10 @@ def record_enqueue_claim_failure(operation: str) -> None:
 def record_gemini_cleanup_backlog(count: int) -> None:
     REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+
+
+def record_search_rerank(outcome: str, seconds: float) -> None:
+    REPLAY_VISION_SEARCH_RERANK.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SEARCH_RERANK, 1, {"outcome": outcome})
+    REPLAY_VISION_SEARCH_RERANK_LATENCY.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SEARCH_RERANK_LATENCY, seconds, {})

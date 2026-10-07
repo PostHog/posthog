@@ -1,5 +1,16 @@
 # SQL editor schema tree
 
+The Sources tree starts with Popular, containing `events`, `groups`, `persons`, and `sessions`.
+PostHog follows with the full PostHog catalog, sorted by name and qualified with `posthog.`, including those four tables.
+Qualified entries use the same schema fields as their unqualified shortcuts.
+Search includes both categories, and table actions use the name shown in the tree.
+
+The PostHog catalog includes `posthog.ai_events` for AI observability, `posthog.session_replay_events` for recordings, and `posthog.trace_spans` for tracing.
+`posthog.metrics` contains metric data points; join `posthog.metric_series` for their labels.
+`posthog.flag_evaluations` appears when enabled for the organization.
+These tables come from the backend catalog without a separate sidebar allowlist.
+Namespace-only tables retain their `posthog.` prefix when requesting fields.
+
 The SQL editor requests the database catalog with `DatabaseSchemaQuery.includeFields = false`.
 The response contains table names and source metadata, with empty field dictionaries.
 The sidebar does not mount source management or request the full external source list.
@@ -33,3 +44,24 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
+
+## Saved-query writes
+
+The saved-query API accepts `sync_frequency` on create and update.
+Create applies the cadence after creating the DAG node, in the same transaction, so a refused cadence leaves no saved query behind.
+An omitted cadence leaves the target unchanged on update; explicit `null` and `"never"` both clear it.
+Invalid cadence values return 400.
+
+`edited_history_id` protects query updates from concurrent edits and is ignored on create.
+`soft_update` skips column inference and external table discovery on create and update, and skips the revision conflict check on update.
+Query validation and revision updates still run.
+
+`deleted` is read-only.
+Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.
+Create does not upsert deleted rows.
+A deleted row whose name was not released still reserves that name and needs separate cleanup.
+
+`dag_id` must identify a non-managed DAG in the same project; invalid or foreign IDs return 400.
+A DAG-only update moves the existing node and preserves its cadence and job history.
+Moves are refused when the view has dependents, belongs to a managed DAG, has nodes in multiple DAGs, or has a materialization running.
+Explicit `null` selects the default DAG.

@@ -74,6 +74,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             # it can be overridden in tests by passing in options
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
+            "webmcp_available": False,
             "is_test": True,
             **options,
         }

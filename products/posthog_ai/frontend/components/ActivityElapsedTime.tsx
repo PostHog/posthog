@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 
+import { useQuillThread } from './quill/quillThreadContext'
+
 export function ActivityElapsedTime({
     startedAt,
     endedAt,
@@ -11,6 +13,7 @@ export function ActivityElapsedTime({
     endedAt?: number
     active: boolean
 }): JSX.Element | null {
+    const quill = useQuillThread()
     const [now, setNow] = useState(Date.now)
     const { isVisible } = usePageVisibility()
     useEffect(() => {
@@ -28,7 +31,7 @@ export function ActivityElapsedTime({
     const seconds = Math.floor((end - startedAt) / 1000)
     return (
         <span
-            className="tabular-nums text-muted"
+            className={quill ? 'tabular-nums' : 'tabular-nums text-muted'}
             title="Elapsed time for this activity group, including tools and waiting, not the whole response."
         >
             · {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}

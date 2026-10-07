@@ -25,7 +25,6 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ReactElement } from "react";
 
@@ -88,7 +87,9 @@ export function ActivityRow({
   // The event records a past prompt; only the live session says whether it
   // still needs a reply after the row was created.
   const awaitsReply =
-    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
+    item.activityKind === "awaiting_input" &&
+    item.taskId !== null &&
+    blockedTaskIds.has(item.taskId);
   const agentIconClassName = awaitsReply ? "text-(--blue-11)" : undefined;
   const agentIconWrapperClassName =
     item.isUnread && !awaitsReply
@@ -101,7 +102,7 @@ export function ActivityRow({
     if (canvasId) {
       void copyCanvasLink(channelId, canvasId, "activity");
     } else {
-      void copyChannelLink(channelId, "activity", item.taskId);
+      void copyChannelLink(channelId, "activity", item.taskId ?? undefined);
     }
   };
   const actionCount = 1 + (item.isUnread ? 1 : 0) + (canCopyLink ? 1 : 0);
@@ -110,14 +111,9 @@ export function ActivityRow({
       action_type: "open_task",
       surface,
       channel_id: channelId ?? undefined,
-      task_id: item.taskId,
+      task_id: item.taskId ?? undefined,
     });
     onMarkRead(item);
-    if (item.commentId && item.commentTarget) {
-      useCommentNavigationStore
-        .getState()
-        .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
-    }
     onActivate(item);
   };
 
@@ -169,23 +165,24 @@ export function ActivityRow({
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
           <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
+            <span className="shrink-0">{presentation.time}</span>
             <span
-              className="truncate"
+              className="ml-auto flex min-w-0 items-center gap-1"
               title={[presentation.metadata, presentation.spaceLabel]
                 .filter(Boolean)
                 .join(" ")}
             >
-              {presentation.metadata}
+              <span className="truncate">{presentation.action}</span>
+              {presentation.spaceLabel && (
+                <Badge
+                  variant="default"
+                  className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                  title={presentation.spaceLabel}
+                >
+                  <span className="truncate">{presentation.spaceLabel}</span>
+                </Badge>
+              )}
             </span>
-            {presentation.spaceLabel && (
-              <Badge
-                variant="default"
-                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
-                title={presentation.spaceLabel}
-              >
-                <span className="truncate">{presentation.spaceLabel}</span>
-              </Badge>
-            )}
           </span>
           {item.snippet && !compact && (
             <MentionText

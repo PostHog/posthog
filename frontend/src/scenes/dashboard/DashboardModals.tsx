@@ -1,31 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
-
-import { AddWidgetModal } from '@posthog/products-dashboards/frontend/widgets/AddWidgetModal'
+import { Suspense, useEffect } from 'react'
 
 import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
-import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardType } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
-import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
+import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
 
-export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }): JSX.Element {
+// These modals carry their own editors and integration setup, which a dashboard needs only once one opens.
+const AddWidgetModal = lazyWithRetry(() =>
+    import('@posthog/products-dashboards/frontend/widgets/AddWidgetModal').then((m) => ({ default: m.AddWidgetModal }))
+)
+const SharingModal = lazyWithRetry(() =>
+    import('lib/components/Sharing/SharingModal').then((m) => ({ default: m.SharingModal }))
+)
+const SubscriptionsModal = lazyWithRetry(() =>
+    import('products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal').then((m) => ({
+        default: m.SubscriptionsModal,
+    }))
+)
+const TerraformExportModal = lazyWithRetry(() =>
+    import('lib/components/TerraformExporter/TerraformExportModal').then((m) => ({ default: m.TerraformExportModal }))
+)
+
+export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JSX.Element {
     const {
         dashboardMode,
         canEditDashboard,
@@ -45,6 +59,13 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
     const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
+    const isSharingOpen = dashboardMode === DashboardMode.Sharing
+    const isAddWidgetOpen = dashboardWidgetsEnabled && addWidgetModalOpen
+    // Grace-extended so each modal's exit animation finishes before its lazy subtree unmounts.
+    const shouldRenderSubscriptions = useKeepMountedWhileOpen(showSubscriptions)
+    const shouldRenderSharing = useKeepMountedWhileOpen(isSharingOpen)
+    const shouldRenderAddWidget = useKeepMountedWhileOpen(isAddWidgetOpen)
+    const shouldRenderTerraform = useKeepMountedWhileOpen(terraformModalOpen)
     const textRouteTile =
         textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === Number(textTileId)) : undefined
     const isCreatingTextTile = textTileId === null
@@ -65,20 +86,44 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
 
     return (
         <>
-            <SubscriptionsModal
-                isOpen={showSubscriptions}
-                closeModal={() => push(urls.dashboard(dashboard.id))}
-                dashboard={dashboard}
-                subscriptionId={subscriptionId === 'new' ? undefined : subscriptionId}
-            />
-            <SharingModal
-                title="Dashboard permissions & sharing"
-                isOpen={dashboardMode === DashboardMode.Sharing}
-                closeModal={() => push(urls.dashboard(dashboard.id))}
-                dashboardId={dashboard.id}
-                userAccessLevel={dashboard.user_access_level}
-                onSharingEnabledChange={(enabled) => updateDashboardSuccess({ ...dashboard, is_shared: enabled })}
-            />
+            {shouldRenderSubscriptions ? (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={showSubscriptions}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                        />
+                    }
+                >
+                    <SubscriptionsModal
+                        isOpen={showSubscriptions}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboard={dashboard}
+                        subscriptionId={subscriptionId === 'new' ? undefined : subscriptionId}
+                    />
+                </Suspense>
+            ) : null}
+            {shouldRenderSharing ? (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={isSharingOpen}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                        />
+                    }
+                >
+                    <SharingModal
+                        title="Dashboard permissions & sharing"
+                        isOpen={isSharingOpen}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboardId={dashboard.id}
+                        userAccessLevel={dashboard.user_access_level}
+                        onSharingEnabledChange={(enabled) =>
+                            updateDashboardSuccess({ ...dashboard, is_shared: enabled })
+                        }
+                    />
+                </Suspense>
+            ) : null}
             {canEditDashboard && (
                 <>
                     {shouldShowImageTileModal ? (
@@ -103,30 +148,50 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                         dashboard={dashboard}
                         buttonTileId={buttonTileId}
                     />
-                    {dashboardWidgetsEnabled && (
-                        <AddWidgetModal
-                            isOpen={addWidgetModalOpen}
-                            onClose={() => setAddWidgetModalOpen(false)}
-                            loading={addWidgetTileLoading}
-                            onAdd={async (widgets) => {
-                                await addWidgetTiles({
-                                    dashboardId: dashboard.id,
-                                    widgets,
-                                })
-                            }}
-                        />
-                    )}
+                    {shouldRenderAddWidget ? (
+                        <Suspense
+                            fallback={
+                                <DashboardModalLoading
+                                    isOpen={isAddWidgetOpen}
+                                    onClose={() => setAddWidgetModalOpen(false)}
+                                />
+                            }
+                        >
+                            <AddWidgetModal
+                                isOpen={isAddWidgetOpen}
+                                onClose={() => setAddWidgetModalOpen(false)}
+                                loading={addWidgetTileLoading}
+                                onAdd={async (widgets) => {
+                                    await addWidgetTiles({
+                                        dashboardId: dashboard.id,
+                                        widgets,
+                                    })
+                                }}
+                            />
+                        </Suspense>
+                    ) : null}
                     <DeleteDashboardModal />
                     <DuplicateDashboardModal />
                     <DashboardInsightColorsModal />
                 </>
             )}
             {user?.is_staff && <DashboardTemplateEditor />}
-            <TerraformExportModal
-                isOpen={terraformModalOpen}
-                onClose={() => setTerraformModalOpen(false)}
-                resource={{ type: 'dashboard', data: dashboard }}
-            />
+            {shouldRenderTerraform ? (
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={terraformModalOpen}
+                            onClose={() => setTerraformModalOpen(false)}
+                        />
+                    }
+                >
+                    <TerraformExportModal
+                        isOpen={terraformModalOpen}
+                        onClose={() => setTerraformModalOpen(false)}
+                        resource={{ type: 'dashboard', data: dashboard }}
+                    />
+                </Suspense>
+            ) : null}
         </>
     )
 }

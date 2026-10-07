@@ -28,6 +28,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
@@ -74,14 +75,14 @@ AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
 KafkaPayload = dict[str, typing.Any]
 
 
-def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:
+def _notify_run_failure(batch_export_run_id: str | UUIDT, team_id: int) -> None:
     """Fan out failure notifications across every channel for a failed run.
 
     Both channels swallow their own exceptions, so this helper itself never raises.
     """
     email_sent = False
     try:
-        send_batch_export_run_failure(batch_export_run_id)
+        send_batch_export_run_failure(batch_export_run_id, team_id)
         email_sent = True
     except Exception:
         LOGGER.exception(
@@ -164,6 +165,7 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -182,6 +184,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="person_properties", alias="person_properties"),
+        BatchExportField(expression="person_id", alias="person_id"),
     ]
 
 
@@ -702,7 +705,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        await database_sync_to_async(_notify_run_failure)(inputs.id)
+        await database_sync_to_async(_notify_run_failure)(inputs.id, inputs.team_id)
 
         external_logger.error(
             "Batch export for range %s - %s failed with a non-recoverable error: %s",
@@ -807,13 +810,13 @@ async def try_cancel_running_backfills(batch_export_id: str) -> int | None:
 
 
 def make_internal_events_payload(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,
     batch_export_name: str,
     data_interval_start: dt.datetime | None,
-    data_interval_end: dt.datetime,
+    data_interval_end: dt.datetime | None,
     destination_type: str,
     rows_exported: int,
     error: str | None,
@@ -830,7 +833,7 @@ def make_internal_events_payload(
         "batch_export_run_id": batch_export_run_id,
         "batch_export_name": batch_export_name,
         "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
-        "data_interval_end": data_interval_end.isoformat(),
+        "data_interval_end": data_interval_end.isoformat() if data_interval_end is not None else None,
         "destination_type": destination_type,
     }
 
@@ -885,7 +888,7 @@ def make_internal_events_payload(
 
 
 def make_app_metrics_payloads(
-    status: BatchExportRun.Status | str,
+    status: BatchExportRunStatus | str,
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,

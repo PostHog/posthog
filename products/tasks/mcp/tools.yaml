@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product tasks
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product tasks
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Tasks
 feature: tasks
 url_prefix: /tasks
@@ -103,21 +101,6 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel to read.
-    code-invites-check-access-retrieve:
-        operation: code_invites_check_access_retrieve
-        enabled: false
-    code-sandbox-pricing-list:
-        operation: code_sandbox_pricing_list
-        enabled: false
-    desktop-access-retrieve:
-        operation: desktop_access_retrieve
-        enabled: false
-    desktop-beta-terms-create:
-        operation: desktop_beta_terms_create
-        enabled: false
-    desktop-beta-terms-list:
-        operation: desktop_beta_terms_list
-        enabled: false
     loop-channel-instructions-retrieve:
         operation: task_channels_instructions_retrieve
         enabled: true
@@ -166,6 +149,12 @@ tools:
             `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only
             loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-create
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
         confirmed_action:
             message: >
                 About to create the loop '{name}', a persistent automation that will run unattended with your GitHub and
@@ -185,6 +174,12 @@ tools:
             Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project
             admin can delete a loop.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-archive
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-list:
         operation: loops_list
         enabled: true
@@ -201,6 +196,12 @@ tools:
             loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`,
             `consecutive_failures`).
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-list
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-partial-update:
         operation: loops_partial_update
         enabled: true
@@ -217,6 +218,13 @@ tools:
             member takes ownership and re-validates repositories and connectors against that member's own access.
             Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-patch-graph
+            - workflows-update
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-preview-create:
         operation: loops_preview_create
         enabled: true
@@ -232,6 +240,12 @@ tools:
             schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's
             prompt before enabling it.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-retrieve:
         operation: loops_retrieve
         enabled: true
@@ -247,6 +261,12 @@ tools:
             Get a specific loop by ID, including its full config (instructions, model, repositories, triggers,
             behaviors, connectors, notifications) and run bookkeeping.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-get
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops".'
     loops-run-create:
         operation: loops_run_create
         enabled: true
@@ -262,6 +282,14 @@ tools:
             current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as
             trigger-fired runs.
         feature_flag: loops
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - workflows-test-run
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". A test run steps one node at a time and mocks outbound calls, so it checks the graph
+            and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog
+            Desktop, or wait for its trigger.'
     loops-runs-retrieve:
         operation: loops_runs_retrieve
         enabled: true
@@ -281,120 +309,33 @@ tools:
             filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error,
             and consecutive_failures for current health; an enabled schedule alone does not show successful work.
         feature_flag: loops
-    loops-skill-bundles-update:
-        operation: loops_skill_bundles_update
-        enabled: false
-    loops-trigger-create:
-        operation: loops_trigger_create
-        enabled: false
-    sandbox-create:
-        operation: sandbox_create
-        enabled: false
-    sandbox-custom-images-build-create:
-        operation: sandbox_custom_images_build_create
-        enabled: false
-    sandbox-custom-images-builder-task-create:
-        operation: sandbox_custom_images_builder_task_create
-        enabled: false
-    sandbox-custom-images-create:
-        operation: sandbox_custom_images_create
-        enabled: false
-    sandbox-custom-images-destroy:
-        operation: sandbox_custom_images_destroy
-        enabled: false
-    sandbox-custom-images-list:
-        operation: sandbox_custom_images_list
-        enabled: false
-    sandbox-custom-images-partial-update:
-        operation: sandbox_custom_images_partial_update
-        enabled: false
-    sandbox-custom-images-retrieve:
-        operation: sandbox_custom_images_retrieve
-        enabled: false
-    sandbox-destroy:
-        operation: sandbox_destroy
-        enabled: false
-    sandbox-list:
-        operation: sandbox_list
-        enabled: false
-    sandbox-partial-update:
-        operation: sandbox_partial_update
-        enabled: false
-    sandbox-retrieve:
-        operation: sandbox_retrieve
-        enabled: false
-    task-activity-list:
-        operation: task_activity_list
-        enabled: false
-    task-activity-mark-read-create:
-        operation: task_activity_mark_read_create
-        enabled: false
-    task-channels-context-generation-retrieve:
-        operation: task_channels_context_generation_retrieve
-        enabled: false
-    task-channels-context-generation-update:
-        operation: task_channels_context_generation_update
-        enabled: false
-    task-channels-destroy:
-        operation: task_channels_destroy
-        enabled: false
-    task-channels-feed-create:
-        operation: task_channels_feed_create
-        enabled: false
-    task-channels-feed-list:
-        operation: task_channels_feed_list
-        enabled: false
-    task-channels-instructions-destroy:
-        operation: task_channels_instructions_destroy
-        enabled: false
-    task-channels-instructions-partial-update:
-        operation: task_channels_instructions_partial_update
-        enabled: false
-    task-channels-instructions-update:
-        operation: task_channels_instructions_update
-        enabled: false
-    task-channels-instructions-versions-retrieve:
-        operation: task_channels_instructions_versions_retrieve
-        enabled: false
-    task-channels-members-retrieve:
-        operation: task_channels_members_retrieve
-        enabled: false
-    task-channels-members-update:
-        operation: task_channels_members_update
-        enabled: false
-    task-channels-onboarding-session-create:
-        operation: task_channels_onboarding_session_create
-        enabled: false
-    task-channels-onboarding-session-test-create:
-        operation: task_channels_onboarding_session_test_create
-        enabled: false
-    task-channels-partial-update:
-        operation: task_channels_partial_update
-        enabled: false
-    task-channels-provision-defaults-create:
-        operation: task_channels_provision_defaults_create
-        enabled: false
-    task-channels-star-create:
-        operation: task_channels_star_create
-        enabled: false
-    task-channels-teaching-canvas-test-create:
-        operation: task_channels_teaching_canvas_test_create
-        enabled: false
-    task-mentions-list:
-        operation: task_mentions_list
-        enabled: false
-    tasks-active-wizard-run-retrieve:
-        operation: tasks_active_wizard_run_retrieve
-        enabled: false
-    tasks-artifacts-list:
-        operation: tasks_artifacts_list
-        enabled: false
-    tasks-comments-list:
-        operation: tasks_comments_list
-        enabled: false
-    tasks-comments-retrieve:
-        operation: tasks_comments_retrieve
-        enabled: false
+        hidden_when_flag_on: loops-hog-flows
+        superseded_by:
+            - tasks-list
+            - tasks-runs-retrieve
+            - workflows-list-invocations
+        redirect_hint:
+            'Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with
+            origin_product "loops". For run history, call tasks-list with the hog_flow_id of the loop and archived set
+            to all: it lists the tasks the loop created, newest first, each with the status and error of its latest run.
+            Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL.
+            workflows-list-invocations carries the engine outcome only, with no task output.'
+    tasks-config-agent-instructions-create:
+        operation: tasks_config_agent_instructions_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set project agent instructions
+        description: >
+            Set the project's agent instructions: markdown that PostHog cloud agents load as their user-level AGENTS.md
+            in every eligible Tasks run on the project, including autonomous runs such as loops and scouts. Requires
+            project admin. Replaces the stored text; send an empty string to clear. Read the current text with
+            tasks-config-list first, and send the full new text, not a diff.
+        feature_flag: tasks
     tasks-config-create:
         operation: tasks_config_create
         enabled: true
@@ -424,6 +365,7 @@ tools:
         description: >
             Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
             runs created without an explicit runtime selection. All fields are null when no project default is stored.
+            Also returns the project's agent instructions (`agent_instructions`), empty when unset.
         feature_flag: tasks
     tasks-create:
         operation: tasks_create
@@ -478,12 +420,15 @@ tools:
             idempotent: false
         input_schema: TaskAgentCreateSchema
         enrich_url: '{id}'
-        title: Create task and start run
+        title: Create task and start or schedule run
         description: >
-            Create a task and start its first background run. Set `description` to the agent's instructions. For code
-            tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error`
-            if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is
-            lost, search for the task before you retry. A repeated call can create another task.
+            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days.
+            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
+            model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
+            `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
+            `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or
+            `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A
+            repeated call can create another task.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -496,12 +441,9 @@ tools:
                 - latest_run.stage
                 - latest_run.status
                 - run_error
-    tasks-destroy:
-        operation: tasks_destroy
-        enabled: false
-    tasks-handoff-create:
-        operation: tasks_handoff_create
-        enabled: false
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-list:
         operation: tasks_list
         enabled: true
@@ -542,6 +484,23 @@ tools:
                 - latest_run.completed_at
                 - created_at
                 - updated_at
+    tasks-me-config-agent-instructions-create:
+        operation: tasks_me_config_agent_instructions_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set my agent instructions
+        description: >
+            Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project
+            instructions in Tasks runs the caller starts. Autonomous runs never load them. Anyone who continues a task
+            the caller started can see them, so they must not hold anything private. Replaces the stored text; send an
+            empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text,
+            not a diff.
+        feature_flag: tasks
     tasks-me-config-create:
         operation: tasks_me_config_create
         enabled: true
@@ -571,7 +530,8 @@ tools:
         description: >
             Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
             no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
-            which level supplied it).
+            which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`),
+            empty when unset.
         feature_flag: tasks
     tasks-models-retrieve:
         operation: tasks_models_retrieve
@@ -588,45 +548,6 @@ tools:
             the returned identifiers when setting task run default preferences or creating a run. An empty list means
             the model catalogue is temporarily unavailable, not that no models exist.
         feature_flag: tasks
-    tasks-partial-update:
-        operation: tasks_partial_update
-        enabled: false
-    tasks-pin-create:
-        operation: tasks_pin_create
-        enabled: false
-    tasks-pinned-retrieve:
-        operation: tasks_pinned_retrieve
-        enabled: false
-    tasks-presence-create:
-        operation: tasks_presence_create
-        enabled: false
-    tasks-presence-destroy:
-        operation: tasks_presence_destroy
-        enabled: false
-    tasks-repo-routing-rules-create:
-        operation: tasks_repo_routing_rules_create
-        enabled: false
-    tasks-repo-routing-rules-destroy:
-        operation: tasks_repo_routing_rules_destroy
-        enabled: false
-    tasks-repo-routing-rules-list:
-        operation: tasks_repo_routing_rules_list
-        enabled: false
-    tasks-repo-routing-rules-partial-update:
-        operation: tasks_repo_routing_rules_partial_update
-        enabled: false
-    tasks-repo-routing-rules-retrieve:
-        operation: tasks_repo_routing_rules_retrieve
-        enabled: false
-    tasks-repo-routing-rules-update:
-        operation: tasks_repo_routing_rules_update
-        enabled: false
-    tasks-repositories-retrieve:
-        operation: tasks_repositories_retrieve
-        enabled: false
-    tasks-repository-readiness-retrieve:
-        operation: tasks_repository_readiness_retrieve
-        enabled: false
     tasks-retrieve:
         operation: tasks_retrieve
         enabled: true
@@ -659,12 +580,15 @@ tools:
             idempotent: false
         input_schema: TaskAgentRunCreateSchema
         enrich_url: '{id}'
-        title: Start task run
+        title: Start or schedule task run
         description: >
-            Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and
-            `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.
-            Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated
-            call can start another run.
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times
+            without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
+            fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
+            explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
+            prior run. The created run is the top-level `run`; read `run.id` for run-scoped calls — the top-level `id`
+            is the task's. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -674,60 +598,25 @@ tools:
                 - title
                 - description
                 - repository
+                - run.id
+                - run.stage
+                - run.status
+                - run.scheduled_at
+                - run.model
+                - run.reasoning_effort
                 - latest_run.id
                 - latest_run.stage
                 - latest_run.status
-    tasks-runs-analysis-activity-create:
-        operation: tasks_runs_analysis_activity_create
-        enabled: false
-    tasks-runs-analyze-create:
-        operation: tasks_runs_analyze_create
-        enabled: false
-    tasks-runs-append-log-create:
-        operation: tasks_runs_append_log_create
-        enabled: false
-    tasks-runs-artifacts-create:
-        operation: tasks_runs_artifacts_create
-        enabled: false
-    tasks-runs-artifacts-dismiss-create:
-        operation: tasks_runs_artifacts_dismiss_create
-        enabled: false
-    tasks-runs-artifacts-download-create:
-        operation: tasks_runs_artifacts_download_create
-        enabled: false
-    tasks-runs-artifacts-download-retrieve:
-        operation: tasks_runs_artifacts_download_retrieve
-        enabled: false
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-runs-artifacts-finalize-upload-create:
         operation: tasks_runs_artifacts_finalize_upload_create
         enabled: false
+        disabled_reason: Its prepare step, tasks-runs-artifacts-prepare-upload-create, is not exposed
         description: >
             Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
             read its latest version because an interactive user may have edited it since the agent's last upload.
-    tasks-runs-artifacts-prepare-upload-create:
-        operation: tasks_runs_artifacts_prepare_upload_create
-        enabled: false
-    tasks-runs-artifacts-presign-create:
-        operation: tasks_runs_artifacts_presign_create
-        enabled: false
-    tasks-runs-artifacts-references-create:
-        operation: tasks_runs_artifacts_references_create
-        enabled: false
-    tasks-runs-cancel-create:
-        operation: tasks_runs_cancel_create
-        enabled: false
-    tasks-runs-clear-conversation-create:
-        operation: tasks_runs_clear_conversation_create
-        enabled: false
-    tasks-runs-command-create:
-        operation: tasks_runs_command_create
-        enabled: false
-    tasks-runs-connection-token-retrieve:
-        operation: tasks_runs_connection_token_retrieve
-        enabled: false
-    tasks-runs-create:
-        operation: tasks_runs_create
-        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
@@ -753,42 +642,12 @@ tools:
                 - environment
                 - error_message
                 - state.sandbox_environment_id
+                - scheduled_at
+                - model
+                - reasoning_effort
                 - created_at
                 - updated_at
                 - completed_at
-    tasks-runs-living-artifacts-chart:
-        operation: tasks_runs_living_artifacts_chart
-        enabled: false
-    tasks-runs-living-artifacts-create:
-        operation: tasks_runs_living_artifacts_create
-        enabled: false
-    tasks-runs-living-artifacts-edit:
-        operation: tasks_runs_living_artifacts_edit
-        enabled: false
-    tasks-runs-living-artifacts-list:
-        operation: tasks_runs_living_artifacts_list
-        enabled: false
-    tasks-runs-living-artifacts-open:
-        operation: tasks_runs_living_artifacts_open
-        enabled: false
-    tasks-runs-partial-update:
-        operation: tasks_runs_partial_update
-        enabled: false
-    tasks-runs-peers-message-create:
-        operation: tasks_runs_peers_message_create
-        enabled: false
-    tasks-runs-peers-retrieve:
-        operation: tasks_runs_peers_retrieve
-        enabled: false
-    tasks-runs-preview-retrieve:
-        operation: tasks_runs_preview_retrieve
-        enabled: false
-    tasks-runs-relay-message-create:
-        operation: tasks_runs_relay_message_create
-        enabled: false
-    tasks-runs-resume-in-cloud-create:
-        operation: tasks_runs_resume_in_cloud_create
-        enabled: false
     tasks-runs-retrieve:
         operation: tasks_runs_retrieve
         enabled: true
@@ -828,63 +687,3 @@ tools:
                 description: Maximum number of entries to return (default 100, max 5000)
                 default: 100
         feature_flag: tasks
-    tasks-runs-set-output-partial-update:
-        operation: tasks_runs_set_output_partial_update
-        enabled: false
-    tasks-runs-set-summary-partial-update:
-        operation: tasks_runs_set_summary_partial_update
-        enabled: false
-    tasks-runs-start-create:
-        operation: tasks_runs_start_create
-        enabled: false
-    tasks-runs-stream-retrieve:
-        operation: tasks_runs_stream_retrieve
-        enabled: false
-    tasks-runs-stream-token-retrieve:
-        operation: tasks_runs_stream_token_retrieve
-        enabled: false
-    tasks-runs-task-session-retrieve:
-        operation: tasks_runs_task_session_retrieve
-        enabled: false
-    tasks-runs-task-session-sync-create:
-        operation: tasks_runs_task_session_sync_create
-        enabled: false
-    tasks-search-retrieve:
-        operation: tasks_search_retrieve
-        enabled: false
-    tasks-slack-thread-context-retrieve:
-        operation: tasks_slack_thread_context_retrieve
-        enabled: false
-    tasks-staged-artifacts-finalize-upload-create:
-        operation: tasks_staged_artifacts_finalize_upload_create
-        enabled: false
-    tasks-staged-artifacts-prepare-upload-create:
-        operation: tasks_staged_artifacts_prepare_upload_create
-        enabled: false
-    tasks-summaries-create:
-        operation: tasks_summaries_create
-        enabled: false
-    tasks-thread-messages-create:
-        operation: tasks_thread_messages_create
-        enabled: false
-    tasks-thread-messages-destroy:
-        operation: tasks_thread_messages_destroy
-        enabled: false
-    tasks-thread-messages-list:
-        operation: tasks_thread_messages_list
-        enabled: false
-    tasks-thread-messages-send-to-agent-create:
-        operation: tasks_thread_messages_send_to_agent_create
-        enabled: false
-    tasks-update:
-        operation: tasks_update
-        enabled: false
-    tasks-usage-retrieve:
-        operation: tasks_usage_retrieve
-        enabled: false
-    tasks-warm-create:
-        operation: tasks_warm_create
-        enabled: false
-    tasks-warm-resume-create:
-        operation: tasks_warm_resume_create
-        enabled: false

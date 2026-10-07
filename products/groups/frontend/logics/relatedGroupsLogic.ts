@@ -82,19 +82,24 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
     key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
     path(['scenes', 'groups', 'relatedGroupsLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, cache }) => ({
         relatedActors: [
             [] as ActorType[],
             {
                 loadRelatedActors: async () => {
-                    const url = `api/environments/${values.currentTeamId}/groups/related?${toParams({
+                    // Abort on unmount so a slow request that fails later does not toast on the next page.
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'relatedActorsRequest', {
+                        pauseOnPageHidden: false,
+                    })
+                    const url = `api/projects/${values.currentTeamId}/groups/related?${toParams({
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`
                     // groupsRelatedList returns RelatedActorApi, which ActorType cannot hold:
                     // ~/types has is_identified non-nullable and distinct_ids optional.
-                    // nosemgrep: prefer-codegen-api
-                    return await api.get(url)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                    return await api.get(url, { signal: controller.signal })
                 },
                 setGroup: () => [],
             },
