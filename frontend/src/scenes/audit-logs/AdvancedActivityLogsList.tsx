@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
@@ -6,6 +6,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 import { AuditLogTable } from './AuditLogTable'
@@ -13,13 +14,28 @@ import { AuditLogTable } from './AuditLogTable'
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export function AdvancedActivityLogsList(): JSX.Element {
-    const { advancedActivityLogs, advancedActivityLogsLoading, pagination, isOrganizationView, teamsById } =
-        useValues(advancedActivityLogsLogic)
+    const {
+        advancedActivityLogs,
+        advancedActivityLogsLoading,
+        advancedActivityLogsFailed,
+        pagination,
+        isOrganizationView,
+        teamsById,
+    } = useValues(advancedActivityLogsLogic)
+    const { loadAdvancedActivityLogs } = useActions(advancedActivityLogsLogic)
 
     const humanizedLogs = advancedActivityLogs?.results ? humanize(advancedActivityLogs.results, describerFor) : []
 
     if (advancedActivityLogsLoading) {
         return <AdvancedActivityLogsListSkeleton />
+    }
+
+    if (advancedActivityLogsFailed) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadAdvancedActivityLogs({}) }}>
+                We couldn't load activity logs. Try again, or change your filters if this continues.
+            </LemonBanner>
+        )
     }
 
     if (!humanizedLogs.length) {

@@ -873,6 +873,58 @@ export interface AvailableFiltersResponseApi {
     detail_fields: AvailableFiltersResponseApiDetailFields
 }
 
+/**
+ * * `ocsf` - ocsf
+ */
+export type SchemaEnumApi = (typeof SchemaEnumApi)[keyof typeof SchemaEnumApi]
+
+export const SchemaEnumApi = {
+    Ocsf: 'ocsf',
+} as const
+
+export interface AdvancedActivityLogQueryBodyApi {
+    /** Lower bound on `created_at` (inclusive), ISO-8601. */
+    start_date?: string
+    /** Upper bound on `created_at` (inclusive), ISO-8601. */
+    end_date?: string
+    /** Filter by users who performed the activity (user UUIDs). */
+    users?: string[]
+    /** Filter by activity scopes (e.g. "FeatureFlag", "Insight"). */
+    scopes?: string[]
+    /** Filter by activity types (e.g. "created", "updated", "deleted"). */
+    activities?: string[]
+    /** Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). */
+    clients?: string[]
+    /** Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined. */
+    ip_addresses?: string[]
+    /** Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint. */
+    team_ids?: number[]
+    /** Free-text search across the `detail` JSON column. */
+    search_text?: string
+    /** JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in. */
+    detail_filters?: string
+    /** Reserved for future HogQL-based filtering. */
+    hogql_filter?: string
+    /**
+     * When set, filters rows where the actor was impersonating another user.
+     * @nullable
+     */
+    was_impersonated?: boolean | null
+    /**
+     * When set, filters rows authored by the system (no user).
+     * @nullable
+     */
+    is_system?: boolean | null
+    /** Filter by the `item_id` of the affected resource(s). */
+    item_ids?: string[]
+    /** Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
+     *
+     * * `ocsf` - ocsf */
+    schema?: SchemaEnumApi
+    /** Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool. */
+    include_values?: boolean
+}
+
 export interface ApprovalPolicyApi {
     readonly id: string
     /** @maxLength 128 */
@@ -1836,6 +1888,32 @@ export type AdvancedActivityLogsListSchema =
 export const AdvancedActivityLogsListSchema = {
     Ocsf: 'ocsf',
 } as const
+
+export type AdvancedActivityLogsQueryCreateParams = {
+    /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean
+    /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of results per page (default: 100, max: 1000).
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number
+}
 
 export type ApprovalPoliciesListParams = {
     /**

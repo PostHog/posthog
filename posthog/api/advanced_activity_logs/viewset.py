@@ -396,7 +396,40 @@ def _validate_ip_or_wildcard(value: str) -> None:
         )
 
 
-class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
+class ActivityLogPageParamsSerializer(serializers.Serializer):
+    ordering = serializers.ChoiceField(
+        choices=ACTIVITY_LOG_ORDERING_CHOICES,
+        required=False,
+        default=ACTIVITY_LOG_ORDERING_DESCENDING,
+        help_text=(
+            "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest "
+            "first when polling for new entries, so a saved cursor picks up where the last request stopped."
+        ),
+    )
+    follow = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Keep the next link valid after the last entry, so the same cursor can be re-polled as "
+            "new entries arrive. Only applies with oldest-first ordering. When following, stop on an "
+            "empty results list rather than on a null next link."
+        ),
+    )
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000).",
+    )
+
+
+class AdvancedActivityLogQueryBodySerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(
         required=False,
         help_text="Lower bound on `created_at` (inclusive), ISO-8601.",
@@ -478,24 +511,6 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         default=[],
         help_text="Filter by the `item_id` of the affected resource(s).",
     )
-    ordering = serializers.ChoiceField(
-        choices=ACTIVITY_LOG_ORDERING_CHOICES,
-        required=False,
-        default=ACTIVITY_LOG_ORDERING_DESCENDING,
-        help_text=(
-            "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest "
-            "first when polling for new entries, so a saved cursor picks up where the last request stopped."
-        ),
-    )
-    follow = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text=(
-            "Keep the next link valid after the last entry, so the same cursor can be re-polled as "
-            "new entries arrive. Only applies with oldest-first ordering. When following, stop on an "
-            "empty results list rather than on a null next link."
-        ),
-    )
     schema = serializers.ChoiceField(
         choices=[ACTIVITY_LOG_SCHEMA_OCSF],
         required=False,
@@ -513,21 +528,13 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
             "sends that content to your security tool."
         ),
     )
-    page = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
-    )
-    page_size = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=1000,
-        default=100,
-        help_text="Number of results per page (default: 100, max: 1000).",
-    )
 
     def validate_detail_filters(self, value: Any) -> dict[str, Any]:
         return validate_detail_filters(value)
+
+
+class AdvancedActivityLogFiltersSerializer(AdvancedActivityLogQueryBodySerializer, ActivityLogPageParamsSerializer):
+    pass
 
 
 class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
@@ -662,9 +669,18 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # filters serializer produces, instead of re-parsing the raw query string.
         validated = getattr(self, "_validated_query_params_cache", None)
         if validated is None:
-            serializer = AdvancedActivityLogFiltersSerializer(data=self.request.query_params)
-            serializer.is_valid(raise_exception=True)
-            validated = self._validated_query_params_cache = serializer.validated_data
+            if self.action == "query":
+                # Pagination reads its params from the query string, so only the filters come from the body.
+                page_params = ActivityLogPageParamsSerializer(data=self.request.query_params)
+                page_params.is_valid(raise_exception=True)
+                body = AdvancedActivityLogQueryBodySerializer(data=self.request.data)
+                body.is_valid(raise_exception=True)
+                validated = {**body.validated_data, **page_params.validated_data}
+            else:
+                serializer = AdvancedActivityLogFiltersSerializer(data=self.request.query_params)
+                serializer.is_valid(raise_exception=True)
+                validated = serializer.validated_data
+            self._validated_query_params_cache = validated
         return validated
 
     def get_serializer_class(self):
@@ -696,6 +712,20 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=AdvancedActivityLogQueryBodySerializer,
+        parameters=[ActivityLogPageParamsSerializer],
+        responses={200: ActivityLogSerializer(many=True)},
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
+    def query(self, request, *args, **kwargs):
+        """List activity logs with the filters in the request body instead of the query string.
+
+        A long filter, such as many users, can make a GET URL longer than proxies accept. Send
+        `page`, `page_size`, `ordering` and `follow` in the query string.
+        """
+        return self.list(request, *args, **kwargs)
 
     @extend_schema(responses={200: AvailableFiltersResponseSerializer})
     @action(detail=False, methods=["GET"])

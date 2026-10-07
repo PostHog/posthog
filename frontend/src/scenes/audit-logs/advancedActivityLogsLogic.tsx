@@ -154,6 +154,7 @@ export interface advancedActivityLogsLogicValues {
     activeTab: 'exports' | 'logs'
     advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>
     advancedActivityLogsBaseUrl: string
+    advancedActivityLogsFailed: boolean
     advancedActivityLogsLoading: boolean
     availableFilters: AvailableFilters | null
     availableFiltersLoading: boolean
@@ -359,6 +360,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     }),
 
     reducers({
+        advancedActivityLogsFailed: [
+            false,
+            {
+                loadAdvancedActivityLogs: () => false,
+                loadAdvancedActivityLogsSuccess: () => false,
+                loadAdvancedActivityLogsFailure: () => true,
+            },
+        ],
         filters: [
             DEFAULT_FILTERS,
             {
@@ -424,49 +433,36 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadAdvancedActivityLogs: async (_, breakpoint) => {
                     await breakpoint(300)
 
-                    const params = new URLSearchParams()
-
+                    const filters: Record<string, any> = {
+                        users: values.filters.users,
+                        scopes: values.filters.scopes,
+                        activities: values.filters.activities,
+                        clients: values.filters.clients,
+                        ip_addresses: values.filters.ip_addresses,
+                        item_ids: values.filters.item_ids,
+                        team_ids: values.isOrganizationView ? values.filters.team_ids : undefined,
+                        was_impersonated: values.filters.was_impersonated,
+                        is_system: values.filters.is_system,
+                    }
                     if (values.filters.start_date) {
-                        const startDate = dateStringToDayJs(values.filters.start_date)
-                        if (startDate) {
-                            params.append('start_date', startDate.toISOString())
-                        }
+                        filters.start_date = dateStringToDayJs(values.filters.start_date)?.toISOString()
                     }
                     if (values.filters.end_date) {
-                        const endDate = dateStringToDayJs(values.filters.end_date)
-                        if (endDate) {
-                            params.append('end_date', endDate.toISOString())
-                        }
-                    }
-
-                    values.filters.users?.forEach((user) => params.append('users', user))
-                    values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
-                    values.filters.activities?.forEach((activity) => params.append('activities', activity))
-                    values.filters.clients?.forEach((client) => params.append('clients', client))
-                    values.filters.ip_addresses?.forEach((ip) => params.append('ip_addresses', ip))
-                    values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
-                    if (values.isOrganizationView) {
-                        values.filters.team_ids?.forEach((team_id: number) =>
-                            params.append('team_ids', String(team_id))
-                        )
-                    }
-
-                    if (values.filters.was_impersonated !== undefined) {
-                        params.append('was_impersonated', values.filters.was_impersonated.toString())
-                    }
-                    if (values.filters.is_system !== undefined) {
-                        params.append('is_system', values.filters.is_system.toString())
+                        filters.end_date = dateStringToDayJs(values.filters.end_date)?.toISOString()
                     }
                     if (values.filters.detail_filters && Object.keys(values.filters.detail_filters).length > 0) {
-                        params.append('detail_filters', JSON.stringify(values.filters.detail_filters))
+                        filters.detail_filters = values.filters.detail_filters
                     }
 
-                    params.append('page', (values.filters.page || 1).toString())
-                    params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
+                    const params = new URLSearchParams({
+                        page: (values.filters.page || 1).toString(),
+                        page_size: ADVANCED_ACTIVITY_PAGE_SIZE.toString(),
+                    })
 
+                    // Filters go in the POST body, because a long filter (e.g. many users) makes a GET URL too long for proxies.
                     const [response] = await Promise.all([
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        api.get(`${values.advancedActivityLogsBaseUrl}/?${params}`),
+                        api.create(`${values.advancedActivityLogsBaseUrl}/query/?${params}`, objectClean(filters)),
                         ensureActivityDescribersLoaded(),
                     ])
                     return response

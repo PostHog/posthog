@@ -435,6 +435,92 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
+/**
+ * List activity logs with the filters in the request body instead of the query string.
+ *
+ * A long filter, such as many users, can make a GET URL longer than proxies accept. Send
+ * `page`, `page_size`, `ordering` and `follow` in the query string.
+ */
+export const advancedActivityLogsQueryCreateBodyUsersDefault = []
+export const advancedActivityLogsQueryCreateBodyScopesDefault = []
+export const advancedActivityLogsQueryCreateBodyActivitiesDefault = []
+export const advancedActivityLogsQueryCreateBodyClientsDefault = []
+export const advancedActivityLogsQueryCreateBodyIpAddressesDefault = []
+export const advancedActivityLogsQueryCreateBodyTeamIdsDefault = []
+export const advancedActivityLogsQueryCreateBodyItemIdsDefault = []
+export const advancedActivityLogsQueryCreateBodyIncludeValuesDefault = false
+
+export const AdvancedActivityLogsQueryCreateBody = /* @__PURE__ */ zod.object({
+    start_date: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+    end_date: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+    users: zod
+        .array(zod.uuid())
+        .default(advancedActivityLogsQueryCreateBodyUsersDefault)
+        .describe('Filter by users who performed the activity (user UUIDs).'),
+    scopes: zod
+        .array(zod.string())
+        .default(advancedActivityLogsQueryCreateBodyScopesDefault)
+        .describe('Filter by activity scopes (e.g. \"FeatureFlag\", \"Insight\").'),
+    activities: zod
+        .array(zod.string())
+        .default(advancedActivityLogsQueryCreateBodyActivitiesDefault)
+        .describe('Filter by activity types (e.g. \"created\", \"updated\", \"deleted\").'),
+    clients: zod
+        .array(zod.string())
+        .default(advancedActivityLogsQueryCreateBodyClientsDefault)
+        .describe(
+            "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
+        ),
+    ip_addresses: zod
+        .array(zod.string())
+        .default(advancedActivityLogsQueryCreateBodyIpAddressesDefault)
+        .describe(
+            'Filter by client IP addresses. Accepts exact IPv4\/IPv6 values or wildcard patterns using `\*` (e.g. `203.0.113.\*`). Multiple entries are OR-combined.'
+        ),
+    team_ids: zod
+        .array(zod.number())
+        .default(advancedActivityLogsQueryCreateBodyTeamIdsDefault)
+        .describe(
+            'Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.'
+        ),
+    search_text: zod.string().optional().describe('Free-text search across the `detail` JSON column.'),
+    detail_filters: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.'
+        ),
+    hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    was_impersonated: zod
+        .boolean()
+        .nullish()
+        .describe('When set, filters rows where the actor was impersonating another user.'),
+    is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
+    item_ids: zod
+        .array(zod.string())
+        .default(advancedActivityLogsQueryCreateBodyItemIdsDefault)
+        .describe('Filter by the `item_id` of the affected resource(s).'),
+    schema: zod
+        .enum(['ocsf'])
+        .describe('\* `ocsf` - ocsf')
+        .optional()
+        .describe(
+            'Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.\n\n\* `ocsf` - ocsf'
+        ),
+    include_values: zod
+        .boolean()
+        .default(advancedActivityLogsQueryCreateBodyIncludeValuesDefault)
+        .describe(
+            'Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.'
+        ),
+})
+
 export const approvalPoliciesCreateBodyActionKeyMax = 128
 
 export const ApprovalPoliciesCreateBody = /* @__PURE__ */ zod.object({

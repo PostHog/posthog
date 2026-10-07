@@ -11,7 +11,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogApi,
     ActivityLogListParams,
+    AdvancedActivityLogQueryBodyApi,
     AdvancedActivityLogsListParams,
+    AdvancedActivityLogsQueryCreateParams,
     ApprovalPoliciesListParams,
     ApprovalPolicyApi,
     AvailableFiltersResponseApi,
@@ -851,6 +853,45 @@ export const advancedActivityLogsExportCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(activityLogApi),
+    })
+}
+
+export const getAdvancedActivityLogsQueryCreateUrl = (
+    projectId: string,
+    params?: AdvancedActivityLogsQueryCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/advanced_activity_logs/query/?${stringifiedParams}`
+        : `/api/projects/${projectId}/advanced_activity_logs/query/`
+}
+
+/**
+ * List activity logs with the filters in the request body instead of the query string.
+ *
+ * A long filter, such as many users, can make a GET URL longer than proxies accept. Send
+ * `page`, `page_size`, `ordering` and `follow` in the query string.
+ */
+export const advancedActivityLogsQueryCreate = async (
+    projectId: string,
+    advancedActivityLogQueryBodyApi?: AdvancedActivityLogQueryBodyApi,
+    params?: AdvancedActivityLogsQueryCreateParams,
+    options?: RequestInit
+): Promise<PaginatedActivityLogListApi> => {
+    return apiMutator<PaginatedActivityLogListApi>(getAdvancedActivityLogsQueryCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(advancedActivityLogQueryBodyApi),
     })
 }
 

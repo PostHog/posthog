@@ -73,6 +73,9 @@ tools:
                 - detail.changes
                 - created_at
             selectable: true
+    advanced-activity-logs-query-create:
+        operation: advanced_activity_logs_query_create
+        enabled: false
     approval-policies-create:
         operation: approval_policies_create
         enabled: false
