@@ -39,8 +39,20 @@ FINALIZE_QUEUE_SWEEP_ERRORS = Counter(
 
 
 def update_external_job_status(
-    job_id: str, team_id: int, status: ExternalDataJobStatus, logger: FilteringBoundLogger, latest_error: str | None
+    job_id: str,
+    team_id: int,
+    status: ExternalDataJobStatus,
+    logger: FilteringBoundLogger,
+    latest_error: str | None,
+    counts_as_source_failure: bool = True,
 ) -> ExternalDataJob:
+    """Record a run's terminal status on the job and its schema.
+
+    Pass `counts_as_source_failure=False` for a failure that says nothing about the source: a
+    worker restart, an unreachable app DB, a lock takeover, a cancellation. Only a failure that
+    does say something moves the schema's failure streak, which decides the retry cap and the run
+    gap of its next runs (see `retry_limits`).
+    """
     is_first_terminal_transition = False
     with transaction.atomic():
         model = ExternalDataJob.objects.select_for_update().get(id=job_id, team_id=team_id)
@@ -130,7 +142,20 @@ def update_external_job_status(
             schema.status = schema_status
             if not billing_limited_run:
                 schema.latest_error = error_to_persist
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            schema_update_fields = ["status", "latest_error", "updated_at"]
+
+            # Only the first terminal write of a run counts. A run is finalized more than once:
+            # the load consumer and the workflow both write, and an auto-disable teardown re-fails
+            # still-running jobs, so each repeat would otherwise charge the same run again.
+            if is_first_terminal_transition:
+                if status == ExternalDataJobStatus.FAILED and counts_as_source_failure:
+                    schema.note_failed_run(dt.datetime.now(dt.UTC))
+                    schema_update_fields.append("sync_type_config")
+                elif status == ExternalDataJobStatus.COMPLETED:
+                    schema.clear_failure_streak()
+                    schema_update_fields.append("sync_type_config")
+
+            schema.save(update_fields=schema_update_fields)
 
         # Every risky terminal write (any non-Completed terminal, plus the takeover-recovery
         # Completed flip) can leave still-claimable batches in the v3 queue; a straggler loaded
