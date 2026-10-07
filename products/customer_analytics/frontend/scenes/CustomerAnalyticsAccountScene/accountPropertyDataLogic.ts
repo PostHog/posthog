@@ -91,7 +91,16 @@ export const accountPropertyDataLogic: LogicWrapper<accountPropertyDataLogicType
             {
                 loadAccount: async (_: void, breakpoint): Promise<AccountApi> => {
                     const revision = cache.accountRevision ?? 0
-                    const account = await api.accountsRetrieve(String(props.projectId), props.accountId)
+                    let account: AccountApi
+                    try {
+                        account = await api.accountsRetrieve(String(props.projectId), props.accountId)
+                    } catch (error) {
+                        breakpoint()
+                        if (revision !== (cache.accountRevision ?? 0) && values.account) {
+                            return values.account
+                        }
+                        throw error
+                    }
                     breakpoint()
                     return revision !== (cache.accountRevision ?? 0) ? (values.account ?? account) : account
                 },

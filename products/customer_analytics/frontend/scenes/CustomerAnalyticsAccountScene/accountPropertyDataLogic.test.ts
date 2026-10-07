@@ -36,9 +36,13 @@ describe('accountPropertyDataLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('keeps a saved value when an earlier account read finishes', async () => {
-        let resolveRead!: (value: AccountApi) => void
-        mockRetrieve.mockReturnValueOnce(new Promise<AccountApi>((resolve) => (resolveRead = resolve)))
+    it.each(['succeeds', 'fails'])('keeps a saved value when an earlier account read %s', async (outcome) => {
+        let settleRead!: () => void
+        mockRetrieve.mockReturnValueOnce(
+            new Promise<AccountApi>((resolve, reject) => {
+                settleRead = () => (outcome === 'succeeds' ? resolve(account) : reject(new Error('Unavailable')))
+            })
+        )
         logic.actions.loadAccount()
         try {
             await waitFor(() => expect(mockRetrieve).toHaveBeenCalledTimes(1))
@@ -47,10 +51,11 @@ describe('accountPropertyDataLogic', () => {
                 properties: { website_domain: 'saved.example.com' },
             })
         } finally {
-            resolveRead(account)
+            settleRead()
         }
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.account?.properties?.website_domain).toBe('saved.example.com')
+        expect(logic.values.accountLoadFailed).toBe(false)
     })
 
     it.each([
