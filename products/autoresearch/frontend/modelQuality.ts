@@ -37,9 +37,10 @@ function modelQualityVerdict(auc: number): ModelQualityVerdict {
     return 'Weak'
 }
 
-function liftSentence(liftAt10: number | null | undefined, target: string): string {
+function liftSentence(liftAt10: number | null | undefined, target: string, confirmed: boolean): string {
     if (liftAt10 == null) {
-        return 'Not checked against real outcomes yet'
+        // A confirmed model has realized metrics, so the API leaves lift null only when no one did the target that day.
+        return confirmed ? `No one did ${target} in the latest check` : 'Not checked against real outcomes yet'
     }
     return `Top 10% are ${liftAt10.toFixed(1)}× more likely to do ${target}`
 }
@@ -61,6 +62,6 @@ export function modelQuality({
         verdict: modelQualityVerdict(auc),
         basis: confirmed ? 'confirmed' : 'testing only',
         auc,
-        sentence: liftSentence(liftAt10, target),
+        sentence: liftSentence(liftAt10, target, confirmed),
     }
 }

@@ -64,6 +64,16 @@ describe('modelQuality', () => {
                 sentence: 'Not checked against real outcomes yet',
             },
         },
+        {
+            name: 'a confirmed model with no lift had no one do the target',
+            input: { realizedAuc: 0.78 },
+            expected: {
+                verdict: 'Fair',
+                basis: 'confirmed',
+                auc: 0.78,
+                sentence: 'No one did signed_up in the latest check',
+            },
+        },
         { name: 'no AUC gives no verdict', input: {}, expected: null },
     ])('$name', ({ input, expected }) => {
         expect(modelQuality({ ...base, ...input })).toEqual(expected)

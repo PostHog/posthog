@@ -128,10 +128,17 @@ def _as_uuid(value: str | UUID | None) -> UUID | None:
 
 
 def _champion_lift_at_10(champion: AutoresearchModel | None) -> float | None:
-    """Lift in the top decile on the champion's latest validated prediction date."""
+    """Lift in the top decile on the champion's latest validated prediction date.
+
+    None when no scored person did the target on that date. Lift has no value without positives,
+    and online validation stores 0.0 for it only as a fallback.
+    """
     if champion is None:
         return None
-    lift = ((champion.metrics or {}).get("realized") or {}).get("lift_at_10")
+    realized = (champion.metrics or {}).get("realized") or {}
+    if realized.get("n_positive") == 0:
+        return None
+    lift = realized.get("lift_at_10")
     return float(lift) if isinstance(lift, int | float) else None
 
 

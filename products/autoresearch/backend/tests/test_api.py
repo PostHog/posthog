@@ -201,6 +201,17 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             holdout_score=0.72,
             is_preliminary=True,
         )
+        for name, n_positive in (("No positives", 0), ("Zero lift", 3)):
+            AutoresearchModel.objects.create(
+                pipeline=self._make_pipeline(name=name),
+                role=AutoresearchModel.Role.CHAMPION,
+                model_recipe={"stub": True},
+                recipe_hash=name,
+                holdout_score=0.81,
+                realized_score=0.78,
+                is_preliminary=False,
+                metrics={"realized": {"n_positive": n_positive, "lift_at_10": 0.0, "prediction_date": "2026-01-02"}},
+            )
         self._make_pipeline(name="Untrained")
 
         with CaptureQueriesContext(connection) as queries:
@@ -220,6 +231,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         } == {
             "Validated": (0.81, 0.78, 2.4, False),
             "Preliminary": (0.72, None, None, True),
+            "No positives": (0.81, 0.78, None, False),
+            "Zero lift": (0.81, 0.78, 0.0, False),
             "Untrained": (None, None, None, None),
         }
 
