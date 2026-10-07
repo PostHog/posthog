@@ -16,6 +16,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -219,7 +220,7 @@ export interface ExecToolOptions {
     learnCatalog?: ExecLearnCatalog
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
-     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * response (Claude Code). Gets the same UI-app payload treatment as the
      * PostHog Desktop consumer: structuredContent suppressed toward the model, app data
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
@@ -2006,12 +2007,16 @@ export function createExecTool(
                             describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2092,7 +2097,7 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
+                                // Inline-exec UI-app hosts (PostHog Desktop, Claude Code)
                                 // surface `structuredContent` to the model in preference to the
                                 // text content, which would bury a compact formatted table under
                                 // the raw JSON. When such a table exists, re-home the UI app's data

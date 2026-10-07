@@ -28,6 +28,10 @@ from posthog.utils import get_instance_region
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.deadline import (
+    DeadlineExceededError,
+    run_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -39,12 +43,22 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
+# A name with no dot, such as a Docker Compose service name, only resolves inside the network that
+# defines it, so "check the spelling" sends the customer the wrong way. Sources match the "Couldn't
+# resolve the host" prefix to stop retrying a broken sync, so keep it.
+_SHORT_HOST_NAME_ERROR = (
+    "Couldn't resolve the host because it's a short name that only works inside your own network. "
+    "Enter the full public hostname or IP address instead."
+)
 _MALFORMED_HOST_ERROR = (
     "Enter a single hostname or IP address for the host, without a port, path, comma, space or trailing dot."
 )
 _NON_ASCII_HOST_ERROR = (
     "This host has characters outside ASCII. Enter its punycode form instead, the spelling that starts with xn--."
 )
+
+# The longest the host check waits for a DNS answer before it reports a temporary failure.
+HOST_RESOLUTION_TIMEOUT_SECONDS = 15
 
 # The sync registry and the schema-refresh map match this prefix; the rest of the message carries
 # the volatile host details.
@@ -183,8 +197,15 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         pass
 
     try:
-        addrinfo = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        addrinfo = run_with_deadline(
+            lambda: socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP),
+            timeout_seconds=HOST_RESOLUTION_TIMEOUT_SECONDS,
+            thread_name="host-check-resolve",
+        )
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
+    except DeadlineExceededError as e:
+        # A resolver that does not answer is a blip too, and `getaddrinfo` has no timeout of its own.
+        raise TemporaryHostResolutionError(host) from e
     except socket.gaierror as e:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
         if is_temporary_resolution_failure(e):
@@ -365,6 +386,9 @@ def _host_check_exemption(host: str, team_id: int | None) -> str | None:
 def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str]) -> HostResolution:
     if not resolved_ips:
         _log_host_check(host, team_id, "block", "dns_failure", _DNS_FAILURE_ERROR)
+        normalized = _normalize_host(host)
+        if "." not in normalized and ":" not in normalized:
+            return HostResolution(connect_host=None, error=_SHORT_HOST_NAME_ERROR)
         return HostResolution(
             connect_host=None,
             error=(
@@ -574,9 +598,8 @@ def _check_direct_host(config, team_id: int | None) -> None:
     same either way; it only costs the internal-host exemption on entry points that don't carry a
     team yet.
 
-    The resolve inside `resolve_safe_host` is unbounded. A stalled resolver therefore hangs the
-    activity until Temporal's `start_to_close_timeout` rather than failing fast and retryably.
-    Bounding this one is the follow-up.
+    The resolve inside `resolve_safe_host` stops at `HOST_RESOLUTION_TIMEOUT_SECONDS`, so a stalled
+    resolver fails fast and retryably.
     """
     _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
 

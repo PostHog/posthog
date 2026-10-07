@@ -139,7 +139,7 @@ export function QuillTaskMenu({ task, selectedRun, onArchive }: QuillTaskMenuPro
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={
-                    <Button variant="default" size="icon-sm" aria-label="Task details" data-attr="run-staff-menu">
+                    <Button variant="default" size="icon" aria-label="Task details" data-attr="run-staff-menu">
                         <IconEllipsis />
                     </Button>
                 }

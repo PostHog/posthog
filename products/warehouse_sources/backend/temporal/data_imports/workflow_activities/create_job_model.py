@@ -8,11 +8,9 @@ from django.db import IntegrityError, close_old_connections
 from django.db.models import Max
 from django.utils import timezone
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
@@ -53,37 +51,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
-
-
-def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WAREHOUSE_PIPELINES_V3_FLAG,
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(team.organization_id), "source_type": source_type},
-                    "project": {"id": str(team.id), "source_type": source_type},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
-
-
 LOGGER = get_logger(__name__)
 
 
@@ -107,6 +74,14 @@ class V3PipelineLockLostError(NonReportableError):
     holder whose Temporal workflow already looks terminal, so a resumed run landing here is
     the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
     it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
+
+
+class V2PipelineRemovedError(NonReportableError):
+    """A workflow history recorded before every run moved to V3 asked for a V2 job.
+
+    Only a replay of such a history can send ``is_v3=False``. The V2 pipeline no longer exists,
+    so the run fails before it creates a job and the next scheduled run starts on V3.
     """
 
 
@@ -165,10 +140,9 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs`, left on some schemas by the retired legacy
-# CDC lane, reaches hundreds of KB, and `schema_metadata` is the source table's column list.
-# Copying them onto every job row was most of the snapshot's storage cost.
-_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
+# `schema_metadata` is the source table's column list, not configuration. Copying it onto every
+# job row would be most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
@@ -235,7 +209,8 @@ class CreateExternalDataJobModelActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
-    is_v3: bool = False
+    # Always True for new runs. Only a pre-patch workflow history can still send False.
+    is_v3: bool = True
     # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
     started_by_schedule: bool = False
 
@@ -364,21 +339,18 @@ def create_external_data_job_model_activity(
         logger.info("Source or schema no longer exists, deleted the sync schedule")
         raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
 
+    if not inputs.is_v3:
+        raise V2PipelineRemovedError("The V2 import pipeline was removed. The next scheduled run uses V3.")
+
     try:
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
 
         source: ExternalDataSource = schema.source
 
-        pipeline_version = ExternalDataJob.PipelineVersion.V2
-        if inputs.is_v3:
-            pipeline_version = ExternalDataJob.PipelineVersion.V3
-            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
+        _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
-        if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
-            inputs.team_id, source.source_type
-        ):
+        if is_multi_destination_enabled(inputs.team_id, source.source_type):
             destination_ids = destination_ids_for_run(schema)
         # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
         # the import. A refresh while the import is held never wipes the table or restarts the clock,
@@ -399,7 +371,7 @@ def create_external_data_job_model_activity(
                 team_id=inputs.team_id,
                 source_id=inputs.source_id,
                 schema_id=inputs.schema_id,
-                pipeline_version=pipeline_version,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
                 billable=inputs.billable,
                 schema_snapshot=schema_snapshot,
                 destination_ids=destination_ids,

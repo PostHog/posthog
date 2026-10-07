@@ -356,6 +356,51 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["max_partition_bytes"] == 4096
         assert schema.sync_type_config["incremental_field"] == "updated_at"
 
+    def test_repartition_claims_are_ordered_and_preserve_concurrent_keys(self) -> None:
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="orders", sync_type_config={"repartition_pending": {}}
+        )
+        stale = ExternalDataSchema.objects.get(id=schema.id)
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={
+                "repartition_claim": {"token": "newer", "claimed_at": "2026-10-05T12:01:00+00:00"},
+                "last_full_run_at": "2026-10-05T12:00:00+00:00",
+            },
+        )
+        assert not stale.set_repartition_claim({"token": "zombie", "claimed_at": "2026-10-05T11:59:00+00:00"})
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"] == {
+            "token": "newer",
+            "claimed_at": "2026-10-05T12:01:00+00:00",
+        }
+        assert schema.sync_type_config["repartition_pending"] == {}
+        assert schema.sync_type_config["last_full_run_at"] == "2026-10-05T12:00:00+00:00"
+
+        assert stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"]["token"] == "latest"
+
+        update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={"repartition_swap": {"state": "ready"}, "repartition_rewrite": {"rows_written": 1}},
+        )
+        assert not stale.abandon_repartition_if_claimed("newer")
+        assert not stale.abandon_repartition_if_claimed("latest")
+        schema.refresh_from_db()
+        assert schema.repartition_swap == {"state": "ready"}
+        assert schema.repartition_rewrite == {"rows_written": 1}
+
+        update_sync_type_config_keys(schema.id, self.team.pk, removes=["repartition_swap"])
+        assert stale.abandon_repartition_if_claimed("latest")
+        schema = ExternalDataSchema.objects.get(id=schema.id)
+        assert schema.repartition_rewrite is None
+        assert schema.last_repartition_at is not None
+
     @parameterized.expand(
         [
             ("reset", lambda schema: schema.update_sync_type_config_for_reset_pipeline()),
@@ -631,14 +676,12 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming", "cdc_last_log_position": "0/200"}
 
     def test_removes_pop_keys(self) -> None:
-        schema = self._create(
-            {"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_deferred_runs": [{"x": 1}]}
-        )
+        schema = self._create({"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_snapshot_lane": "buffer"})
         result = update_sync_type_config_keys(
             schema.id,
             self.team.pk,
             updates={"cdc_mode": "snapshot"},
-            removes=["cdc_last_log_position", "cdc_deferred_runs"],
+            removes=["cdc_last_log_position", "cdc_snapshot_lane"],
         )
         assert result == {"cdc_mode": "snapshot"}
         schema.refresh_from_db()
@@ -651,16 +694,16 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
         assert schema.sync_type_config == {"cdc_mode": "streaming"}
 
     def test_mutate_appends_inside_critical_section(self) -> None:
-        schema = self._create({"cdc_deferred_runs": [{"run_uuid": "a", "batch_results": []}]})
+        schema = self._create({"runs": [{"run_uuid": "a", "batch_results": []}]})
 
         def _mutate(config: dict) -> None:
-            for entry in config["cdc_deferred_runs"]:
+            for entry in config["runs"]:
                 if entry["run_uuid"] == "a":
                     entry["batch_results"].append({"s3_path": "s3://x"})
 
         update_sync_type_config_keys(schema.id, self.team.pk, mutate=_mutate)
         schema.refresh_from_db()
-        assert schema.sync_type_config["cdc_deferred_runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
+        assert schema.sync_type_config["runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
 
     def test_apply_order_is_updates_removes_mutate(self) -> None:
         schema = self._create({"a": 1})
@@ -724,7 +767,7 @@ class TestUpdateSyncTypeConfigKeys(BaseTest):
 
 
 class TestMarkInitialSyncComplete(BaseTest):
-    """The shared first-sync-complete transition (V2 pipelines + V3 loader post-load), whose
+    """The first-sync-complete transition (V3 loader post-load), whose
     False→True edge is what moves a CDC schema out of snapshot mode into streaming."""
 
     def setUp(self) -> None:
@@ -753,13 +796,13 @@ class TestMarkInitialSyncComplete(BaseTest):
         [
             (
                 # First completion of a CDC snapshot flips it to streaming; keys written
-                # concurrently by the CDC extract activity (deferred runs) must survive the flip.
+                # concurrently by the CDC extract activity (its last run time) must survive the flip.
                 "cdc_snapshot_flips_to_streaming_preserving_other_keys",
                 "cdc",
-                {"cdc_mode": "snapshot", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "snapshot", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
                 False,
                 True,
-                {"cdc_mode": "streaming", "cdc_deferred_runs": [{"run_uuid": "a"}], "dwh_storage_key": "users"},
+                {"cdc_mode": "streaming", "cdc_last_run_at": "2026-01-01T00:00:00+00:00", "dwh_storage_key": "users"},
             ),
             (
                 # Already-streaming CDC schema (re-run after a reset) completes without a config rewrite.

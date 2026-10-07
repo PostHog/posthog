@@ -260,7 +260,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                     use_trino=use_trino,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=20),
+                start_to_close_timeout=dt.timedelta(minutes=365 if use_trino else 20),
                 heartbeat_timeout=dt.timedelta(minutes=2) if use_trino else None,
                 cancellation_type=(
                     temporalio.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED

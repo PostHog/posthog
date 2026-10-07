@@ -1,4 +1,5 @@
 import socket
+import threading
 from dataclasses import dataclass, field
 
 import pytest
@@ -158,6 +159,19 @@ class TestIsHostSafe(SimpleTestCase):
         assert error is not None and "Try again" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_that_does_not_answer_is_reported_as_try_again(self) -> None:
+        release = threading.Event()
+        try:
+            with (
+                patch(f"{_MIXINS_MODULE}.HOST_RESOLUTION_TIMEOUT_SECONDS", 0.05),
+                patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=lambda *args, **kwargs: release.wait()),
+            ):
+                with pytest.raises(TemporaryHostResolutionError):
+                    resolve_safe_host("db.example.com", team_id=999)
+        finally:
+            release.set()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
     def test_a_host_with_characters_outside_ascii_is_refused_before_any_lookup(self) -> None:
         with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
             valid, error = _is_host_safe("täst.example.com", team_id=999)
@@ -240,6 +254,20 @@ class TestIsHostSafe(SimpleTestCase):
             assert error is not None
             assert "nonexistent.invalid" in error
             assert "resolve" in error
+
+    @parameterized.expand([("service_name", "postgres"), ("hyphenated", "my-db")])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_unresolvable_short_host_name_explains_it_is_internal(self, _name: str, host: str):
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+        ):
+            valid, error = _is_host_safe(host, team_id=999)
+            assert not valid
+            assert error is not None
+            assert error.startswith("Couldn't resolve the host")
+            assert "short name" in error
+            assert host not in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_malformed_host_label_blocked(self):

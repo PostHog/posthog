@@ -27,7 +27,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ActivityScope } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
@@ -112,11 +112,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
+    '/bi': ['BusinessIntelligence', 'businessIntelligence'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases': ['Canvases', 'canvases'],
     '/canvases/new': ['CanvasNew', 'canvasNew'],
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
@@ -126,6 +128,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/my-tickets': ['MyTickets', 'myTickets'],
+    '/cross-project-dashboards': ['CrossProjectDashboards', 'crossProjectDashboards'],
+    '/cross-project-dashboards/:id': ['CrossProjectDashboard', 'crossProjectDashboard'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -664,6 +668,14 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BusinessIntelligence: {
+        name: 'Business intelligence',
+        projectBased: true,
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Explore data and build charts with a visual worksheet.',
+        iconType: 'business_intelligence',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -689,6 +701,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'business_knowledge',
     },
     CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
+    Canvases: { name: 'Canvases', projectBased: true },
     CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
@@ -717,6 +730,17 @@ export const productConfiguration: Record<string, any> = {
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     MyTickets: { name: 'Your tickets', projectBased: true, layout: 'app-container' },
+    CrossProjectDashboards: {
+        name: 'Cross-project dashboards',
+        organizationBased: true,
+        activityScope: 'CrossProjectDashboard',
+        description: 'Put insights from several projects on one page.',
+    },
+    CrossProjectDashboard: {
+        name: 'Cross-project dashboard',
+        organizationBased: true,
+        activityScope: 'CrossProjectDashboard',
+    },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -1149,7 +1173,7 @@ export const productConfiguration: Record<string, any> = {
     VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     PipelineOverview: {
         projectBased: true,
-        name: 'ETL',
+        name: 'ELT',
         description: 'Every source you import from and every destination you write to, with the health of each.',
         iconType: 'data_pipeline',
         docsHref: 'https://posthog.com/docs/data-warehouse',
@@ -1295,11 +1319,36 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    businessIntelligence: ({
+        insightShortId,
+        viewId,
+        dashboard,
+        filters,
+    }: {
+        insightShortId?: string
+        viewId?: string
+        dashboard?: number
+        filters?: HogQLFilters
+    } = {}): string => {
+        const search = new URLSearchParams()
+        if (insightShortId) {
+            search.set('open_insight', insightShortId)
+        } else if (viewId) {
+            search.set('open_view', viewId)
+        }
+        if (dashboard) {
+            search.set('dashboard', String(dashboard))
+        }
+        const hash = filters ? `#filters=${encodeURIComponent(JSON.stringify(filters))}` : ''
+        const query = search.toString()
+        return `/bi${query ? `?${query}` : ''}${hash}`
+    },
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvases: (): string => '/canvases',
     canvasNew: (spaceId?: string | null): string =>
         spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
     canvasDetail: (id: string): string => `/canvases/${id}`,
@@ -1316,6 +1365,8 @@ export const productUrls = {
     supportSettings: (): string => '/support/settings',
     myTickets: (ticketId?: string): string =>
         ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
+    crossProjectDashboards: (): string => '/cross-project-dashboards',
+    crossProjectDashboard: (id: string): string => `/cross-project-dashboards/${id}`,
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
@@ -1515,11 +1566,13 @@ export const productUrls = {
         sourceId,
         template,
         intent,
+        format,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
         template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
         intent?: 'local-eval' | 'first-page-load'
+        format?: 'rules_v2'
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1533,6 +1586,9 @@ export const productUrls = {
         }
         if (intent) {
             params.set('intent', intent)
+        }
+        if (format) {
+            params.set('format', format)
         }
         return `/feature_flags/new?${params.toString()}`
     },
@@ -1601,6 +1657,11 @@ export const productUrls = {
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
+        if (isBIVisualizationNode(query)) {
+            return combineUrl(urls.businessIntelligence(), dashboardId ? { dashboard: dashboardId } : {}, {
+                q: JSON.stringify(query),
+            }).url
+        }
         if (isHogQLQuery(query)) {
             return urls.sqlEditor({ query: query.query })
         }
@@ -1794,6 +1855,7 @@ export const fileSystemTypes = {
     action: {
         name: 'Action',
         href: (ref: string) => urls.action(ref),
+        listHref: () => urls.actions(),
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
         iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
@@ -1803,6 +1865,7 @@ export const fileSystemTypes = {
         iconType: 'cohort' as FileSystemIconType,
         iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
+        listHref: () => urls.cohorts(),
         filterKey: 'cohort',
     },
     dashboard: {
@@ -1816,6 +1879,7 @@ export const fileSystemTypes = {
         name: 'Early access feature',
         iconType: 'early_access_feature' as FileSystemIconType,
         href: (ref: string) => urls.earlyAccessFeature(ref),
+        listHref: () => urls.earlyAccessFeatures(),
         iconColor: [
             'var(--color-product-early-access-features-light)',
             'var(--color-product-early-access-features-dark)',
@@ -1833,6 +1897,7 @@ export const fileSystemTypes = {
         name: 'Experiment',
         iconType: 'experiment',
         href: (ref: string) => urls.experiment(ref),
+        listHref: () => urls.experiments(),
         iconColor: ['var(--color-product-experiments-light)'],
         filterKey: 'experiment',
     },
@@ -1840,6 +1905,7 @@ export const fileSystemTypes = {
         name: 'Feature flag',
         iconType: 'feature_flag',
         href: (ref: string) => urls.featureFlag(ref),
+        listHref: () => urls.featureFlags(),
         iconColor: ['var(--color-product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
@@ -1847,6 +1913,7 @@ export const fileSystemTypes = {
         name: 'Insight',
         iconType: 'product_analytics',
         href: (ref: string) => urls.insightView(ref as InsightShortId),
+        listHref: () => urls.savedInsights(),
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
@@ -1860,6 +1927,7 @@ export const fileSystemTypes = {
         name: 'Product tour',
         iconType: 'product_tour',
         href: (ref: string) => urls.productTour(ref),
+        listHref: () => urls.productTours(),
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
         filterKey: 'product_tour',
     },
@@ -1867,6 +1935,7 @@ export const fileSystemTypes = {
         name: 'Replay playlist',
         iconType: 'session_replay',
         href: (ref: string) => urls.replayPlaylist(ref),
+        listHref: () => urls.replay(ReplayTabs.Playlists),
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         filterKey: 'session_recording_playlist',
     },
@@ -1874,6 +1943,7 @@ export const fileSystemTypes = {
         name: 'Survey',
         iconType: 'survey',
         href: (ref: string) => urls.survey(ref),
+        listHref: () => urls.surveys(),
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'survey',
     },
@@ -1890,6 +1960,7 @@ export const fileSystemTypes = {
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         href: (ref: string) => urls.workflow(ref, 'workflow'),
+        listHref: () => urls.workflows(),
         filterKey: 'workflows',
     },
 }
@@ -2078,6 +2149,7 @@ export type ProductTreePath =
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
+    | 'Business intelligence'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2173,6 +2245,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
         sceneKey: 'Broadcasts',
         sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+    },
+    {
+        path: 'Business intelligence',
+        intents: [],
+        category: ProductItemCategory.DATA,
+        iconType: 'business_intelligence',
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
+        href: urls.businessIntelligence(),
+        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+        sceneKey: 'BusinessIntelligence',
+        sceneKeys: ['BusinessIntelligence'],
     },
     {
         path: 'Business knowledge',
@@ -2274,6 +2360,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_catalog',
         iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
         href: urls.dataCatalog(),
+        searchKeywords: ['semantic layer', 'metrics'],
+        searchTabs: [
+            { name: 'Relationships', href: urls.dataCatalog('relationships') },
+            { name: 'Certifications', href: urls.dataCatalog('certifications') },
+        ],
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -2338,6 +2429,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'ETL',
+        displayLabel: 'ELT',
         intents: [ProductKey.DATA_WAREHOUSE],
         category: ProductItemCategory.TOOLS,
         iconType: 'data_pipeline',
@@ -2472,7 +2564,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'heatmap',
         iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
         href: urls.heatmaps(),
-        tags: ['beta'],
         sceneKey: 'Heatmaps',
         sceneKeys: ['Heatmaps'],
     },
@@ -2656,6 +2747,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         type: 'insight',
         href: urls.insights(),
+        searchKeywords: ['insights'],
         iconType: 'product_analytics',
         iconColor: ['var(--color-product-product-analytics-light)'],
         sceneKey: 'SavedInsights',
@@ -2773,6 +2865,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CONVERSATIONS],
         category: ProductItemCategory.MONITORING,
         href: urls.supportTickets(),
+        searchKeywords: ['tickets'],
         type: 'conversations',
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
@@ -2958,6 +3051,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_destination',
         iconColor: ['var(--color-product-destinations-light)', 'var(--color-product-destinations-dark)'],
         href: urls.destinations(),
+        searchKeywords: ['batch exports', 'export data'],
         sceneKey: 'Destinations',
         sceneKeys: ['Destinations'],
     },
@@ -3028,6 +3122,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_modeling',
         iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
         href: urls.models(),
+        searchKeywords: ['materialized views', 'materialization'],
+        searchTabs: [
+            { name: 'Lineage', href: urls.models('lineage') },
+            {
+                name: 'Data quality',
+                href: urls.models('data-quality'),
+                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
+                searchKeywords: ['tests'],
+            },
+        ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
     },
@@ -3076,6 +3180,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_source',
         iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
         href: urls.sources(),
+        searchKeywords: ['data warehouse', 'warehouse', 'connectors', 'import data'],
         sceneKey: 'Sources',
         sceneKeys: ['Sources'],
     },

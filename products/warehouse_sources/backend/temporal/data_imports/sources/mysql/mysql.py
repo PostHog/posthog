@@ -118,6 +118,12 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
 
+# Client-side PyMySQL read_timeout for a connection that reads metadata: schema discovery and the
+# setup work before the first row. Without it a server that stops answering holds the caller for
+# as long as the socket stays open. Schema discovery must also end before the 10 minute
+# `start_to_close_timeout` of its Temporal activity.
+METADATA_READ_TIMEOUT_SECONDS = 300
+
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
 # the filesort preparation exceeds a middlebox / server-side query timeout
@@ -841,6 +847,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
+                or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -908,6 +915,21 @@ def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# A TiDB-fronting gateway's own ER_UNKNOWN_ERROR (1105) wording for the same "no backend reachable"
+# condition as the TiProxy case above, just phrased differently — the gateway found zero TiDB
+# instances to route to (a scale-down, rolling restart, or momentary control-plane blip) rather
+# than failing to reach one it knew about. Same proxy-layer pattern: a fresh attempt recovers once
+# a TiDB instance is available again. The message carries no host/port, so match it in full.
+_TIDB_NO_AVAILABLE_INSTANCES_TOKEN = "No available TiDB instances, please make sure TiDB is available"
+
+
+def _is_transient_no_available_tidb_instances(e: BaseException) -> bool:
+    """Return True if a TiDB-fronting gateway reported zero reachable TiDB instances."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIDB_NO_AVAILABLE_INSTANCES_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:
@@ -1155,7 +1177,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
-        read_timeout: int | None = None,
+        read_timeout: int | None = METADATA_READ_TIMEOUT_SECONDS,
         autocommit: bool = False,
         team_id: int | None = None,
     ) -> Iterator[pymysql.Connection]:
@@ -1165,6 +1187,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
         resolves to a `*.psdb.cloud` address. Callers vary two things —
+        metadata work keeps the default `METADATA_READ_TIMEOUT_SECONDS`,
         the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
         first rows are ready, and the keyset path sets `autocommit` so each

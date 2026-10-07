@@ -54,7 +54,11 @@ from products.access_control.backend.facade.api import (
     split_restricted_property_names,
 )
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
+from products.ai_observability.backend.summarization.budget import (
+    batch_text_repr_budget,
+    bounded_text_repr,
+    text_repr_budget,
+)
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import (
@@ -75,6 +79,10 @@ logger = structlog.get_logger(__name__)
 
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
+
+
+def _compact_cache_key(cache_key: str) -> str:
+    return f"{cache_key}:compact"
 
 
 # Request/Response Serializers
@@ -98,6 +106,12 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default=False,
         required=False,
         help_text="Force regenerate summary, bypassing cache",
+    )
+    compact_context = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Bound the input to a cost-conscious size instead of the full model context window. "
+        "Use it when you summarize many traces at once and need only a short result such as the title.",
     )
     model = serializers.CharField(
         default=None,
@@ -272,6 +286,24 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             ),
         )
 
+    @staticmethod
+    def _get_cached_summary(cache_key: str, compact_context: bool) -> dict | None:
+        """Read a cached summary. A full-context summary also serves a compact request, but not the opposite."""
+        if compact_context:
+            compact_result = cache.get(_compact_cache_key(cache_key))
+            if compact_result is not None:
+                return compact_result
+        return cache.get(cache_key)
+
+    @staticmethod
+    def _cache_summary(cache_key: str, result: dict, compact_context: bool) -> None:
+        if compact_context:
+            cache.set(_compact_cache_key(cache_key), result, timeout=3600)
+            return
+        cache.set(cache_key, result, timeout=3600)
+        # A compact request reads the compact entry first, so an older one would hide this newer summary.
+        cache.delete(_compact_cache_key(cache_key))
+
     def _extract_entity_id(self, summarize_type: str, data: dict) -> tuple[str, dict]:
         """Extract entity ID and validated entity data based on summarize type.
 
@@ -433,17 +465,22 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
 
         return dict(zip(HEAVY_COLUMN_NAMES, result.results[0]))
 
-    def _generate_text_repr(self, summarize_type: str, entity_data: dict, model: str | None = None) -> str:
+    def _generate_text_repr(
+        self, summarize_type: str, entity_data: dict, model: str | None = None, compact_context: bool = False
+    ) -> str:
         """Generate line-numbered text representation for summarization.
 
         Args:
             summarize_type: 'trace' or 'event'
             entity_data: Dict containing trace/event data
+            compact_context: Bound the text to the batch ceiling instead of the model window
 
         Returns:
             Line-numbered text representation
         """
-        budget = text_repr_budget(model)
+        # Each trace of an agent session can repeat the full conversation, so a fan-out over a session
+        # at the model window pays for a huge trace on every call.
+        budget = batch_text_repr_budget(model) if compact_context else text_repr_budget(model)
         options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
@@ -607,6 +644,7 @@ The response includes the structured summary, the text representation, and metad
             summarize_type = serializer.validated_data["summarize_type"]
             mode = serializer.validated_data["mode"]
             force_refresh = serializer.validated_data["force_refresh"]
+            compact_context = serializer.validated_data["compact_context"]
             model = serializer.validated_data.get("model")
             # Treat empty string as None for model
             if model == "":
@@ -644,7 +682,7 @@ The response includes the structured summary, the text representation, and metad
 
             cache_key = self._get_cache_key(summarize_type, entity_id, mode, model)
             if not force_refresh:
-                cached_result = cache.get(cache_key)
+                cached_result = self._get_cached_summary(cache_key, compact_context)
                 if cached_result is not None:
                     logger.info(
                         "Returning cached summary",
@@ -663,7 +701,7 @@ The response includes the structured summary, the text representation, and metad
             if entity_data is None:
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
-            text_repr = self._generate_text_repr(summarize_type, entity_data, model)
+            text_repr = self._generate_text_repr(summarize_type, entity_data, model, compact_context)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)
@@ -679,7 +717,7 @@ The response includes the structured summary, the text representation, and metad
 
             result = self._build_summary_response(summary, text_repr, summarize_type)
 
-            cache.set(cache_key, result, timeout=3600)
+            self._cache_summary(cache_key, result, compact_context)
             logger.info(
                 "Generated and cached new summary",
                 summarize_type=summarize_type,
@@ -699,6 +737,7 @@ The response includes the structured summary, the text representation, and metad
                     "mode": mode,
                     "text_repr_length": len(text_repr),
                     "force_refresh": force_refresh,
+                    "compact_context": compact_context,
                     "duration_seconds": duration_seconds,
                 },
                 team=self.team,
@@ -766,8 +805,9 @@ with their titles.
 
         summaries = []
         for trace_id in trace_ids:
-            cache_key = self._get_cache_key("trace", trace_id, mode, model)
-            cached_result = cache.get(cache_key)
+            cached_result = self._get_cached_summary(
+                self._get_cache_key("trace", trace_id, mode, model), compact_context=True
+            )
             if cached_result is not None:
                 summary_data = cached_result.get("summary", {})
                 title = summary_data.get("title", "Untitled trace")

@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([
+        { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
+        {
+            scopes: ['evaluation:read', 'llm_analytics:read'],
+            enabled: true,
+            metadata: true,
+            scores: true,
+            upload: false,
+        },
+        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, metadata: false, scores: false, upload: true },
+        { scopes: ['*'], enabled: false, metadata: false, scores: false, upload: false },
+    ])(
+        'offline tools preserve read/write scope separation and rollout: %j',
+        async ({ scopes, enabled, metadata, scores, upload }) => {
+            const tools = await getToolsFromContext(createMockContext(scopes), {
+                featureFlags: { 'ai-observability-offline-evaluations': enabled },
+            })
+            const names = tools.map((tool) => tool.name)
+            expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
+            expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
+            expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
+        }
+    )
+
     it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
         const context = {
             stateManager: {
@@ -1027,6 +1051,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'cross-project-dashboards',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1076,7 +1101,8 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toContain('ai-observability-offline-evaluations')
+        expect(flags).toHaveLength(39)
     })
 
     it('every loops tool is gated on the loops flag', () => {
