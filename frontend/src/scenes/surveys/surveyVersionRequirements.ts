@@ -206,6 +206,24 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
     },
     {
+        // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
+        feature: 'Event filters using ≥ or ≤',
+        sdkVersions: {},
+        unsupportedSdks: [
+            { sdk: 'posthog-js', issue: false },
+            { sdk: 'posthog-react-native', issue: false },
+            { sdk: 'posthog-ios', issue: false },
+            { sdk: 'posthog-android', issue: false },
+            { sdk: 'posthog_flutter', issue: false },
+        ],
+        check: (s) =>
+            [...(s.conditions?.events?.values ?? []), ...(s.conditions?.cancelEvents?.values ?? [])].some((e) =>
+                Object.values(e.propertyFilters ?? {}).some((filter) =>
+                    (['gte', 'lte'] as string[]).includes(filter.operator)
+                )
+            ),
+    },
+    {
         feature: 'Cancellation events',
         sdkVersions: { 'posthog-js': '1.299.0' },
         unsupportedSdks: [
