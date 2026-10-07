@@ -32,6 +32,7 @@ from posthog.models import Team
 from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -231,6 +232,17 @@ class ActionSerializer(
                 raise serializers.ValidationError(
                     {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
                     code="unique",
+                )
+
+        if "steps" in attrs:
+            hidden_event = added_hidden_event(
+                (step.get("event") for step in attrs["steps"]),
+                instance.get_step_events() if instance else [],
+            )
+            if hidden_event:
+                raise serializers.ValidationError(
+                    {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                    code="hidden_event",
                 )
 
         return attrs

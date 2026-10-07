@@ -9,6 +9,8 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { DEFAULT_TAXONOMIC_GROUP_TYPES } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { HIDDEN_EVENT_NAMES } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { URL_MATCHING_HINTS } from 'lib/components/UrlMatchingHints'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -33,6 +35,8 @@ import { EventHealthWarning } from './EventHealthWarning'
 import { EventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/data/actions?utm_medium=in-product&utm_campaign=action-page'
+
+const EXCLUDED_HIDDEN_EVENTS: ExcludedProperties = { [TaxonomicFilterGroupType.Events]: HIDDEN_EVENT_NAMES }
 
 interface Props {
     step: ActionStepType
@@ -108,6 +112,7 @@ export function ActionStep({
                                 }
                                 placeholder="All events"
                                 allEventsOption="explicit"
+                                excludedProperties={EXCLUDED_HIDDEN_EVENTS}
                                 disabled={!!disabledReason}
                             />
 

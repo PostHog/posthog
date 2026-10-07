@@ -79,6 +79,17 @@ def _cohort_member_distinct_ids(team_id: int, cohort: Cohort) -> set[str]:
     return distinct_ids
 
 
+_FLAG_CALLED_CRITERION = {
+    "key": "$feature_flag_called",
+    "type": "behavioral",
+    "value": "performed_event",
+    "event_type": "events",
+    "time_value": 30,
+    "time_interval": "day",
+}
+_PAGEVIEW_CRITERION = {**_FLAG_CALLED_CRITERION, "key": "$pageview"}
+
+
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     # select all queries for snapshots
     def capture_select_queries(self):
@@ -4414,6 +4425,77 @@ email@example.org,
             response.json()["detail"],
             "Missing required keys for behavioral filter: event_type",
         )
+
+    @parameterized.expand(
+        [
+            ("event", {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}}),
+            (
+                "sequence_event",
+                {
+                    "filters": {
+                        "properties": {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event_sequence",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "seq_event": "$feature_flag_called",
+                                    "seq_event_type": "events",
+                                    "seq_time_value": 1,
+                                    "seq_time_interval": "day",
+                                }
+                            ],
+                        }
+                    }
+                },
+            ),
+            ("legacy_groups", {"groups": [{"event_id": "$feature_flag_called", "days": 30}]}),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_rejects_criterion_on_hidden_event(self, _name, definition, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", **definition}
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["code"], "hidden_event")
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="flag callers").exists())
+
+    @parameterized.expand(
+        [
+            ("adds_first", [_PAGEVIEW_CRITERION], [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION], 400),
+            ("adds_second", [_FLAG_CALLED_CRITERION], [_FLAG_CALLED_CRITERION, _FLAG_CALLED_CRITERION], 400),
+            ("edits_existing", [_FLAG_CALLED_CRITERION], [{**_FLAG_CALLED_CRITERION, "time_value": 7}], 200),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_update_cohort_criteria_on_hidden_event(
+        self, _name, stored_criteria, criteria, expected_status, patch_capture
+    ):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="flag callers",
+            filters={"properties": {"type": "OR", "values": stored_criteria}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"name": "flag callers renamed", "filters": {"properties": {"type": "OR", "values": criteria}}},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        cohort.refresh_from_db()
+        if expected_status == 200:
+            self.assertEqual(cohort.name, "flag callers renamed")
+            self.assertEqual(cohort.filters["properties"]["values"][0]["time_value"], 7)
+        else:
+            self.assertEqual(response.json()["code"], "hidden_event")
+            self.assertEqual(cohort.filters["properties"]["values"], stored_criteria)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_nested_groups(self, patch_capture):

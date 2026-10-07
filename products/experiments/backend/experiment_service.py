@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -4166,7 +4166,7 @@ class ExperimentService:
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
-        cohort_context = {**context, "team": self.team}
+        cohort_context = {**context, "team": self.team, ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY: True}
 
         cohort_serializer = CohortSerializer(
             data={

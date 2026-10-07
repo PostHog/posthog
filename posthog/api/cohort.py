@@ -84,6 +84,7 @@ from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
+from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 from posthog.utils import format_query_params_absolute_url, str_to_bool
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -661,6 +662,25 @@ class CohortConditionTypeField(serializers.JSONField):
 REALTIME_READINESS_CONTEXT_KEY = "realtime_readiness"
 # Caches the product flag's answer for the request, so a list page evaluates it once.
 REALTIME_TARGETING_ENABLED_CONTEXT_KEY = "realtime_targeting_enabled"
+# Lets a caller save new criteria on an event hidden in query builders. An experiment's exposure cohort
+# sets it, because that cohort counts the same event as the experiment's default exposure.
+ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY = "allow_hidden_event_criteria"
+
+
+def _flat_properties(filters: object) -> list[Property]:
+    # validate_filters returns a static cohort's filters unparsed when they hold no criteria, so they can be any JSON.
+    properties = filters.get("properties") if isinstance(filters, dict) else None
+    return parse_property_group_data(properties).flat if isinstance(properties, dict) and properties else []
+
+
+def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
+    for prop in properties:
+        if prop.type != "behavioral":
+            continue
+        if prop.event_type == "events":
+            yield prop.key
+        if prop.seq_event_type == "events":
+            yield prop.seq_event
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -1358,6 +1378,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         attrs = super().validate(attrs)
 
         self._validate_warehouse_access(attrs)
+        self._validate_no_new_hidden_event_criteria(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
             return attrs
@@ -1369,6 +1390,25 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
 
         return attrs
+
+    def _validate_no_new_hidden_event_criteria(self, attrs: dict) -> None:
+        if self.context.get(ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY):
+            return
+        if self.instance is not None and "filters" not in attrs and "groups" not in attrs:
+            return
+        team = _team_from_serializer_context(self.context)
+        # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
+        # legacy groups in place.
+        existing = self._effective_filters_after_update({}, team=team)
+        hidden_event = added_hidden_event(
+            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
+            _behavioral_event_names(_flat_properties(existing)),
+        )
+        if hidden_event:
+            raise ValidationError(
+                {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                code="hidden_event",
+            )
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:

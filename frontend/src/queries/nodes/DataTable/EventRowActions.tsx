@@ -2,6 +2,7 @@ import React from 'react'
 
 import { IconLlmAnalytics, IconWarning } from '@posthog/icons'
 
+import { HIDDEN_EVENT_NAMES } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -53,6 +54,11 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                 <LemonButton
                     onClick={() =>
                         saveActionFromEvent(event, teamLogic.findMounted()?.values.currentTeam?.data_attributes || [])
+                    }
+                    disabledReason={
+                        HIDDEN_EVENT_NAMES.includes(event.event)
+                            ? 'PostHog still collects this event, but its data is moving, so a new action on it would stop working.'
+                            : undefined
                     }
                     fullWidth
                     data-attr="events-table-create-action"
