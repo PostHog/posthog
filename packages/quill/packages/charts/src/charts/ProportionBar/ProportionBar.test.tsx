@@ -22,10 +22,11 @@ describe('ProportionBar', () => {
         const { chart } = renderHogChart(<ProportionBar series={PARTS} theme={THEME} />)
 
         await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
-        const ctx = (await chart.waitForTooltip()).seriesData
+        const tooltip = await chart.waitForTooltip()
 
-        expect(ctx).toHaveLength(1)
-        expect(ctx[0]).toMatchObject({ series: { key: 'b' }, value: 100, fraction: 0.125 })
+        expect(tooltip).toMatchObject({ label: 'b', dataIndex: 1 })
+        expect(tooltip.seriesData).toHaveLength(1)
+        expect(tooltip.seriesData[0]).toMatchObject({ series: { key: 'b' }, value: 100, fraction: 0.125 })
     })
 
     it.each([
