@@ -1598,11 +1598,22 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
     ctx.cleanup().await.ok();
 }
 
+// The case with no statement_timeout models a connection behind PgBouncer in transaction mode.
+// PgBouncer does not carry the pool's session statement_timeout into the transaction.
+#[rstest]
+#[case::statement_timeout(Some(200), "statement timeout")]
+#[case::lock_timeout_without_a_statement_timeout(None, "lock timeout")]
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_statement_timeout_covers_person_row_lock() {
+async fn test_upsert_hash_key_overrides_gives_up_when_a_writer_holds_the_person_row(
+    #[case] statement_timeout_ms: Option<u64>,
+    #[case] expected_error: &str,
+) {
     let ctx = TestContext::new().await;
     let person = ctx.insert_person("upsert_locked_user", None).await.unwrap();
-    let storage = TestContext::storage_with_statement_timeout(200);
+    let storage = match statement_timeout_ms {
+        Some(ms) => TestContext::storage_with_statement_timeout(ms),
+        None => ctx.storage.clone(),
+    };
 
     // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
     // person row.
@@ -1632,9 +1643,9 @@ async fn test_upsert_hash_key_overrides_statement_timeout_covers_person_row_lock
     assert!(
         matches!(
             &result,
-            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains("statement timeout")
+            Err(personhog_replica::storage::StorageError::Query(msg)) if msg.contains(expected_error)
         ),
-        "expected a statement timeout, got {result:?}"
+        "expected a {expected_error}, got {result:?}"
     );
 
     ctx.cleanup().await.ok();
