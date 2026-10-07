@@ -24,7 +24,11 @@ export interface PosthogProviderOptions {
   apiKey?: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  // A `claude setup-token` token: Claude models go straight to Anthropic on the user's plan.
+  claudeOAuthToken?: string;
 }
+
+const ANTHROPIC_API_URL = "https://api.anthropic.com";
 
 export type PosthogOAuthCredentials = Pick<
   OAuthCredentials,
@@ -83,6 +87,18 @@ export function buildPosthogProvider(
   models: ProviderModelConfig[],
   options: PosthogProviderOptions = {},
 ): ProviderConfig {
+  if (options.claudeOAuthToken) {
+    // pi-ai sends Bearer auth and the Claude Code headers whenever the key is an OAuth token.
+    return {
+      name: "PostHog",
+      baseUrl: ANTHROPIC_API_URL,
+      api: "anthropic-messages",
+      apiKey: options.claudeOAuthToken,
+      models: models
+        .filter((model) => model.id.startsWith("claude-"))
+        .map((model) => ({ ...model, baseUrl: ANTHROPIC_API_URL })),
+    };
+  }
   const region = resolveRegion(options.region);
   const explicitRegion = resolveExplicitRegion(options.region);
   const baseUrl = options.baseUrl ?? getLlmGatewayUrl(region);

@@ -9,6 +9,7 @@ export interface PiRpcClientFactory {
   create(
     input: Pick<PiRpcClientOptions, "model" | "sessionFile"> & {
       taskContext: TaskContextInput;
+      claudeOAuthToken?: string;
     },
   ): Promise<PiRpcClient>;
 }

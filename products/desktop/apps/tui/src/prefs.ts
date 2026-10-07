@@ -11,6 +11,8 @@ export interface Prefs {
   narrowSidebar: boolean;
   // The repositories each pane's new cloud chats clone, by pane id, from /repo.
   paneRepositories: Record<string, string[]>;
+  // New local chats run on the user's own Claude plan, with the token from settings.
+  localClaudePlan: boolean;
 }
 
 const PREFS_PATH = join(homedir(), ".config", "posthog-tui", "prefs.json");
@@ -19,6 +21,7 @@ const DEFAULT_PREFS: Prefs = {
   newChatPlace: "cloud",
   narrowSidebar: false,
   paneRepositories: {},
+  localClaudePlan: false,
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -39,6 +42,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       newChatPlace: saved.newChatPlace === "local" ? "local" : "cloud",
       narrowSidebar: saved.narrowSidebar === true,
       paneRepositories: repositoriesOf(saved.paneRepositories),
+      localClaudePlan: saved.localClaudePlan === true,
     };
   } catch {
     return DEFAULT_PREFS;

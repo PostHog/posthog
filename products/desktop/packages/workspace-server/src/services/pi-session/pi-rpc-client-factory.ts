@@ -107,6 +107,7 @@ export class LocalPiRpcClientFactory implements PiRpcClientFactory {
         region: credentials.region,
         baseUrl,
         apiKey: PROXY_API_KEY,
+        claudeOAuthToken: input.claudeOAuthToken,
       },
       extensions: ["context-wiki"],
       contextWikiPath,

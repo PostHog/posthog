@@ -54,6 +54,7 @@ export interface PiRpcProviderOptions {
   apiKey: string;
   baseUrl?: string;
   headers?: Record<string, string>;
+  claudeOAuthToken?: string;
 }
 
 export interface PiRpcBootstrap {

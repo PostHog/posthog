@@ -14,6 +14,7 @@ import { usePointer } from "../hooks/usePointer";
 import { useRepoPicker } from "../hooks/useRepoPicker";
 import { useSearch } from "../hooks/useSearch";
 import { type Send, useSend } from "../hooks/useSend";
+import { useSettings } from "../hooks/useSettings";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
@@ -54,6 +55,7 @@ import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
 import { Search } from "./Search";
+import { Settings } from "./Settings";
 import { Sidebar } from "./Sidebar";
 
 export interface Session {
@@ -201,6 +203,8 @@ export function App({
     local: { active: localActive, running: new Set(localSessions.keys()) },
   });
 
+  const settings = useSettings();
+
   const { modalFor, openModal, onModalKey } = useSheets({
     layout,
     prompts,
@@ -260,6 +264,7 @@ export function App({
     openEffortSheet,
     compact,
     openSearch: search.toggle,
+    openSettings: settings.toggle,
     repos: repoPicker,
     onChatStarted,
     setTitles,
@@ -367,6 +372,7 @@ export function App({
     setLayout,
     sidebar,
     search,
+    settings,
     composerFor,
     modalFor,
     onModalKey,
@@ -458,6 +464,7 @@ export function App({
   );
 
   if (search.open) return <Search search={search} />;
+  if (settings.open) return <Settings settings={settings} />;
 
   // A chat's notice falls back to the sidebar while no pane on screen shows the chat.
   const sidebarNotice =

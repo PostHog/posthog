@@ -104,6 +104,32 @@ describe("createHarnessRuntime", () => {
     },
   );
 
+  it("runs Claude models against Anthropic on a Claude plan token", async () => {
+    vi.stubEnv("PI_OFFLINE", "1");
+    const pi = await import("@earendil-works/pi-coding-agent");
+    const cwd = await temporaryDirectory();
+    const agentDir = await temporaryDirectory();
+
+    const runtime = await createHarnessRuntime({
+      agentDir,
+      apiKey: "proxy-key",
+      claudeOAuthToken: "sk-ant-oat01-token",
+      cwd,
+      sessionManager: pi.SessionManager.inMemory(cwd),
+    });
+
+    try {
+      expect(runtime.session.model).toMatchObject({
+        provider: "posthog",
+        baseUrl: "https://api.anthropic.com",
+      });
+      const auth = await runtime.services.modelRuntime.getAuth("posthog");
+      expect(auth?.auth).toMatchObject({ apiKey: "sk-ant-oat01-token" });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("restores the session model before calculating context usage", async () => {
     vi.stubEnv("PI_OFFLINE", "1");
     const pi = await import("@earendil-works/pi-coding-agent");
