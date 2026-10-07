@@ -114,6 +114,20 @@ The owners of additions from every file on the walk add up, so a nested file can
 The format only names these owners. A review bot or CI check decides from the change set what counts as an addition and what to do with the list.
 Point the resolver at the tree before the change, and it names the new part for you: a path the tree does not hold carries `added`, for example `"added": {"path": "products/new-thing", "additions": ["team-architecture"]}` for `products/new-thing/app.py`. That also covers a new file in an existing directory, and a file that a change replaces with a directory.
 
+`sensitive: true` marks paths where a small change can change behavior far outside the change, such as a CI baseline or a list of exemptions:
+
+```yaml
+version: 1
+owners: team-platform
+rules:
+  - match: '/ci/allowlist.txt'
+    sensitive: true
+```
+
+The nearest value wins, as for `status`, and a nearer file that changes the owners keeps it.
+A review bot can then request the owners of `ci/allowlist.txt` for a one-line change that it would otherwise skip as minor.
+It never makes a review required. An alias file can set it too.
+
 The root file can also hold repository settings:
 
 ```yaml
@@ -130,7 +144,7 @@ teams:
 ```
 
 `alias_files` names the other files that count as ownership files, such as a package manifest that already lists owners.
-Only the `owners` field of such a file is read, and an `owners.yaml` next to it wins.
+Only the `owners` and `sensitive` fields of such a file are read, and an `owners.yaml` next to it wins.
 The default is `[product.yaml]`, so a repository that never declares the setting still reads its product manifests.
 A declared list replaces the default, and `alias_files: []` turns alias files off.
 A reader that fetches files over a network should set `alias_files: []` in a repository that has no alias files, so it does not probe two names per directory.
@@ -181,7 +195,8 @@ $ uvx owners-yaml==0.3.0 lint
 
 `lint` fails on schema errors, a directory with two ownership files, `owners.yaml` files in reserved locations, and a rule that names a directory without the trailing `/`.
 Write `docs/` for a directory, because `docs` also matches a file called `docs`.
-It warns about rule patterns that match no tracked file, and it reports coverage.
+It warns about rule patterns that match no tracked file, fields it does not know, and sensitive paths without owners, and it reports coverage.
+An unknown field is a warning and not an error, so a file that uses a field from a newer release still passes an older `lint`.
 Pass the changed ownership files as arguments to check only those.
 
 Plain `lint` does not know which teams exist, so it accepts a slug for a team that was renamed or deleted.

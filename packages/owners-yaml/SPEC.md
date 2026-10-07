@@ -27,6 +27,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 - **Consumer**: a program that uses resolutions, such as a review assigner or a coverage check.
 - **Addition**: a path that a change adds to the repository, such as a new file or directory. A consumer decides which paths count as additions (section 3.6).
 - **Owners of additions**: the owners that the `additions` field names for a path. They are separate from the owners of the path (section 3.6).
+- **Sensitive path**: a path whose resolution has `sensitive` set to `true` (section 3.7).
 
 One program can have more than one of these roles. A consumer that reads ownership files itself is also a tool. It is a resolver when it computes resolutions.
 
@@ -49,9 +50,15 @@ An ownership file is a YAML mapping.
 | `inherit`   | no       | boolean                            | Whether fields fall through from ancestor files. Default `true`.              |
 | `rules`     | no       | list of rule mappings              | Per-path overrides inside this directory.                                     |
 | `additions` | no       | string or list of strings          | The owners of additions below the directory.                                  |
+| `sensitive` | no       | boolean                            | Whether a small change can change behavior far outside the change.            |
 
 The root file MAY also carry the repository settings in section 5.
-In an `owners.yaml`, any other top-level field is an error. A linter MUST report it. The field has no effect on resolution.
+
+A tool MUST ignore a field that it does not know, at the top level, in a rule, and in a repository setting.
+The field has no effect on resolution.
+A linter SHOULD report it as a warning. A linter MUST NOT report it as an error, so that a file written for a later amendment of version 1 still passes an older linter.
+An amendment of version 1 MAY add a field only when a tool that ignores the field still gives a safe result.
+A field that a tool cannot safely ignore requires a new version.
 
 ### 3.1 `owners`
 
@@ -66,12 +73,12 @@ In an `owners.yaml`, any other top-level field is an error. A linter MUST report
 
 The value MUST be one of these:
 
-| Value        | Meaning                                                                     |
-| ------------ | --------------------------------------------------------------------------- |
-| `active`     | Maintained code. This is the default.                                       |
-| `deprecated` | Code that is due for removal.                                               |
-| `generated`  | Output of a generator. A consumer SHOULD NOT request reviews for this code. |
-| `vendored`   | Third-party code copied into the repository.                                |
+| Value        | Meaning                                                                                                                 |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `active`     | Maintained code. This is the default.                                                                                   |
+| `deprecated` | Code that is due for removal.                                                                                           |
+| `generated`  | Output of a generator. A consumer SHOULD NOT request reviews for this code, unless the path is sensitive (section 3.7). |
+| `vendored`   | Third-party code copied into the repository.                                                                            |
 
 ### 3.3 `inherit`
 
@@ -89,6 +96,7 @@ Each rule is a mapping with these fields:
 | `status`    | no       | as in 3.2                           | Replaces the file-level status for matching paths.        |
 | `inherit`   | no       | boolean                             | Replaces the file-level `inherit` for matching paths.     |
 | `additions` | no       | as in 3.6                           | Appends to the file-level `additions` for matching paths. |
+| `sensitive` | no       | as in 3.7                           | Replaces the file-level `sensitive` for matching paths.   |
 
 1. A rule with a list of valid patterns is equal to one rule per pattern, in list order, with the same fields.
 2. Within one file, every rule whose pattern matches a path applies, in file order. Each rule replaces only the fields it sets, so a later rule that sets only `status` keeps the `owners` of an earlier rule. `additions` is the exception: each matching rule appends to it (section 3.6).
@@ -131,6 +139,21 @@ A resolver that can see the repository helps with the first: resolved against th
    `added` (section 4, step 6) gives the new directory and its owners of additions for any path below it.
 7. A rule `match: '/docs/'` matches each path below `docs`, at any depth. It does not match `docs` itself (section 3.5, rule 4). The owners of additions for `docs` come from the other fields and rules on the walk to `docs`, as for any other path.
 
+### 3.7 `sensitive`
+
+`sensitive: true` marks paths where a small change can change behavior far outside the change, such as the baseline file of a CI check or a list of exemptions.
+The format only states this fact.
+A consumer decides what to do with it.
+For example, a review assigner can request the owners of a sensitive path for each change to it, whatever the size of the change.
+
+1. The value MUST be a boolean. Any other value is an error. The file or the rule then does not set `sensitive`, and its other fields still apply.
+2. The nearest value wins, as for `status`. `false` turns off a `true` from an ancestor file or from an earlier rule.
+3. `sensitive` belongs to the paths, not to their owners. A nearer file that changes the owners keeps the value of its ancestors.
+4. `sensitive` does not change `owners`. A sensitive path with no owners is still unowned. A linter SHOULD report a sensitive path that is unowned.
+5. `sensitive` does not make a review required and does not block a change. Required reviews stay with the code host, for example its CODEOWNERS file and branch protection.
+6. A consumer that does not request reviews for `status: generated` (section 3.2) SHOULD still treat a sensitive path as a path to review.
+7. An alias file MAY set `sensitive` (section 6).
+
 ## 4. Resolution
 
 A consumer SHOULD get resolutions from a resolver, not by reading ownership files itself.
@@ -143,19 +166,21 @@ To resolve a path `P`:
 1. Normalize `P`: replace each `\` with `/`. Then, while `P` starts with `./`, remove that `./`. Then remove every `/` at the start and at the end of `P`.
 2. List the directories from the repository root down to the parent directory of `P`, root first.
 3. For each directory, find its ownership file. Skip the directory when it has none. A file that is not a YAML mapping, or that lacks `version: 1` or `owners`, counts as absent.
-4. Start with an empty result: owners unset, status unset, source unset, additions empty.
+4. Start with an empty result: owners unset, status unset, sensitive unset, source unset, additions empty.
 5. For each file found in step 3, in order:
-   1. Take the file-level `owners`, `status`, `inherit`, and `additions`.
-   2. For each rule in the file that matches `P`, in file order, replace each of `owners`, `status`, and `inherit` that the rule sets. Append each entry of the rule's `additions` to the file-level `additions` (section 3.4).
+   1. Take the file-level `owners`, `status`, `inherit`, `sensitive`, and `additions`.
+   2. For each rule in the file that matches `P`, in file order, replace each of `owners`, `status`, `inherit`, and `sensitive` that the rule sets. Append each entry of the rule's `additions` to the file-level `additions` (section 3.4).
    3. If `inherit` is `false`, reset the result to empty.
    4. If `owners` is `null`, set the result owners to `null` and the source to this file.
    5. If `owners` is a non-empty list, set the result owners to that list and the source to this file.
    6. If `status` is set, set the result status to it.
-   7. Append each entry of `additions` to the result additions, unless the result additions already contain it.
+   7. If `sensitive` is set, set the result sensitive to it.
+   8. Append each entry of `additions` to the result additions, unless the result additions already contain it.
 6. Return the resolution:
    - `owners`: the result owners, or an empty list when unset or `null`.
    - `unowned_by_design`: `true` when the result owners are `null`.
    - `status`: the result status, or `active` when unset.
+   - `sensitive`: the result sensitive, or `false` when unset.
    - `source`: the path of the file that set the owners, or none.
    - `slack`: the channel from section 5.2, for the requested purpose.
    - `additions`: the result additions, in the order they were appended.
@@ -177,6 +202,8 @@ The value is the file-level value after step 5.2 applied every matching rule.
 | `owners`    | `null`            | Owners become `null` (unowned by design). Source becomes this file.            |
 | `status`    | set               | Status becomes this value.                                                     |
 | `status`    | absent            | No effect.                                                                     |
+| `sensitive` | set               | Sensitive becomes this value.                                                  |
+| `sensitive` | absent            | No effect.                                                                     |
 | `additions` | non-empty list    | The result additions gain each entry that they do not contain yet, at the end. |
 | `additions` | absent or `[]`    | No effect.                                                                     |
 
@@ -190,17 +217,17 @@ flowchart TD
     norm --> walk[Take the next directory, from the root to the parent of P]
     walk --> has{Has an ownership file?}
     has -- no --> more
-    has -- yes --> take[Take the file's owners, status, inherit, and additions]
+    has -- yes --> take[Take the file's owners, status, inherit, sensitive, and additions]
     take --> rule{Does a rule match P?}
-    rule -- yes --> apply[For each matching rule in file order,<br/>replace the owners, status, and inherit that it sets,<br/>and append its additions]
+    rule -- yes --> apply[For each matching rule in file order,<br/>replace the owners, status, inherit, and sensitive that it sets,<br/>and append its additions]
     rule -- no --> cut
     apply --> cut{inherit is false?}
     cut -- yes --> reset[Reset the result]
     cut -- no --> merge
-    reset --> merge[Merge owners, status, and additions as in 4.1]
+    reset --> merge[Merge owners, status, sensitive, and additions as in 4.1]
     merge --> more{More directories?}
     more -- yes --> walk
-    more -- no --> done([Return owners, unowned_by_design, status, source, slack, additions, added])
+    more -- no --> done([Return owners, unowned_by_design, status, sensitive, source, slack, additions, added])
 ```
 
 ### 4.3 Conformance
@@ -268,7 +295,7 @@ The root file declares the alias files in `alias_files` (section 5).
 5. When the root file declares `alias_files` and the declaration is valid, the alias file names are exactly the declared entries. A tool MUST NOT add `product.yaml` to a declared list. An empty declared list means the repository has no alias file.
 6. When the root file declares `alias_files` and a tool ignores the declaration as invalid, the repository has no alias file. A tool MUST NOT fall back to `product.yaml` there.
 7. A tool MUST NOT read a file as an ownership file unless the file is named `owners.yaml` or its name is one of the alias file names.
-8. A tool MUST read only the `owners` field of an alias file. All other fields have no effect on ownership.
+8. A tool MUST read only the `owners` and `sensitive` fields of an alias file. All other fields have no effect on ownership. A `sensitive` value that is not a boolean has no effect, because the program that owns the alias file validates it.
 9. The `owners` field MUST be a list of non-empty strings. Otherwise the file counts as absent.
 10. An `owners.yaml` in the same directory takes precedence. A linter SHOULD report a directory that has both.
 11. When a directory holds more than one alias file, the file with the first name in `alias_files` takes precedence. A linter SHOULD report that directory.
@@ -295,7 +322,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 
 1. On success, the resolver MUST write one JSON object to standard output and exit with status 0.
 2. Each key MUST be a requested path after normalization (section 4, step 1). Two requests that normalize to the same path produce one key.
-3. Each value MUST be an object with the members `owners`, `status`, `slack`, and `source`. It SHOULD also have the members `additions` and `added`. The members are:
+3. Each value MUST be an object with the members `owners`, `status`, `slack`, and `source`. It SHOULD also have the members `additions`, `added`, and `sensitive`. The members are:
 
    | Member      | Type             | Value                                                                              |
    | ----------- | ---------------- | ---------------------------------------------------------------------------------- |
@@ -305,6 +332,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
    | `source`    | string or `null` | The repository-relative path of the file that set the owners.                      |
    | `additions` | array of strings | The resolved owners of additions (section 3.6), in the order of section 4, step 6. |
    | `added`     | object or `null` | `{"path": N, "additions": [...]}` from section 4, step 6, or `null`.               |
+   | `sensitive` | boolean          | Whether the path is sensitive (section 3.7).                                       |
 
 4. A path that is unowned by design has an empty `owners` array and a non-null `source`. An unowned path has an empty `owners` array and a `null` source.
 5. An unowned path is not an error.
@@ -321,7 +349,7 @@ In `owners-yaml`, both `owners resolve --json` and `python -m owners_yaml` imple
 1. A consumer MUST ignore members that it does not know.
 2. A resolver MAY add members to a value.
 3. Removing a member, renaming it, or changing its meaning requires a new version of this specification.
-4. A consumer MUST treat a missing `additions` member as an empty array, and a missing `added` member as `null`. A resolver that predates a member leaves it out.
+4. A consumer MUST treat a missing `additions` member as an empty array, a missing `added` member as `null`, and a missing `sensitive` member as `false`. A resolver that predates a member leaves it out.
 5. For the Python library, the names exported from the top-level `owners_yaml` package are the public API. Submodules can change between minor releases.
 
 ## 8. The owners-yaml reference implementation
@@ -330,7 +358,7 @@ This section describes the reference implementation. It is not part of the forma
 
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
-- Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- Its linter reports schema errors, unknown fields as warnings, sensitive paths that are unowned as warnings, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
 - It reports `added` when its source can tell whether the repository holds a path, as its disk source does (`TreeSource`). A source that reads only the ownership files reports none. It treats a symbolic link as a file, as git does.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
@@ -364,6 +392,8 @@ rules:
     owners: null
   - match: ['migrations/', 'legacy/']
     owners: [team-billing, team-data]
+  - match: 'pricing/allowlist.txt'
+    sensitive: true
 ```
 
 A root file with repository settings:
@@ -468,7 +498,9 @@ rules:
 - **Unowned is a decision.** `owners: null` records that nobody owns a path on purpose. A consumer that checks coverage reports an unowned path. It does not report a path that is unowned by design.
 - **The alias default is for old trees.** `product.yaml` is the default alias file name so that a repository written before `alias_files` existed resolves the same as it did then. A repository with no alias files sets `alias_files: []` and pays no lookups for it.
 - **Owners of additions add up.** Owners are nearest-file-wins because the union tags too many teams. `additions` answers a different question: who owns additions below a directory. If a nested file could drop the owners of additions that an ancestor file names, the answer of the ancestor would not be reliable. A separate field keeps coverage checks correct: `owners` on the parent directory would claim every file below it that has no nearer owner.
-- **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules. `additions` is routing too: it names owners, and it does not approve or block a change.
+- **Routing, not approval.** The format answers "who owns this path" for review requests, alerts, and reports. It does not replace a platform's required-approval rules. `additions` is routing too: it names owners, and it does not approve or block a change. So is `sensitive`: it states that a small change matters, and a consumer decides what to do about it.
+- **`sensitive` is a fact, not an instruction.** A field such as "always review" would tell one kind of consumer what to do. A fact about the paths serves every consumer: a review assigner can request the owners, an approval bot can ask for a person, and a report can rank a sensitive unowned path first. It belongs to the paths and not to the owners, so a nearer file that changes the owners keeps it.
+- **Unknown fields are warnings.** A typo such as `owner:` then only gives a warning. In exchange, a repository can adopt a new field before every tool that reads it upgrades. The amendment rule in section 3 keeps that safe: a field that an older tool ignores must not make its answer wrong.
 - **`additions` does not default to `owners`.** An empty list means that the file names no separate owners of additions. A default would hide which directories have their own owners of additions and which only have owners.
 - **One input format.** A resolver reads ownership files only. CODEOWNERS is an export target, and a source for a one-time migration into ownership files, never a second input the resolver reads. The two formats resolve differently: CODEOWNERS takes the last matching line in one file, and this format takes the nearest file, field by field. CODEOWNERS also carries owners and nothing else, so it can say nothing about status or channels. Reading both would make the answer depend on which file a tool found first.
 
@@ -479,3 +511,4 @@ rules:
 - **1**, amended (2026-09): Section 7.1 adds the producer to the resolver request, so a consumer can reach a team's per-producer `notifications` mapping through an entrypoint. No ownership file changes meaning.
 - **1**, amended (unreleased): Section 3.4 applies every matching rule, field by field. Before, the last matching rule replaced the earlier ones. Section 3.6 adds the optional `additions` field. Section 7.2 adds the `additions` member, and a consumer treats a missing member as empty (section 7.4). Section 4 step 1 removes a trailing `/`, so a request for `docs/` resolves the same as `docs`.
 - **1**, amended (unreleased): Section 4, step 6 adds `added`: for a path that the repository does not hold, the first part of it that the repository does not hold as a directory, with its owners of additions. Section 7.2 adds the `added` member, and a consumer treats a missing member as `null` (section 7.4). No ownership file changes meaning.
+- **1**, amended (unreleased): Section 3 makes a field that a tool does not know a warning, not an error, so a file written for a later amendment still passes an older linter. An amendment adds a field only when a tool that ignores it still gives a safe result. Section 3.7 adds the optional `sensitive` field, and section 6 lets an alias file set it. Section 7.2 adds the `sensitive` member, and a consumer treats a missing member as `false` (section 7.4). No ownership file that was valid before changes meaning.

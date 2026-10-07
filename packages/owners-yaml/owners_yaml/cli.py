@@ -108,6 +108,8 @@ def cmd_who(repo_root: Path | None, path: str) -> None:
     else:
         click.echo("owners:  (unowned)")
     click.echo(f"status:  {r.status}")
+    if r.sensitive:
+        click.echo("sensitive: yes")
     click.echo(f"slack:   {r.slack or '(none)'}")
     click.echo(f"source:  {r.source or '(none)'}")
 
@@ -333,6 +335,8 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
         for err in entry.errors:
             errors.append(f"{rel}: {err}")
+        for warning in entry.warnings:
+            warnings.append(f"{rel}: {warning}")
         owners_dirs[directory] = is_simple_owners_file(parsed)
         if parsed is None:
             continue
@@ -366,6 +370,10 @@ def cmd_lint(live: bool, org: str | None, repo_root: Path | None, paths: tuple[s
 
     unowned = resolver.unowned(tracked)
     warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
+    # A consumer acts on `sensitive` through the owners of the path, so without owners the flag does nothing.
+    for path in unowned:
+        if resolver.resolve(path).sensitive:
+            warnings.append(f"{path}: sensitive but unowned")
 
     for warning in warnings:
         click.echo(f"⚠ {warning}")

@@ -1,8 +1,8 @@
 """Dataclass model, parser, and validator for ``owners.yaml``.
 
-Also loads an *alias* file as an ownership file: only its ``owners:`` list is read
-(``@handles`` kept, a ``team-CHANGEME``-only list treated as empty), every other field
-ignored. The root file names the alias files in ``alias_files``.
+Also loads an *alias* file as an ownership file: only its ``owners:`` list and its
+``sensitive:`` flag are read (``@handles`` kept, a ``team-CHANGEME``-only list treated as
+empty), every other field ignored. The root file names the alias files in ``alias_files``.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ OWNERS_FILENAME = "owners.yaml"
 ROOT_ONLY_KEYS = {"teams", "github_org", "producers", "reserved_dirs", "codeowners", "alias_files"}
 # Top-level keys allowed in owners.yaml. Rules allow the same set minus `version`
 # and `rules`, plus the required `match`.
-TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "additions"} | ROOT_ONLY_KEYS
-_RULE_KEYS = {"match", "owners", "status", "inherit", "additions"}
+TOP_LEVEL_KEYS = {"version", "owners", "status", "inherit", "rules", "additions", "sensitive"} | ROOT_ONLY_KEYS
+_RULE_KEYS = {"match", "owners", "status", "inherit", "additions", "sensitive"}
 # Every alias name is one more file to read per directory, and a hosted resolver reads a root file
 # it does not control, so the list has a ceiling.
 MAX_ALIAS_FILES = 8
@@ -126,6 +126,7 @@ class OwnersRule:
     status: str | _Unset = UNSET
     inherit: bool | _Unset = UNSET
     additions: list[str] = field(default_factory=list)
+    sensitive: bool | _Unset = UNSET
 
 
 @dataclass
@@ -144,6 +145,7 @@ class OwnersFile:
     # Names people only; what counts as an addition, and what a consumer does with them, is the
     # consumer's policy.
     additions: list[str] = field(default_factory=list)
+    sensitive: bool | _Unset = UNSET
     # Root-only Slack registry: team slug -> TeamEntry. Empty everywhere but the repo-root
     # file; lets a team declare its channels once instead of per file.
     teams: dict[str, TeamEntry] = field(default_factory=dict)
@@ -226,7 +228,9 @@ def _validate_producer_map(
     return declared if readable else {}
 
 
-def _validate_teams(value: object, producers: frozenset[str] | None, errors: list[str]) -> dict[str, TeamEntry]:
+def _validate_teams(
+    value: object, producers: frozenset[str] | None, errors: list[str], warnings: list[str]
+) -> dict[str, TeamEntry]:
     """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
     A slug registers only when it declares at least one channel. Membership of the returned
@@ -251,7 +255,7 @@ def _validate_teams(value: object, producers: frozenset[str] | None, errors: lis
         declared: dict[str, str | bool | Mapping[str, str | bool]] = {}
         for key, raw in entry.items():
             if not isinstance(key, str) or key not in _TEAMS_ENTRY_KEYS:
-                errors.append(f"{where}: unknown field '{key}'")
+                warnings.append(f"{where}: unknown field '{key}'")
             elif isinstance(raw, dict):
                 per_producer = _validate_producer_map(raw, where, key, producers, errors)
                 if per_producer:
@@ -277,14 +281,14 @@ def _validate_string_list(value: object, key: str, errors: list[str]) -> list[st
     return []
 
 
-def _validate_codeowners(value: object, errors: list[str]) -> CodeownersSettings:
+def _validate_codeowners(value: object, errors: list[str], warnings: list[str]) -> CodeownersSettings:
     if not isinstance(value, dict):
         errors.append(f"'codeowners' must be a mapping with keys {', '.join(sorted(_CODEOWNERS_KEYS))}")
         return CodeownersSettings()
     declared: dict[str, str] = {}
     for key, raw in value.items():
         if key not in _CODEOWNERS_KEYS:
-            errors.append(f"codeowners: unknown field '{key}'")
+            warnings.append(f"codeowners: unknown field '{key}'")
         elif not isinstance(raw, str) or not raw:
             errors.append(f"codeowners: '{key}' must be a non-empty string")
         elif key == "jest_root_tests":
@@ -299,7 +303,7 @@ def _validate_codeowners(value: object, errors: list[str]) -> CodeownersSettings
     return CodeownersSettings(**declared)
 
 
-def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSettings:
+def _validate_settings(data: dict[object, object], errors: list[str], warnings: list[str]) -> RepoSettings:
     """Read the root-only repo settings. An invalid value is reported and left at its default."""
     github_org: str | None = None
     if "github_org" in data:
@@ -347,7 +351,9 @@ def _validate_settings(data: dict[object, object], errors: list[str]) -> RepoSet
         errors.append(f"alias_files: at most {MAX_ALIAS_FILES} names are allowed")
         alias_files = []
 
-    codeowners = _validate_codeowners(data["codeowners"], errors) if "codeowners" in data else CodeownersSettings()
+    codeowners = (
+        _validate_codeowners(data["codeowners"], errors, warnings) if "codeowners" in data else CodeownersSettings()
+    )
     return RepoSettings(
         github_org=github_org,
         producers=producers,
@@ -368,6 +374,13 @@ def _validate_inherit(value: object, where: str, errors: list[str]) -> bool | _U
     if isinstance(value, bool):
         return value
     errors.append(f"{where}: 'inherit' must be a boolean")
+    return UNSET
+
+
+def _validate_sensitive(value: object, where: str, errors: list[str]) -> bool | _Unset:
+    if isinstance(value, bool):
+        return value
+    errors.append(f"{where}: 'sensitive' must be a boolean")
     return UNSET
 
 
@@ -401,7 +414,7 @@ def _rule_match_patterns(raw_match: object, where: str, errors: list[str]) -> li
     return patterns if ok else []
 
 
-def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
+def _parse_rule(raw: object, index: int, errors: list[str], warnings: list[str]) -> list[OwnersRule]:
     """Parse one physical rule entry into one ``OwnersRule`` per ``match`` pattern
     (a list ``match`` explodes here so resolver/fmt/lint keep seeing single-pattern
     rules). Returns ``[]`` on a schema error."""
@@ -411,7 +424,7 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
         return []
     for key in raw:
         if key not in _RULE_KEYS:
-            errors.append(f"{where}: unknown field '{key}'")
+            warnings.append(f"{where}: unknown field '{key}'")
     patterns = _rule_match_patterns(raw.get("match"), where, errors)
     if not patterns:
         return []
@@ -420,8 +433,11 @@ def _parse_rule(raw: object, index: int, errors: list[str]) -> list[OwnersRule]:
     status = _validate_status(raw["status"], where, errors) if "status" in raw else UNSET
     inherit = _validate_inherit(raw["inherit"], where, errors) if "inherit" in raw else UNSET
     additions = _validate_additions(raw["additions"], where, errors) if "additions" in raw else []
+    sensitive = _validate_sensitive(raw["sensitive"], where, errors) if "sensitive" in raw else UNSET
     return [
-        OwnersRule(match=pattern, owners=owners, status=status, inherit=inherit, additions=additions)
+        OwnersRule(
+            match=pattern, owners=owners, status=status, inherit=inherit, additions=additions, sensitive=sensitive
+        )
         for pattern in patterns
     ]
 
@@ -431,13 +447,20 @@ def _is_version_one(value: object) -> bool:
     return type(value) is int and value == 1
 
 
-def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersFile | None, list[str]]:
+def parse_owners_file(
+    text: str, *, path: Path, directory: str, warnings: list[str] | None = None
+) -> tuple[OwnersFile | None, list[str]]:
     """Parse and validate ``owners.yaml`` contents.
 
     Returns ``(file, errors)``. ``file`` is None only when the document itself is
     unusable (bad YAML, not a mapping, missing required fields).
+
+    A field the format does not define has no effect, so a newer file still resolves
+    with an older tool. It is reported to ``warnings`` when the caller passes a list.
     """
     errors: list[str] = []
+    if warnings is None:
+        warnings = []
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:
@@ -447,7 +470,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
 
     for key in data:
         if key not in TOP_LEVEL_KEYS:
-            errors.append(f"unknown top-level field '{key}'")
+            warnings.append(f"unknown top-level field '{key}'")
 
     version_ok = _is_version_one(data.get("version"))
     if not version_ok:
@@ -469,6 +492,8 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         file.inherit = True if isinstance(inherit, _Unset) else inherit
     if "additions" in data:
         file.additions = _validate_additions(data["additions"], "additions", errors)
+    if "sensitive" in data:
+        file.sensitive = _validate_sensitive(data["sensitive"], "sensitive", errors)
 
     # Repo-wide settings and the team registry are single lookups, so they only make sense at
     # the root; a nested file carrying them would silently do nothing.
@@ -476,9 +501,9 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
         for key in sorted(ROOT_ONLY_KEYS & data.keys()):
             errors.append(f"'{key}' is only allowed in the repo-root owners.yaml")
     else:
-        file.settings = _validate_settings(data, errors)
+        file.settings = _validate_settings(data, errors, warnings)
         if "teams" in data:
-            file.teams = _validate_teams(data["teams"], file.settings.producers, errors)
+            file.teams = _validate_teams(data["teams"], file.settings.producers, errors, warnings)
 
     if "rules" in data:
         raw_rules = data["rules"]
@@ -486,7 +511,7 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
             errors.append("'rules' must be a list")
         else:
             for i, raw_rule in enumerate(raw_rules):
-                file.rules.extend(_parse_rule(raw_rule, i, errors))
+                file.rules.extend(_parse_rule(raw_rule, i, errors, warnings))
 
     # A missing version or owners makes the file unusable for resolution.
     if not version_ok or "owners" not in data:
@@ -496,7 +521,10 @@ def parse_owners_file(text: str, *, path: Path, directory: str) -> tuple[OwnersF
 
 def parse_alias_file_as_owners(text: str, *, path: Path, directory: str) -> OwnersFile | None:
     """Load an alias file as an ownership file, or None if it has no
-    usable ``owners:`` list."""
+    usable ``owners:`` list.
+
+    An alias file is a manifest that another program owns and validates, so a
+    ``sensitive`` value that is not a boolean has no effect instead of an error."""
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
@@ -507,7 +535,14 @@ def parse_alias_file_as_owners(text: str, *, path: Path, directory: str) -> Owne
     if not isinstance(raw, list) or not all(isinstance(x, str) and x for x in raw):
         return None
     owners = normalize_owners(raw)
-    return OwnersFile(path=path, directory=directory, owners=owners, is_alias=True)
+    sensitive = data.get("sensitive")
+    return OwnersFile(
+        path=path,
+        directory=directory,
+        owners=owners,
+        is_alias=True,
+        sensitive=sensitive if isinstance(sensitive, bool) else UNSET,
+    )
 
 
 def match_is_glob(match: str) -> bool:
@@ -519,11 +554,11 @@ def match_is_glob(match: str) -> bool:
 def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bool = False) -> bool:
     """Whether a file is "simple" — mechanically relocatable, nothing but ownership.
 
-    Both callers agree that status/``inherit: false``/``additions`` (and being an
-    alias file) disqualify a file. So does a ``teams:`` registry:
+    Both callers agree that status/``inherit: false``/``additions``/``sensitive`` (and
+    being an alias file) disqualify a file. So does a ``teams:`` registry:
     it is root-only content relocation would strand. So does any rule carrying
     more than match+owners: relocation only preserves owners, so rule-level
-    ``status``/``inherit``/``additions`` must pin the file. They differ on rules:
+    ``status``/``inherit``/``additions``/``sensitive`` must pin the file. They differ on rules:
 
     - lint's consolidation suggestions (``allow_anchored_rules=False``) only fold
       files whose entire content is one non-empty ``owners:`` list;
@@ -532,9 +567,17 @@ def is_simple_owners_file(parsed: OwnersFile | None, *, allow_anchored_rules: bo
     """
     if parsed is None or parsed.is_alias:
         return False
-    if parsed.inherit is False or parsed.status is not UNSET or parsed.teams or parsed.additions:
+    if (
+        parsed.inherit is False
+        or parsed.status is not UNSET
+        or parsed.sensitive is not UNSET
+        or parsed.teams
+        or parsed.additions
+    ):
         return False
-    if any(r.status is not UNSET or r.inherit is not UNSET or r.additions for r in parsed.rules):
+    if any(
+        r.status is not UNSET or r.inherit is not UNSET or r.sensitive is not UNSET or r.additions for r in parsed.rules
+    ):
         return False
     if allow_anchored_rules:
         return not any(match_is_glob(r.match) for r in parsed.rules)

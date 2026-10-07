@@ -1,0 +1,220 @@
+cases:
+    - name: a sensitive file applies to every path below it and survives a nearer owners change
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          guard/owners.yaml: |
+              version: 1
+              owners: team-guard
+              sensitive: true
+          guard/sub/owners.yaml: |
+              version: 1
+              owners: team-sub
+      expect:
+          guard/sub/x.py:
+              owners: [team-sub]
+              unowned_by_design: false
+              status: active
+              source: guard/sub/owners.yaml
+              slack: '#team-sub'
+              sensitive: true
+          x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: a nearer file with sensitive false turns off an ancestor's true
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              sensitive: true
+          docs/owners.yaml: |
+              version: 1
+              owners: []
+              sensitive: false
+      expect:
+          docs/x.md:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              sensitive: true
+
+    - name: rules set sensitive for the paths they match and a later rule can turn it off
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: '/guard/'
+                  sensitive: true
+                - match: '/guard/test/'
+                  sensitive: false
+      expect:
+          guard/baseline.txt:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+              sensitive: true
+          guard/test/test_guard.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+          other/x.py:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: inherit false drops sensitive from ancestor files
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              sensitive: true
+          island/owners.yaml: |
+              version: 1
+              owners: team-island
+              inherit: false
+      expect:
+          island/x.py:
+              owners: [team-island]
+              unowned_by_design: false
+              status: active
+              source: island/owners.yaml
+              slack: '#team-island'
+
+    - name: sensitive and generated status apply together
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              rules:
+                - match: baseline.txt
+                  status: generated
+                  sensitive: true
+      expect:
+          ci/baseline.txt:
+              owners: [team-root]
+              unowned_by_design: false
+              status: generated
+              source: owners.yaml
+              slack: '#team-root'
+              sensitive: true
+
+    - name: a sensitive path without owners is still unowned
+      files:
+          owners.yaml: |
+              version: 1
+              owners: []
+              rules:
+                - match: '/guard/'
+                  sensitive: true
+      expect:
+          guard/x.py:
+              owners: []
+              unowned_by_design: false
+              status: active
+              source: null
+              slack: null
+              sensitive: true
+
+    - name: a sensitive value that is not a boolean has no effect and the rest of the file applies
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              sensitive: true
+          a/owners.yaml: |
+              version: 1
+              owners: team-a
+              sensitive: 'no'
+      expect:
+          a/x.py:
+              owners: [team-a]
+              unowned_by_design: false
+              status: active
+              source: a/owners.yaml
+              slack: '#team-a'
+              sensitive: true
+
+    - name: an alias file can set sensitive
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/billing/product.yaml: |
+              name: billing
+              owners:
+                - team-billing
+              sensitive: true
+          products/billing/api/owners.yaml: |
+              version: 1
+              owners: []
+              sensitive: false
+      expect:
+          products/billing/models.py:
+              owners: [team-billing]
+              unowned_by_design: false
+              status: active
+              source: products/billing/product.yaml
+              slack: '#team-billing'
+              sensitive: true
+          products/billing/api/views.py:
+              owners: [team-billing]
+              unowned_by_design: false
+              status: active
+              source: products/billing/product.yaml
+              slack: '#team-billing'
+
+    - name: an alias file without a usable owners list does not set sensitive
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+          products/web/product.yaml: |
+              name: web
+              sensitive: true
+      expect:
+          products/web/x.ts:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: an alias file ignores a sensitive value that is not a boolean
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              sensitive: true
+          products/web/product.yaml: |
+              name: web
+              owners:
+                - team-web
+              sensitive: 'yes please'
+      expect:
+          products/web/x.ts:
+              owners: [team-web]
+              unowned_by_design: false
+              status: active
+              source: products/web/product.yaml
+              slack: '#team-web'
+              sensitive: true
