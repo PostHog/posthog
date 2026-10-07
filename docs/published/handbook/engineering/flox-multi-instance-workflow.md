@@ -37,6 +37,9 @@ existing Turbo prepare targets for frontend and MCP workspace dependencies, incl
 Run it again after switching branches or deleting build outputs. Installs and Turbo builds are idempotent.
 It does not start services or migrate a development database.
 
+When a fork's `origin/master` differs from the PR's upstream base, set `HOGLI_PREFLIGHT_BASE=upstream/master`
+for `git push`. The pre-push hook still runs strict preflight against that base.
+
 For Codex's cached environment, bootstrap and prepare in one invocation:
 
 ```bash

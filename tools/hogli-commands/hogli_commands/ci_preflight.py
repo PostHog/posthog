@@ -809,7 +809,12 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     is_flag=True,
     help="Exit non-zero on any failed check (advisories never block) — for the pre-push hook.",
 )
-@click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
+@click.option(
+    "--against",
+    default=None,
+    envvar="HOGLI_PREFLIGHT_BASE",
+    help="Diff against this base ref instead of the branch default (also HOGLI_PREFLIGHT_BASE).",
+)
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 @click.option(
     "--prepare-semgrep",

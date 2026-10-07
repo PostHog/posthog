@@ -404,3 +404,16 @@ class TestShadowDriftCheck:
             assert expected_fragment in result.output
         else:
             assert "shadow-drift" not in result.output
+
+
+def test_hook_base_can_be_set_without_disabling_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOGLI_PREFLIGHT_BASE", "upstream/master")
+    with (
+        patch("hogli_commands.ci_preflight._fetch_master"),
+        patch("hogli_commands.ci_preflight._emit_telemetry"),
+        patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "current", {})),
+        patch("hogli_commands.ci_preflight.changed_files", return_value=[]) as changed,
+    ):
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+    assert result.exit_code == 0, result.output
+    changed.assert_called_once_with("upstream/master", include_worktree=False)
