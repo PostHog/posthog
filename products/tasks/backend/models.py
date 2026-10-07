@@ -349,7 +349,7 @@ def task_tags_from_state(state: Any) -> list[str]:
     return []
 
 
-class Task(Taggable, DeletedMetaFields, models.Model):
+class Task(Taggable, DeletedMetaFields, CreatedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
@@ -406,10 +406,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
-    )
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
@@ -524,6 +520,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     )
     archived_at = models.DateTimeField(null=True, blank=True)
 
+    # nosemgrep: created-at-uses-created-meta-mixin -- imported tasks set created_at on create to keep their source's time
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     # Distinct from `updated_at` (the row's last write): this moves when something happens
@@ -565,9 +562,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
-            # Single-column, so the SET_NULL cascades can seek them. The composite index
-            # above leads with `team`, so a filter on `created_by` alone cannot use it.
-            models.Index(fields=["created_by"], name="posthog_task_creator_idx"),
+            # Single-column, so the SET_NULL cascade can seek it. `created_by` gets its
+            # single-column index from the mixin field, because the composite index above
+            # leads with `team` and a filter on `created_by` alone cannot use it.
             models.Index(fields=["github_user_integration"], name="posthog_task_gh_user_int_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
             models.Index(
