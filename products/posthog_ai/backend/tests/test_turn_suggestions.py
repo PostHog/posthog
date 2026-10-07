@@ -838,6 +838,44 @@ class TestBenchmark(SimpleTestCase):
         assert result.error is not None and result.error.startswith("malformed answer: ")
         assert "model" not in post.call_args.kwargs["json"]
 
+    def test_a_decisions_endpoint_is_asked_in_the_openai_shape_and_judged_from_its_answers(self):
+        case = load_cases()[0]
+
+        def answer(url: str, json: dict, **kwargs) -> MagicMock:
+            answers = []
+            for question in json["questions"]:
+                if question["type"] == "predicate":
+                    answers.append({"type": "predicate", "name": question["name"], "probability": 0.9})
+                elif question["type"] == "choice":
+                    values = [choice["value"] for choice in question["choices"]]
+                    answers.append(
+                        {
+                            "type": "choice",
+                            "name": question["name"],
+                            "choice": values[0],
+                            "confidence": 0.8,
+                            "probabilities": [
+                                {"value": value, "probability": 0.8 if index == 0 else 0.2 / (len(values) - 1)}
+                                for index, value in enumerate(values)
+                            ],
+                        }
+                    )
+            reply = MagicMock(status_code=200)
+            reply.json.return_value = {"model": "gpt-6-luna", "answers": answers, "usage": {"input_tokens": 10}}
+            return reply
+
+        [endpoint] = parse_endpoints("https://api.openai.com/v1/decisions#gpt-6-luna")
+        with patch("products.posthog_ai.backend.turn_suggestions.benchmark.requests.post", side_effect=answer) as post:
+            [result] = run_cases(
+                [case], workers=1, on_result=lambda _: None, endpoint=replace(endpoint, bearer="sk-example")
+            )
+
+        assert result.error is None and result.judgment is not None
+        assert result.judgment.show_probability == 0.9
+        sent = post.call_args.kwargs
+        assert sent["headers"] == {"Authorization": "Bearer sk-example"}
+        assert sent["json"]["model"] == "gpt-6-luna" and isinstance(sent["json"]["input"], str)
+
     @override_settings(**_GATEWAY_ONLY)
     def test_an_endpoint_on_the_configured_gateway_asks_it_for_the_named_model(self):
         case = load_cases()[0]

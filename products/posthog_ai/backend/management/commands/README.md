@@ -49,6 +49,7 @@ http[s]://[username:password@]host[:port][/path][#model]
 - The credentials, when present, go out as HTTP basic auth.
 - The path defaults to `/v1/systemone`.
 - The part after `#` names the model to send in the request body. Without it, the request names no model. A URL fragment never reaches the server.
+- An entry whose path ends in `/decisions` speaks OpenAI's Decisions API, with `OPENAI_API_KEY` from the environment or `.env.local`. The command translates the questions and answers, so `https://api.openai.com/v1/decisions#gpt-6-luna` compares with Jev like any other endpoint.
 - An entry on the configured `AI_GATEWAY_URL` host goes through the gateway the way production calls Jev, with `AI_GATEWAY_API_KEY`. Use it to compare another decision model the gateway routes, such as `https://<gateway host>#openai/gpt-6-luna`.
 - Separate entries with spaces, commas, or semicolons.
 - Percent-encode a `:`, `@`, or `#` inside a username or password, for example `%40` for `@`.

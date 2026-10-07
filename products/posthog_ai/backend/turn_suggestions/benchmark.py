@@ -6,6 +6,7 @@ instead of asking Jev again.
 """
 
 import re
+import json
 import time
 import ipaddress
 from collections.abc import Callable, Iterable, Sequence
@@ -21,7 +22,15 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import resolve_ai_gateway_config
-from posthog.llm.system_one import SystemOneRequestFailed, build_system_one_body, parse_system_one_response
+from posthog.llm.system_one import (
+    ChoiceQuestion,
+    JsonValue,
+    NoulQuestion,
+    Question,
+    SystemOneRequestFailed,
+    build_system_one_body,
+    parse_system_one_response,
+)
 
 from products.posthog_ai.backend.turn_suggestions.classifier import pick_offer
 from products.posthog_ai.backend.turn_suggestions.judgment import (
@@ -89,14 +98,19 @@ class BenchmarkCase:
 
 @frozen
 class SystemOneEndpoint:
-    """A server other than the ai-gateway that serves the System One API. ``model`` is sent only when
-    set, because a candidate server can reject the gateway's model ids. Basic auth is sent only when
-    ``username`` is set."""
+    """A server other than the ai-gateway that serves the System One API, or OpenAI's Decisions API when
+    the path ends in ``/decisions``. ``model`` is sent only when set, because a candidate server can reject
+    the gateway's model ids. Basic auth is sent only when ``username`` is set, and ``bearer`` only when set."""
 
     url: str
     model: str | None = None
     username: str | None = None
     password: str = field(default="", repr=False)
+    bearer: str = field(default="", repr=False)
+
+    @property
+    def speaks_openai_decisions(self) -> bool:
+        return urlsplit(self.url).path.rstrip("/").endswith(OPENAI_DECISIONS_PATH)
 
     @property
     def label(self) -> str:
@@ -119,6 +133,7 @@ def _is_loopback(host: str) -> bool:
 
 
 SYSTEM_ONE_PATH = "/v1/systemone"
+OPENAI_DECISIONS_PATH = "/decisions"
 
 # A URL never holds a space, a comma, or a semicolon, so any of them can separate the entries.
 _ENTRY_SEPARATORS = re.compile(r"[\s,;]+")
@@ -265,18 +280,82 @@ def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
     return cases
 
 
+def _json_text(value: JsonValue) -> str:
+    return value if isinstance(value, str) else json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _openai_question(question_id: str, question: Question) -> dict[str, JsonValue]:
+    """One System One question in the Decisions API shape. A predicate has no criteria field, so a noul
+    question's criteria go into its instructions."""
+    instructions = _json_text(question.instructions)
+    if isinstance(question, NoulQuestion):
+        for answer, criteria in (("true", question.criteria_true), ("false", question.criteria_false)):
+            if criteria is not None:
+                instructions += f"\n\nAnswer {answer} when: {_json_text(criteria)}"
+        return {"type": "predicate", "name": question_id, "instructions": instructions}
+    if isinstance(question, ChoiceQuestion):
+        choices: list[JsonValue] = [
+            {"value": option} if description is None else {"value": option, "description": _json_text(description)}
+            for option, description in question.criteria.items()
+        ]
+        return {"type": "choice", "name": question_id, "instructions": instructions, "choices": choices}
+    levels: list[JsonValue] = [{"label": _json_text(level)} for level in question.criteria]
+    return {"type": "score", "name": question_id, "instructions": instructions, "levels": levels}
+
+
+def _openai_decisions_body(state: JsonValue, questions: dict[str, Question], model: str | None) -> dict[str, JsonValue]:
+    """The Decisions API takes the state as text, so instructions that name a state field still find it."""
+    return {
+        "model": model,
+        "input": _json_text(state),
+        "questions": [_openai_question(question_id, question) for question_id, question in questions.items()],
+    }
+
+
+def _system_one_answers(payload: Any) -> dict[str, Any]:
+    """A Decisions API response in the System One shape, so the System One parser validates it."""
+    answers: dict[str, Any] = {}
+    for answer in payload.get("answers", []):
+        match answer.get("type"):
+            case "predicate":
+                answers[answer["name"]] = {"type": "noul", "noul": answer.get("probability")}
+            case "choice":
+                answers[answer["name"]] = {
+                    "type": "choice",
+                    "choice": answer.get("choice"),
+                    "confidence": answer.get("confidence"),
+                    "probabilities": {p["value"]: p["probability"] for p in answer.get("probabilities", [])},
+                }
+            case "score":
+                answers[answer["name"]] = {
+                    "type": "score",
+                    "score": answer.get("score"),
+                    "confidence": answer.get("confidence"),
+                    "probabilities": {str(p["value"]): p["probability"] for p in answer.get("probabilities", [])},
+                }
+            case other:
+                answers[answer["name"]] = {"type": other}
+    return {"model": payload.get("model"), "answers": answers, "usage": payload.get("usage")}
+
+
 def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> TurnJudgment:
     questions = build_judge_questions(case.transcript, case.available)
-    body = build_system_one_body(state=build_judge_state(case.transcript), questions=questions, model=endpoint.model)
+    state = build_judge_state(case.transcript)
+    if endpoint.speaks_openai_decisions:
+        body = _openai_decisions_body(state, questions, endpoint.model)
+    else:
+        body = build_system_one_body(state=state, questions=questions, model=endpoint.model)
     response = requests.post(
         endpoint.url,
         json=body,
         auth=(endpoint.username, endpoint.password) if endpoint.username else None,
+        headers={"Authorization": f"Bearer {endpoint.bearer}"} if endpoint.bearer else None,
         timeout=ENDPOINT_TIMEOUT,
         allow_redirects=False,
     )
     response.raise_for_status()
-    return read_judgment(parse_system_one_response(response.json(), questions), case.transcript, case.available)
+    payload = _system_one_answers(response.json()) if endpoint.speaks_openai_decisions else response.json()
+    return read_judgment(parse_system_one_response(payload, questions), case.transcript, case.available)
 
 
 def _on_configured_gateway(endpoint: SystemOneEndpoint) -> bool:

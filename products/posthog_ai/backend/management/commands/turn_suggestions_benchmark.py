@@ -4,6 +4,7 @@ import time
 import statistics
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ def _f1(value: float | None) -> str:
 
 
 ENDPOINTS_VARIABLE = "TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS"
+OPENAI_KEY_VARIABLE = "OPENAI_API_KEY"
 _SERVER_SETTINGS = ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY")
 DEFAULT_TARGET_OFFER_RATE = 0.45
 
@@ -93,6 +95,13 @@ def _judges(options: dict[str, Any], jev_label: str | None) -> list[Judge]:
     except ValueError as error:
         raise CommandError(str(error)) from None
     for endpoint in endpoints:
+        if endpoint.speaks_openai_decisions:
+            key = os.environ.get(OPENAI_KEY_VARIABLE) or _from_env_local(OPENAI_KEY_VARIABLE)
+            if not key:
+                raise CommandError(
+                    f"Set {OPENAI_KEY_VARIABLE} in the environment or in .env.local for {endpoint.label}."
+                )
+            endpoint = replace(endpoint, bearer=key)
         label = endpoint.label
         # Two specs can share a host and a model, so number the repeats to keep the columns apart.
         taken = {existing for existing, _ in judges}
