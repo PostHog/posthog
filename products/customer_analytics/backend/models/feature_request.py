@@ -3,7 +3,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDModel
 
 
 class FeatureRequestStatus(models.TextChoices):
@@ -167,7 +167,7 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
+class FeatureRequestEvidence(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     account_link = models.ForeignKey(
         FeatureRequestAccountLink,
@@ -180,16 +180,6 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
     source_url = models.URLField(max_length=2000, blank=True, default="")
     requested_on = models.DateField(null=True, blank=True)
     image_ids = ArrayField(models.UUIDField(), default=list, blank=True)
-    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
-    created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
-        db_index=False,
-        related_name="+",
-    )
     updated_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -199,7 +189,6 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
         db_index=False,
         related_name="+",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
