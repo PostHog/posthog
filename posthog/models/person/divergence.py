@@ -858,6 +858,7 @@ def repair_persons(
                     action = RepairAction(
                         team_id=team_id,
                         person_uuid=person_uuid,
+                        distinct_id=None,
                         kind=None,
                         pg_version=None,
                         ch_max_version=None,
