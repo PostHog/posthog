@@ -105,7 +105,7 @@ function buildBatchExportPayload(formValues: Record<string, any>): Partial<Batch
         offset_day: interval === 'week' ? formValues.offset_day : null,
         offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
         model: formValues.model,
-        // The backend rejects `hogql_query` for every model but 'hogql'
+        // Only the 'hogql' model edits the query. The events model would save a query as its export schema.
         hogql_query: formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
         // Filters only apply to the events model: the API rejects them for 'hogql' and runs ignore them otherwise
         filters: formValues.model === BatchExportModelEnumApi.Events ? formValues.filters : undefined,
@@ -670,9 +670,6 @@ export interface batchExportConfigFormLogicActions {
     setSavedConfiguration: (configuration: Record<string, any>) => {
         configuration: Record<string, any>
     }
-    setSelectedModel: (model: string) => {
-        model: string
-    }
     submitConfiguration: () => {
         value: boolean
     }
@@ -717,6 +714,7 @@ export interface batchExportConfigFormLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => any
+        selectedModel: (configuration: Record<string, any>) => string
         service: (
             batchExportConfig: BatchExportConfiguration | null,
             service:
@@ -816,7 +814,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
-        setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
         deleteBatchExport: () => true,
         updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
@@ -895,25 +892,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 },
             },
         ],
-        selectedModel: [
-            BatchExportModelEnumApi.Events as string,
-            {
-                setSelectedModel: (_, { model }) => model,
-                loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
-                    if (!batchExportConfig) {
-                        return state
-                    }
-
-                    return batchExportConfig.model
-                },
-                updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
-                    if (!batchExportConfig) {
-                        return state
-                    }
-                    return batchExportConfig.model
-                },
-            },
-        ],
         configuration: [
             props.service ? getDefaultConfiguration(props.service) : ({} as Record<string, any>),
             {
@@ -961,6 +939,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     })),
     selectors(() => ({
         logicProps: [() => [(_, props) => props], (props) => props],
+        selectedModel: [
+            (s) => [s.configuration],
+            (configuration: Record<string, any>): string => configuration.model ?? BatchExportModelEnumApi.Events,
+        ],
         service: [
             (s, p) => [s.batchExportConfig, p.service],
             (
@@ -1117,6 +1099,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             // A save error describes the old value, so it must not outlive an edit.
             if (fieldName in values.configurationManualErrors) {
                 actions.touchConfigurationField(String(fieldName))
+            }
+            // Other models do not send the query, so its save error must not block them while the field is hidden
+            if (fieldName === 'model' && 'hogql_query' in values.configurationManualErrors) {
+                actions.touchConfigurationField('hogql_query')
             }
 
             if (fieldName === 'file_format') {

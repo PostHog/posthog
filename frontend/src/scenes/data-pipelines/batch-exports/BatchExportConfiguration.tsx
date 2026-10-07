@@ -57,8 +57,7 @@ export function BatchExportConfiguration(): JSX.Element {
         service,
         selectedIntegration,
     } = useValues(batchExportConfigFormLogic)
-    const { setSelectedModel, setConfigurationValue, runBatchExportConfigTestStep } =
-        useActions(batchExportConfigFormLogic)
+    const { setConfigurationValue, runBatchExportConfigTestStep } = useActions(batchExportConfigFormLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
@@ -257,10 +256,6 @@ export function BatchExportConfiguration(): JSX.Element {
                                             ? 'A saved export that uses a custom SQL query cannot change its model'
                                             : undefined
                                     }
-                                    value={selectedModel}
-                                    onSelect={(newValue) => {
-                                        setSelectedModel(newValue)
-                                    }}
                                     fullWidth={true}
                                 />
                             </LemonField>

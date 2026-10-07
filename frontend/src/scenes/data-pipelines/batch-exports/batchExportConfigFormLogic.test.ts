@@ -381,13 +381,13 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
     }
 )
 
-// Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const HOGQL_BATCH_EXPORT: BatchExportConfiguration = {
     ...fixture('test-hogql-id', 'HogQL Export', { type: 'AwsS3', integration: 31, config: AWS_S3_CONFIG }),
     model: 'hogql',
     hogql_query: 'SELECT event FROM events WHERE timestamp >= {data_interval_start}',
 }
 
+// Single map keyed by id; used to register GET + PATCH mocks dynamically below.
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
     HOGQL_BATCH_EXPORT,
@@ -915,8 +915,12 @@ describe('batchExportConfigFormLogic', () => {
         })
 
         // The toast can be far from the query editor, so the API's field error also shows under the field. kea-forms
-        // treats it as a form error, so an edit to the field must clear it, or the next save never reaches the API.
-        it('shows a field error from the API under its field until the field changes', async () => {
+        // treats it as a form error, so an edit must clear it, or the next save never reaches the API. A model change
+        // hides the query field, so it must clear the error too.
+        it.each([
+            ['the query changes', 'hogql_query', 'SELECT event FROM events'],
+            ['the model changes', 'model', 'events'],
+        ])('shows a field error from the API under its field until %s', async (_, field, value) => {
             await initLogic({ service: null, id: HOGQL_SAVE_FAILS_ID })
 
             await expectLogic(logic, () => {
@@ -929,7 +933,7 @@ describe('batchExportConfigFormLogic', () => {
             // configurationErrors is what the field renders, so it must hold the error, not only configurationAllErrors
             expect(logic.values.configurationErrors.hogql_query).toEqual(HOGQL_SAVE_FAILS_DETAIL)
 
-            logic.actions.setConfigurationValue('hogql_query', 'SELECT event FROM events')
+            logic.actions.setConfigurationValue(field, value)
 
             expect(logic.values.configurationErrors.hogql_query).toBeUndefined()
             expect(logic.values.configurationHasErrors).toBe(false)
@@ -1372,7 +1376,7 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
-            // The backend rejects this field for every model but 'hogql', so other models must not send it
+            // Only the 'hogql' model edits the query, so other models must not send one
             expect(body.hogql_query).toEqual(fixture.hogql_query)
         })
 
@@ -1399,6 +1403,18 @@ describe('batchExportConfigFormLogic', () => {
                 expect(patchBodiesById[fixture.id]).not.toHaveProperty('filters')
             }
         })
+    })
+
+    // The model select and the sections below it follow `selectedModel`, while a save sends `configuration.model`.
+    // If a reset moved only one of them, the form would show the query editor and save an events export.
+    it('resets the selected model with the form', async () => {
+        await initLogic({ service: 'AwsS3', id: null })
+        logic.actions.setConfigurationValue('model', 'hogql')
+        expect(logic.values.selectedModel).toEqual('hogql')
+
+        logic.actions.resetConfiguration(getDefaultConfiguration('AwsS3'))
+
+        expect(logic.values.selectedModel).toEqual('events')
     })
 
     describe('HogQL query validation', () => {
