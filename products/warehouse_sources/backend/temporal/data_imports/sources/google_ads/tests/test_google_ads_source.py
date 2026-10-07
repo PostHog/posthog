@@ -342,12 +342,14 @@ class TestGoogleAdsRetryableErrors:
             # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
             # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
             "Resource has been exhausted (e.g. check quota).",
+            # str(GoogleAdsCallDeadlineExceeded) raised when a single call runs past
+            # GOOGLE_ADS_CALL_TIMEOUT_SECONDS (see google_ads.py).
+            f"Google Ads call did not finish within {GOOGLE_ADS_CALL_TIMEOUT_SECONDS} seconds",
         ],
     )
-    def test_quota_exhausted_is_retryable(self, error_msg):
-        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
-        # in-process retry budget starts polluting error tracking even though Temporal's activity
-        # retry still recovers once the quota clears.
+    def test_known_self_recovering_errors_are_retryable(self, error_msg):
+        # If either pattern drops out of get_retryable_errors(), a condition Temporal's activity
+        # retry already recovers from on its own starts polluting error tracking as noise.
         assert any(pattern in error_msg for pattern in self.retryable)
 
     def test_receive_limit_exhausted_is_not_retryable(self):
