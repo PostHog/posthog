@@ -11,7 +11,7 @@ import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
-import { FILLER_REASON_KINDS, JevWatchFeedTile, WatchFeedCard, WatchFeedGridCard } from './WatchFeedCard'
+import { FILLER_REASON_KINDS, JevWatchFeedRow, WatchFeedCard, WatchFeedGridCard } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
@@ -97,15 +97,19 @@ export function WatchFeedTab(): JSX.Element {
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
-    // The jev arm gets its own tile, so the experiment compares rankings and layouts as one arm.
-    const GridCard = feedRanker === 'jev' ? JevWatchFeedTile : WatchFeedGridCard
+    // The jev arm gets its own row, so the experiment compares rankings and layouts as one arm.
+    const ListCard = feedRanker === 'jev' ? JevWatchFeedRow : WatchFeedCard
 
     return (
         <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="flex flex-col gap-1">
                     <h2 className="text-xl font-semibold m-0">
-                        {items.length > 0 ? pluralize(items.length, 'clip') : 'What to watch'}
+                        {items.length === 0
+                            ? 'What to watch'
+                            : feedRanker === 'jev'
+                              ? `Top ${pluralize(items.length, 'session')}`
+                              : pluralize(items.length, 'clip')}
                     </h2>
                     <p className="text-muted text-sm m-0">
                         {narrowedToScanners > 0
@@ -216,12 +220,12 @@ export function WatchFeedTab(): JSX.Element {
                         displayView === 'grid' ? (
                             <div className={GRID_CLASS_NAME}>
                                 {items.map((item, index) => (
-                                    <GridCard key={item.observation.id} item={item} position={index} />
+                                    <WatchFeedGridCard key={item.observation.id} item={item} position={index} />
                                 ))}
                             </div>
                         ) : (
                             items.map((item, index) => (
-                                <WatchFeedCard key={item.observation.id} item={item} position={index} />
+                                <ListCard key={item.observation.id} item={item} position={index} />
                             ))
                         )
                     ) : feedFailed ? null : emptyReason ? (
