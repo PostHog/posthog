@@ -47,6 +47,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    internal_feedback,
     materialized_column_slot,
     object_media_preview,
     organization,
@@ -413,6 +414,7 @@ router.register(
     "user_facet_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
 # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")

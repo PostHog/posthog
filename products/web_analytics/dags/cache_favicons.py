@@ -223,7 +223,7 @@ cache_authorized_domain_favicons_job = dagster.define_asset_job(
 
 
 @dagster.schedule(
-    cron_schedule="0 3 * * *",  # Daily at 3 AM UTC
+    cron_schedule="37 3 * * *",  # Daily at 03:37 UTC
     job=cache_favicons_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
@@ -233,7 +233,7 @@ def cache_favicons_schedule(_context: dagster.ScheduleEvaluationContext):
 
 
 @dagster.schedule(
-    cron_schedule="0 */6 * * *",  # Every 6 hours
+    cron_schedule="51 */6 * * *",  # Every 6 hours
     job=cache_authorized_domain_favicons_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

@@ -17,12 +17,15 @@ import {
     PostHogApiError,
     PostHogValidationError,
     ToolInputValidationError,
+    MCPToolResultError,
     findPostHogPermissionError,
     findRecoverableApiError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import {
     createExecTool,
     describeApiValidationError,
@@ -86,8 +89,8 @@ interface ExecMetricState {
  *
  * CLI-mode clients read `content[].text`, so for them the structured copy only adds
  * tokens. A render-ui host in single-exec mode is the exception, because there
- * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
- * both of those before this path. Any other tool name that reaches here is therefore the
+ * `buildAdvertisedTools` offers `exec` and `render-ui` to the model, and `handleToolCall`
+ * routes both of those before this path. Any other tool name that reaches here is therefore the
  * render-ui app calling `callServerTool` to load its own data. That app reads
  * `structuredContent` and ignores the text channel, so dropping the structured payload
  * leaves it with nothing to draw, and it shows its error state instead of the chart. The
@@ -109,17 +112,20 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
-// The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
-// The intent is extra detail on an audit row: if the copy fails, the call runs without it.
-function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
-    if (!intent) {
-        return state
+// A private response must not suppress another call sharing this JSON-RPC batch or token.
+function stateForToolCall(state: ResolvedState, intent: string | undefined): ResolvedState {
+    const scoped = { ...state, context: { ...state.context } }
+    scoped.context.api = state.context.api.withAnalyticsSuppression(() => {
+        scoped.suppressAnalytics = true
+    })
+    if (intent) {
+        try {
+            scoped.context.api = scoped.context.api.withIntent(intent)
+        } catch {
+            // Audit detail is optional; the per-call privacy boundary is not.
+        }
     }
-    try {
-        return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
-    } catch {
-        return state
-    }
+    return scoped
 }
 
 export class ToolExecutor {
@@ -151,7 +157,23 @@ export class ToolExecutor {
     // Guarded because analytics must never break `tools/list`.
     private injectAnalyticsParameters(tools: ListToolsResult['tools']): ListToolsResult['tools'] {
         try {
-            return getPostHogClient().prepareToolList(tools)
+            return getPostHogClient()
+                .prepareToolList(tools)
+                .map((tool) => {
+                    const visibility = (tool._meta?.ui as { visibility?: unknown } | undefined)?.visibility
+                    if (!Array.isArray(visibility) || visibility.length !== 1 || visibility[0] !== 'app') {
+                        return tool
+                    }
+                    return {
+                        ...tool,
+                        inputSchema: {
+                            ...tool.inputSchema,
+                            required: tool.inputSchema.required?.filter(
+                                (name) => name !== 'context' && name !== 'llm_model'
+                            ),
+                        },
+                    }
+                })
         } catch {
             return tools
         }
@@ -160,7 +182,36 @@ export class ToolExecutor {
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
             const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
-            return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
+            // Hosts authorize app calls against tools/list, including tools hidden from the model.
+            const appToolNames = new Set(
+                renderUiEntry
+                    ? state.allTools.filter((tool) => tool.annotations.readOnlyHint).map((tool) => tool.name)
+                    : []
+            )
+            const appTools = this.catalog
+                .getPreBuiltEntries()
+                .filter((entry) => appToolNames.has(entry.name))
+                .map((entry) => {
+                    const uiMeta = entry._meta?.ui
+                    return {
+                        ...entry,
+                        description: `Load ${entry.name} data for a PostHog app.`,
+                        // Omit generated query schemas to limit discovery size; calls still use the full validator.
+                        inputSchema: { type: 'object' as const, additionalProperties: true },
+                        _meta: {
+                            ...entry._meta,
+                            ui: {
+                                ...(uiMeta && typeof uiMeta === 'object' ? uiMeta : {}),
+                                visibility: ['app'],
+                            },
+                        },
+                    }
+                })
+            return [
+                this.instructionsBuilder.buildExecToolEntry(state),
+                ...(renderUiEntry ? [renderUiEntry] : []),
+                ...appTools,
+            ]
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -218,7 +269,7 @@ export class ToolExecutor {
         if (preparedCall?.conversationId) {
             state.requestContext.mcpConversationId = preparedCall.conversationId
         }
-        const callState = stateCarryingIntent(state, analyticsMeta.intent)
+        const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
@@ -396,9 +447,11 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = markNoncanonicalMetricRun(
-                tool.name,
-                await tool.handler(state.context, validation.data)
+            // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
+            const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
+            const handlerResult = withIgnoredInputKeys(
+                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
+                ignoredKeys
             )
 
             if (isContextSwitch) {
@@ -500,6 +553,7 @@ export class ToolExecutor {
                 this.servedToolDescription(tool.name)
             )
 
+            const errorMessage = extractErrorMessage(error)
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
                     tool.name,
@@ -508,7 +562,7 @@ export class ToolExecutor {
                     {
                         durationMs: Date.now() - startMs,
                         isError: true,
-                        errorMessage: error instanceof Error ? error.message : String(error),
+                        errorMessage,
                     },
                     analyticsMeta
                 )
@@ -517,7 +571,7 @@ export class ToolExecutor {
             void trackToolSpan(tool.name, state, {
                 durationMs: Date.now() - startMs,
                 isError: true,
-                errorMessage: error instanceof Error ? error.message : String(error),
+                errorMessage,
                 input: validation.data,
             })
 
@@ -526,7 +580,13 @@ export class ToolExecutor {
             }
 
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(error, tool.name, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                tool.name,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+            )
         }
     }
 
@@ -677,7 +737,15 @@ export class ToolExecutor {
             // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
-            return handleToolError(error, metricTool, state.distinctId, sessionUuid)
+            return handleToolError(
+                error,
+                metricTool,
+                state.distinctId,
+                sessionUuid,
+                state.suppressAnalytics ||
+                    isPrivateScoutTrialTool(metricTool) ||
+                    isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+            )
         }
     }
 
@@ -743,6 +811,9 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
+            const errorMessage = properties.validation_error
+                ? properties.error_message
+                : extractErrorMessage(properties.error)
             if (toolName === EXECUTE_SQL_TOOL_NAME && properties.input) {
                 void trackExecuteSqlGeneration(
                     toolName,
@@ -751,7 +822,7 @@ export class ToolExecutor {
                     {
                         durationMs: properties.duration_ms,
                         isError: !properties.success,
-                        errorMessage: properties.error_message,
+                        errorMessage,
                     },
                     analyticsMeta
                 )
@@ -759,7 +830,7 @@ export class ToolExecutor {
             void trackToolSpan(toolName, state, {
                 durationMs: properties.duration_ms,
                 isError: !properties.success,
-                errorMessage: properties.error_message,
+                errorMessage,
                 input: properties.input,
                 output: properties.output,
             })
@@ -873,7 +944,7 @@ export class ToolExecutor {
                 analyticsMeta
             )
             const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
     }
 }
@@ -883,6 +954,7 @@ type ToolErrorType =
     | 'validation'
     | 'permission'
     | 'timeout'
+    | 'memory_limit'
     | 'rate_limited'
     | 'api_5xx'
     | 'api_4xx'
@@ -914,6 +986,10 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
+    if (error instanceof MCPToolResultError) {
+        const errorCode = error.errorCode ? sanitizeErrorToken(error.errorCode) : undefined
+        return { errorType: error.errorType, ...(errorCode ? { errorCode } : {}) }
+    }
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return { errorType: 'missing_context' }
     }
@@ -1016,6 +1092,9 @@ function extractErrorMessage(error: unknown): string | undefined {
 }
 
 function resolveSafeErrorMessage(error: unknown): string | undefined {
+    if (error instanceof MCPToolResultError) {
+        return `Tool failed: ${error.errorType}`
+    }
     // Static recovery walkthroughs generated by our own constructors.
     if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
         return error.message
@@ -1097,7 +1176,7 @@ function recordedTargetTool(execShape: Record<string, unknown>): string | undefi
  * live as JSON inside `command`, so they are parsed with the dispatcher's own parser.
  * Verbs other than `call` carry no arguments and get no keys. The schema is looked up
  * only among the tools this connection can see. A gated or retired target has no schema,
- * so its keys become one `[redacted]` marker and its aliases stay absent.
+ * so every key it sent counts as undeclared and its aliases stay absent.
  */
 function execInputShapeAnalyticsProperties(
     execArgs: unknown,

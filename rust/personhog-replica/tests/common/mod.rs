@@ -52,8 +52,17 @@ impl TestContext {
         distinct_id: &str,
         properties: Option<serde_json::Value>,
     ) -> Result<TestPerson, sqlx::Error> {
+        self.insert_person_with_uuid(distinct_id, properties, Uuid::now_v7())
+            .await
+    }
+
+    pub async fn insert_person_with_uuid(
+        &self,
+        distinct_id: &str,
+        properties: Option<serde_json::Value>,
+        uuid: Uuid,
+    ) -> Result<TestPerson, sqlx::Error> {
         let person_id = random_person_id();
-        let uuid = Uuid::now_v7();
         let properties = properties.unwrap_or_else(|| serde_json::json!({}));
 
         sqlx::query(
@@ -299,6 +308,11 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
         sqlx::query("DELETE FROM person_tombstone_publish_queue WHERE team_id = $1")
             .bind(self.team_id)
             .execute(&self.pool)

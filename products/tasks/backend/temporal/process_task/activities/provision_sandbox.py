@@ -419,6 +419,8 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
+    if task.is_scout_trial_judge is True:
+        return ""
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -581,13 +583,11 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if settings.DEBUG:
-        # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
-        # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
-        # the cache key) and cost attribution. Rely on Temporal retries instead.
+    if settings.DEBUG or (ctx.state or {}).get("scout_trial") or (ctx.state or {}).get("scout_trial_judge"):
+        # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
 
-    if ctx.agent_otel_telemetry_enabled:
+    if ctx.agent_otel_telemetry_enabled and task.is_scout_experiment is not True:
         environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
@@ -738,7 +738,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -1390,7 +1390,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 )
 
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, run_id=ctx.run_id)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to refresh OAuth access token for task {ctx.task_id}",

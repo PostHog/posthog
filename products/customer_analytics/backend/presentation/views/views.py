@@ -16,7 +16,7 @@ import json
 import builtins
 from dataclasses import asdict
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -30,7 +30,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -47,6 +47,8 @@ from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
@@ -56,8 +58,13 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
+from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    model_to_resource,
+)
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -872,18 +879,93 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
+class CanonicalTeamViewSet(Protocol):
+    @property
+    def canonical_team(self) -> Team: ...
+
+    @property
+    def team_id(self) -> int: ...
+
+    @property
+    def user_permissions(self) -> UserPermissions: ...
+
+
+class CanonicalTeamAccessPermission(BasePermission):
+    """Data under an environment URL belongs to its parent project, so access must hold on that project too."""
+
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        canonical_view = cast(CanonicalTeamViewSet, view)
+        canonical_team = canonical_view.canonical_team
+        if canonical_team.id == canonical_view.team_id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and canonical_team.id not in scoped_team_ids:
+            return False
+        return canonical_view.user_permissions.team(canonical_team).effective_membership_level is not None
+
+
+class AccountViewChangePermission(AccessControlPermission):
+    """The facade applies each view's own rules: account editors change team view contents, and the
+    creator or a project admin changes visibility or deletes. An account editor floor here would
+    block a project admin who only views accounts before those rules run."""
+
+    def _get_required_access_level(self, request: Request, view: Any) -> AccessControlLevel:
+        return "viewer"
+
+
 class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountViewSerializer
     lookup_value_regex = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
     queryset = None
     pagination_class = None
-    permission_classes = [PostHogFeatureFlagPermission]
+    permission_classes = [PostHogFeatureFlagPermission, CanonicalTeamAccessPermission]
     posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+
+    @cached_property
+    def canonical_team(self) -> Team:
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action not in ("partial_update", "destroy"):
+            raise NotImplementedError()
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccountViewChangePermission(),
+            TeamMemberAccessPermission(),
+            PostHogFeatureFlagPermission(),
+            CanonicalTeamAccessPermission(),
+        ]
+
+    def _is_project_admin(self) -> bool:
+        if self.user_access_control.is_organization_admin:
+            return True
+        return bool(self.user_access_control.check_access_level_for_object(self.canonical_team, "admin", explicit=True))
+
+    def _can_edit_team_views(self) -> bool:
+        return self.user_access_control.check_access_level_for_resource("account", "editor")
 
     @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        views = api.list_account_views(team_id=self.team_id, user_id=cast(User, request.user).id)
+        views = api.list_account_views(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
+        )
         return Response(AccountViewSerializer(instance=views, many=True).data)
 
     @extend_schema(responses={200: AccountViewSerializer}, summary="Get an account view")
@@ -892,6 +974,8 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             team_id=self.team_id,
             user_id=cast(User, request.user).id,
             view_id=UUID(self.kwargs["pk"]),
+            can_edit_team_views=self._can_edit_team_views(),
+            is_project_admin=self._is_project_admin(),
         )
         if view is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -900,7 +984,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
     @validated_request(
         request_serializer=AccountViewCreateSerializer,
         responses={201: AccountViewSerializer, 400: OpenApiResponse(description="The content is invalid.")},
-        summary="Create a private account view",
+        summary="Create a personal account view",
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -909,6 +993,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 name=request.validated_data["name"],
                 content=request.validated_data["content"],
+                is_project_admin=self._is_project_admin(),
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
@@ -919,6 +1004,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         responses={
             200: AccountViewSerializer,
             400: OpenApiResponse(description="The request is invalid."),
+            403: OpenApiResponse(description="The view cannot be changed by this user."),
             404: OpenApiResponse(description="The view was not found."),
             409: OpenApiResponse(description="The view changed since the supplied version."),
         },
@@ -931,13 +1017,18 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 view_id=UUID(self.kwargs["pk"]),
                 expected_version=request.validated_data["version"],
+                can_edit_team_views=self._can_edit_team_views(),
+                is_project_admin=self._is_project_admin(),
                 name=request.validated_data.get("name"),
                 content=request.validated_data.get("content"),
+                visibility=request.validated_data.get("visibility"),
             )
         except api.InvalidAccountViewContent as error:
             raise ValidationError({"content": error.errors})
         except api.AccountViewVersionConflict as error:
             raise Conflict(str(error))
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
         if view is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountViewSerializer(instance=view).data)
@@ -952,7 +1043,7 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 description="Version returned by the last read.",
             )
         ],
-        responses={204: None, 404: OpenApiResponse(), 409: OpenApiResponse()},
+        responses={204: None, 403: OpenApiResponse(), 404: OpenApiResponse(), 409: OpenApiResponse()},
         summary="Delete an account view",
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -964,28 +1055,15 @@ class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 user_id=cast(User, request.user).id,
                 view_id=UUID(self.kwargs["pk"]),
                 expected_version=query.validated_data["version"],
+                is_project_admin=self._is_project_admin(),
             )
         except api.AccountViewVersionConflict as error:
             raise Conflict(str(error))
+        except api.AccountViewPermissionDenied as error:
+            raise PermissionDenied(str(error))
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class UserConfigCanonicalTeamAccessPermission(BasePermission):
-    message = "You don't have access to the project."
-
-    def has_permission(self, request: Request, view: Any) -> bool:
-        if not request.user.is_authenticated:
-            return True
-        config_view = cast(UserCustomerAnalyticsConfigViewSet, view)
-        canonical_team = config_view.canonical_team
-        if canonical_team.id == config_view.team_id:
-            return True
-        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
-        if scoped_team_ids and canonical_team.id not in scoped_team_ids:
-            return False
-        return config_view.user_permissions.team(canonical_team).effective_membership_level is not None
 
 
 class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -995,7 +1073,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
     serializer_class = UserCustomerAnalyticsConfigSerializer
     queryset = None
     lookup_value_regex = "@me"
-    permission_classes = [UserConfigCanonicalTeamAccessPermission]
+    permission_classes = [CanonicalTeamAccessPermission]
 
     @cached_property
     def canonical_team(self) -> Team:
@@ -1057,29 +1135,43 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         user_id = cast(User, request.user).id
         config: contracts.UserCustomerAnalyticsConfig | None = None
 
-        if "pinned_properties" in request.validated_data:
-            pinned_properties = [
-                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-                for reference in request.validated_data["pinned_properties"]
-            ]
-            try:
-                config = api.update_user_customer_analytics_config(
+        with transaction.atomic():
+            if "pinned_properties" in request.validated_data:
+                pinned_properties = [
+                    contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                    for reference in request.validated_data["pinned_properties"]
+                ]
+                try:
+                    config = api.update_user_customer_analytics_config(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        pinned_properties=pinned_properties,
+                    )
+                except api.InvalidPinnedAccountProperties as error:
+                    raise ValidationError({"pinned_properties": error.errors})
+
+            if "task_digest" in request.validated_data:
+                task_digest = request.validated_data["task_digest"]
+                config = api.update_user_task_digest_preferences(
                     team_id=self.team_id,
                     user_id=user_id,
-                    pinned_properties=pinned_properties,
+                    enabled=task_digest.get("enabled"),
+                    send_time=task_digest.get("send_time"),
+                    cadence=task_digest.get("cadence"),
                 )
-            except api.InvalidPinnedAccountProperties as error:
-                raise ValidationError({"pinned_properties": error.errors})
 
-        if "task_digest" in request.validated_data:
-            task_digest = request.validated_data["task_digest"]
-            config = api.update_user_task_digest_preferences(
-                team_id=self.team_id,
-                user_id=user_id,
-                enabled=task_digest.get("enabled"),
-                send_time=task_digest.get("send_time"),
-                cadence=task_digest.get("cadence"),
-            )
+            if "account_detail_tabs" in request.validated_data:
+                account_detail_tabs = request.validated_data["account_detail_tabs"]
+                try:
+                    config = api.update_user_account_detail_tabs(
+                        team_id=self.team_id,
+                        user_id=user_id,
+                        ordered_tab_ids=account_detail_tabs["ordered_tab_ids"],
+                        hidden_tab_ids=account_detail_tabs["hidden_tab_ids"],
+                        default_tab_id=account_detail_tabs["default_tab_id"],
+                    )
+                except ValueError as error:
+                    raise ValidationError({"account_detail_tabs": str(error)})
 
         if config is None:
             return self.retrieve(request, *args, **kwargs)

@@ -201,7 +201,7 @@ export const View: Story = {}
 export const WarehouseTable: Story = {
     args: { id: tableNode.id },
     parameters: {
-        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+        featureFlags: [FEATURE_FLAGS.DATA_QUALITY_CHECKS, FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING],
         pageUrl: urls.nodeDetail(tableNode.id, 'lineage'),
         msw: {
             mocks: {

@@ -37,6 +37,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -200,6 +201,18 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
 def mentions_slack_user(text: str, slack_user_id: str) -> bool:
     """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
     return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
+
+
+def leading_mention_prefix(text: str, slack_user_id: str | None) -> str:
+    """The mention that opens a reply, or "" when nobody is tagged or `text` already tags them.
+
+    A heading, list, quote, table or fence must start its line, or Slack shows the markup as text,
+    so before one of those the mention takes a line of its own.
+    """
+    if not slack_user_id or mentions_slack_user(text, slack_user_id):
+        return ""
+    separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
+    return f"<@{slack_user_id}>{separator}"
 
 
 def flatten_block_text(node: Any) -> list[str]:

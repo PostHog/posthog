@@ -17,7 +17,7 @@ import {
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { VERDICT_LABEL, confidenceLevel, readReasoning, scannerLabel } from '../utils/observation'
+import { VERDICT_LABEL, confidenceLevel, isSummaryScannerType, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
@@ -181,7 +181,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    if (scannerType === 'summarizer') {
+    if (isSummaryScannerType(scannerType)) {
         const title = typeof result.title === 'string' ? result.title : null
         const summary = typeof result.summary === 'string' ? result.summary : null
         const showCopy = copyable && summary !== null
@@ -410,7 +410,7 @@ export function ObservationDockCard({
     const similarUrl = observation.status === 'succeeded' ? similarSearchUrl(observation) : null
     // Summarizers excluded: their primary output already is the full text
     const reasoning =
-        observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
+        observation.status === 'succeeded' && !isSummaryScannerType(scannerType) ? readReasoning(observation) : null
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -428,7 +428,11 @@ export function ObservationDockCard({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
-                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
+                    <Link
+                        data-attr="vision-observation-open"
+                        to={urls.replayVisionObservation(observation.id)}
+                        className="text-xs whitespace-nowrap"
+                    >
                         View details
                     </Link>
                     {similarUrl && (
@@ -486,7 +490,7 @@ export function ObservationDockCard({
                             copyable
                         />
                     </LabeledRow>
-                    {prompt && scannerType !== 'summarizer' && (
+                    {prompt && !isSummaryScannerType(scannerType) && (
                         <ObservationPrompt prompt={prompt} question={observation.prompt_question} />
                     )}
                     {reasoning && (

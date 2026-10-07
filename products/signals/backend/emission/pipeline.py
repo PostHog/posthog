@@ -6,6 +6,8 @@ import dataclasses
 from datetime import datetime
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 import posthoganalytics
 from anthropic import AsyncAnthropic
@@ -27,6 +29,7 @@ from products.signals.backend.emission.registry import (
 )
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.models import SignalEmissionRecord
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -502,11 +505,28 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
     )
 
 
+async def _record_processed_outputs(team: Team, outputs: list[SignalEmitterOutput]) -> None:
+    await SignalEmissionRecord.objects.abulk_create(
+        [
+            SignalEmissionRecord(
+                team=team,
+                source_product=output.source_product,
+                source_type=output.source_type,
+                source_id=output.source_id,
+                emitted_at=timezone.now(),
+            )
+            for output in outputs
+        ],
+        ignore_conflicts=True,
+    )
+
+
 async def _emit_signals(
     team: Team,
     organization: Organization,
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
+    record_processed_outputs: bool = False,
 ) -> int:
     semaphore = asyncio.Semaphore(EMIT_CONCURRENCY_LIMIT)
     _safe_heartbeat()
@@ -543,10 +563,13 @@ async def _emit_signals(
                     description=output.description,
                     weight=output.weight,
                     extra=output.extra,
+                    idempotency_key=output.source_id if record_processed_outputs else None,
                 )
+                if record_processed_outputs:
+                    await _record_processed_outputs(team, [output])
                 return True
             except Exception as e:
-                # Fetchers record emission optimistically, so a record lost here is lost for good.
+                # Sources that record at fetch time cannot retry a record lost here.
                 # Close the funnel (entered - summarized - filtered - emit_failed = emitted) and
                 # count the drop, or the loss is invisible outside logs.
                 error_type, _ = summarize_drop_error(e)
@@ -644,6 +667,10 @@ async def run_signal_pipeline(
             steering=steering,
         )
         post_filter_ids = {o.source_id for o in outputs}
+        if config.record_processed_outputs:
+            await _record_processed_outputs(
+                team, [output for source_id, output in pre_filter_by_id.items() if source_id not in post_filter_ids]
+            )
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
                 capture_pipeline_stage(
@@ -659,6 +686,7 @@ async def run_signal_pipeline(
         organization=organization,
         outputs=outputs,
         extra=extra,
+        record_processed_outputs=config.record_processed_outputs,
     )
     logger.info(f"Emitted {signals_emitted} signals for {source_label}", **extra)
     return {"status": "success", "signals_emitted": signals_emitted}

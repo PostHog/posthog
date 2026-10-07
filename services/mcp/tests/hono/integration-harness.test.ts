@@ -1,6 +1,9 @@
 import { createServer } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { getEnv } from '@/hono/constants'
+import { fetchAndExtractEntries } from '@/resources/internals'
+
 import { startHonoHarness } from '../integration/harness/hono'
 
 const { warmup } = vi.hoisted(() => ({ warmup: vi.fn() }))
@@ -20,7 +23,8 @@ vi.mock('@/hono/app', () => ({
     }),
 }))
 
-vi.mock('../integration/harness/skill-archive', () => ({
+vi.mock('../integration/harness/skill-archive', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../integration/harness/skill-archive')>()),
     startSkillArchiveServer: async () => ({ url: 'http://127.0.0.1/skills.zip', stop: async () => {} }),
 }))
 
@@ -36,6 +40,7 @@ describe('Hono integration harness', () => {
             vi.stubEnv('MCP_APPS_BASE_URL', '')
             vi.stubEnv('POSTHOG_API_BASE_URL', '')
             vi.stubEnv('POSTHOG_MCP_SKILLS_URL', '')
+            vi.stubEnv('POSTHOG_MCP_LOCAL_SKILLS_URL', '')
             let port = 0
             warmup.mockImplementationOnce(async () => {
                 port = Number(new URL(process.env.MCP_APPS_BASE_URL!).port)
@@ -45,6 +50,10 @@ describe('Hono integration harness', () => {
                     competitor.listen(port, '127.0.0.1', () => competitor.close(() => resolve(null)))
                 })
                 expect(error?.code).toBe('EADDRINUSE')
+                const contextMillUrl = getEnv().POSTHOG_MCP_LOCAL_SKILLS_URL
+                expect(contextMillUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//)
+                const entries = await fetchAndExtractEntries(contextMillUrl)
+                expect(entries.some((entry) => entry.uri.startsWith('posthog://'))).toBe(true)
                 if (fails) {
                     throw new Error('warmup failed')
                 }

@@ -132,7 +132,67 @@ Between the edit and that run, it shows no result for a metric whose fingerprint
 
 ### Triggers and the cold-start payload
 
-A recalc row records what caused it, in `trigger` (`Trigger` on the model). The set is more than a manual click: `MANUAL`, `AGENT_MCP`, `COLD_RUN`, `STALE_REFRESH`, `AUTO_REFRESH`, config-change triggers (`EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`), and experiment lifecycle triggers (`EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`). This lets the analytics and the UI tell a user click apart from an automatic refresh.
+A recalc row records what caused it, in `trigger` (`Trigger` on the model).
+The set is more than a manual click.
+User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+Server-side triggers: `AGENT_MCP` (set by the view from the client header), `TIMESERIES_SYNC` and `SCHEDULED` (written by their workflows).
+Deprecated values stay for old rows: `STALE_REFRESH`, `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
+`RequestTrigger` is the subset a client may send on POST; the request serializer rejects the rest.
+This lets the analytics and the UI tell a user click apart from an automatic heal.
+
+The trigger decides the window.
+`_resolve_query_to` reuses the latest terminal run's `query_to` for `METRIC_CONFIG_CHANGE`, `MANUAL_RETRY` and `HEAL_LATEST_RUN` (`_REUSE_WINDOW_TRIGGERS`), so the metrics that already have rows load from cache and only the missing or failed ones recompute.
+Every other trigger advances the window to now, so every metric recomputes.
+A window-reusing run keeps the current values on screen and shows a loading tag on the metrics it recomputes; a `cold_run` has nothing prior to keep.
+
+#### What the frontend sends, by the state of `latest`
+
+The frontend reads `GET /metrics_recalculation/latest` on page load and starts at most one run from it.
+It never heals a pending or in-progress run; it polls that run instead.
+
+| State of `latest`                                                     | Trigger                                        | Window   |
+| --------------------------------------------------------------------- | ---------------------------------------------- | -------- |
+| 404: no run and no timeseries point                                   | `cold_run`                                     | advances |
+| Timeseries fallback with a gap (`result_source: timeseries_fallback`) | `cold_run`                                     | advances |
+| Terminal run with a result row missing, and no error for that metric  | `heal_latest_run`                              | reuses   |
+| Terminal run with a failed metric whose error is retriable            | `heal_latest_run`                              | reuses   |
+| Terminal run with a failed metric whose error is not retriable        | nothing; the retry button sends `manual_retry` | reuses   |
+| Refresh button                                                        | `manual`                                       | advances |
+| Metric added or changed                                               | `metric_config_change`                         | reuses   |
+| Experiment config changed                                             | `experiment_config_change`                     | advances |
+
+A run that failed before discovery has no metrics and no anchored window.
+The frontend treats it as a gap and sends `heal_latest_run`; `_resolve_query_to` skips a run without `query_to`, so it reuses the newest earlier window, or advances when there is none, as a `cold_run` would.
+This is rare: Temporal retries the workflow before it reaches that state.
+
+```mermaid
+flowchart TD
+    latest[GET latest] --> status{status}
+    status -->|404| cold[cold_run]
+    status -->|pending or in_progress| poll[poll the active run]
+    status -->|terminal| source{result_source}
+    source -->|timeseries_fallback with a gap| cold
+    source -->|recalculation| gap{missing row or retriable failure?}
+    gap -->|yes| heal[heal_latest_run]
+    gap -->|no, non-retriable failure| retry[retry button sends manual_retry]
+    gap -->|no| done[show results]
+    classDef advance fill:#f54e00,stroke:#f54e00,color:#fff;
+    classDef reuse fill:#1d4aff,stroke:#1d4aff,color:#fff;
+    class cold advance;
+    class heal,retry reuse;
+```
+
+Red nodes advance the window; blue nodes reuse it.
+
+#### Retriable failures
+
+A metric's terminal failure lands in `metric_errors` as `{step, message, error_type, retriable, timestamp}`.
+`error_type` is the same taxonomy as the `experiment metric error` event (`classify_experiment_query_error`).
+`retriable` is the backend's own decision, not a frontend mapping of `error_type`: it is true when a transient error (`timeout`, `rate_limited`, `server_error`) used its final attempt, and false when the calc activity failed permanently (`validation_error`, `out_of_memory`, `byte_limit`, `insufficient_data`, a `ValueError`, or a discovery failure).
+A retriable failure reads as a gap, so the page load heals it; a non-retriable one waits for the user, because a new run with the same inputs fails the same way.
+An entry without the flag predates it and counts as non-retriable, so an old run never heals in a loop.
+
+#### The cold-start payload
 
 `TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `posthog/temporal/experiments/README.md`.
 
@@ -166,7 +226,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   Retries live in Temporal's `RetryPolicy` on the calc activity, not in the workflow. The policy is exponential: `initial_interval=5s`, `backoff_coefficient=2.0`, `maximum_interval=60s`, `maximum_attempts=MAX_METRIC_ATTEMPTS` (currently 8). So a metric backs off 5s, 10s, 20s, 40s, 60s, 60s, 60s across its retries, then the eighth attempt is final. `asyncio.gather(..., return_exceptions=True)` lets healthy metrics finish while a failing one retries; a retrying metric never blocks the others, because each activity retries on its own worker slot rather than holding a shared queue slot.
 
-  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the per-org ClickHouse concurrency limiter and the cluster at-capacity guard, is retried on a fixed 60s delay (`CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS`) via `ApplicationError(next_retry_delay=...)`, out-of-band from the exponential schedule, because that error means "come back later", not "this query is wrong".
+  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the per-org ClickHouse concurrency limiter and the cluster at-capacity guard, is retried after a random delay between 30s and 90s (`CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS` and `CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS`) via `ApplicationError(next_retry_delay=...)`, out-of-band from the exponential schedule, because that error means "come back later", not "this query is wrong". The random delay spreads out metrics that bounced in the same burst, so their retries do not arrive together and hit the same full concurrency limit again.
 
 - **`is_final_attempt` is derived inside the activity.** Because Temporal now owns retries, the activity reads its own attempt count from `activity.info().attempt` and compares it against `MAX_METRIC_ATTEMPTS` (the same constant the workflow's `RetryPolicy` is built from, so both sides agree on which attempt is last). The activity persists a transient failure (FAILED row + `metric_errors`) only on the final attempt, so a metric still being retried stays in its loading/dim state on the frontend instead of flashing an error that may yet resolve. Non-final transient state is tracked separately in the `metric_retries` column for the UI.
 

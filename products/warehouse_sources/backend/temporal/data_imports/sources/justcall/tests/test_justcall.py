@@ -130,6 +130,15 @@ class TestRequestParams:
         assert params[0]["order"] == "ASC"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_calls_ai_requests_justcall_platform_with_transcripts(self, MockSession):
+        session = MockSession.return_value
+        _, params = _run(session, [_response([{"id": 1}])], "calls_ai", _make_manager())
+
+        assert params[0]["per_page"] == 20
+        assert params[0]["platform"] == "justcall"
+        assert params[0]["fetch_transcription"] == "true"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_carries_from_datetime(self, MockSession):
         session = MockSession.return_value
         _, params = _run(
@@ -162,6 +171,18 @@ class TestPagination:
         assert session.send.call_count == 2
         assert params[0]["page"] == 0
         assert params[1]["page"] == 1
+
+    @pytest.mark.parametrize("endpoint, page_size", [("sales_dialer_campaigns", 50), ("calls_ai", 20)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_endpoint_page_size_cap_drives_short_page_detection(self, MockSession, endpoint, page_size):
+        # A full page at the endpoint's lower cap must not be read as the last page.
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(page_size)]
+        rows, params = _run(session, [_response(full_page), _response([{"id": page_size}])], endpoint, _make_manager())
+
+        assert len(rows) == page_size + 1
+        assert session.send.call_count == 2
+        assert params[0]["per_page"] == page_size
 
     @mock.patch(f"{JUSTCALL_MODULE}.PAGE_SIZE", 2)
     @mock.patch(CLIENT_SESSION_PATCH)

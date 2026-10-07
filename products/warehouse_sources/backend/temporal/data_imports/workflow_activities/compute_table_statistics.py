@@ -20,6 +20,7 @@ import json
 import uuid
 import dataclasses
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, localcontext
 from typing import Any
@@ -540,7 +541,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
-    delta_table_ref = DeltaTableRef(resource_name=resource_name, job=job, logger=log)
+    delta_table_ref = DeltaTableRef(
+        resource_name=resource_name, job=job, logger=log, expect_missing=schema.table_id is None
+    )
     delta_table = async_to_sync(delta_table_ref.get_delta_table)()
     if delta_table is None:
         emit_completed("skipped", reason="no_delta_table")
@@ -548,7 +551,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     delta_version = delta_table.version()
     stored_version = _most_recent_computed_version(existing, columns)
-    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # Delta versions are only monotonic within one incarnation (see decide_vacuum's identical
     # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
     # so a stored version ahead of the table's current one means the table was recreated since the
     # last computation. Treat that stored version as stale rather than a match, or a table whose
@@ -692,9 +695,15 @@ async def compute_table_statistics_activity(inputs: ComputeTableStatisticsInputs
     """Activity wrapper. Heartbeats and runs the (sync) computation off the event loop."""
     async with Heartbeater():
         try:
-            return await database_sync_to_async(compute_table_statistics_sync, thread_sensitive=False)(
-                inputs.team_id, inputs.schema_id
-            )
+            # The sync computation bridges back to async while opening the Delta table. Its own
+            # executor keeps the outer call from occupying the pool needed by that nested work.
+            executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="warehouse-table-statistics")
+            try:
+                return await database_sync_to_async(
+                    compute_table_statistics_sync, thread_sensitive=False, executor=executor
+                )(inputs.team_id, inputs.schema_id)
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         except Exception as e:
             # get_delta_table already re-raises known-transient object-store blips as
             # NonReportableError (see DeltaTableRef._capture_unless_transient) and intentionally

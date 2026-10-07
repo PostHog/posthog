@@ -497,7 +497,9 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             iconPath="/static/services/bigquery.png",
             caption=(
                 "Enter your BigQuery credentials to automatically pull your BigQuery data into the PostHog Data "
-                "warehouse. To send PostHog data to BigQuery instead, set up a batch export."
+                "warehouse. To send PostHog data to BigQuery instead, set up a batch export.\n\n"
+                "To use a service account, select **Choose Google Cloud service account connection**, then "
+                "**Configure new Google Cloud service account**. It shows which access to grant PostHog in Google Cloud."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/bigquery",
             fields=cast(

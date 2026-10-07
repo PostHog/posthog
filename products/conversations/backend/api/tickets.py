@@ -95,8 +95,9 @@ from products.conversations.backend.models import (
     TicketAssignment,
     TicketView,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.messages import ticket_message_type
 
 from .. import reply_dedupe
 
@@ -128,6 +129,18 @@ class TicketMessageSerializer(serializers.Serializer):
     """A single message in a ticket thread (output-only)."""
 
     id = serializers.UUIDField(read_only=True, help_text="Message (comment) UUID.")
+    message_type = serializers.ChoiceField(
+        choices=TicketMessageType.choices,
+        read_only=True,
+        help_text=(
+            "What the message is, and whether it was sent to the customer. "
+            "customer_message: written by the customer. "
+            "sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. "
+            "It does not confirm that the customer received it, because delivery can fail. "
+            "internal_note: a note for the team only. It was never sent to the customer. "
+            "ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer."
+        ),
+    )
     content = serializers.CharField(read_only=True, help_text="Plain-text message body.")
     rich_content = serializers.JSONField(read_only=True, allow_null=True, help_text="TipTap rich content JSON, if any.")
     author_type = serializers.CharField(read_only=True, help_text="One of: customer, support, AI.")
@@ -1494,6 +1507,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return {
             "id": comment.id,
+            "message_type": ticket_message_type(item_context, comment.created_by_id),
             "content": comment.content,
             "rich_content": comment.rich_content,
             "author_type": author_type,

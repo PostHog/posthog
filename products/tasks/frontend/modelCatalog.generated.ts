@@ -76,31 +76,47 @@ export interface CatalogModel {
     runtimeAdapter: RuntimeAdapter
     /** Empty for a model with no effort control: render no dropdown. */
     reasoningEfforts: readonly ReasoningEffort[]
-    /** What a picker shows. Resolved when this file is generated, so every
-        surface names a model the same way without carrying a formatter. */
+    /**
+     * What a picker shows. Resolved when this file is generated, so every
+     * surface names a model the same way without carrying a formatter.
+     */
     label: string
-    /** Feature flag a person needs before a picker offers this model. Absent
-        means generally available. Governs display only — the server decides
-        whether a run may use it. */
+    /**
+     * Feature flag a person needs before a picker offers this model. Absent
+     * means generally available. Governs display only — the server decides
+     * whether a run may use it.
+     */
     accessFlag?: string
-    /** Base list price in US dollars per million tokens. Absent for a model no
-        public price list covers, which a picker shows with no cost at all. */
+    /**
+     * Base list price in US dollars per million tokens. Absent for a model no
+     * public price list covers, which a picker shows with no cost at all.
+     */
     cost?: ModelCost
-    /** Per-token cost against Claude Sonnet 5, ready to render: `2.5×`,
-        `≈0.55×`, or `1× base`. Prefixed when input and output rates diverge
-        enough that one number flatters either. Absent whenever `cost` is. */
+    /**
+     * Per-token cost against Claude Sonnet 5, ready to render: `2.5×`,
+     * `≈0.55×`, or `1× base`. Prefixed when input and output rates diverge
+     * enough that one number flatters either. Absent whenever `cost` is.
+     */
     costMultiplier?: string
-    /** The rates behind the multiplier, ready to render. Absent whenever
-        `cost` is. */
+    /**
+     * The rates behind the multiplier, ready to render. Absent whenever
+     * `cost` is.
+     */
     costSummary?: string
-    /** Runs with the 1M-token context window. Absent means it does not, and a
-        picker offers no window choice. */
+    /**
+     * Runs with the 1M-token context window. Absent means it does not, and a
+     * picker offers no window choice.
+     */
     supports1MContext?: boolean
-    /** Runs in fast mode. Absent means it does not, and a picker offers no
-        fast-mode toggle. */
+    /**
+     * Runs in fast mode. Absent means it does not, and a picker offers no
+     * fast-mode toggle.
+     */
     supportsFastMode?: boolean
-    /** Superseded: no picker offers it, and a session already pinned to it
-        still runs and still reads its name and cost from here. */
+    /**
+     * Superseded: no picker offers it, and a session already pinned to it
+     * still runs and still reads its name and cost from here.
+     */
     retired?: boolean
 }
 
@@ -289,6 +305,19 @@ export const MODELS: readonly CatalogModel[] = [
         supports1MContext: true,
     },
     {
+        id: 'claude-sonnet-5-5',
+        runtimeAdapter: 'claude',
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        label: 'Claude Sonnet 5.5',
+        cost: {
+            inputPerMtok: 2,
+            outputPerMtok: 10,
+        },
+        costMultiplier: '1×',
+        costSummary: 'Input $2 · Output $10 per 1M tokens',
+        supports1MContext: true,
+    },
+    {
         id: 'claude-sonnet-5',
         runtimeAdapter: 'claude',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
@@ -426,8 +455,8 @@ export const MODELS: readonly CatalogModel[] = [
 
 /** The model a run uses when it pins none. */
 export const DEFAULT_MODEL_BY_RUNTIME_ADAPTER: ByRuntimeAdapter<string> = {
-    claude: 'claude-sonnet-5',
-    codex: 'gpt-5',
+    claude: 'claude-sonnet-5-5',
+    codex: 'gpt-6.1-sol',
 }
 
 export interface CapabilityNotch {
@@ -443,11 +472,11 @@ type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>
 export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
     claude: [
         {
-            model: 'claude-sonnet-5',
+            model: 'claude-sonnet-5-5',
             effort: 'medium',
         },
         {
-            model: 'claude-sonnet-5',
+            model: 'claude-sonnet-5-5',
             effort: 'high',
         },
         {

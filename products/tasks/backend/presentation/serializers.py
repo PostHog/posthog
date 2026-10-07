@@ -27,9 +27,11 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
+    ChannelContributorsDTO,
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
@@ -1505,6 +1507,8 @@ class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
     updated_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when last updated.")
 
 
+# drf-spectacular wraps a `list` action response in an array. This endpoint returns one envelope.
+@extend_schema_serializer(many=False)
 class TaskRunLivingArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskRunLivingArtifactResponseSerializer(many=True, help_text="Living artifacts for this task run.")
 
@@ -2198,6 +2202,28 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
     )
 
 
+TASK_PULL_REQUEST_TITLES_MAX_IDS = 30
+
+
+class TaskPullRequestTitlesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_PULL_REQUEST_TITLES_MAX_IDS,
+        help_text=f"Task IDs whose latest run's pull request titles to fetch (max {TASK_PULL_REQUEST_TITLES_MAX_IDS}).",
+    )
+
+
+class TaskPullRequestTitlesSerializer(serializers.Serializer):
+    titles = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub "
+            "could not return its title."
+        ),
+    )
+
+
 class TaskRunSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
@@ -2412,6 +2438,23 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
+
+
+class ChannelContributorsSerializer(DataclassSerializer):
+    """The people who own at least one task or canvas in a channel."""
+
+    channel = serializers.UUIDField(help_text="The channel these people worked in.")
+    people = TaskUserBasicInfoSerializer(
+        many=True,
+        help_text=(
+            "Everyone who owns at least one task or canvas in the channel, most recently active first. "
+            "Deleted tasks and canvases do not count."
+        ),
+    )
+
+    class Meta:
+        dataclass = ChannelContributorsDTO
+        fields = ["channel", "people"]
 
 
 class OnboardingSessionSerializer(serializers.Serializer):
@@ -4966,6 +5009,11 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
+    activity_started = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether this heartbeat marks new activity after the agent was idle, bypassing throttling.",
+    )
     turn_completed = serializers.BooleanField(
         required=False,
         default=True,
@@ -5104,6 +5152,20 @@ class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
     )
 
 
+class TasksAgentInstructionsSerializer(serializers.Serializer):
+    """Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs."""
+
+    agent_instructions = serializers.CharField(
+        allow_blank=True,
+        max_length=AGENT_INSTRUCTIONS_MAX_LENGTH,
+        trim_whitespace=False,
+        help_text=(
+            "Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way "
+            "a local agent reads AGENTS.md. Send an empty string to clear."
+        ),
+    )
+
+
 @extend_schema_serializer(many=False)
 class TasksTeamConfigResponseSerializer(serializers.Serializer):
     """Team-level tasks configuration."""
@@ -5111,9 +5173,41 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
     ai_run_preferences = TasksAIRunPreferencesSerializer(
         help_text="Project-wide default AI run triple; all fields null when unset."
     )
+    agent_instructions = serializers.CharField(
+        help_text=(
+            "Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous "
+            "runs such as scouts and loops. Empty when unset."
+        )
+    )
 
 
 @extend_schema_serializer(many=False)
+class TasksTaskDefaultsSerializer(serializers.Serializer):
+    """The requesting user's per-project task defaults, shared by PostHog Desktop and the web app."""
+
+    start_in_plan_mode = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "When true, new tasks start in plan mode: the agent makes a plan and waits for approval. "
+            "Null when you never set it."
+        ),
+    )
+    auto_publish_cloud_runs = serializers.BooleanField(
+        allow_null=True,
+        help_text="When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.",
+    )
+
+
+class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
+    """A partial update of the requesting user's task defaults. Fields left out keep their stored value."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.required = False
+            field.allow_null = False
+
+
 class TasksUserConfigResponseSerializer(serializers.Serializer):
     """The requesting user's per-project tasks configuration."""
 
@@ -5123,3 +5217,44 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     resolved_ai_run_defaults = TasksResolvedAIRunDefaultsSerializer(
         help_text="The defaults a new run will use when no explicit runtime selection is sent."
     )
+    agent_instructions = serializers.CharField(
+        help_text=(
+            "Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project "
+            "instructions. Anyone who continues a task you started can see them. Empty when unset."
+        )
+    )
+    task_defaults = TasksTaskDefaultsSerializer(
+        help_text="Your per-project defaults for new tasks. Unset defaults are false."
+    )
+
+
+class DesktopGatewayTokenRefusalSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    reason = serializers.CharField()
+    detail = serializers.CharField(required=False)
+    access = serializers.DictField(required=False)
+
+
+class DesktopGatewayTokenSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    token = serializers.CharField()
+    expires_at = serializers.CharField()
+    cap_usd = serializers.JSONField(allow_null=True)
+    gateway_url = serializers.CharField()
+    product = serializers.CharField()
+    team_id = serializers.IntegerField()
+    plan = serializers.CharField()
+    allowed_models = serializers.ListField(child=serializers.CharField())
+    product_models = serializers.ListField(child=serializers.CharField())
+
+
+class DesktopUsageSerializer(serializers.Serializer):
+    product = serializers.CharField()
+    user_id = serializers.IntegerField()
+    burst = serializers.JSONField()
+    sustained = serializers.JSONField()
+    ai_credits = serializers.JSONField()
+    is_rate_limited = serializers.BooleanField()
+    is_pro = serializers.BooleanField()
+    code_usage_subscribed = serializers.BooleanField()
+    billing_period_end = serializers.CharField(allow_null=True)

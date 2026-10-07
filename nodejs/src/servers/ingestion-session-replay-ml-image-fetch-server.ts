@@ -44,6 +44,7 @@ import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionrepl
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
+import { CaptureWatermark, capturedRecords } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { HealthCheckResultOk } from '~/types'
 
@@ -392,7 +393,22 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 return new HealthCheckResultOk()
             },
         })
-        await Promise.all(consumers.map((consumer, index) => consumer.connect(batchHandlers.handlers[index])))
+        const watermark = new CaptureWatermark('image_fetch')
+        await Promise.all(
+            consumers.map((consumer, index) =>
+                consumer.connect(
+                    (messages) => {
+                        watermark.hold(capturedRecords(messages, () => 'image_urls'))
+                        return batchHandlers.handlers[index](messages)
+                    },
+                    (partitions) => {
+                        watermark.forget(partitions)
+                        return Promise.resolve()
+                    },
+                    (offsets) => watermark.release(offsets)
+                )
+            )
+        )
     }
 
     protected getCleanupResources(): CleanupResources {

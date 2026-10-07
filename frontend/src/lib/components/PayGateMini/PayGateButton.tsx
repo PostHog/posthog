@@ -13,7 +13,7 @@ import type { payGateMiniLogicType } from './payGateMiniLogic'
 
 type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
-    'ctaLabel' | 'gateVariant' | 'productWithFeature'
+    'ctaLabel' | 'ctaDisabledReason' | 'gateVariant' | 'productWithFeature'
 > & {
     clickHandlerProps: Pick<LemonButtonProps, 'onClick' | 'to'>
 }
@@ -23,7 +23,7 @@ function usePayGateButton({
     currentUsage,
     onClick,
 }: PayGateMiniLogicProps & Pick<LemonButtonProps, 'onClick'>): UsePayGateButtonReturn {
-    const { productWithFeature, ctaLink, ctaLabel, gateVariant, isPaymentEntryFlow } = useValues(
+    const { productWithFeature, ctaLink, ctaLabel, ctaDisabledReason, gateVariant, isPaymentEntryFlow } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
@@ -45,6 +45,7 @@ function usePayGateButton({
     return {
         clickHandlerProps,
         ctaLabel,
+        ctaDisabledReason,
         gateVariant,
         productWithFeature,
     }
@@ -52,10 +53,20 @@ function usePayGateButton({
 
 type PayGateButtonProps = PayGateMiniLogicProps & Partial<LemonButtonProps>
 export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGateButtonProps): JSX.Element | null => {
-    const { clickHandlerProps, ctaLabel } = usePayGateButton({ feature, currentUsage, onClick: buttonProps.onClick })
+    const { clickHandlerProps, ctaLabel, ctaDisabledReason } = usePayGateButton({
+        feature,
+        currentUsage,
+        onClick: buttonProps.onClick,
+    })
 
     return (
-        <LemonButton type="primary" center {...buttonProps} {...clickHandlerProps}>
+        <LemonButton
+            type="primary"
+            center
+            {...buttonProps}
+            {...clickHandlerProps}
+            disabledReason={ctaDisabledReason || buttonProps.disabledReason}
+        >
             {ctaLabel}
         </LemonButton>
     )
@@ -69,7 +80,7 @@ export const PayGateIcon = ({
     disableAutoHide,
     ...buttonProps
 }: PayGateIconProps): JSX.Element | null => {
-    const { clickHandlerProps, ctaLabel, gateVariant, productWithFeature } = usePayGateButton({
+    const { clickHandlerProps, ctaLabel, ctaDisabledReason, gateVariant, productWithFeature } = usePayGateButton({
         feature,
         currentUsage,
         onClick: (ev) => {
@@ -99,6 +110,7 @@ export const PayGateIcon = ({
             tooltip={ctaLabel}
             {...buttonProps}
             {...clickHandlerProps}
+            disabledReason={ctaDisabledReason || buttonProps.disabledReason}
         />
     )
 }

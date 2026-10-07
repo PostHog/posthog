@@ -81,5 +81,15 @@ export function describeSearch(search: SandboxSearchApi): PlaygroundSearchLabel 
         const query = typeof args?.query === 'string' ? args.query : null
         return { title: 'Searched business knowledge', subtitle: query ?? (args ? null : search.input) }
     }
+    if (search.tool === SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesSearch) {
+        const query = typeof args?.query === 'string' ? args.query : null
+        return { title: 'Searched repositories', subtitle: query ?? (args ? null : search.input) }
+    }
+    if (search.tool === SandboxToolNameEnumApi.BusinessKnowledgeRepositoriesFileRetrieve) {
+        const repo = typeof args?.repo === 'string' ? args.repo : ''
+        const filePath = typeof args?.path === 'string' ? args.path : ''
+        const subtitle = repo && filePath ? `${repo}/${filePath}` : null
+        return { title: 'Read file', subtitle: subtitle ?? (args ? null : search.input) }
+    }
     return { title: 'Read document context', subtitle: args ? null : search.input }
 }

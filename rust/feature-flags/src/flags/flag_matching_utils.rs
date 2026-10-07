@@ -12,6 +12,7 @@ use tokio_retry::{
 use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, pool_names, PostgresRouter,
 };
+use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use common_database::{PostgresReader, PostgresWriter};
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
@@ -100,6 +101,7 @@ static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
         ("epik", "$initial_epik"),
         ("qclid", "$initial_qclid"),
         ("sccid", "$initial_sccid"),
+        ("oppref", "$initial_oppref"),
         ("irclid", "$initial_irclid"),
         ("_kx", "$initial__kx"),
     ])
@@ -601,7 +603,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let (person_cohort, group) = tokio::try_join!(
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
             fetch_group_properties(&reader, team_id, group_type_to_key),
-        )?;
+        )
+        .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         // Mark every requested index as fetched, not just the ones the query returned a
@@ -617,7 +620,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     } else {
         let person_cohort =
-            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids)
+                .await
+                .inspect_err(|e| track_unretried_db_error(e, db_operations::FETCH_PROPERTIES))?;
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
@@ -739,6 +744,23 @@ fn track_db_error(error_type: &str, timeout_subtype: Option<&str>, operation: &s
     }
 
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
+}
+
+pub(crate) fn track_unretried_db_error(error: &FlagError, operation: &str) {
+    if let Some((error_type, timeout_subtype)) = classify_db_error(error) {
+        track_db_error(error_type, timeout_subtype, operation, false);
+    }
+}
+
+/// `operation` label values for persons DB calls. The deadline wrapper in `flag_matching.rs`
+/// and the call itself both count errors in `flags_database_error_total` under this label.
+/// A mismatched literal splits one operation's errors into two series and fails nothing.
+pub(crate) mod db_operations {
+    pub const SHOULD_WRITE_HASH_KEY_OVERRIDE: &str = "should_write_hash_key_override";
+    pub const SET_HASH_KEY_OVERRIDES: &str = "set_hash_key_overrides";
+    pub const GET_HASH_KEY_OVERRIDES: &str = "get_hash_key_overrides";
+    pub const FETCH_PROPERTIES: &str = "fetch_properties";
+    pub const FETCH_GROUP_TYPE_MAPPING: &str = "fetch_group_type_mapping";
 }
 
 /// Records `flags_hash_key_retries_total` and the `retried` label on `flags_database_error_total`
@@ -918,7 +940,7 @@ pub async fn get_feature_flag_hash_key_overrides(
 
     retry_hash_key_call(
         team_id,
-        "get_hash_key_overrides",
+        db_operations::GET_HASH_KEY_OVERRIDES,
         retry_delays,
         || {
             try_get_feature_flag_hash_key_overrides(
@@ -1103,7 +1125,9 @@ async fn fetch_override_rows(
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<Vec<PgRow>, FlagError> {
-    // Get person data and their hash key overrides in one query
+    // Get person data and their hash key overrides in one query.
+    // Every cookieless visitor shares the sentinel, so a stored sentinel would give all of them
+    // the same variant. The join skips those rows and still keeps the person row.
     let hash_override_query = r#"
             SELECT
                 ppd.person_id,
@@ -1114,6 +1138,7 @@ async fn fetch_override_rows(
             LEFT JOIN posthog_featureflaghashkeyoverride fhko
                 ON fhko.person_id = ppd.person_id
                 AND fhko.team_id = ppd.team_id
+                AND fhko.hash_key <> $3
             WHERE ppd.team_id = $1
                 AND ppd.distinct_id = ANY($2)
                 AND ppd.is_deleted = false
@@ -1122,10 +1147,28 @@ async fn fetch_override_rows(
     sqlx::query(hash_override_query)
         .bind(team_id)
         .bind(distinct_id_and_hash_key_override)
+        .bind(COOKIELESS_SENTINEL_VALUE)
         .fetch_all(&mut *conn)
         .await
         .map_err(FlagError::from)
 }
+
+/// The write check and the write both run this query, so they agree on which overrides exist.
+/// A stored cookieless sentinel does not count as an override, so the bulk insert replaces it
+/// with a real key.
+const PERSONS_WITH_EXISTING_OVERRIDES_QUERY: &str = r#"
+    SELECT DISTINCT
+        p.person_id,
+        existing.feature_flag_key
+    FROM posthog_persondistinctid p
+    LEFT JOIN posthog_featureflaghashkeyoverride existing
+        ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+        AND existing.hash_key <> $3
+    WHERE p.team_id = $1
+        AND p.distinct_id = ANY($2)
+        AND p.is_deleted = false
+        AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
+"#;
 
 /// Asks the primary whether any override exists for these distinct IDs.
 async fn primary_has_override(
@@ -1165,7 +1208,7 @@ pub async fn set_feature_flag_hash_key_overrides(
 
     retry_hash_key_call(
         team_id,
-        "set_hash_key_overrides",
+        db_operations::SET_HASH_KEY_OVERRIDES,
         retry_delays,
         || {
             try_set_feature_flag_hash_key_overrides(
@@ -1215,19 +1258,6 @@ async fn try_set_feature_flag_hash_key_overrides(
         .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
-    let person_data_query = r#"
-            SELECT DISTINCT
-                p.person_id,
-                p.distinct_id,
-                existing.feature_flag_key
-            FROM posthog_persondistinctid p
-            LEFT JOIN posthog_featureflaghashkeyoverride existing
-                ON existing.person_id = p.person_id AND existing.team_id = p.team_id
-            WHERE p.team_id = $1
-                AND p.distinct_id = ANY($2)
-                AND p.is_deleted = false
-                AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
-        "#;
 
     // Query 2: Get all active feature flags with experience continuity (non-person pool)
     let flags_query = r#"
@@ -1241,11 +1271,15 @@ async fn try_set_feature_flag_hash_key_overrides(
         "#;
 
     // Query 3: Bulk insert hash key overrides (person pool)
+    // A stored sentinel is not a real continuity key, so this replaces it. Any other stored
+    // key is one the person bucketed on, so it stays.
     let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT $1, person_id, flag_key, $2
             FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+                SET hash_key = EXCLUDED.hash_key
+                WHERE posthog_featureflaghashkeyoverride.hash_key = $5
         "#;
 
     let result: Result<u64, FlagError> = async {
@@ -1257,7 +1291,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
@@ -1265,9 +1299,10 @@ async fn try_set_feature_flag_hash_key_overrides(
         let person_query_start = Instant::now();
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-        let person_data_rows = sqlx::query(person_data_query)
+        let person_data_rows = sqlx::query(PERSONS_WITH_EXISTING_OVERRIDES_QUERY)
             .bind(team_id)
             .bind(distinct_ids)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .fetch_all(&mut *transaction)
             .await
             .map_err(FlagError::from)?;
@@ -1316,7 +1351,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
             pool_names::NON_PERSONS_READER,
-            "set_hash_key_overrides",
+            db_operations::SET_HASH_KEY_OVERRIDES,
         )
         .await
         .map_err(FlagError::from)?;
@@ -1328,7 +1363,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             (
                 "pool".to_string(),
@@ -1396,7 +1431,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             ("query".to_string(), "bulk_insert_overrides".to_string()),
             (
                 "operation".to_string(),
-                "set_hash_key_overrides".to_string(),
+                db_operations::SET_HASH_KEY_OVERRIDES.to_string(),
             ),
             ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
@@ -1408,6 +1443,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             .bind(hash_key_override)
             .bind(&person_ids_to_insert)
             .bind(&flag_keys_to_insert)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .execute(&mut *transaction)
             .await
             .map_err(FlagError::from)?;
@@ -1473,7 +1509,7 @@ pub async fn should_write_hash_key_override(
 
     retry_hash_key_call(
         team_id,
-        "should_write_hash_key_override",
+        db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE,
         retry_delays,
         || try_should_write_hash_key_override(router, team_id, &distinct_ids),
         |_| {},
@@ -1489,18 +1525,6 @@ async fn try_should_write_hash_key_override(
     distinct_ids: &[String],
 ) -> Result<bool, FlagError> {
     // Query 1: Get person_ids and existing overrides from person pool in one shot
-    let person_data_query = r#"
-        SELECT DISTINCT
-            p.person_id,
-            existing.feature_flag_key
-        FROM posthog_persondistinctid p
-        LEFT JOIN posthog_featureflaghashkeyoverride existing
-            ON existing.person_id = p.person_id AND existing.team_id = p.team_id
-        WHERE p.team_id = $1
-            AND p.distinct_id = ANY($2)
-            AND p.is_deleted = false
-            AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
-    "#;
 
     // Query 2: Get feature flags from non-person pool
     let flags_query = r#"
@@ -1569,9 +1593,10 @@ async fn try_should_write_hash_key_override(
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
-        let person_data_rows = sqlx::query(person_data_query)
+        let person_data_rows = sqlx::query(PERSONS_WITH_EXISTING_OVERRIDES_QUERY)
             .bind(team_id)
             .bind(distinct_ids)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .fetch_all(&mut *persons_conn)
             .await
             .map_err(|e| {
@@ -1588,7 +1613,7 @@ async fn try_should_write_hash_key_override(
                             ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
                             (
                                 "operation".to_string(),
-                                "should_write_hash_key_override".to_string(),
+                                db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
                             ),
                         ],
                         1,
@@ -1676,7 +1701,7 @@ async fn try_should_write_hash_key_override(
                             ),
                             (
                                 "operation".to_string(),
-                                "should_write_hash_key_override".to_string(),
+                                db_operations::SHOULD_WRITE_HASH_KEY_OVERRIDE.to_string(),
                             ),
                         ],
                         1,
@@ -2391,13 +2416,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(false, false, false)]
-    #[case(true, false, false)]
-    #[case(true, true, true)]
+    #[case(false, None, false)]
+    #[case(true, None, false)]
+    #[case(true, Some("replica_check_hash_key"), true)]
+    #[case(true, Some(COOKIELESS_SENTINEL_VALUE), false)]
     #[tokio::test]
     async fn test_primary_has_override_reports_only_a_real_override(
         #[case] person_exists: bool,
-        #[case] override_set: bool,
+        #[case] stored_hash_key: Option<&str>,
         #[case] expected: bool,
     ) {
         let context = TestContext::new(None).await;
@@ -2411,7 +2437,7 @@ mod tests {
                 .unwrap();
         }
 
-        if override_set {
+        if let Some(stored_hash_key) = stored_hash_key {
             let flag = mock!(FeatureFlag,
                 team_id: team.id,
                 filters: FlagFilters {
@@ -2428,7 +2454,7 @@ mod tests {
                 &router,
                 team.id,
                 vec![distinct_id.clone()],
-                "replica_check_hash_key".to_string(),
+                stored_hash_key.to_string(),
             )
             .await
             .unwrap();

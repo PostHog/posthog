@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MongoResumeConfig,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -149,7 +151,7 @@ _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 
 @SourceRegistry.register
-class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
+class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
@@ -157,7 +159,6 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
-            "The DNS query name does not exist": None,
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
@@ -206,6 +207,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # match the marker rather than the topology suffix, which a reachable-but-down cluster
             # emits too. A name that does not resolve stays unresolved until the user fixes it.
             **dict.fromkeys(_DNS_NAME_NOT_FOUND_MARKERS, _MONGO_HOST_UNRESOLVED_MESSAGE),
+            # The same answer for a mongodb+srv:// URI, whose SRV lookup fails before pymongo picks a
+            # server. The raw dnspython text echoes the cluster host, so it never reaches the customer.
+            _SRV_DNS_NAME_NOT_FOUND_MARKER: _MONGO_HOST_UNRESOLVED_MESSAGE,
             # pymongo removes every server whose replica set name differs from the `replicaSet` the
             # connection string asks for, which empties the topology and names the set rather than a
             # host in the selection error. A cluster that is merely down keeps its servers as Unknown
@@ -442,7 +446,29 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
         return get_mongo_server_metadata(config.connection_string, team_id)
 
-    def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from
+        # its watermark, so it keeps the incremental retry budget.
+        return not incremental_or_append
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MongoResumeConfig]:
+        return ResumableSourceManager[MongoResumeConfig](inputs, MongoResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MongoDBSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MongoResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset's first attempt must read from the beginning. Later activity attempts share this
+        # run's checkpoint and destination, so preserve the progress the failed attempt committed.
+        if inputs.reset_pipeline and inputs.activity_attempt == 1:
+            resumable_source_manager.clear_state()
         return mongo_source(
             connection_string=config.connection_string,
             collection_name=inputs.schema_name,
@@ -453,6 +479,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             team_id=inputs.team_id,
             database_name=config.database_name,
+            resumable_source_manager=resumable_source_manager,
         )
 
     @property

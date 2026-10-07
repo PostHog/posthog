@@ -31,17 +31,20 @@ export interface ReportCheckRowData {
     cancellable: boolean
 }
 
-/** A soak window in the words the copy needs: "7 days", "36 hours", "90 minutes". */
+/** A soak window in the words the copy needs: "7 days", "1 day 12 hours", "2 hours", "45 minutes". */
 function soakLabel(minutes: number): string {
-    if (minutes % 1440 === 0) {
-        const days = minutes / 1440
-        return `${days} ${days === 1 ? 'day' : 'days'}`
+    const plural = (n: number, unit: string): string => `${n} ${n === 1 ? unit : `${unit}s`}`
+    if (minutes < 60) {
+        return plural(minutes, 'minute')
     }
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60
-        return `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+    // Soaks the scout proposes are rarely whole hours, and a raw minute count is hard to read.
+    const totalHours = Math.round(minutes / 60)
+    if (totalHours < 24) {
+        return plural(totalHours, 'hour')
     }
-    return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`
+    const days = Math.floor(totalHours / 24)
+    const hours = totalHours % 24
+    return hours ? `${plural(days, 'day')} ${plural(hours, 'hour')}` : plural(days, 'day')
 }
 
 /** Which scout answers an `agent` check. A `metric_threshold` check has no lane: the coordinator measures it. */
@@ -90,7 +93,7 @@ function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'ta
 
     if (check.status === 'pending') {
         const start = check.soak_minutes
-            ? `Starts ${soakLabel(check.soak_minutes)} after this report is resolved`
+            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
     }
@@ -127,6 +130,8 @@ function terminalCheckRow(
                 tag: { label: "Couldn't measure", type: 'warning' },
                 detail: joinDetail([`Gave up after ${check.consecutive_errors} tries`, ranOn, explanation]),
             }
+        case 'inconclusive':
+            return { tag: { label: 'Inconclusive', type: 'warning' }, detail: joinDetail([ranOn, explanation]) }
         case 'cancelled':
             return { tag: { label: 'Cancelled', type: 'muted' }, detail: `Stopped ${shortDate(check.updated_at)}` }
     }
@@ -256,6 +261,7 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     stopped_by_person: 'Stopped from the report before it could settle',
     stopped_by_scout: 'A scout run stopped it before it could settle',
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
+    replaced_by_request: 'Replaced on request by a revised check',
 }
 
 /**
@@ -268,11 +274,16 @@ export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecy
 
     if (content.arms_on_resolve) {
         const start = content.soak_minutes
-            ? `Starts ${soakLabel(content.soak_minutes)} after this report is resolved`
+            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
             : 'Starts when this report is resolved'
         return {
             tag: { label: 'Waiting for resolve', type: 'muted' },
-            detail: joinDetail([start, lane, runs]),
+            detail: joinDetail([
+                start,
+                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                lane,
+                runs,
+            ]),
         }
     }
 

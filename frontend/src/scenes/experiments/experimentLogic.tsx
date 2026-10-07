@@ -85,6 +85,15 @@ import {
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
+    type ExperimentHealthFinding,
+    type ExperimentHealthFindingActionKind,
+    type ExperimentHealthFindingOpenKind,
+    captureExperimentHealthFindingActedOn,
+    captureExperimentHealthFindingOpened,
+    captureExperimentHealthFindingShown,
+    exposureHealthEventProperties,
+} from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
     legacyRecommendedExposureForCountData,
@@ -179,9 +188,10 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
-// narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
-const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
+// Triggers that kick off a metrics recalculation. Each is also a valid ExperimentMetricsRecalculationRequestTriggerEnumApi
+// value, so a narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere;
+// auto_refresh is analytics-only and the API rejects it.
+const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change'] as const
 
 const isRecalculationTrigger = (
     triggeredBy: ExperimentTriggeredBy
@@ -475,6 +485,7 @@ export interface experimentLogicValues {
     excludedVariants: string[]
     experiment: Experiment
     experimentId: Experiment['id']
+    experimentLoadCount: number
     experimentLoading: boolean
     experimentMissing: boolean
     experimentUpdate: Experiment | null
@@ -928,6 +939,23 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthFindingActedOn: (
+        finding: ExperimentHealthFinding,
+        actionKind: ExperimentHealthFindingActionKind
+    ) => {
+        actionKind: ExperimentHealthFindingActionKind
+        finding: ExperimentHealthFinding
+    }
+    reportHealthFindingOpened: (
+        finding: ExperimentHealthFinding,
+        openKind: ExperimentHealthFindingOpenKind
+    ) => {
+        finding: ExperimentHealthFinding
+        openKind: ExperimentHealthFindingOpenKind
+    }
+    reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
+        finding: ExperimentHealthFinding
+    }
     resetRunningExperiment: () => {
         value: true
     }
@@ -1367,6 +1395,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_triggered_by?: string | null
             }
         ) => ({ experiment, forceRefresh, context }),
+        reportHealthFindingShown: (finding: ExperimentHealthFinding) => ({ finding }),
+        reportHealthFindingOpened: (finding: ExperimentHealthFinding, openKind: ExperimentHealthFindingOpenKind) => ({
+            finding,
+            openKind,
+        }),
+        reportHealthFindingActedOn: (
+            finding: ExperimentHealthFinding,
+            actionKind: ExperimentHealthFindingActionKind
+        ) => ({ finding, actionKind }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1602,6 +1639,15 @@ export const experimentLogic = kea<experimentLogicType>([
             false,
             {
                 toggleDebugPanel: (state) => !state,
+            },
+        ],
+        // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
+        // without the finding's event does not mean that the finding is gone: only the flag-state
+        // banner renders on every tab. `experiment results refresh completed` holds the state per load.
+        experimentLoadCount: [
+            0,
+            {
+                loadExperimentSuccess: (state) => state + 1,
             },
         ],
         currentRefresh: [
@@ -2231,6 +2277,26 @@ export const experimentLogic = kea<experimentLogicType>([
                 previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
             })
         },
+        reportHealthFindingShown: ({ finding }) => {
+            // The page remounts its warnings within one load, for example on a tab change or after
+            // a save, and each mount reports again.
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            cache.shownHealthFindingKeys ??= new Set<string>()
+            if (cache.shownHealthFindingKeys.has(key)) {
+                return
+            }
+            cache.shownHealthFindingKeys.add(key)
+            captureExperimentHealthFindingShown(values.experiment, finding)
+        },
+        reportHealthFindingOpened: ({ finding, openKind }) => {
+            // Zero exposures has no sign in the collapsed panel, so the reader opens it before the
+            // page reports it. Report "shown" first to keep the order of the two events.
+            actions.reportHealthFindingShown(finding)
+            captureExperimentHealthFindingOpened(values.experiment, finding, openKind)
+        },
+        reportHealthFindingActedOn: ({ finding, actionKind }) => {
+            captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
+        },
         beforeUnmount: () => {
             clearTimeout(cache.notificationOfferTimer)
         },
@@ -2545,6 +2611,10 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        ...exposureHealthEventProperties(
+                            values.exposures,
+                            values.exposureCriteria?.multiple_variant_handling
+                        ),
                     })
 
                     const finalState: FinishedRefreshState = caughtError

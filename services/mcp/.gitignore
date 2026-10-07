@@ -27,4 +27,4 @@ dist/
 public/ui-apps/
 
 # Copied instruction references (from products/posthog_ai)
-shared/
+/shared/

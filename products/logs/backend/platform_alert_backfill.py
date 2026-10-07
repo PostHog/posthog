@@ -11,8 +11,8 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.facade.contracts import PlatformAlertUpsert, SourceKind
-from products.alerts.backend.facade.platform_alerts import upsert_configuration
+from products.alerts_platform.backend.facade.api import upsert_configuration
+from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)

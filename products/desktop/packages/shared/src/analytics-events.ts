@@ -1,8 +1,8 @@
 // Analytics event types and properties
 
-import type { Adapter, ModelAccess } from "./adapter";
-import type { EffortLevel } from "./domain-types";
-import type { SourceProduct } from "./inbox-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
+import type { SourceProduct } from "@posthog/agent-contracts/inbox-types";
 
 export interface PromptHistoryOpenedProperties {
   entry_count: number;
@@ -144,6 +144,7 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
+  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {
@@ -1624,6 +1625,7 @@ export interface AnnouncementProperties {
 export interface EvidencePreviewShownProperties {
   kind: string;
   cache: "hit" | "miss";
+  reference_source: "link" | "tag";
 }
 
 export interface EvidencePreviewReadyProperties {

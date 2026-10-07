@@ -234,7 +234,7 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * @summary Create a private account view
+ * @summary Create a personal account view
  */
 export const accountViewsCreateBodyNameMax = 400
 
@@ -319,10 +319,12 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Replacement account view components. Omit to keep current content.'),
     visibility: zod
-        .enum(['private'])
-        .describe('\* `private` - Personal')
+        .enum(['private', 'team'])
+        .describe('\* `private` - Personal\n\* `team` - Team')
         .optional()
-        .describe('Views can only be private.\n\n\* `private` - Personal'),
+        .describe(
+            'New visibility. Only the creator or a project admin can change it.\n\n\* `private` - Personal\n\* `team` - Team'
+        ),
     version: zod.number().min(1).describe('Version returned by the last read.'),
 })
 
@@ -574,8 +576,17 @@ export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+export const announcementsCreateBodySendAsDefault = `bot`
+
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    send_as: zod
+        .enum(['bot', 'user'])
+        .describe('\* `bot` - SupportHog\n\* `user` - The person who created it')
+        .default(announcementsCreateBodySendAsDefault)
+        .describe(
+            "Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).\n\n\* `bot` - SupportHog\n\* `user` - The person who created it"
+        ),
     channels: zod
         .array(zod.string())
         .describe(
@@ -1902,4 +1913,15 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .describe(
             'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
+    account_detail_tabs: zod
+        .object({
+            ordered_tab_ids: zod.array(zod.string()).describe("Tab identifiers in the user's preferred order."),
+            hidden_tab_ids: zod.array(zod.string()).describe('Tab identifiers hidden from the tab strip.'),
+            default_tab_id: zod
+                .string()
+                .nullable()
+                .describe('Tab identifier opened by default. Null uses the first available system tab.'),
+        })
+        .optional()
+        .describe('Complete personal account tab configuration. Omit to keep it unchanged.'),
 })

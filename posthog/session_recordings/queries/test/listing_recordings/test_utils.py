@@ -35,6 +35,7 @@ def filter_recordings_by(
     recordings_filter: dict | None = None,
     allow_event_property_expansion: bool = False,
     user: User | None = None,
+    allow_combined_event_filters: bool = False,
 ) -> SessionRecordingQueryResult:
     the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
     session_recording_list_instance = SessionRecordingListFromQuery(
@@ -43,6 +44,7 @@ def filter_recordings_by(
         hogql_query_modifiers=None,
         allow_event_property_expansion=allow_event_property_expansion,
         user=user,
+        allow_combined_event_filters=allow_combined_event_filters,
     )
     return session_recording_list_instance.run()
 

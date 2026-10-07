@@ -261,8 +261,8 @@ class WidgetSnapshots:
             self.authorize_run(run)
 
     def describe(self, snapshot: NotebookWidgetSnapshot) -> dict[str, Any]:
-        from products.canvas.backend import (
-            notebook_integration as canvas_facade,  # noqa: PLC0415 — keeps Canvas off startup
+        from products.canvas.backend.facade import (
+            notebooks as canvas_facade,  # noqa: PLC0415 — keeps Canvas off startup
         )
 
         try:

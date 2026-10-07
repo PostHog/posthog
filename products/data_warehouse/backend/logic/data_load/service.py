@@ -26,6 +26,7 @@ from temporalio.client import (
 from temporalio.common import RetryPolicy
 
 from posthog.ph_client import feature_enabled_or_false
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -159,12 +160,14 @@ def sync_external_data_job_workflow(
     create: bool = False,
     should_sync: bool = True,
     trigger_immediately: bool = True,
+    keep_paused: bool = False,
 ) -> ExternalDataSchema:
     """Create or update the schema's Temporal schedule.
 
     Runs fired through the schedule use its stored action, whose `billable` is always True,
     so callers that must not bill (e.g. admin recovery) pass trigger_immediately=False and
-    start their own ad-hoc run if one is needed.
+    start their own ad-hoc run if one is needed. `keep_paused` makes an update leave an existing
+    pause in place, whatever `should_sync` says.
     """
     temporal = sync_connect()
 
@@ -180,7 +183,7 @@ def sync_external_data_job_workflow(
             if trigger_immediately:
                 trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
-        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, keep_paused=keep_paused)
 
     return external_data_schema
 
@@ -508,7 +511,7 @@ def get_cdc_extraction_schedule(
     )
 
     spec = ScheduleSpec(
-        intervals=[ScheduleIntervalSpec(every=min_interval)],
+        intervals=[ScheduleIntervalSpec(every=min_interval, offset=deterministic_offset(str(source.id), min_interval))],
     )
 
     return Schedule(
@@ -872,7 +875,10 @@ def ensure_cdc_slot_cleanup_schedule() -> None:
 
     schedule = Schedule(
         action=action,
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=1), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         state=ScheduleState(note="Global CDC slot orphan cleanup and WAL lag monitor"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

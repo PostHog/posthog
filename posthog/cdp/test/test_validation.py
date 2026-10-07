@@ -1134,6 +1134,9 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         for template in (
             "{arrayMap(a -> { let b := a return b }, [1])}",
             "{arrayMap(tryBase64Decode, event.properties.ids)}",
+            "{lower(event.event)}",
+            "{sortableSemver(event.properties.version)}",
+            "{print(event.event)}",
         ):
             assert generate_template_bytecode(template, set(), function_type="destination"), template
 
@@ -1166,6 +1169,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         with self.assertRaises(Exception) as ctx:
             generate_template_bytecode("{arrayMap(max2, [1, 2])}", set(), function_type="destination")
         assert "Variable not available in inputs: max2" in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            ("unknown_everywhere", "{splitByChar(',', event.properties.domain)}", "splitByChar is not a function"),
+            ("python_only", "{max2(1, 2)}", "max2 is not a function"),
+            ("inside_a_branch", "{if(event.properties.x, intDiv(4, 2), 0)}", "intDiv is not a function"),
+            ("wrong_argument_count", "{lower()}", "lower needs at least 1 argument(s), got 0"),
+            ("core_async_function", "{fetch('https://example.com')}", "fetch is not a function"),
+            ("product_async_function", "{postHogGetTicket('1')}", "postHogGetTicket is not a function"),
+        ]
+    )
+    def test_destination_templates_refuse_calls_the_node_vm_cannot_make(self, _name, template, message):
+        with self.assertRaises(Exception) as ctx:
+            generate_template_bytecode(template, set(), function_type="destination")
+        assert message in str(ctx.exception)
 
     def test_destination_templates_skip_the_globals_check_when_the_function_stays_off(self):
         with self.assertRaises(Exception):

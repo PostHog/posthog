@@ -2,8 +2,9 @@ import { dayjs } from 'lib/dayjs'
 
 import { ConversationDetail } from '~/types'
 
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskActivityDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { TodayListItemField } from './todayListAppearance'
 import {
     DEFAULT_RECENT_FILTERS,
     TodayRecentFilters,
@@ -18,8 +19,11 @@ import {
     canHandOff,
     chatItem,
     groupByDay,
+    sessionBadges,
+    sessionDetails,
     sessionItem,
     shortTimeAgo,
+    unreadSessionCountsBySpace,
 } from './todayWorkItems'
 
 const session = (id: string, lastActivityAt: string, archived = false): TaskListItemApi =>
@@ -27,6 +31,19 @@ const session = (id: string, lastActivityAt: string, archived = false): TaskList
 
 const chat = (id: string, updatedAt: string): ConversationDetail =>
     ({ id, title: `Chat ${id}`, updated_at: updatedAt, created_at: updatedAt }) as ConversationDetail
+
+const activity = (
+    taskId: string | null,
+    channelId: string | null,
+    overrides: Partial<TaskActivityDTOApi> = {}
+): TaskActivityDTOApi =>
+    ({
+        id: `${taskId}-${overrides.latest_comment_id ?? 'run'}`,
+        task_id: taskId,
+        channel_id: channelId,
+        is_unread: true,
+        ...overrides,
+    }) as TaskActivityDTOApi
 
 const ME = 7
 
@@ -36,12 +53,14 @@ const mixedItems = [
         title: 'Fix Login',
         origin_product: 'user_created',
         created_by: { id: ME },
+        latest_run: { environment: 'cloud' },
     } as TaskListItemApi),
     sessionItem({
         id: 'theirs',
         title: 'Triage',
         origin_product: 'error_tracking',
         created_by: { id: 8 },
+        latest_run: { environment: 'local' },
     } as TaskListItemApi),
     sessionItem({ id: 'orphan', title: 'Old login', origin_product: 'slack', created_by: null } as TaskListItemApi),
     chatItem({ id: 'chat', title: 'Login funnel', user: { id: ME } } as ConversationDetail),
@@ -117,8 +136,20 @@ describe('todayWorkItems', () => {
         ['created by others skips a deleted creator', '', { createdBy: 'others' }, ['theirs']],
         ['source matches chats as PostHog AI', '', { sources: ['posthog_ai', 'slack'] }, ['orphan', 'chat']],
         ['search and filters combine', 'login', { createdBy: 'me', sources: ['user_created'] }, ['mine']],
+        ['unread keeps unread sessions only', '', { status: 'unread' }, ['theirs']],
+        ['pinned only keeps pinned sessions', '', { pinned: 'pinned' }, ['orphan']],
+        ['an environment skips chats and sessions that never ran', '', { environment: 'cloud' }, ['mine']],
     ])('filters recent items: %s', (_name, query, filters, ids) => {
-        const items = filterRecentItems(mixedItems, query, { ...DEFAULT_RECENT_FILTERS, ...filters }, ME)
+        const items = filterRecentItems(
+            mixedItems,
+            query,
+            { ...DEFAULT_RECENT_FILTERS, ...filters },
+            {
+                userId: ME,
+                unreadIds: new Set(['theirs']),
+                pinnedIds: new Set(['orphan']),
+            }
+        )
 
         expect(items.map((item) => item.id)).toEqual(ids)
     })
@@ -192,5 +223,159 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(activeCloudRunId(item)).toBe(runId)
+    })
+
+    it.each<[string, string, string, Record<string, unknown>, Record<string, unknown>, boolean, string[]]>([
+        [
+            'the Slack source before the pull request',
+            'slack',
+            'cloud',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            {},
+            false,
+            ['source:slack', 'pullRequest'],
+        ],
+        ['the source of another product', 'error_tracking', 'cloud', {}, {}, false, ['source:error_tracking']],
+        ['nothing for a session someone started', 'user_created', 'cloud', {}, {}, false, []],
+        ['Local when nothing else shows', 'user_created', 'local', {}, {}, false, ['local']],
+        [
+            'only the pull request for a local run that has one',
+            'user_created',
+            'local',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            {},
+            false,
+            ['pullRequest'],
+        ],
+        [
+            'the live face of someone else working on it, before Local',
+            'user_created',
+            'local',
+            {},
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T11:59:00Z' },
+            false,
+            ['author:live', 'local'],
+        ],
+        [
+            'no face on your own session',
+            'user_created',
+            'cloud',
+            {},
+            { created_by: { id: ME, email: 'me@example.com' }, last_activity_at: '2026-03-10T11:59:00Z' },
+            false,
+            [],
+        ],
+        [
+            'no face once the other person has gone quiet',
+            'user_created',
+            'cloud',
+            {},
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T09:00:00Z' },
+            false,
+            [],
+        ],
+        [
+            'the recent face, without the source when the pin would make four',
+            'slack',
+            'cloud',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T11:00:00Z' },
+            true,
+            ['author:recent', 'pullRequest'],
+        ],
+    ])('shows %s as session badges', (_name, origin, environment, output, overrides, pinned, expected) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            origin_product: origin,
+            latest_run: { environment, output },
+            ...overrides,
+        } as unknown as TaskListItemApi)
+
+        expect(
+            sessionBadges(item, ME, { pinned, now: Date.parse('2026-03-10T12:00:00Z') }).map((badge) =>
+                badge.kind === 'source'
+                    ? `source:${badge.source}`
+                    : badge.kind === 'author'
+                      ? `author:${badge.live ? 'live' : 'recent'}`
+                      : badge.kind
+            )
+        ).toEqual(expected)
+    })
+
+    it.each([
+        ['the closing message, trimmed', { final_message: '  Opened the pull request.\n' }, 'Opened the pull request.'],
+        ['nothing when the run saved no message', { pr_url: 'https://github.com/a/b/pull/1' }, null],
+        ['nothing for a blank message', { final_message: '   ' }, null],
+        ['nothing for a message that is not text', { final_message: { text: 'hi' } }, null],
+    ])('reads %s from the latest run', (_name, output, message) => {
+        const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
+
+        expect(item.finalMessage).toBe(message)
+    })
+
+    it.each<[string, TaskActivityDTOApi[], Record<string, number>]>([
+        [
+            'counts each unread session once per space',
+            [
+                activity('s1', 'space-a'),
+                activity('s1', 'space-a'),
+                activity('s2', 'space-a'),
+                activity('s3', 'space-b'),
+            ],
+            { 'space-a': 2, 'space-b': 1 },
+        ],
+        [
+            'skips read sessions, comment notifications and sessions outside a space',
+            [
+                activity('s1', 'space-a', { is_unread: false }),
+                activity('s2', 'space-a', { latest_comment_id: 'comment-1' }),
+                activity('s3', null),
+                activity(null, 'space-a'),
+            ],
+            {},
+        ],
+    ])('unread session counts %s', (_name, rows, expected) => {
+        expect(unreadSessionCountsBySpace(rows)).toEqual(expected)
+    })
+
+    it.each<[string, Partial<TaskListItemApi>, TodayListItemField[], string[]]>([
+        [
+            'the chosen details in the chosen order',
+            {},
+            ['creator', 'branch', 'space', 'repository'],
+            ['Ada Lovelace', 'fix/retry', 'checkout', 'example-org/web'],
+        ],
+        ['nothing when no detail is chosen', {}, [], []],
+        ['how long ago the session moved', {}, ['activity'], ['2h ago']],
+        [
+            'just now for a session that moved this minute',
+            { last_activity_at: '2026-03-10T12:00:30' },
+            ['activity'],
+            ['just now'],
+        ],
+        [
+            'only the details the session has',
+            { channel: 'deleted-space', repository: null, latest_run: null, created_by: null },
+            ['space', 'repository', 'branch', 'creator', 'activity'],
+            ['2h ago'],
+        ],
+    ])('shows %s under a session row', (_name, overrides, fields, expected) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            last_activity_at: '2026-03-10T10:00:00',
+            channel: 'space-1',
+            repository: 'example-org/web',
+            latest_run: { branch: 'fix/retry' },
+            created_by: { first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+            ...overrides,
+        } as TaskListItemApi)
+
+        expect(
+            sessionDetails(item, fields, { 'space-1': 'checkout' }, dayjs('2026-03-10T12:00:59')).map(
+                (detail) => detail.text
+            )
+        ).toEqual(expected)
     })
 })

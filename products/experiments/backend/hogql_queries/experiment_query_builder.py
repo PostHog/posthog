@@ -18,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -41,6 +40,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
     ExperimentQueryContext,
+    MaturityGate,
 )
 from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
@@ -149,8 +149,6 @@ class ExperimentQueryBuilder:
         self.multiple_variant_handling = multiple_variant_handling
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
-        self.preaggregation_job_ids: list[str] | None = None
-        self.metric_events_preaggregation_job_ids: list[str] | None = None
         self.cuped_config = cuped_config or CupedQueryConfig()
         # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
         # scan, but activation mode forces the temporal filter that removes those rows, so
@@ -187,23 +185,28 @@ class ExperimentQueryBuilder:
         """
         ``precomputation_context`` carries the precomputed job IDs. They arrive here
         and not in __init__, because the same builder generates the precompute
-        queries before any job IDs exist. The IDs are stored on self so the
-        metric builders read them like any other builder state.
+        queries before any job IDs exist. They go only to the builders of this build.
         """
-        if precomputation_context is not None:
-            self.preaggregation_job_ids = precomputation_context.exposure_job_ids
-            self.metric_events_preaggregation_job_ids = precomputation_context.metric_events_job_ids
+        job_ids = precomputation_context or ExperimentPrecomputationContext()
+        # The only clock read of a build, so every maturity filter in the query uses the same cutoff.
+        maturity = MaturityGate.of(self.context, computed_at=timezone.now())
+        exposure = self._exposure_query_builder(maturity=maturity, job_ids=job_ids.exposure_job_ids)
+        metric_events_job_ids = job_ids.metric_events_job_ids
 
         assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
-                query = self._build_funnel_query()
+                query = FunnelQueryBuilder(
+                    self, exposure, maturity=maturity, metric_events_job_ids=metric_events_job_ids
+                ).build_funnel_query()
             case ExperimentMeanMetric():
-                query = self._build_mean_query()
+                query = MeanQueryBuilder(self, exposure, metric_events_job_ids=metric_events_job_ids).build_mean_query()
             case ExperimentRatioMetric():
-                query = self._build_ratio_query()
+                query = RatioQueryBuilder(self, exposure).build_ratio_query()
             case ExperimentRetentionMetric():
-                query = self._build_retention_query()
+                query = RetentionQueryBuilder(
+                    self, exposure, maturity=maturity, metric_events_job_ids=metric_events_job_ids
+                ).build_retention_query()
             case _:
                 raise NotImplementedError(
                     f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
@@ -212,26 +215,33 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
-    def _exposure_query_builder(self) -> ExposureQueryBuilder:
-        """Built per call so it picks up the ``preaggregation_job_ids`` that build_query() sets."""
+    def _exposure_query_builder(
+        self, maturity: MaturityGate | None = None, job_ids: list[str] | None = None
+    ) -> ExposureQueryBuilder:
+        """
+        Only build_query() passes the per-build ``maturity`` gate and exposure ``job_ids``.
+        The other callers get neither: the precompute queries, the exposure timeseries,
+        the shared predicates and the actors query.
+        """
         return ExposureQueryBuilder(
             context=self.context,
             breakdown_injector=self.breakdown_injector,
-            maturity_having_builder=self._build_maturity_having_clause,
-            preaggregation_job_ids=self.preaggregation_job_ids,
+            maturity=maturity,
+            maturity_window_seconds=self._get_maturity_window_seconds(),
+            preaggregation_job_ids=job_ids,
         )
 
     def _funnel_query_builder(self) -> FunnelQueryBuilder:
-        return FunnelQueryBuilder(self)
+        """For the precompute write query and the actors query, which take no per-build inputs."""
+        return FunnelQueryBuilder(self, self._exposure_query_builder())
 
     def _retention_query_builder(self) -> RetentionQueryBuilder:
-        return RetentionQueryBuilder(self)
+        """For the precompute write query and its scan extension, which take no per-build inputs."""
+        return RetentionQueryBuilder(self, self._exposure_query_builder())
 
     def _mean_query_builder(self) -> MeanQueryBuilder:
-        return MeanQueryBuilder(self)
-
-    def _ratio_query_builder(self) -> RatioQueryBuilder:
-        return RatioQueryBuilder(self)
+        """For the precompute write query, which takes no per-build inputs."""
+        return MeanQueryBuilder(self, self._exposure_query_builder())
 
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
@@ -257,54 +267,18 @@ class ExperimentQueryBuilder:
 
     def _get_maturity_window_seconds(self) -> int:
         """
-        Non-retention metrics only. Retention uses
-        RetentionQueryBuilder.get_retention_maturity_seconds() and applies maturity
-        in its start_events CTE, anchored on the start_event timestamp.
+        The maturity window that starts at the entity's first exposure: the conversion
+        window, or 0 when there is no metric. Anchored on the first exposure, matching
+        how the variant is assigned. Anchoring on the last exposure would keep resetting
+        the window for flags re-evaluated repeatedly (e.g. backend flags), so active
+        users would never mature.
+
+        Retention returns 0: it applies maturity in its start_events CTE, anchored on
+        the start_event timestamp, with RetentionQueryBuilder.get_retention_maturity_seconds().
         """
+        if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
+            return 0
         return self._get_conversion_window_seconds()
-
-    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
-        """
-        Returns a HAVING clause expression to filter out users whose conversion window
-        hasn't elapsed yet, or None if the feature is not enabled.
-
-        Anchored on the user's first exposure (min timestamp), matching how the
-        variant is assigned. Anchoring on the last exposure would keep resetting the
-        window for flags re-evaluated repeatedly (e.g. backend flags), so active users
-        would never mature. Callers pass an exposure-only timestamp expression.
-
-        Retention metrics apply maturity in their own start_events CTE through
-        RetentionQueryBuilder.build_retention_maturity_having_clause(), so this
-        returns None for them.
-        """
-        if self.metric is None:
-            return None
-        if isinstance(self.metric, ExperimentRetentionMetric):
-            return None
-        if not self.only_count_matured_users:
-            return None
-
-        maturity_seconds = self._get_maturity_window_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            f"min({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
-        )
-
-    def _build_funnel_query(self) -> ast.SelectQuery:
-        return self._funnel_query_builder().build_funnel_query()
-
-    def _build_mean_query(self) -> ast.SelectQuery:
-        return self._mean_query_builder().build_mean_query()
-
-    def _build_ratio_query(self) -> ast.SelectQuery:
-        return self._ratio_query_builder().build_ratio_query()
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""
@@ -420,9 +394,6 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().build_exposure_step_predicate()
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder().select_query()
-
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         The query string uses {time_window_min} and {time_window_max} placeholders
@@ -461,6 +432,3 @@ class ExperimentQueryBuilder:
         if isinstance(self.metric, ExperimentRetentionMetric):
             return self._retention_query_builder().get_metric_events_window_extension_seconds()
         return self._get_conversion_window_seconds()
-
-    def _build_retention_query(self) -> ast.SelectQuery:
-        return self._retention_query_builder().build_retention_query()

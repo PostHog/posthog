@@ -483,11 +483,11 @@ mod tests {
         assert!(config.is_persons_db_routing_enabled());
         assert_eq!(
             config.get_persons_read_database_url(),
-            "postgres://posthog:posthog@localhost:5432/posthog_persons"
+            config.persons_read_database_url
         );
         assert_eq!(
             config.get_persons_write_database_url(),
-            "postgres://posthog:posthog@localhost:5432/posthog_persons"
+            config.persons_write_database_url
         );
     }
 

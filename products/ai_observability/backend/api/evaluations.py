@@ -184,12 +184,12 @@ class _EvaluationConfigField(serializers.JSONField):
             "min": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive minimum numeric score. Omit for no lower bound.",
+                "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.",
             },
             "max": {
                 "type": "number",
                 "nullable": True,
-                "description": "Inclusive maximum numeric score. Omit for no upper bound.",
+                "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.",
             },
             "step": {
                 "type": "number",
@@ -571,7 +571,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "provider", None)
         )
-        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical"):
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type not in ("boolean", "categorical", "numeric"):
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )
@@ -621,6 +621,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
+
+        if model_provider == LLMProvider.SYSTEM_ONE and output_type == "numeric":
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if config.get("min") is None or config.get("max") is None or config["min"] >= config["max"]:
+                raise serializers.ValidationError(
+                    {"output_config": "System One numeric evaluations require a minimum score below the maximum score."}
+                )
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
         # message index). An aggregate target emits a single evaluation event for the whole unit,

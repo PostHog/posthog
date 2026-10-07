@@ -1,52 +1,35 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconFilter } from '@posthog/icons'
-import {
-    Button,
-    Dot,
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-    cn,
-} from '@posthog/quill'
+import { Button, DropdownMenu, DropdownMenuContent, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
-import { DEFAULT_RECENT_FILTERS, TodayRecentCreatedByFilter, recentSourceLabel } from './todayRecentFilters'
-import { TodayRecentFilterSubmenu } from './TodayRecentFilterSubmenu'
-import { DEFAULT_RECENT_GROUPING, DEFAULT_RECENT_SORT, TodayRecentGrouping, TodayRecentSort } from './todayRecentOrder'
+import { TodayFilterMenuTrigger } from './TodayFilterMenuTrigger'
+import { todayListAppearanceLogic } from './todayListAppearanceLogic'
+import { DROPDOWN_PARTS, SHEET_PARTS } from './todayMenuParts'
+import {
+    DEFAULT_RECENT_FILTERS,
+    RECENT_CREATED_BY_OPTIONS,
+    RECENT_ENVIRONMENT_OPTIONS,
+    RECENT_PINNED_OPTIONS,
+    RECENT_STATUS_OPTIONS,
+} from './todayRecentFilters'
+import {
+    DEFAULT_RECENT_GROUPING,
+    DEFAULT_RECENT_SORT,
+    RECENT_GROUPING_OPTIONS,
+    RECENT_SORT_OPTIONS,
+} from './todayRecentOrder'
 import { TodayRecentRadioSubmenu } from './TodayRecentRadioSubmenu'
+import { TodayRecentSourceSubmenu } from './TodayRecentSourceSubmenu'
+import { TodaySheetMenu } from './TodaySheetMenu'
+import { todayShellLogic } from './todayShellLogic'
 import { todaySpacesLogic } from './todaySpacesLogic'
 
-const CREATED_BY_OPTIONS: { value: TodayRecentCreatedByFilter; label: string }[] = [
-    { value: 'anyone', label: 'Anyone' },
-    { value: 'me', label: 'Me' },
-    { value: 'others', label: 'Other people' },
-]
-
-const GROUPING_OPTIONS: { value: TodayRecentGrouping; label: string }[] = [
-    { value: 'date', label: 'Date' },
-    { value: 'space', label: 'Space' },
-    { value: 'repository', label: 'Repository' },
-]
-
-const SORT_OPTIONS: { value: TodayRecentSort; label: string }[] = [
-    { value: 'recent', label: 'Recent activity' },
-    { value: 'created', label: 'Date created' },
-    { value: 'alpha', label: 'Name' },
-]
-
-function sourcesLabel(sources: string[]): string {
-    if (!sources.length) {
-        return 'Any source'
-    }
-    return sources.length > 2 ? `${sources.length} sources` : sources.map(recentSourceLabel).join(', ')
-}
-
+/**
+ * Recent's sort, grouping and filters, in PostHog Desktop's order. Desktop's Type filter is left out,
+ * because Recent holds no canvases.
+ */
 export function TodayRecentFilterMenu(): JSX.Element {
     const {
         recentFilters: filters,
@@ -55,103 +38,127 @@ export function TodayRecentFilterMenu(): JSX.Element {
         recentSort,
         recentGrouping,
     } = useValues(todaySpacesLogic)
-    const { setRecentFilters, clearRecentFilters, setRecentSort, setRecentGrouping } = useActions(todaySpacesLogic)
-    const label = active ? 'Filters on' : 'Filter'
+    const { setRecentFilters, clearRecentFilters, setRecentSort, setRecentGrouping, touchMenuOpened } =
+        useActions(todaySpacesLogic)
+    const { openAppearanceDialog } = useActions(todayListAppearanceLogic)
+    const { phoneLayout } = useValues(todayShellLogic)
+    const [sheetOpen, setSheetOpen] = useState(false)
+
+    const parts = phoneLayout ? SHEET_PARTS : DROPDOWN_PARTS
+    const items = (
+        <>
+            <TodayRecentRadioSubmenu
+                label="Group by"
+                options={RECENT_GROUPING_OPTIONS}
+                value={recentGrouping}
+                defaultValue={DEFAULT_RECENT_GROUPING}
+                onChange={setRecentGrouping}
+                dataAttr="today-recent-group-by"
+            />
+            <TodayRecentRadioSubmenu
+                label="Sort by"
+                options={RECENT_SORT_OPTIONS}
+                value={recentSort}
+                defaultValue={DEFAULT_RECENT_SORT}
+                onChange={setRecentSort}
+                dataAttr="today-recent-sort-by"
+            />
+            <parts.Separator />
+            <TodayRecentRadioSubmenu
+                label="Status"
+                options={RECENT_STATUS_OPTIONS}
+                value={filters.status}
+                defaultValue={DEFAULT_RECENT_FILTERS.status}
+                onChange={(status) => setRecentFilters({ ...filters, status })}
+                dataAttr="today-recent-filter-status"
+            />
+            <TodayRecentRadioSubmenu
+                label="Created by"
+                options={RECENT_CREATED_BY_OPTIONS}
+                value={filters.createdBy}
+                defaultValue={DEFAULT_RECENT_FILTERS.createdBy}
+                onChange={(createdBy) => setRecentFilters({ ...filters, createdBy })}
+                dataAttr="today-recent-filter-created-by"
+            />
+            <TodayRecentRadioSubmenu
+                label="Pinned"
+                options={RECENT_PINNED_OPTIONS}
+                value={filters.pinned}
+                defaultValue={DEFAULT_RECENT_FILTERS.pinned}
+                onChange={(pinned) => setRecentFilters({ ...filters, pinned })}
+                dataAttr="today-recent-filter-pinned"
+            />
+            <TodayRecentRadioSubmenu
+                label="Environment"
+                options={RECENT_ENVIRONMENT_OPTIONS}
+                value={filters.environment}
+                defaultValue={DEFAULT_RECENT_FILTERS.environment}
+                onChange={(environment) => setRecentFilters({ ...filters, environment })}
+                dataAttr="today-recent-filter-environment"
+            />
+            <TodayRecentSourceSubmenu
+                selected={filters.sources}
+                options={recentSourceOptions}
+                onChange={(sources) => setRecentFilters({ ...filters, sources })}
+                dataAttr="today-recent-filter-source"
+            />
+            <parts.Separator />
+            <parts.Item onClick={openAppearanceDialog} dataAttr="today-recent-filter-appearance">
+                Edit list item appearance…
+            </parts.Item>
+            {active && (
+                <>
+                    <parts.Separator />
+                    <parts.Item variant="destructive" onClick={clearRecentFilters} dataAttr="today-recent-filter-clear">
+                        Clear filters
+                    </parts.Item>
+                </>
+            )}
+        </>
+    )
+
+    if (phoneLayout) {
+        const label = active ? 'Filters on' : 'Filter'
+        return (
+            <>
+                <Tooltip>
+                    <TooltipTrigger
+                        delay={0}
+                        render={
+                            <Button
+                                size="icon-lg"
+                                aria-label={label}
+                                className={cn(
+                                    'relative text-muted-foreground',
+                                    active && 'bg-fill-selected text-foreground'
+                                )}
+                                onClick={() => {
+                                    setSheetOpen(true)
+                                    touchMenuOpened('filter')
+                                }}
+                                data-attr="today-recent-filter"
+                            />
+                        }
+                    >
+                        <IconFilter />
+                        {active && (
+                            <span aria-hidden className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
+                        )}
+                    </TooltipTrigger>
+                    <TooltipContent>{label}</TooltipContent>
+                </Tooltip>
+                <TodaySheetMenu open={sheetOpen} onOpenChange={setSheetOpen} title="Filter recent sessions">
+                    {items}
+                </TodaySheetMenu>
+            </>
+        )
+    }
 
     return (
         <DropdownMenu>
-            <Tooltip>
-                <TooltipTrigger
-                    delay={0}
-                    render={
-                        <DropdownMenuTrigger
-                            render={
-                                <Button
-                                    size="icon-sm"
-                                    aria-label={label}
-                                    className={cn('relative', active && 'bg-fill-selected')}
-                                    data-attr="today-recent-filter"
-                                />
-                            }
-                        />
-                    }
-                >
-                    <IconFilter />
-                    {active && <Dot aria-hidden className="absolute top-0 right-0" />}
-                </TooltipTrigger>
-                <TooltipContent>{label}</TooltipContent>
-            </Tooltip>
+            <TodayFilterMenuTrigger active={active} dataAttr="today-recent-filter" />
             <DropdownMenuContent align="end" className="min-w-56">
-                <TodayRecentRadioSubmenu
-                    label="Group by"
-                    options={GROUPING_OPTIONS}
-                    value={recentGrouping}
-                    defaultValue={DEFAULT_RECENT_GROUPING}
-                    onChange={setRecentGrouping}
-                    dataAttr="today-recent-group-by"
-                />
-                <TodayRecentRadioSubmenu
-                    label="Sort by"
-                    options={SORT_OPTIONS}
-                    value={recentSort}
-                    defaultValue={DEFAULT_RECENT_SORT}
-                    onChange={setRecentSort}
-                    dataAttr="today-recent-sort-by"
-                />
-                <DropdownMenuSeparator />
-                <TodayRecentRadioSubmenu
-                    label="Created by"
-                    options={CREATED_BY_OPTIONS}
-                    value={filters.createdBy}
-                    defaultValue={DEFAULT_RECENT_FILTERS.createdBy}
-                    onChange={(createdBy) => setRecentFilters({ ...filters, createdBy })}
-                    dataAttr="today-recent-filter-created-by"
-                />
-                <TodayRecentFilterSubmenu
-                    label="Source"
-                    value={sourcesLabel(filters.sources)}
-                    narrowed={filters.sources.length > 0}
-                >
-                    <DropdownMenuCheckboxItem
-                        checked={!filters.sources.length}
-                        closeOnClick={false}
-                        onCheckedChange={() => setRecentFilters({ ...filters, sources: [] })}
-                        data-attr="today-recent-filter-source-any"
-                    >
-                        Any source
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuSeparator />
-                    {recentSourceOptions.map((source) => (
-                        <DropdownMenuCheckboxItem
-                            key={source}
-                            checked={filters.sources.includes(source)}
-                            closeOnClick={false}
-                            onCheckedChange={(checked) =>
-                                setRecentFilters({
-                                    ...filters,
-                                    sources: checked
-                                        ? [...filters.sources, source]
-                                        : filters.sources.filter((selected) => selected !== source),
-                                })
-                            }
-                            data-attr="today-recent-filter-source"
-                        >
-                            {recentSourceLabel(source)}
-                        </DropdownMenuCheckboxItem>
-                    ))}
-                </TodayRecentFilterSubmenu>
-                {active && (
-                    <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            variant="destructive"
-                            onClick={clearRecentFilters}
-                            data-attr="today-recent-filter-clear"
-                        >
-                            Clear filters
-                        </DropdownMenuItem>
-                    </>
-                )}
+                {items}
             </DropdownMenuContent>
         </DropdownMenu>
     )

@@ -46,6 +46,17 @@ class TestInsightlySource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
+    @pytest.mark.parametrize(
+        "schema_name, expected",
+        [
+            ("Contacts", True),
+            ("OpportunityStateHistory", False),
+            (None, True),
+        ],
+    )
+    def test_resume_covers_only_checkpointed_endpoints(self, schema_name: str | None, expected: bool) -> None:
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
+
     def test_get_schemas_lists_every_endpoint(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -97,6 +108,24 @@ class TestInsightlySource:
         mock_validate.return_value = status
         ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name)
         assert ok is expected_ok
+
+    @pytest.mark.parametrize(
+        "schema_name, expected_path",
+        [
+            ("Leads", "/Leads"),
+            # The per-opportunity path has an `{id}` placeholder, so access is probed on its parent.
+            ("OpportunityStateHistory", "/Opportunities"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"
+    )
+    def test_validate_credentials_probes_a_requestable_path(
+        self, mock_validate: mock.MagicMock, schema_name: str, expected_path: str
+    ) -> None:
+        mock_validate.return_value = 200
+        self.source.validate_credentials(self.config, self.team_id, schema_name)
+        assert mock_validate.call_args.args[2] == expected_path
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source.validate_insightly_credentials"

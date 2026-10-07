@@ -666,3 +666,24 @@ class TestUrlPatternChangeGuard(BaseTest):
 
         table.refresh_from_db()
         assert table.deleted is True
+
+
+class TestModelsNamespaceGuard(BaseTest):
+    def test_legacy_table_with_reserved_name_can_be_soft_deleted(self) -> None:
+        [table] = DataWarehouseTable.objects.bulk_create(
+            [DataWarehouseTable(name="models.revenue", format="Parquet", team=self.team, url_pattern="s3://x/*")]
+        )
+
+        table.soft_delete()
+
+        table.refresh_from_db()
+        assert table.deleted is True
+
+    def test_existing_table_cannot_be_renamed_into_reserved_namespace(self) -> None:
+        table = DataWarehouseTable.objects.create(
+            name="revenue", format="Parquet", team=self.team, url_pattern="s3://x/*"
+        )
+
+        table.name = "models.revenue"
+        with pytest.raises(ValidationError, match="models namespace"):
+            table.save()

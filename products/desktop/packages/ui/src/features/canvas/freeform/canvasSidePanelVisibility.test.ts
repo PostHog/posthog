@@ -8,7 +8,6 @@ const base = {
   generatingPanelOpen: false,
   viewOpen: false,
   collapsed: false,
-  commentsEnabled: true,
 };
 
 describe("canvasSidePanelVisibility", () => {
@@ -36,12 +35,6 @@ describe("canvasSidePanelVisibility", () => {
     [
       "viewing, dock opened but minimized",
       { viewOpen: true, collapsed: true },
-      false,
-      false,
-    ],
-    [
-      "viewing a canvas with comments off",
-      { viewOpen: true, commentsEnabled: false },
       false,
       false,
     ],

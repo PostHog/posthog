@@ -37,7 +37,10 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
-from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
+from posthog.tasks.alerts.schedule_restriction import (
+    is_utc_datetime_blocked,
+    snap_candidate_utc_to_schedule_restriction,
+)
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
     add_alert_check,
@@ -58,7 +61,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.investigation import (
+    carried_verdict_suppresses,
+    claim_investigation_slot,
+    decide_investigation,
+)
 from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -538,7 +545,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 "Skipping alert check because of schedule restriction (quiet hours)",
                 alert_id=alert.id,
             )
-            alert.next_check_at = next_unblocked_utc(alert, now)
+            alert.next_check_at = snap_candidate_utc_to_schedule_restriction(alert, now)
             alert.save(update_fields=["next_check_at"])
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.QUIET_HOURS)
 
@@ -757,13 +764,19 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
+            if alert_evaluation_result is not None and alert_evaluation_result.skipped_reason is not None:
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert.state)
+                )
 
             investigation = decide_investigation(alert, alert_check)
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
-                should_gate_notification = investigation.is_first_of_episode and bool(
-                    alert.investigation_gates_notifications
-                )
+                should_gate_notification = should_notify and bool(alert.investigation_gates_notifications)
+            elif should_notify and carried_verdict_suppresses(alert, investigation):
+                # Marked so the safety net does not force-send it and the UI shows why it was held.
+                AlertCheck.objects.filter(id=alert_check.id).update(notification_suppressed_by_agent=True)
+                should_notify = False
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.
@@ -888,6 +901,7 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "condition",
         "config",
         "detector_config",
+        "evaluation_delay_intervals",
         "threshold_id",
         "calculation_interval",
         "next_check_at",

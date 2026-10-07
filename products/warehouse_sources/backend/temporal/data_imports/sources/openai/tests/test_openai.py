@@ -54,6 +54,13 @@ def _bucket_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: st
     return _response({"data": buckets, "has_more": has_more, "next_page": next_page})
 
 
+def _lookback_exceeded() -> Response:
+    return _response(
+        {"error": {"type": "invalid_request_error", "code": "reporting_lookback_exceeded", "message": "too far back"}},
+        status=400,
+    )
+
+
 def _make_manager(resume_state: OpenAIResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
@@ -211,6 +218,58 @@ class TestBucketParams:
 
         assert params[0]["params"]["start_time"] == int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
         assert params[0]["params"]["limit"] == 180
+
+    @parameterized.expand(
+        [
+            ("initial_sync", None),
+            ("stale_watermark", datetime(2021, 6, 1, tzinfo=UTC)),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lookback_exceeded_retries_with_a_later_start(self, _name: str, last_value: Any, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _lookback_exceeded(),
+                _lookback_exceeded(),
+                _bucket_page(
+                    [{"start_time": 1, "end_time": 2, "results": [{"model": "a"}]}], has_more=False, next_page=None
+                ),
+            ],
+        )
+
+        manager = _make_manager(OpenAIResumeConfig(cursor="STALE"))
+        rows = _rows(_source("usage_audio_speeches", manager, last_value=last_value))
+
+        assert [r["model"] for r in rows] == ["a"]
+        starts = [p["params"]["start_time"] for p in params]
+        assert starts[0] < starts[1] < starts[2]
+        assert starts[2] > int(datetime.now(UTC).timestamp()) - 400 * 24 * 60 * 60
+        # The saved page cursor belongs to the rejected start, so a fallback must not send it.
+        assert params[0]["params"]["page"] == "STALE"
+        assert "page" not in params[1]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lookback_exceeded_on_every_start_raises_non_retryable_error(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_lookback_exceeded() for _ in range(10)])
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _rows(_source("usage_vector_stores", _make_manager()))
+
+        assert session.send.call_count == 7
+        non_retryable = OpenAISource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lookback_exceeded_on_recent_watermark_does_not_move_start(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_lookback_exceeded(), _bucket_page([], has_more=False, next_page=None)])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_source("usage_vector_stores", _make_manager(), last_value=datetime.now(UTC)))
+        assert session.send.call_count == 1
 
 
 class TestBucketPagination:

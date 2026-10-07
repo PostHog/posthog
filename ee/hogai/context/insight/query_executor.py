@@ -13,7 +13,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -39,20 +39,34 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
 )
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    ExposedCHQueryError,
+    InternalCHQueryError,
+    QueryErrorCategory,
+    classify_query_error,
+    internal_ch_error_user_message,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import (
     NULL_MARKER,
     TRUNCATED_MARKER,
@@ -69,7 +83,14 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import (
+    MaxToolAccessDeniedError,
+    MaxToolError,
+    MaxToolErrorType,
+    MaxToolFatalError,
+    MaxToolRetryableError,
+    MaxToolTransientError,
+)
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -95,6 +116,20 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+
+
+def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
+    cause: BaseException = error
+    seen: set[int] = set()
+    while type(cause) is ExposedHogQLError and cause.__cause__ is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+
+    if isinstance(cause, TableAccessDeniedError):
+        return MaxToolFatalError(str(error), error_type="permission")
+    # User-safe errors can also describe outages; only known input errors should skip exception capture.
+    error_type: MaxToolErrorType = "validation" if isinstance(cause, (QueryError, HogQLSyntaxError)) else "internal"
+    return MaxToolRetryableError(str(error), error_type=error_type)
 
 
 @frozen
@@ -152,11 +187,15 @@ class AssistantQueryExecutor:
         utc_now_datetime: datetime,
         user: "User",
         event_source: EventSource = EventSource.POSTHOG_AI,
-    ):
+        max_sql_result_chars: int | None = None,
+    ) -> None:
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
         self._event_source = event_source
+        if max_sql_result_chars is not None and max_sql_result_chars < SQLResultsFormatter.MIN_RESULT_CHARS:
+            raise ValueError("The SQL preview budget must be at least 512 characters")
+        self._max_sql_result_chars = max_sql_result_chars
 
     async def arun_format_and_capture(
         self,
@@ -224,6 +263,8 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+                if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
+                    fallback_results = SQLResultsFormatter.bound_fallback(fallback_results, self._max_sql_result_chars)
                 fallback_elapsed = time.time() - fallback_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -434,25 +475,43 @@ class AssistantQueryExecutor:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
+                        raise ClickHouseQueryTimeOut(
                             "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
                         )
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
-                    if error_message := query_status.get("error_message"):
-                        raise APIException(error_message)
+                    error_code = query_status.get("error_code")
+                    error_code = (
+                        error_code.lower() if error_code and internal_ch_error_user_message(error_code) else None
+                    )
+                    if rejection := describe_clickhouse_rejection(error_code, query_status.get("error_message")):
+                        raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
+                    if error_message := query_status.get("error_message") or internal_ch_error_user_message(error_code):
+                        # Async status loses the exception type, so keep retry advice without guessing its category.
+                        raise MaxToolRetryableError(error_message, error_type="internal", error_code=error_code)
                     raise Exception("Query failed")
 
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except MaxToolError:
+            raise
+        except UserAccessControlError as err:
+            raise MaxToolAccessDeniedError(err.resource, err.required_level) from err
+        except (PermissionDenied, TableAccessDeniedError) as err:
+            raise MaxToolFatalError(str(err), error_type="permission") from err
+        except (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded) as err:
+            error_type: MaxToolErrorType = (
+                "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
+            )
+            raise MaxToolTransientError(str(err), error_type=error_type) from err
+        except ExposedHogQLError as err:
+            raise _hogql_tool_error(err) from err
         except (
             APIException,
-            ExposedHogQLError,
             HogQLNotImplementedError,
             ExposedCHQueryError,
-            UserAccessControlError,
         ) as err:
             elapsed = time.time() - start_time
             # Handle known query execution errors with user-friendly messages
@@ -464,8 +523,33 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+            error_type = (
+                "validation"
+                if isinstance(err, APIException) or classify_query_error(err) == QueryErrorCategory.USER_ERROR
+                else "internal"
+            )
+            if isinstance(err, ClickHouseQueryTimeOut):
+                error_type = "timeout"
+            elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):
+                error_type = "memory_limit"
+            elif isinstance(err, APIException) and err.status_code >= 500:
+                if classify_query_error(err) != QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+                    raise MaxToolFatalError(err_message, error_type="api_5xx") from err
+            elif isinstance(err, APIException) and err.status_code == 429:
+                raise MaxToolTransientError(err_message, error_type="rate_limited") from err
+            error_code = (
+                look_up_clickhouse_error_code_meta(err).name.lower() if isinstance(err, ExposedCHQueryError) else None
+            )
+            raise MaxToolRetryableError(
+                err_message,
+                error_type=error_type,
+                error_code=error_code if internal_ch_error_user_message(error_code) else None,
+            ) from err
         except Exception as err:
+            if isinstance(err, InternalCHQueryError):
+                error_code = look_up_clickhouse_error_code_meta(err).name.lower()
+                if rejection := describe_clickhouse_rejection(error_code):
+                    raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code) from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
@@ -485,7 +569,7 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error))
+            raise MaxToolRetryableError(str(error), error_type="internal")
 
         total_elapsed = time.time() - start_time
         if debug_timing:
@@ -519,6 +603,16 @@ class AssistantQueryExecutor:
         if not is_supported_query(query):
             raise NotImplementedError(f"Unsupported query type: {query_type}")
 
+        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+        result_budget = self._max_sql_result_chars
+        if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and result_budget is not None:
+            result_budget -= len(warning_prefix)
+            if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:
+                return SQLResultsFormatter.bound_fallback(
+                    "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
+                    self._max_sql_result_chars,
+                )
+
         try:
             # Handle assistant-specific query types with direct formatting
             if isinstance(query, AssistantTrendsQuery | TrendsQuery):
@@ -551,13 +645,21 @@ class AssistantQueryExecutor:
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
                 result = SQLResultsFormatter(
-                    query.source, response["results"], response["columns"], max_cell_length=max_cell_length
+                    query.source,
+                    response["results"],
+                    response["columns"],
+                    max_cell_length=max_cell_length,
+                    max_result_chars=result_budget,
                 ).format()
             elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
                 formatter_name = "SQLResultsFormatter"
                 max_cell_length = SQLResultsFormatter.MAX_CELL_LENGTH if truncate_results else None
                 result = SQLResultsFormatter(
-                    query, response["results"], response["columns"], max_cell_length=max_cell_length
+                    query,
+                    response["results"],
+                    response["columns"],
+                    max_cell_length=max_cell_length,
+                    max_result_chars=result_budget,
                 ).format()
             else:
                 raise NotImplementedError(f"Unsupported query type: {query_type}")
@@ -568,9 +670,10 @@ class AssistantQueryExecutor:
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
 
-            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
             if warning_prefix:
                 result = warning_prefix + result
+            if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
+                result = SQLResultsFormatter.bound_fallback(result, self._max_sql_result_chars)
             return result
         except Exception:
             elapsed = time.time() - start_time
@@ -626,6 +729,7 @@ async def execute_and_format_query(
     truncate_results: bool = True,
     include_prompt_framing: bool = True,
     event_source: EventSource = EventSource.POSTHOG_AI,
+    max_sql_result_chars: int | None = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -649,7 +753,9 @@ async def execute_and_format_query(
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
-    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
+    query_runner = AssistantQueryExecutor(
+        team, utc_now_datetime, user=user, event_source=event_source, max_sql_result_chars=max_sql_result_chars
+    )
 
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results
