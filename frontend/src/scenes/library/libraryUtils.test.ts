@@ -13,6 +13,7 @@ describe('libraryUtils', () => {
         ['dashboard', false],
         ['notebook', false],
         ['task', false],
+        ['session_recording_playlist', false],
     ])('lists %s in Library: %s', (type, listed) => {
         expect(isLibraryType(type as string)).toBe(listed)
     })
@@ -36,7 +37,7 @@ describe('libraryUtils', () => {
     test.each([
         ['/feature_flags/920847', 'feature_flag'],
         ['/workflows/abc/workflow', 'workflows'],
-        ['/replay/playlists/abc', 'session_recording_playlist'],
+        ['/replay/playlists/abc', null],
         ['/feature_flags', 'feature_flag'],
         ['/dashboard', null],
         ['/data-management/actions', 'action'],
@@ -48,16 +49,16 @@ describe('libraryUtils', () => {
     })
 
     test.each([
-        ['feature_flag', '/feature_flags'],
-        ['insight', '/insights'],
-        ['cohort', '/cohorts'],
-        ['session_recording_playlist', '/replay/playlists'],
-        ['not_a_type', null],
-    ])('opens the list page of %s', (type, href) => {
+        ['feature_flag', '/feature_flags', 'feature_flag'],
+        ['insight', '/insights', 'insight'],
+        ['cohort', '/cohorts', 'cohort'],
+        ['session_recording_playlist', '/replay/playlists', null],
+        ['not_a_type', null, null],
+    ])('opens the list page of %s', (type, href, libraryType) => {
         const listHref = libraryListHref(type)
         expect(listHref).toBe(href)
         if (listHref) {
-            expect(libraryTypeForPath(listHref)).toBe(type)
+            expect(libraryTypeForPath(listHref)).toBe(libraryType)
         }
     })
 })

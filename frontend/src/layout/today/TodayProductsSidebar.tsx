@@ -31,9 +31,7 @@ export function TodayProductsSidebar(): JSX.Element {
     const objectPageType = libraryTypeForPath(path)
 
     const showAllObjects = matchesPaneQuery('All objects', search)
-    const libraryTypes = objectTypes.filter(
-        (type) => type.value !== 'session_recording_playlist' && matchesPaneQuery(type.pluralLabel, search)
-    )
+    const libraryTypes = objectTypes.filter((type) => matchesPaneQuery(type.pluralLabel, search))
     const showLibrary = showAllObjects || libraryTypes.length > 0
     const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
     const categorySections = toolGroups.map((group) => ({
