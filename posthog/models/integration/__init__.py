@@ -60,6 +60,7 @@ from .jira import JiraIntegration
 from .linear import LinearIntegration
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
+from .microsoft_teams import MicrosoftTeamsIntegration
 from .model import (
     Integration,
     IntegrationManager,
@@ -206,6 +207,7 @@ __all__ = [
     "EmailIntegration",
     "cleanup_ses_identity_on_integration_delete",
     "LinearIntegration",
+    "MicrosoftTeamsIntegration",
     "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
     "external_issue_url",
     "is_supported_external_issue_provider",

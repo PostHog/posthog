@@ -1724,6 +1724,8 @@ class TestIntegrationAPIKeyAccess:
             ("jira_projects/", "get", "Jira"),
             ("linear_teams/", "get", "Linear"),
             ("linear_team_members/?team_id=team-id", "get", "Linear"),
+            ("microsoft_teams_teams/", "get", "Microsoft Teams"),
+            ("microsoft_teams_channels/?team_id=4d1d7b4a-9a8e-4c2b-8f2e-3c1d2a6b9e10", "get", "Microsoft Teams"),
             ("github_assignees/?repository=repo", "get", "GitHub"),
             ("gitlab_members/", "get", "GitLab"),
             ("jira_assignable_users/?project_key=ENG", "get", "Jira"),
@@ -2062,6 +2064,48 @@ class TestIntegrationAPIKeyAccess:
         assert response.json() == {"teams": [{"id": "team-id", "name": "Engineering"}]}
         mock_ensure_token_valid.assert_called_once_with(linear_integration)
         mock_list_teams.assert_called_once_with()
+
+    @pytest.mark.parametrize(
+        "team_id,expected_status",
+        [
+            ("4d1d7b4a-9a8e-4c2b-8f2e-3c1d2a6b9e10", status.HTTP_200_OK),
+            ("../../me/chats", status.HTTP_400_BAD_REQUEST),
+        ],
+    )
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.models.integration.microsoft_teams.requests.get")
+    def test_microsoft_teams_channels_only_queries_graph_for_a_valid_team_id(
+        self, mock_get, _mock_ensure_token_valid, team_id, expected_status, client: HttpClient
+    ):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"value": [{"id": "19:a@thread.tacv2", "displayName": "General"}]}
+        teams_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.MICROSOFT_TEAMS.value,
+            config={},
+            sensitive_config={"access_token": "test-token"},
+        )
+        key_value = "test_key_teams"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{teams_integration.id}/microsoft_teams_channels/",
+            {"team_id": team_id},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            assert response.json() == {
+                "channels": [{"id": "19:a@thread.tacv2", "name": "General", "membership_type": "standard"}]
+            }
+        else:
+            mock_get.assert_not_called()
 
     @pytest.mark.parametrize(
         "kind,url_suffix,list_method,expected_call",

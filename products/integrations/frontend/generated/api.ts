@@ -31,9 +31,12 @@ import type {
     IntegrationsJiraAssignableUsersRetrieveParams,
     IntegrationsLinearTeamMembersRetrieveParams,
     IntegrationsListParams,
+    IntegrationsMicrosoftTeamsChannelsRetrieveParams,
     IntegrationsUsersRetrieveParams,
     JiraProjectsResponseApi,
     LinearTeamsResponseApi,
+    MicrosoftTeamsChannelsResponseApi,
+    MicrosoftTeamsTeamsResponseApi,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
@@ -748,6 +751,56 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsMicrosoftTeamsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsMicrosoftTeamsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/microsoft_teams_channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/microsoft_teams_channels/`
+}
+
+export const integrationsMicrosoftTeamsChannelsRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsMicrosoftTeamsChannelsRetrieveParams,
+    options?: RequestInit
+): Promise<MicrosoftTeamsChannelsResponseApi> => {
+    return apiMutator<MicrosoftTeamsChannelsResponseApi>(
+        getIntegrationsMicrosoftTeamsChannelsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getIntegrationsMicrosoftTeamsTeamsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/microsoft_teams_teams/`
+}
+
+export const integrationsMicrosoftTeamsTeamsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<MicrosoftTeamsTeamsResponseApi> => {
+    return apiMutator<MicrosoftTeamsTeamsResponseApi>(getIntegrationsMicrosoftTeamsTeamsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

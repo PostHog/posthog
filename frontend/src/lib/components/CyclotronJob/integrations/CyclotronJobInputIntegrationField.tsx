@@ -18,6 +18,8 @@ import {
     LinkedInAdsAccountIdPicker,
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
+import { MicrosoftTeamsChannelPicker } from 'lib/integrations/MicrosoftTeamsChannelPicker'
+import { MicrosoftTeamsTeamPicker } from 'lib/integrations/MicrosoftTeamsTeamPicker'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
 
@@ -147,6 +149,19 @@ export function CyclotronJobInputIntegrationField({
     }
     if (schema.integration_field === 'linear_team') {
         return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'microsoft_teams_team') {
+        return <MicrosoftTeamsTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'microsoft_teams_channel' && requiresFieldValue) {
+        return (
+            <MicrosoftTeamsChannelPicker
+                value={value}
+                onChange={(x) => onChange?.(x)}
+                integration={integration}
+                teamId={requiresFieldValue}
+            />
+        )
     }
     if (schema.integration_field === 'github_repository') {
         return <GitHubRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />

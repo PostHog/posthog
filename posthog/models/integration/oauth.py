@@ -87,6 +87,10 @@ INSTAGRAM_OAUTH_SCOPE = (
     "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
 )
 
+# Delegated Microsoft Graph permissions. Graph only lets an application post a channel message on
+# behalf of a signed-in user, so messages show as sent by the user who connected the integration.
+MICROSOFT_TEAMS_SCOPES = "Team.ReadBasic.All Channel.ReadBasic.All ChannelMessage.Send offline_access openid profile"
+
 
 # Apple Ads: where the authorization code is exchanged. Apple's service provider OAuth guide names
 # a different path for the refresh grant, `/auth/token`, which is the Sign in with Apple endpoint
@@ -333,6 +337,7 @@ class OauthIntegration:
         "reddit-ads",
         "tiktok-ads",
         "bing-ads",
+        "microsoft-teams",
         "meta-ads",
         "instagram",
         "intercom",
@@ -638,6 +643,19 @@ class OauthIntegration:
                 client_id=settings.BING_ADS_CLIENT_ID,
                 client_secret=settings.BING_ADS_CLIENT_SECRET,
                 scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
+                id_path="id",
+                name_path="userPrincipalName",
+            )
+        elif kind == "microsoft-teams":
+            if not settings.MICROSOFT_TEAMS_CLIENT_ID or not settings.MICROSOFT_TEAMS_CLIENT_SECRET:
+                raise NotImplementedError("Microsoft Teams app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                client_id=settings.MICROSOFT_TEAMS_CLIENT_ID,
+                client_secret=settings.MICROSOFT_TEAMS_CLIENT_SECRET,
+                scope=MICROSOFT_TEAMS_SCOPES,
                 id_path="id",
                 name_path="userPrincipalName",
             )
@@ -1183,23 +1201,27 @@ class OauthIntegration:
 
         integration_id = common.dot_get(config, oauth_config.id_path)
 
-        # Bing Ads id_token is a JWT, extract user ID from it
-        if kind == "bing-ads" and not integration_id:
+        # Microsoft identity platform id_token is a JWT, extract user ID from it
+        if kind in ("bing-ads", "microsoft-teams") and not integration_id:
             try:
                 id_token = config.get("id_token")
                 if id_token:
                     jwt_data = common._decode_jwt_payload(id_token)
                     if jwt_data:
-                        bing_user_id = jwt_data.get("oid")
-                        bing_username = jwt_data.get("preferred_username")
-                        if bing_user_id:
-                            config["id"] = bing_user_id
-                            config["userPrincipalName"] = bing_username
-                            integration_id = bing_user_id
+                        microsoft_user_id = jwt_data.get("oid")
+                        microsoft_username = jwt_data.get("preferred_username")
+                        if microsoft_user_id:
+                            config["id"] = microsoft_user_id
+                            config["userPrincipalName"] = microsoft_username
+                            integration_id = microsoft_user_id
+                        if kind == "microsoft-teams":
+                            config["tenant_id"] = jwt_data.get("tid")
                 else:
-                    logger.error("Bing Ads OAuth response missing id_token", config_keys=list(config.keys()))
+                    logger.error(
+                        "Microsoft OAuth response missing id_token", kind=kind, config_keys=list(config.keys())
+                    )
             except Exception:
-                logger.exception("Failed to decode Bing Ads JWT")
+                logger.exception("Failed to decode Microsoft id_token JWT", kind=kind)
 
         # Reddit access token is a JWT, extract user ID from it
         if kind == "reddit-ads" and not integration_id:
@@ -1521,7 +1543,7 @@ class OauthIntegration:
                 headers={"Content-Type": "application/json"},
                 timeout=10,
             )
-        elif kind == "bing-ads":
+        elif kind in ("bing-ads", "microsoft-teams"):
             # Microsoft Azure AD requires scope parameter on token refresh
             return requests.post(
                 oauth_config.token_url,

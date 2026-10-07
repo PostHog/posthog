@@ -183,6 +183,7 @@ export interface RoleLookupResponseApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `microsoft-teams` - Microsoft Teams
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
@@ -237,6 +238,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    MicrosoftTeams: 'microsoft-teams',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -460,6 +462,32 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface MicrosoftTeamsChannelApi {
+    /** Microsoft Teams channel ID. */
+    id: string
+    /** Microsoft Teams channel display name. */
+    name: string
+    /** Channel membership type: standard, private, or shared. */
+    membership_type: string
+}
+
+export interface MicrosoftTeamsChannelsResponseApi {
+    /** Channels in the Microsoft Teams team. */
+    channels: MicrosoftTeamsChannelApi[]
+}
+
+export interface MicrosoftTeamsTeamApi {
+    /** Microsoft Teams team ID (the Microsoft 365 group ID). */
+    id: string
+    /** Microsoft Teams team display name. */
+    name: string
+}
+
+export interface MicrosoftTeamsTeamsResponseApi {
+    /** Microsoft Teams teams that the connected user is a member of. */
+    teams: MicrosoftTeamsTeamApi[]
+}
+
 export interface SlackUserApi {
     /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
     id: string
@@ -627,6 +655,7 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `microsoft-teams` - Microsoft Teams
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -793,6 +822,7 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `microsoft-teams` - Microsoft Teams
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -858,6 +888,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    MicrosoftTeams: 'microsoft-teams',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -1006,6 +1037,13 @@ export type IntegrationsLinearTeamMembersRetrieveParams = {
     /**
      * Linear team ID whose members to list.
      * @minLength 1
+     */
+    team_id: string
+}
+
+export type IntegrationsMicrosoftTeamsChannelsRetrieveParams = {
+    /**
+     * Microsoft Teams team ID whose channels to list.
      */
     team_id: string
 }
