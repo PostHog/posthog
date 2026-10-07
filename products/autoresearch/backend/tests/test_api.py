@@ -295,6 +295,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "latest_agent_description": "try fewer features",
                 },
             ),
+            "No positives": (None, 0, 0, [], None),
+            "Zero lift": (None, 0, 0, [], None),
             "Untrained": (None, 0, 0, [], None),
         }
 
