@@ -50,8 +50,8 @@ function SupportingFlagRow({
 /**
  * Example-data preview for the feature flags empty state: a mini flag list wired to a
  * mini app and a conversion sparkline, so flipping the hero flag re-skins the app's
- * checkout UI and steps the conversion chart up at the release marker. The whole
- * interaction is one hidden checkbox driving `:checked ~` styles - no timers or state,
+ * checkout UI and steps the conversion chart up at the release marker. Each flag is a
+ * hidden checkbox driving `:checked ~` styles - no timers or state,
  * per the preview rules in the `building-product-empty-states` skill. On/off pairs are
  * stacked in `__swap` grids and crossfaded, so flipping never changes the layout's size.
  */
