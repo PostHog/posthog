@@ -90,6 +90,12 @@ describe('getChartDisplayOptions', () => {
             ChartDisplayType.ActionsProportionBar,
             "This chart type isn't available yet.",
         ],
+        [
+            'comparing to a previous period',
+            { ...RENDERS_EVERYTHING, hasProportionBarChart: true, isComparing: true },
+            ChartDisplayType.ActionsProportionBar,
+            "This type doesn't support comparing to a previous period.",
+        ],
     ])('says why %s disables a chart type', (_case, eligibility, display, disabledReason) => {
         const reasons = disabledReasons(eligibility)
 

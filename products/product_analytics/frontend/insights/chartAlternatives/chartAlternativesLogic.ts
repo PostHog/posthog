@@ -250,6 +250,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                     hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
                     hasProportionBarChart: !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART],
                     currentDisplay,
+                    isComparing: !!trendsSource?.compareFilter?.compare,
                 }),
         ],
         alternatives: [

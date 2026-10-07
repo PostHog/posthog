@@ -1642,7 +1642,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return false
                 }
                 if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
-                    return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
+                    return (
+                        display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.CalendarHeatmap &&
+                        display !== ChartDisplayType.ActionsProportionBar
+                    )
                 }
                 // Funnel compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes.
                 // FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).

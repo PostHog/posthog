@@ -42,6 +42,7 @@ export interface ChartDisplayOptionEligibility {
     breakdown?: BreakdownFilter['breakdown']
     breakdowns?: BreakdownFilter['breakdowns']
     currentDisplay?: ChartDisplayType
+    isComparing?: boolean
 }
 
 /** A chart saved as a proportion bar keeps its own label and icon in the picker while the flag is off. */
@@ -103,6 +104,7 @@ export function getChartDisplayOptions({
     breakdown,
     breakdowns,
     currentDisplay,
+    isComparing,
 }: ChartDisplayOptionEligibility): ChartDisplayOptionGroup[] {
     const breakdownProps = breakdownProperties({ breakdown, breakdowns })
     const worldMapBreakdownDisabled =
@@ -116,6 +118,11 @@ export function getChartDisplayOptions({
         trendsOnlyDisabledReason ||
         breakdownDisabledReason ||
         (boxPlotMissingProperty ? 'Select a numeric property to use a box plot.' : undefined)
+    // One bar has one total, so a second period's parts would share it.
+    const proportionBarDisabledReason =
+        trendsOnlyDisabledReason ||
+        (isComparing ? "This type doesn't support comparing to a previous period." : undefined) ||
+        (hasProportionBarChart ? undefined : "This chart type isn't available yet.")
 
     return [
         {
@@ -217,9 +224,7 @@ export function getChartDisplayOptions({
                               icon: 'proportionBar' as const,
                               label: 'Proportion bar',
                               description: 'Proportions of a whole as one flat bar.',
-                              disabledReason: hasProportionBarChart
-                                  ? trendsOnlyDisabledReason
-                                  : (trendsOnlyDisabledReason ?? "This chart type isn't available yet."),
+                              disabledReason: proportionBarDisabledReason,
                           },
                       ]
                     : []),

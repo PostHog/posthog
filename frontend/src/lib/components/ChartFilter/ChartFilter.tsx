@@ -45,7 +45,7 @@ export function ChartFilter({
     onOpen?: () => void
 }): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { display } = useValues(insightVizDataLogic(insightProps))
+    const { display, compareFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -62,6 +62,7 @@ export function ChartFilter({
         hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
         hasProportionBarChart: !!featureFlags[FEATURE_FLAGS.PROPORTION_BAR_CHART],
         currentDisplay: display ?? undefined,
+        isComparing: !!compareFilter?.compare,
     }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
 
     return (
