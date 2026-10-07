@@ -96,7 +96,7 @@ describe('autoresearchNewLogic', () => {
         expect(logic.values.validationFailed).toBe(false)
     })
 
-    it('fills the form from an activity template and validates with its population', async () => {
+    it('fills the form from an activity template, validates with its population, and lets an unedited name follow a template switch', async () => {
         mockResolve.mockResolvedValue(resolved({}))
         const logic = autoresearchNewLogic()
         logic.mount()
@@ -118,6 +118,16 @@ describe('autoresearchNewLogic', () => {
             expect.anything(),
             expect.objectContaining({ training_population: population, inference_population: population })
         )
+
+        mockResolve.mockResolvedValueOnce(
+            resolved({ template_key: 'feature_adoption', suggested_name: 'Likely to adopt a feature: $pageview' })
+        )
+        logic.actions.selectTemplate('feature_adoption')
+        await settle(logic)
+        expect(logic.values.newPipeline).toMatchObject({
+            template_key: 'feature_adoption',
+            name: 'Likely to adopt a feature: $pageview',
+        })
     })
 
     it('asks for a target before it resolves a template that needs one, and keeps an edited name', async () => {

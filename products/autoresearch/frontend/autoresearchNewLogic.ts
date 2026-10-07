@@ -145,9 +145,10 @@ export function populationSummary(kind: PopulationKind | null, filters: AnyPrope
 function valuesFromResolvedTemplate(
     resolved: ResolvedTemplateApi,
     previous: ResolvedTemplateApi | null,
+    lastSuggestedName: string | null,
     current: NewPipelineFormValues
 ): Partial<NewPipelineFormValues> {
-    const nameFollowsTemplate = !current.name.trim() || current.name === previous?.suggested_name
+    const nameFollowsTemplate = !current.name.trim() || current.name === lastSuggestedName
     const lookbackFollowsTemplate = !previous || current.training_lookback_days === previous.training_lookback_days
     return {
         template_key: resolved.template_key,
@@ -170,6 +171,7 @@ export interface autoresearchNewLogicValues {
     advancedOpen: boolean
     isNewPipelineSubmitting: boolean
     isNewPipelineValid: boolean
+    lastSuggestedName: string | null
     newPipeline: NewPipelineFormValues
     newPipelineAllErrors: Record<string, any>
     newPipelineChanged: boolean
@@ -366,6 +368,14 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 resolveTemplateSuccess: (_, { resolved }) => resolved,
             },
         ],
+        // selectTemplate clears resolvedTemplate, so this keeps the name the last template set.
+        // A name that still matches it follows the next template.
+        lastSuggestedName: [
+            null as string | null,
+            {
+                resolveTemplateSuccess: (_, { resolved }) => resolved.suggested_name,
+            },
+        ],
         resolvedTemplateLoading: [
             false,
             {
@@ -543,12 +553,14 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     return
                 }
                 const previous = values.resolvedTemplate
+                const lastSuggestedName = values.lastSuggestedName
                 actions.resolveTemplateSuccess(resolved)
                 // kea-forms types its setter with DeepPartial, which does not accept an opaque population spec.
                 actions.setNewPipelineValues(
                     valuesFromResolvedTemplate(
                         resolved,
                         previous,
+                        lastSuggestedName,
                         values.newPipeline
                     ) as DeepPartial<NewPipelineFormValues>
                 )
