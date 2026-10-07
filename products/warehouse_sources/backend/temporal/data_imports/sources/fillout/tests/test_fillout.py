@@ -113,10 +113,20 @@ class TestFilloutTransport:
         # No fallback date: the watermark is the only value `afterDate` is ever given.
         assert "initial_value" not in config
 
+    @parameterized.expand(
+        [
+            ("https://api.fillout.com/v1/api",),
+            ("https://eu-api.fillout.com/v1/api",),
+            ("https://api.zite.com/v1/api/",),
+        ]
+    )
+    def test_validated_api_base_url_accepts_allowed_hosts(self, api_base_url: str) -> None:
+        assert _validated_api_base_url(api_base_url) == api_base_url.rstrip("/")
+
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,
-            match="API base URL must be one of https://api.fillout.com/v1/api or https://eu-api.fillout.com/v1/api.",
+            match="API base URL must be one of",
         ):
             _validated_api_base_url("https://api.fillout.com")
 
@@ -363,7 +373,7 @@ class TestFilloutTransport:
     def test_fillout_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(
             ValueError,
-            match="API base URL must be one of https://api.fillout.com/v1/api or https://eu-api.fillout.com/v1/api.",
+            match="API base URL must be one of",
         ):
             fillout_source(
                 api_key="key",
