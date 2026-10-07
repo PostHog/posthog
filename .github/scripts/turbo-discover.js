@@ -703,6 +703,10 @@ function pruneDeadDurations(durations) {
     return live
 }
 
+function isTestFileName(name) {
+    return name.endsWith('.py') && (name.startsWith('test_') || name.endsWith('_test.py'))
+}
+
 // Recursively collect test files (test_*.py / *_test.py) under a directory.
 function collectTestFiles(dir) {
     const files = []
@@ -716,11 +720,7 @@ function collectTestFiles(dir) {
         const full = path.join(dir, entry.name)
         if (entry.isDirectory()) {
             files.push(...collectTestFiles(full))
-        } else if (
-            entry.isFile() &&
-            entry.name.endsWith('.py') &&
-            (entry.name.startsWith('test_') || entry.name.endsWith('_test.py'))
-        ) {
+        } else if (entry.isFile() && isTestFileName(entry.name)) {
             files.push(full)
         }
     }
@@ -729,6 +729,95 @@ function collectTestFiles(dir) {
 
 function productPrefix(product) {
     return `products/${productToModule(product)}/`
+}
+
+// --- Core-test scoping (backend:test-core-check) ---
+// A product can split its suite in two by declaring this task in its own turbo.json.
+// The task's inputs are the product's core: the files whose change needs the whole
+// suite. Every other file is a leaf, such as one warehouse source among hundreds.
+// When a diff changes the product and Turbo reports the task unaffected, no core file
+// changed, so the test files among the inputs cannot have a different result and the
+// run ignores them. The product owns a guard test that keeps the inputs closed: a core
+// file that starts to depend on a leaf fails it.
+const CORE_TASK = 'backend:test-core-check'
+
+// The fewest --ignore paths that skip exactly `coreTests`: a directory that holds no
+// other test is ignored whole, so the argument list stays short and pytest never walks it.
+// Paths are relative to the product directory, which is where pytest runs.
+function ignorePathsFor(coreTests, leafTests) {
+    const leafDirs = new Set()
+    for (const file of leafTests) {
+        for (let dir = path.posix.dirname(file); dir !== '.'; dir = path.posix.dirname(dir)) {
+            leafDirs.add(dir)
+        }
+    }
+    const ignores = new Set()
+    for (const file of coreTests) {
+        const parts = file.split('/')
+        let target = file
+        for (let depth = 1; depth < parts.length; depth++) {
+            const dir = parts.slice(0, depth).join('/')
+            if (!leafDirs.has(dir)) {
+                target = dir
+                break
+            }
+        }
+        ignores.add(target)
+    }
+    return [...ignores].sort()
+}
+
+// What a scoped run of one product ignores, or null when the product cannot be scoped:
+// it has no test on one of the two sides, or a path would not survive the shell word
+// splitting that carries pytest arguments to the test job.
+//   productDir   repo-relative product directory
+//   coreInputs   the files Turbo resolved for CORE_TASK, relative to productDir
+function coreScope(productDir, coreInputs) {
+    const core = new Set(coreInputs)
+    const tests = collectTestFiles(productDir).map((file) => path.relative(productDir, file).split(path.sep).join('/'))
+    const coreTests = tests.filter((file) => core.has(file))
+    const leafTests = tests.filter((file) => !core.has(file))
+    if (coreTests.length === 0 || leafTests.length === 0) {
+        return null
+    }
+    const ignores = ignorePathsFor(coreTests, leafTests)
+    if (ignores.some((ignored) => /[\s'"\\$`]/.test(ignored))) {
+        return null
+    }
+    return { ignores, coreTestCount: coreTests.length, leafTestCount: leafTests.length }
+}
+
+// Scopes for the products a diff changed without touching their core.
+//   coreTasks          Turbo's dry run of CORE_TASK: one task per declaring product
+//   affectedCoreTasks  Turbo's affected query for CORE_TASK
+//   candidates         products in the matrix for no reason other than their own diff
+function resolveCoreScopes(coreTasks, affectedCoreTasks, candidates) {
+    const scopes = new Map()
+    const coreChanged = new Set(getAffectedTaskProducts(affectedCoreTasks))
+    for (const task of coreTasks) {
+        const product = packageToProduct(task.package)
+        if (!isProductPackage(task.package) || !candidates.has(product) || coreChanged.has(product)) {
+            continue
+        }
+        const scope = coreScope(task.directory, Object.keys(task.inputs || {}))
+        if (scope) {
+            scopes.set(product, scope)
+        }
+    }
+    return scopes
+}
+
+// The durations map without the tests a scope ignores, so a scoped product is sized by
+// what it runs.
+function scopedDurations(durations, product, scope) {
+    if (!durations || !scope) {
+        return durations
+    }
+    const prefix = productPrefix(product)
+    const ignored = scope.ignores.map((ignoredPath) => `${prefix}${ignoredPath}`)
+    const isIgnored = (test) =>
+        ignored.some((ignoredPath) => test.startsWith(`${ignoredPath}/`) || test.startsWith(`${ignoredPath}::`))
+    return Object.fromEntries(Object.entries(durations).filter(([test]) => !test.startsWith(prefix) || !isIgnored(test)))
 }
 
 // --- Lib package consumers (import scan) ---
@@ -1422,7 +1511,9 @@ function matrixEntry(group, legs) {
     return entry
 }
 
-function buildMatrix(products, durations, productsScaled = false) {
+//   scopes  product -> core scope (resolveCoreScopes) for the products that run without
+//           their core tests
+function buildMatrix(products, durations, productsScaled = false, scopes = new Map()) {
     const matrix = []
     const packable = []
     const fillableJobs = []
@@ -1435,8 +1526,18 @@ function buildMatrix(products, durations, productsScaled = false) {
     // PRODUCTS_SCALED_MARKER: call-only durations undercount a fixture-heavy
     // suite several-fold, and sizing an unscaled sum under-shards it.
     for (const product of products) {
-        const sizing = resolveProductSizing(product, durations, productsScaled)
+        const scope = scopes.get(product)
+        const sizing = resolveProductSizing(product, scopedDurations(durations, product, scope), productsScaled)
         const { work, maxTest, staleUnionWork, staleness } = sizing
+        // A scoped product never shares a leg: the ignores are its own, and a packed leg
+        // passes one argument list to every product it holds.
+        const label = scope ? `${product} (leaf tests)` : product
+        const scopeArgs = scope ? scope.ignores.map((ignored) => ` --ignore=${ignored}`).join('') : ''
+        if (scope) {
+            console.error(
+                `  ${product}: core unchanged, ignoring ${scope.coreTestCount} core test files and running ${scope.leafTestCount}`
+            )
+        }
         if (staleUnionWork !== null) {
             console.error(
                 `  ${product}: .test_durations stale, ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
@@ -1463,7 +1564,7 @@ function buildMatrix(products, durations, productsScaled = false) {
             for (let i = 1; i <= shards; i++) {
                 const leg = {
                     filters,
-                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks --split-granularity file`,
+                    pytest_args: `-- --splits ${shards} --group ${i} --splitting-algorithm optimal_chunks --split-granularity file${scopeArgs}`,
                 }
                 // work/shards + maxTest bounds every shard, whichever one
                 // optimal_chunks leaves lightest, so one shard can be offered to the
@@ -1471,16 +1572,20 @@ function buildMatrix(products, durations, productsScaled = false) {
                 // the bound is what keeps a filled shard inside the job budget.
                 if (i === shards && !DEDICATED_BUCKET_PRODUCTS.has(product)) {
                     fillableJobs.push({
-                        label: `${product} (${i}/${shards})`,
+                        label: `${label} (${i}/${shards})`,
                         legs: [leg],
                         products: [],
                         cost: shardCost,
                         baseOverhead: PRODUCT_JOB_OVERHEAD_SECONDS,
                     })
                 } else {
-                    matrix.push(matrixEntry(`${product} (${i}/${shards})`, [leg]))
+                    matrix.push(matrixEntry(`${label} (${i}/${shards})`, [leg]))
                 }
             }
+        } else if (scope) {
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → one job of its own`)
+            const leg = { filters: `--filter=@posthog/products-${product}`, pytest_args: `--${scopeArgs}` }
+            matrix.push(matrixEntry(label, [leg]))
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
             console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated job (never shared)`)
             matrix.push(matrixEntry(product, [{ filters: `--filter=@posthog/products-${product}`, pytest_args: '' }]))
@@ -1542,6 +1647,10 @@ module.exports = {
     libImportName,
     productsImportingModule,
     coreFilesImportingModule,
+    ignorePathsFor,
+    coreScope,
+    resolveCoreScopes,
+    scopedDurations,
 }
 
 // --- Main ---
@@ -1594,6 +1703,10 @@ let mustRunProducts = null
 // The products a product-only diff reached, kept apart from a matrix that a cascade widened
 // to all products. Null when a change reaches core directly or the reach is unknown.
 let diffProducts = null
+// The products in the matrix for no reason other than their own diff. Only these may run
+// without their core tests: a product a cascade pulled in is there because code outside
+// it changed, which its core inputs do not watch.
+const ownDiffProducts = new Set()
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1648,11 +1761,14 @@ if (legacyChanged) {
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
                 diffProducts = products
+                const cascaded = new Set([...affectedContracts, ...dependents])
+                affectedProducts.filter((p) => !cascaded.has(p)).forEach((p) => ownDiffProducts.add(p))
             }
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
             runLegacy = false
             products = affectedProducts
+            affectedProducts.forEach((p) => ownDiffProducts.add(p))
         }
     } else {
         console.error('No product changes detected')
@@ -1692,11 +1808,13 @@ if (legacyChanged) {
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
                 diffProducts = null
+                ownDiffProducts.clear()
             } else {
                 if (cascaded.length > 0) {
                     console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
                 }
                 const reached = [...new Set([...directConsumers, ...cascaded])].sort()
+                reached.forEach((p) => ownDiffProducts.delete(p))
                 products = [...new Set([...products, ...reached])].sort()
                 if (diffProducts !== null) {
                     diffProducts = [...new Set([...diffProducts, ...reached])].sort()
@@ -1718,8 +1836,10 @@ if (legacyChanged) {
         if (schemaProducts === null) {
             console.error('Schema diff unavailable — falling back to all products + Django')
             products = allProducts
+            ownDiffProducts.clear()
         } else {
             products = [...new Set([...products, ...schemaProducts])].sort()
+            schemaProducts.forEach((p) => ownDiffProducts.delete(p))
         }
         // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
         runLegacy = true
@@ -1759,6 +1879,7 @@ if (process.env.TURBO_SCM_BASE) {
         console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
         products.push(name)
         liftedProducts.push(name)
+        ownDiffProducts.delete(name)
     }
     products.sort()
 }
@@ -1786,6 +1907,21 @@ if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
 console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
+
+// A failed query leaves every product on its whole suite.
+let coreScopes = new Map()
+const scopeCandidates = new Set(products.filter((p) => ownDiffProducts.has(p)))
+if (scopeCandidates.size > 0) {
+    const affectedCoreTasks = queryAffectedTasks(CORE_TASK)
+    if (affectedCoreTasks !== null) {
+        try {
+            const coreTasks = parseTurboTasks(runTurbo(['run', CORE_TASK, '--dry-run=json']))
+            coreScopes = resolveCoreScopes(coreTasks, affectedCoreTasks, scopeCandidates)
+        } catch (e) {
+            console.error(`::warning::turbo dry run for ${CORE_TASK} failed (${e.message}), no product is scoped`)
+        }
+    }
+}
 
 const rawDurations = loadTestDurations()
 // Read before pruning: the marker's key is not a real file, so pruning drops it.
@@ -1821,7 +1957,7 @@ if (jsonTargetFiles !== null) {
 const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
     selectionDecision
 const result = {
-    matrix: buildMatrix(products, durations, productsScaled),
+    matrix: buildMatrix(products, durations, productsScaled, coreScopes),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
@@ -1853,6 +1989,9 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        leaf_scoped_products: [...coreScopes.keys()].sort(),
+        leaf_scoped_test_files: [...coreScopes.values()].reduce((sum, scope) => sum + scope.leafTestCount, 0),
+        leaf_scoped_ignored_test_files: [...coreScopes.values()].reduce((sum, scope) => sum + scope.coreTestCount, 0),
         ...runContext(),
     },
 }

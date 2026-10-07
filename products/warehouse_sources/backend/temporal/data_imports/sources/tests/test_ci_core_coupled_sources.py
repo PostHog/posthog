@@ -137,13 +137,17 @@ def _core_consumed_facade_symbols(tree: ast.AST) -> set[str]:
     return found
 
 
-def _contract_check_inputs(root: Path) -> list[str] | None:
-    """The narrowed contract-check inputs, or None when turbo watches all of backend/."""
+def _task_inputs(root: Path, task: str) -> list[str] | None:
+    """The narrowed inputs of a turbo task, or None when turbo watches all of backend/."""
     turbo_path = root / "products" / "warehouse_sources" / "turbo.json"
     if not turbo_path.exists():
         return None
     turbo = json.loads(turbo_path.read_text())
-    return turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs") or None
+    return turbo.get("tasks", {}).get(task, {}).get("inputs") or None
+
+
+def _contract_check_inputs(root: Path) -> list[str] | None:
+    return _task_inputs(root, "backend:contract-check")
 
 
 def _contract_covered_sources(root: Path) -> set[str] | None:
@@ -237,4 +241,180 @@ def test_contract_check_watches_exactly_the_generated_configs_it_refers_to() -> 
     assert watched == referenced, (
         "products/warehouse_sources/turbo.json backend:contract-check inputs must list exactly the "
         "generated configs the watched files refer to"
+    )
+
+
+# Guards the backend:test-core-check split of the warehouse_sources suite.
+# When a diff changes the product and leaves every core-check input untouched,
+# turbo-discover.js runs the suite with the test files among those inputs ignored. That is
+# sound only if no core file can execute a file outside the inputs, so the two tests below
+# hold the inputs closed: every backend file is a core input or belongs to a leaf source, and
+# no core file refers to a leaf source.
+#
+# A core test that iterates every registered source reaches all of them and is not visible
+# here. The catalog-wide tests in sources/tests/ are leaf files for that reason: they run on
+# every change to a source.
+
+_CORE_TASK = "backend:test-core-check"
+_TYPES_MODULE = "products/warehouse_sources/backend/facade/types.py"
+_TEST_DIR_NAMES = frozenset({"test", "tests"})
+
+
+def _source_vendors(sources_dir: Path) -> set[str]:
+    return {source.parent.name for source in sources_dir.glob("*/source.py")}
+
+
+def _is_test_file(rel: Path) -> bool:
+    name = rel.name
+    return (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or name == "conftest.py"
+        or bool(_TEST_DIR_NAMES.intersection(rel.parts))
+    )
+
+
+def _vendors_by_source_type(root: Path, vendors: set[str]) -> dict[str, str]:
+    """Map each ExternalDataSourceType member name and value to its source directory."""
+    by_squashed_name = {vendor.replace("_", ""): vendor for vendor in vendors}
+    names: dict[str, str] = {}
+    for node in ast.walk(ast.parse((root / _TYPES_MODULE).read_text())):
+        if not (isinstance(node, ast.ClassDef) and node.name == "ExternalDataSourceType"):
+            continue
+        for statement in node.body:
+            match statement:
+                case ast.Assign(
+                    targets=[ast.Name(id=member)], value=ast.Tuple(elts=[ast.Constant(value=str(value)), *_])
+                ) if vendor := by_squashed_name.get(member.lower()):
+                    names[member] = vendor
+                    names[value] = vendor
+    assert names, "parsed no ExternalDataSourceType members"
+    return names
+
+
+def _dotted_references(tree: ast.AST, package: str) -> set[str]:
+    """Every module path a file imports or names in a string, with relative imports resolved."""
+    dotted: set[str] = set()
+
+    class Visitor(ast.NodeVisitor):
+        def visit_If(self, node: ast.If) -> None:
+            if _is_type_checking(node.test):
+                for statement in node.orelse:
+                    self.visit(statement)
+                return
+            self.generic_visit(node)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            module = node.module or ""
+            if node.level:
+                parents = package.split(".")
+                parents = parents[: len(parents) - (node.level - 1)]
+                module = ".".join([*parents, module] if module else parents)
+            dotted.add(module)
+            dotted.update(f"{module}.{alias.name}" for alias in node.names)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            dotted.update(alias.name for alias in node.names)
+
+        def visit_Constant(self, node: ast.Constant) -> None:
+            if isinstance(node.value, str):
+                dotted.add(node.value)
+
+    Visitor().visit(tree)
+    return dotted
+
+
+def _source_type_names(tree: ast.AST, vendors_by_name: dict[str, str]) -> set[str]:
+    """Sources a file selects by ExternalDataSourceType member or by the member's value."""
+    named: set[str] = set()
+    for node in ast.walk(tree):
+        match node:
+            case ast.Attribute(attr=member) if member in vendors_by_name:
+                named.add(vendors_by_name[member])
+            case ast.Constant(value=str(value)) if value in vendors_by_name:
+                named.add(vendors_by_name[value])
+    return named
+
+
+def _leaf_files_referenced(
+    file: Path, product_dir: Path, vendors: set[str], vendors_by_name: dict[str, str]
+) -> set[str]:
+    """Product-relative paths of the source files and generated configs a core file can execute."""
+    rel = file.relative_to(product_dir)
+    tree = ast.parse(file.read_text(), filename=str(file))
+    package = ".".join(("products", "warehouse_sources", *rel.parent.parts))
+    referenced: set[str] = set()
+    for dotted in _dotted_references(tree, package):
+        vendor = _vendor_from_target(dotted)
+        if vendor in vendors:
+            referenced.add(f"{_INPUTS_PREFIX}{vendor}/source.py")
+        elif match := _GENERATED_CONFIG_REFERENCE.fullmatch(dotted):
+            if match[1] and (product_dir / _GENERATED_CONFIGS_DIR / f"{match[1]}.py").exists():
+                referenced.add(f"{_GENERATED_CONFIGS_DIR}{match[1]}.py")
+    # Production code compares source types without running the source. A test that names
+    # one usually asks the registry for it.
+    if _is_test_file(rel):
+        referenced |= {f"{_INPUTS_PREFIX}{vendor}/source.py" for vendor in _source_type_names(tree, vendors_by_name)}
+    return referenced
+
+
+def test_core_test_inputs_cover_every_file_outside_a_leaf_source() -> None:
+    root = _repo_root()
+    product_dir = root / "products" / "warehouse_sources"
+    sources_dir = product_dir / _INPUTS_PREFIX
+    inputs = _task_inputs(root, _CORE_TASK)
+    if inputs is None:
+        return
+
+    leaf_roots = [
+        *(sources_dir / vendor for vendor in _source_vendors(sources_dir)),
+        product_dir / _GENERATED_CONFIGS_DIR,
+        sources_dir / "tests",
+        sources_dir / "_load_all.py",
+    ]
+    backend_files = [file.relative_to(product_dir) for file in (product_dir / "backend").rglob("*.py")]
+    unwatched = sorted(
+        str(rel)
+        for rel in backend_files
+        if not _is_watched(rel, inputs) and not any((product_dir / rel).is_relative_to(leaf) for leaf in leaf_roots)
+    )
+    assert not unwatched, (
+        f"{unwatched[:10]} are outside every source directory and are not {_CORE_TASK} inputs in "
+        "products/warehouse_sources/turbo.json. A change to them would skip the product's core tests. "
+        "Add them to the inputs."
+    )
+
+    contract_inputs = _contract_check_inputs(root) or []
+    contract_only = sorted(
+        str(rel) for rel in backend_files if _is_watched(rel, contract_inputs) and not _is_watched(rel, inputs)
+    )
+    assert not contract_only, (
+        f"{contract_only[:10]} are backend:contract-check inputs and are not {_CORE_TASK} inputs. "
+        "A contract change must run the whole suite."
+    )
+
+
+def test_core_test_inputs_never_reach_a_leaf_source() -> None:
+    root = _repo_root()
+    product_dir = root / "products" / "warehouse_sources"
+    inputs = _task_inputs(root, _CORE_TASK)
+    if inputs is None:
+        return
+
+    vendors = _source_vendors(product_dir / _INPUTS_PREFIX)
+    vendors_by_name = _vendors_by_source_type(root, vendors)
+    core_files = [
+        file for file in (product_dir / "backend").rglob("*.py") if _is_watched(file.relative_to(product_dir), inputs)
+    ]
+    assert core_files, f"{_CORE_TASK} inputs match no file"
+
+    unwatched: dict[str, str] = {}
+    for file in core_files:
+        for leaf in _leaf_files_referenced(file, product_dir, vendors, vendors_by_name):
+            if not _is_watched(Path(leaf), inputs):
+                unwatched.setdefault(leaf, str(file.relative_to(product_dir)))
+    assert not unwatched, (
+        f"Core files refer to sources that are not {_CORE_TASK} inputs in products/warehouse_sources/turbo.json: "
+        f"{dict(sorted(unwatched.items())[:10])}. A change to those sources would skip the core tests that "
+        "exercise them. Add each source directory and its generated config to the inputs."
     )
