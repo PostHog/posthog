@@ -307,6 +307,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
     with transaction.atomic():
         existing = (
             PlatformAlertConfiguration.objects.unscoped()
+            .select_for_update()
             .filter(legacy_configuration_id=upsert.legacy_configuration_id)
             .values("enabled", *_CADENCE_FIELDS)
             .first()
