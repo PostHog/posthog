@@ -166,10 +166,10 @@ class TestFilloutTransport:
 
         assert result == (True, None)
         assert mock_session.return_value.get.call_count == 3
-        assert (
-            mock_session.return_value.get.call_args_list[2].args[0]
-            == "https://api.fillout.com/v1/api/forms/form_2/submissions"
-        )
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]] == [
+            "https://api.fillout.com/v1/api/forms/form_1/submissions",
+            "https://api.fillout.com/v1/api/forms/form_2/submissions",
+        ]
 
     @parameterized.expand(
         [
