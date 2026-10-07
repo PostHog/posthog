@@ -7,12 +7,15 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
+
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
 import {
@@ -38,6 +41,13 @@ import {
     type AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
 } from './generated/api.schemas'
+import {
+    PREDICTION_SEGMENTS,
+    PREDICTION_SEGMENT_THRESHOLDS,
+    type PredictionSegmentCounts,
+    type PredictionSegmentKey,
+    predictionSegmentCohortFilters,
+} from './predictionSegments'
 import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 export interface AutoresearchPipelineLogicProps {
@@ -81,10 +91,10 @@ function findRunningScoreRun(runs: AutoresearchRunApi[]): AutoresearchRunApi | n
     )
 }
 
-/** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
 /** How far back the Predictions tab looks for the latest scoring batch, so it never scans the full history. */
 export const LATEST_BATCH_LOOKBACK_DAYS = 90
 
+/** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
 export interface ProbabilityBucket {
     lower: number
     users: number
@@ -229,6 +239,7 @@ export interface OnlinePerformanceRow {
 export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    currentProjectId: number | null // projectLogic
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     artifactsByRun: Record<string, string[]>
@@ -245,6 +256,9 @@ export interface autoresearchPipelineLogicValues {
     pipeline: AutoresearchPipelineApi | null
     pipelineError: boolean
     pipelineLoading: boolean
+    predictionSegments: PredictionSegmentCounts | null
+    predictionSegmentsError: boolean
+    predictionSegmentsLoading: boolean
     predictionsPeopleView: PredictionsPeopleView
     probabilityDistribution: ProbabilityBucket[] | null
     probabilityDistributionError: boolean
@@ -255,6 +269,7 @@ export interface autoresearchPipelineLogicValues {
     runs: AutoresearchRunApi[]
     runsError: boolean
     runsLoading: boolean
+    savingCohortSegment: PredictionSegmentKey | null
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     scoringCoverage: ScoringCoverage | null
@@ -360,6 +375,21 @@ export interface autoresearchPipelineLogicActions {
         payload?: any
     ) => {
         pipeline: AutoresearchPipelineApi | null
+        payload?: any
+    }
+    loadPredictionSegments: () => any
+    loadPredictionSegmentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPredictionSegmentsSuccess: (
+        predictionSegments: PredictionSegmentCounts,
+        payload?: any
+    ) => {
+        predictionSegments: PredictionSegmentCounts
         payload?: any
     }
     loadProbabilityDistribution: () => any
@@ -572,6 +602,12 @@ export interface autoresearchPipelineLogicActions {
         suggestionSubmitResult: AutoresearchSuggestionApi | null
         payload?: any
     }
+    saveSegmentCohort: (segment: PredictionSegmentKey) => {
+        segment: PredictionSegmentKey
+    }
+    saveSegmentCohortFinished: () => {
+        value: true
+    }
     toggleRunArtifacts: (runId: string) => {
         runId: string
     }
@@ -638,7 +674,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     props({} as AutoresearchPipelineLogicProps),
     key((props) => props.id),
     connect({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
         actions: [teamLogic, ['loadCurrentTeamSuccess'], featureFlagLogic, ['setFeatureFlags']],
     }),
     actions({
@@ -653,6 +689,8 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         startScorePolling: true,
         pollScoreRun: true,
         scoreRunFinished: (run: AutoresearchRunApi) => ({ run }),
+        saveSegmentCohort: (segment: PredictionSegmentKey) => ({ segment }),
+        saveSegmentCohortFinished: true,
     }),
     reducers({
         detailRequested: [
@@ -699,6 +737,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             CreateSuggestionPriorityEnumApi.Consider as CreateSuggestionPriorityEnumApi,
             {
                 setSuggestionPriority: (_, { priority }) => priority,
+            },
+        ],
+        savingCohortSegment: [
+            null as PredictionSegmentKey | null,
+            {
+                saveSegmentCohort: (_, { segment }) => segment,
+                saveSegmentCohortFinished: () => null,
+            },
+        ],
+        predictionSegmentsError: [
+            false,
+            {
+                loadPredictionSegments: () => false,
+                loadPredictionSegmentsFailure: () => true,
             },
         ],
         probabilityDistributionError: [
@@ -918,6 +970,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                                 FROM events
                                 WHERE event = 'autoresearch_prediction'
                                   AND properties.$autoresearch_pipeline_id = ${props.id}
+                                  AND properties.$autoresearch_model_role != 'shadow'
                                   AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
                                   AND properties.$autoresearch_prediction_date = (
                                       SELECT max(properties.$autoresearch_prediction_date)
@@ -937,6 +990,51 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                         lower: Number(row[0]) / 10,
                         users: Number(row[1]),
                     }))
+                },
+            },
+        ],
+        predictionSegments: [
+            null as PredictionSegmentCounts | null,
+            {
+                loadPredictionSegments: async () => {
+                    // The same per-person scores as the probability distribution, so the segments add up to its total.
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT
+                                multiIf(p >= ${PREDICTION_SEGMENT_THRESHOLDS.high}, 'likely', p >= ${PREDICTION_SEGMENT_THRESHOLDS.low}, 'possible', 'unlikely') AS segment,
+                                count() AS people,
+                                sum(p) AS expected_conversions
+                            FROM (
+                                SELECT
+                                    coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
+                                    argMax(toFloat(properties.$autoresearch_p_y), timestamp) AS p
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = ${props.id}
+                                  AND properties.$autoresearch_model_role != 'shadow'
+                                  AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  AND properties.$autoresearch_prediction_date = (
+                                      SELECT max(properties.$autoresearch_prediction_date)
+                                      FROM events
+                                      WHERE event = 'autoresearch_prediction'
+                                        AND properties.$autoresearch_pipeline_id = ${props.id}
+                                        AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  )
+                                GROUP BY person_id
+                            )
+                            GROUP BY segment
+                        `,
+                        { productKey: 'autoresearch', name: 'autoresearch_prediction_segments' }
+                    )
+                    const rows = new Map<string, any[]>(
+                        (response.results ?? []).map((row: any[]) => [String(row[0]), row])
+                    )
+                    return Object.fromEntries(
+                        PREDICTION_SEGMENTS.map(({ key }) => {
+                            const row = rows.get(key)
+                            return [key, { people: Number(row?.[1] ?? 0), expectedConversions: Number(row?.[2] ?? 0) }]
+                        })
+                    ) as PredictionSegmentCounts
                 },
             },
         ],
@@ -1090,6 +1188,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             if (pipeline?.last_scored_at && !values.probabilityDistribution && !values.probabilityDistributionLoading) {
                 actions.loadProbabilityDistribution()
             }
+            if (pipeline?.last_scored_at && !values.predictionSegments && !values.predictionSegmentsLoading) {
+                actions.loadPredictionSegments()
+            }
             if (pipeline?.last_scored_at && !values.dailyVolume && !values.dailyVolumeLoading) {
                 actions.loadDailyVolume()
             }
@@ -1180,6 +1281,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     rows_scored: run.rows_scored,
                 })
                 actions.loadProbabilityDistribution()
+                actions.loadPredictionSegments()
                 actions.loadDailyVolume()
                 const scored = run.rows_scored ?? 0
                 lemonToast.success(`Scored ${scored.toLocaleString()} users`)
@@ -1222,6 +1324,41 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         setPredictionsPeopleView: ({ view }) => {
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
+        },
+        saveSegmentCohort: async ({ segment }) => {
+            const { pipeline, currentProjectId } = values
+            const definition = PREDICTION_SEGMENTS.find(({ key }) => key === segment)
+            const outputProperty = pipeline?.output_person_property
+            if (!pipeline || !outputProperty || !currentProjectId || !definition) {
+                actions.saveSegmentCohortFinished()
+                return
+            }
+            try {
+                const cohort = await cohortsCreate(String(currentProjectId), {
+                    name: `${pipeline.name}: ${definition.label.toLowerCase()} (${definition.range.toLowerCase()})`,
+                    description: `People whose ${outputProperty} score is ${definition.range.toLowerCase()}. Updates each time the model scores.`,
+                    is_static: false,
+                    filters: predictionSegmentCohortFilters(segment, outputProperty),
+                })
+                posthog.capture('autoresearch model cohort saved', {
+                    pipeline_id: props.id,
+                    segment,
+                    cohort_id: cohort.id,
+                    people: values.predictionSegments?.[segment].people,
+                })
+                lemonToast.success('Cohort saved', {
+                    button: { label: 'View cohort', action: () => router.actions.push(urls.cohort(cohort.id)) },
+                })
+            } catch {
+                posthog.capture('autoresearch model action failed', {
+                    action: 'save_cohort',
+                    pipeline_id: props.id,
+                    segment,
+                })
+                lemonToast.error("Couldn't save the cohort. Try again.")
+            } finally {
+                actions.saveSegmentCohortFinished()
+            }
         },
     })),
     actionToUrl(({ values }) => ({
