@@ -32,6 +32,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
+import { WatchPage } from 'products/replay_vision/frontend/replay_scanners/components/WatchPage'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
@@ -41,7 +42,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './playlist/sessionRecordingsPlaylistLogic'
-import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { SCENE_PLAYLIST_LOGIC_PROPS, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
@@ -180,13 +181,8 @@ function AttachScenePlaylistLogic({
 }
 
 function MainPanel(): JSX.Element {
-    const { tab } = useValues(sessionReplaySceneLogic)
+    const { tab, watchPicksVariant } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
-
-    const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'scene',
-        updateSearchParams: true,
-    }
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
@@ -196,15 +192,20 @@ function MainPanel(): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
-                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
+                    <AttachScenePlaylistLogic playlistLogicProps={SCENE_PLAYLIST_LOGIC_PROPS} />
                     {isRedesignEnabled ? (
-                        <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
+                        <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...playlistLogicProps} />
+                        <SessionRecordingsPlaylist
+                            {...SCENE_PLAYLIST_LOGIC_PROPS}
+                            watchPicksVariant={watchPicksVariant}
+                        />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
+            ) : tab === ReplayTabs.WhatToWatch ? (
+                <WatchPage />
             ) : null}
         </div>
     )
@@ -226,15 +227,24 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
+const WhatToWatchTab: ReplayTab = {
+    label: 'What to watch',
+    key: ReplayTabs.WhatToWatch,
+    tooltip: 'Recordings the scanners picked out for you',
+    'data-attr': 'session-recordings-what-to-watch-tab',
+}
+
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab } = useValues(sessionReplaySceneLogic)
+    const { tab, watchPicksVariant } = useValues(sessionReplaySceneLogic)
+    const showWhatToWatch = watchPicksVariant === 'watch-tab' || watchPicksVariant === 'both'
+    const tabs = showWhatToWatch ? [WhatToWatchTab, ...ReplayPageTabs] : ReplayPageTabs
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset
             className="-mt-4"
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+            tabs={tabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: replayTab.label,
                     key: replayTab.key,
