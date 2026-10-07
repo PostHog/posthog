@@ -18,7 +18,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.facade.api import subscription_delivers
+from products.exports.backend.facade.api import dashboard_has_active_full_subscription
 from products.exports.backend.models.subscription import Subscription
 
 _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
@@ -121,7 +121,7 @@ def check_can_add_insight_to_subscribed_dashboard(
     uac = user_access_control or UserAccessControl(user=user, team=dashboard.team)
     if uac.is_organization_admin:
         return
-    if not subscription_delivers(dashboard.team_id, dashboard_id=dashboard.id):
+    if not dashboard_has_active_full_subscription(team_id=dashboard.team_id, dashboard_id=dashboard.id):
         return
     blocked = blocked_access_for_user(user, dashboard.team, [query])
     if blocked:
