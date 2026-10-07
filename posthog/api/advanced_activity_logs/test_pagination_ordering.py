@@ -3,6 +3,8 @@ from datetime import timedelta
 import time_machine
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -132,4 +134,26 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             seen.extend(row["item_id"] for row in body["results"])
             url = body["next"]
 
+        assert sorted(seen) == sorted(str(index) for index in range(25))
+
+    def test_page_number_walk_covers_every_row_without_counting(self):
+        self._create_logs(25, same_timestamp=True)
+
+        seen: list[str] = []
+        url = f"/api/projects/{self.team.id}/advanced_activity_logs/?page=1&page_size=10"
+        pages = 0
+        while url:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(url)
+            assert response.status_code == 200, response.json()
+            assert not [query for query in queries.captured_queries if query["sql"].startswith("SELECT COUNT(")]
+            body = response.json()
+            assert "count" not in body
+            pages += 1
+            if pages > 1:
+                assert "page=" in body["previous"], "a previous link without page would switch to cursor mode"
+            seen.extend(row["item_id"] for row in body["results"])
+            url = body["next"]
+
+        assert pages == 3
         assert sorted(seen) == sorted(str(index) for index in range(25))
