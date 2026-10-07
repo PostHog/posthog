@@ -1,3 +1,5 @@
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+
 import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
 import {
     applyVisualizationType,
@@ -90,8 +92,10 @@ describe('dashboard SQL visualization support', () => {
 
             for (const displayType of chartTypes) {
                 const saved = applyVisualizationType(baseQuery, displayType, columns, response.result.length)
+                // A part-of-whole chart draws one part per value column, so it needs no X-axis.
+                const needsXAxis = !PART_OF_WHOLE_DISPLAY_TYPES.includes(displayType)
 
-                expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
+                expect(!needsXAxis || typeof saved.chartSettings?.xAxis?.column === 'string').toBe(true)
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
             }
         }
@@ -156,21 +160,25 @@ describe('dashboard SQL visualization support', () => {
         }
     )
 
-    it('allows a dashboard proportion bar from numeric-only results, with one part per column', () => {
-        const response = responses['all numeric, which the editor plots by promoting the first column to the x axis']
-        const columns = columnsFromResponse(response)
-        const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+    it.each([ChartDisplayType.ActionsProportionBar, ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'allows a dashboard %s from numeric-only results, with one part per column',
+        (displayType) => {
+            const response =
+                responses['all numeric, which the editor plots by promoting the first column to the x axis']
+            const columns = columnsFromResponse(response)
+            const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
 
-        expect(
-            sqlVisualizationDisabledReason(
-                ChartDisplayType.ActionsProportionBar,
-                baseQuery,
-                columns,
-                response.result.length,
-                autoVisualizationType
-            )
-        ).toBeUndefined()
-    })
+            expect(
+                sqlVisualizationDisabledReason(
+                    displayType,
+                    baseQuery,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
+            ).toBeUndefined()
+        }
+    )
 
     it('still requires a numeric column for a proportion bar', () => {
         const response = responses['all string, so nothing is left to plot']

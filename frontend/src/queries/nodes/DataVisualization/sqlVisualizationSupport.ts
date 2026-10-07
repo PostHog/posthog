@@ -1,3 +1,5 @@
+import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+
 import { ChartDisplayType } from '~/types'
 
 import { Column, applyVisualizationType } from './dataVisualizationLogic'
@@ -50,11 +52,11 @@ export function sqlVisualizationDisabledReason(
 
     const nextQuery = applyVisualizationType(query, displayType, columns, rowCount)
     const hasYAxis = !!nextQuery.chartSettings?.yAxis?.length
-    // A proportion bar draws one part per numeric column, so like `Metric` it needs no X-axis column.
+    // A pie, donut or proportion bar draws one part per numeric column, so like `Metric` it needs no X-axis column.
     if (
         hasYAxis &&
         (drawnAs === ChartDisplayType.Metric ||
-            drawnAs === ChartDisplayType.ActionsProportionBar ||
+            PART_OF_WHOLE_DISPLAY_TYPES.includes(drawnAs) ||
             nextQuery.chartSettings?.xAxis)
     ) {
         return undefined
