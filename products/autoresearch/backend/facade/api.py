@@ -366,7 +366,7 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
     )
     pipelines = []
     for row in rows:
-        champions: list[AutoresearchModel] = row.prefetched_champions  # type: ignore[attr-defined]
+        champions: list[AutoresearchModel] = row.prefetched_champions
         pipelines.append(_pipeline_to_contract(row, champion=champions[0] if champions else None))
     return pipelines, count
 
