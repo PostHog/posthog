@@ -947,11 +947,17 @@ describe('featureFlagLogic', () => {
                 usesCohortId: 42,
             },
             {
+                scenario: 'creates a cohort when the flag was saved after the recent one was made',
+                listed: () => listedCohort(MOCK_FEATURE_FLAG.key, minutesAgo(10)),
+                flagUpdatedAt: minutesAgo(5),
+                usesCohortId: 42,
+            },
+            {
                 scenario: 'creates a cohort when the recent one belongs to a flag whose key extends this one',
                 listed: () => listedCohort(`${MOCK_FEATURE_FLAG.key}-2`, minutesAgo(10)),
                 usesCohortId: 42,
             },
-        ])('$scenario', async ({ listed, usesCohortId }) => {
+        ])('$scenario', async ({ listed, usesCohortId, flagUpdatedAt }) => {
             jest.useFakeTimers()
             jest.setSystemTime(NOW)
             router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id))
@@ -962,6 +968,7 @@ describe('featureFlagLogic', () => {
                     '/api/projects/:projectId/feature_flags/:id/create_static_cohort_for_flag/': createStaticCohort,
                 },
                 get: {
+                    [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, updated_at: flagUpdatedAt ?? minutesAgo(120) }],
                     '/api/projects/:projectId/cohorts/': () => [200, { count: 1, results: [existing] }],
                     '/api/projects/:projectId/cohorts/7/': () => [200, existing],
                     '/api/projects/:projectId/cohorts/42/': () => [
@@ -971,10 +978,14 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            logic.unmount()
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+
             logic.actions.createBroadcastCohort()
             await jest.advanceTimersByTimeAsync(5_000)
             await expectLogic(logic).toFinishAllListeners()
-
             expect(createStaticCohort).toHaveBeenCalledTimes(usesCohortId === 7 ? 0 : 1)
             expect(JSON.parse(router.values.searchParams.audience)).toEqual([
                 expect.objectContaining({ type: 'cohort', value: usesCohortId }),
