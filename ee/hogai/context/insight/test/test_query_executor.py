@@ -40,7 +40,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -307,18 +307,54 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("HogQL error", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", None),
+            (
+                "argument_type",
+                CHQueryErrorIllegalTypeOfArgument("Expected an integer argument", code=43),
+                "Expected an integer argument",
+                "validation",
+                "illegal_type_of_argument",
+            ),
+            (
+                "bad_arguments",
+                ExposedCHQueryError("This function requires two arguments", code=36),
+                "This function requires two arguments",
+                "validation",
+                "bad_arguments",
+            ),
+            (
+                "storage_error",
+                ExposedCHQueryError("Storage read failed", code=499),
+                "Storage read failed",
+                "internal",
+                "s3_error",
+            ),
+            (
+                "server_error",
+                ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
+                "Server failure",
+                "internal",
+                None,
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
-        """Test handling of ExposedCHQueryError"""
-
-        mock_process_query.side_effect = ExposedCHQueryError("ClickHouse error")
+    async def test_run_and_format_query_handles_exposed_ch_query_error(
+        self, _name, error, expected_message, expected_type, expected_code, mock_process_query
+    ):
+        mock_process_query.side_effect = error
 
         query = AssistantTrendsQuery(series=[])
 
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("ClickHouse error", str(context.exception))
+        self.assertEqual(str(context.exception), expected_message)
+        self.assertEqual(context.exception.error_type, expected_type)
+        self.assertEqual(context.exception.error_code, expected_code)
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):
@@ -418,21 +454,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column"),
-            ("timeout", "Query timed out", "error", "Query timed out"),
+            ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column", None),
+            ("timeout", "Query timed out", "error", "Query timed out", None),
             (
                 "memory_limit",
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
+                None,
             ),
-            ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed"),
+            ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
             (
                 "known_server_code",
                 None,
-                "too_many_parts",
+                "TOO_MANY_PARTS",
                 "The database had a temporary problem while it ran this query. "
                 "Wait a few minutes, then run the query again. If the problem continues, contact support.",
+                "too_many_parts",
             ),
             (
                 "storage_failure",
@@ -440,6 +478,14 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "s3_error",
                 "PostHog couldn't read from storage while running this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
+                "s3_error",
+            ),
+            (
+                "unrecognized_code",
+                "Query input is invalid",
+                '{"property":"synthetic-private-value"}',
+                "Query input is invalid",
+                None,
             ),
         ]
     )
@@ -451,6 +497,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         error_message: str | None,
         error_code: str | None,
         expected_message: str,
+        expected_code: str | None,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
     ) -> None:
@@ -475,6 +522,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
@@ -527,11 +575,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.error_type, "validation")
+        self.assertEqual(context.exception.error_code, error_code.lower())
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @parameterized.expand(
         [
-            (code, code_name, expected_message, expected_exception)
+            (code, code_name, name, expected_message, expected_exception)
             for code, name, expected_message, expected_exception in [
                 (
                     47,
@@ -560,7 +609,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_internal_clickhouse_query_rejection(
-        self, code, code_name, expected_message, expected_exception, mock_process_query
+        self, code, code_name, expected_code, expected_message, expected_exception, mock_process_query
     ):
         mock_process_query.side_effect = InternalCHQueryError("stored-secret", code=code, code_name=code_name)
         with self.assertRaises(expected_exception) as context:
@@ -569,6 +618,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), expected_message)
         if isinstance(context.exception, MaxToolRetryableError):
             self.assertEqual(context.exception.error_type, "validation")
+            self.assertEqual(context.exception.error_code, expected_code)
             self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @parameterized.expand([("keeper_exception",), ("syntax_error",), (None,)])
