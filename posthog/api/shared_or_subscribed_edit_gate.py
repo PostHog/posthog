@@ -1,9 +1,9 @@
-"""Save-time table-access check for an edit to an artifact that a public link or a subscription
-exposes.
+"""Save-time table-access check for an edit to an insight or dashboard that other people see
+through a public link or a subscription.
 
-Both routes show query results to people whose own table access is never checked, so the person
-who changes what they see must be able to run the new query. The check is the compile core in
-`query_access_check`; this module decides when an edit needs it and says why in the message.
+Neither route checks the viewer's own table access, so the person who changes what the viewers
+see must be able to run the new query. The check is the compile core in `query_access_check`;
+this module decides when an edit needs it and says why in the message.
 """
 
 from typing import Any
@@ -39,7 +39,7 @@ def reason_edit_needs_access_check(artifact: "Dashboard | Insight") -> str | Non
     return f"a subscription delivers this {noun}" if delivered else None
 
 
-def check_can_add_insight_to_exposed_dashboard(
+def check_can_add_insight_to_shared_or_subscribed_dashboard(
     user: User,
     dashboard: Dashboard,
     query: Any,

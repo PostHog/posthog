@@ -63,8 +63,8 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.subscription_query_access import (
+    should_check_table_access,
     tables_blocking_subscription_write,
-    write_needs_query_access_check,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
@@ -1001,7 +1001,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _check_query_access(self, attrs: dict, resource_type: str) -> None:
         if resource_type == Subscription.ResourceType.AI_PROMPT:
             return
-        if not write_needs_query_access_check(self.instance, attrs):
+        if not should_check_table_access(self.instance, attrs):
             return
         user = self.context["request"].user
         # Compiling the queries as the requester needs a real user.
