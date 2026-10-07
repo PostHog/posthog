@@ -2926,15 +2926,8 @@ class TaskRun(models.Model):
         return chain
 
     def get_history_chain(self, max_depth: int = 10) -> list["TaskRun"]:
-        """The runs whose logs make up this run's conversation, oldest first, ending with this run.
-
-        A resumed Pi run carries its predecessor's task session instead of `resume_from_run_id`,
-        so for Pi the runs that share the session form the chain. Every other run uses the
-        resume chain.
-        """
         if (
-            max_depth > 0
-            and not (self.state or {}).get("resume_from_run_id")
+            not (self.state or {}).get("resume_from_run_id")
             and self.active_task_session_id is not None
             and self.task.runtime == Task.Runtime.PI
         ):
@@ -2943,9 +2936,8 @@ class TaskRun(models.Model):
 
     def _task_session_chain(self, max_depth: int) -> list["TaskRun"]:
         earlier = list(
-            self.task.runs.only("id", "team_id", "task_id", "state", "artifacts", "created_at")
+            self.task.runs.only("id", "team_id", "task_id", "created_at")
             .filter(active_task_session_id=self.active_task_session_id, created_at__lt=self.created_at)
-            .exclude(id=self.id)
             .order_by("-created_at")[:max_depth]
         )
         earlier.reverse()

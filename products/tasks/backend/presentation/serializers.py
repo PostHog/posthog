@@ -3712,7 +3712,6 @@ class TaskRunCreateRequestSerializer(
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
             elif not is_pi_task:
-                # Pi runs any catalog model through the gateway, so a Pi run carries no adapter.
                 attrs["runtime_adapter"] = model_runtime_adapter
         if is_pi_task:
             for field in ("runtime_adapter", "initial_permission_mode"):

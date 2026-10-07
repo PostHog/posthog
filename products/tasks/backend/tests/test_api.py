@@ -3887,6 +3887,14 @@ class TestTaskAPI(BaseTaskAPITest):
             ),
             ("acp_team_default_is_ignored", ACP_RUN_DEFAULT, None, {}, None, None),
             (
+                "explicit_effort_survives_acp_team_default",
+                ACP_RUN_DEFAULT,
+                None,
+                {"reasoning_effort": "low"},
+                None,
+                "low",
+            ),
+            (
                 "resume_carries_the_previous_selection",
                 ACP_RUN_DEFAULT,
                 {"model": "gpt-5.6-terra", "reasoning_effort": "low"},

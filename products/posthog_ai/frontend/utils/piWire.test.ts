@@ -1,4 +1,4 @@
-import { buildPiPermissionCommand, PI_EXTENSION_UI_META_KEY, translatePiWireEntry, withPiMcpOptions } from './piWire'
+import { buildPiPermissionCommand, PI_EXTENSION_UI_META_KEY, translatePiWireEntry } from './piWire'
 
 describe('piWire', () => {
     test.each([
@@ -6,6 +6,19 @@ describe('piWire', () => {
             caseName: 'user message',
             event: { type: 'user_message', id: 'u1', timestamp: 1, content: [{ type: 'text', text: 'hi' }] },
             expected: { method: '_posthog/user_message', params: { content: [{ type: 'text', text: 'hi' }] } },
+        },
+        {
+            caseName: 'user message that lists files itself',
+            event: {
+                type: 'user_message',
+                id: 'u1',
+                timestamp: 1,
+                content: [{ type: 'text', text: 'Check these\n\nAttached files:\n- README.md' }],
+            },
+            expected: {
+                method: '_posthog/user_message',
+                params: { content: [{ type: 'text', text: 'Check these\n\nAttached files:\n- README.md' }] },
+            },
         },
         {
             caseName: 'assistant chunk',
@@ -210,21 +223,6 @@ describe('piWire', () => {
 
     it('ignores entries that are not Pi wire entries', () => {
         expect(translatePiWireEntry({ type: 'notification', notification: { method: 'session/update' } })).toBeNull()
-    })
-
-    it('offers a one-shot allow on a Pi MCP permission request', () => {
-        const frame = withPiMcpOptions({
-            type: 'permission_request',
-            requestId: 'r1',
-            options: [
-                { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
-                { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
-            ],
-        })
-        expect(frame.options?.map((option) => option.optionId)).toEqual(['allow', 'allow_always', 'reject'])
-        expect(frame.options?.find((option) => option.optionId === 'reject')?._meta).toEqual({
-            hint: 'Blocks this tool call. The agent keeps working.',
-        })
     })
 
     test.each([

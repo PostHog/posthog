@@ -162,16 +162,17 @@ export function TaskRunComposer({
             : () => router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
         phoneSheet: todayRailEnabled && phoneLayout,
     }
-    const modelPicker = codexBillingEnabled && !isPiTask ? (
-        <ComposerCodexBillingPickers
-            {...modelPickerProps}
-            lockedCodexModelAccess={
-                isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-            }
-        />
-    ) : (
-        <ComposerModelEffortPickers {...modelPickerProps} />
-    )
+    const modelPicker =
+        codexBillingEnabled && !isPiTask ? (
+            <ComposerCodexBillingPickers
+                {...modelPickerProps}
+                lockedCodexModelAccess={
+                    isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
+                }
+            />
+        ) : (
+            <ComposerModelEffortPickers {...modelPickerProps} />
+        )
     const field = (
         <ComposerCommandMenu commands={slashCommands}>
             <Composer.Field>

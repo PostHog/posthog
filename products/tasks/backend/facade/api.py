@@ -4807,12 +4807,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
 
 
 def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Concatenated JSONL logs across the run's conversation, oldest run first.
-
-    Like `read_task_run_logs`, but a resumed Pi run also reads the earlier runs of its task
-    session. The Pi agent server stores its run start marker without the run id, so each Pi
-    run's log is preceded by a marker that names the run.
-    """
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
@@ -8956,7 +8950,7 @@ def run_task(
             team_id, task.repositories[0] if task.repositories else task.repository
         )
 
-    if not resume_from_run_id or previous_is_import_run:
+    if not is_pi_task and (not resume_from_run_id or previous_is_import_run):
         # Fill team/user default AI run preferences before warm matching: a warm run
         # provisioned under the default triple must still match a submit that pinned
         # nothing. Resumes instead carry the previous run's selection (below), except from
@@ -9216,10 +9210,6 @@ def run_task(
         "fast_mode": fast_mode,
     }
     if is_pi_task:
-        if run_state_values["runtime_adapter"] is not None:
-            # A Pi run has no ACP adapter, so a model paired with one belongs to an ACP harness.
-            run_state_values.pop("model")
-            run_state_values.pop("reasoning_effort")
         run_state_values.pop("runtime_adapter")
         run_state_values.pop("provider")
     extra_state = extra_state or {}
