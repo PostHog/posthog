@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'crypto'
+import { createHash, generateKeyPairSync } from 'crypto'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
@@ -700,6 +700,54 @@ describe('PushNotificationService', () => {
             )
             expect(mockTrackedFetch).toHaveBeenCalledTimes(20)
             expect(authHeaders.size).toBe(1)
+        })
+
+        it('expires an adopted APNS token by its own issue time, not by when this pod read it', async () => {
+            const nowMs = 1_800_000_000_000
+            jest.spyOn(Date, 'now').mockReturnValue(nowMs)
+            const b64 = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')
+            const fortyMinutesOld = `${b64({ alg: 'ES256', kid: 'KEY123' })}.${b64({ iss: 'TEAM456', iat: nowMs / 1000 - 40 * 60 })}.sig`
+            const cacheKey = `@posthog/apns-provider-jwt/${createHash('sha256').update(`TEAM456:KEY123:${testEcKey}`).digest('hex')}`
+            valkeyStore.set(cacheKey, fortyMinutesOld)
+
+            let valkeyUp = true
+            let firstReadFails = true
+            const flakyValkey = {
+                useClient: jest.fn((opts: { name: string }, fn: any) => {
+                    if (!valkeyUp) {
+                        return null
+                    }
+                    if (opts.name === 'apns-jwt-read' && firstReadFails) {
+                        firstReadFails = false
+                        return null
+                    }
+                    return fn({ get: (key: string) => valkeyStore.get(key) ?? null, set: mockValkeySet })
+                }),
+            } as any
+            const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, flakyValkey)
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+            mockTrackedFetch.mockClear()
+            const send = (): Promise<any> =>
+                pod.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+
+            await send()
+            valkeyUp = false
+            jest.spyOn(Date, 'now').mockReturnValue(nowMs + 10 * 60 * 1000)
+            await send()
+
+            const authHeaders = mockTrackedFetch.mock.calls.map(
+                (call: any) => call[0].fetchParams.headers.Authorization
+            )
+            expect(authHeaders[0]).toBe(`bearer ${fortyMinutesOld}`)
+            expect(authHeaders[1]).not.toBe(`bearer ${fortyMinutesOld}`)
         })
 
         it('reuses the pod-local APNS token when Valkey is unavailable', async () => {
